@@ -1,0 +1,1382 @@
+{
+  "ok": true,
+  "artifact_date": "2026-04-07",
+  "dataset_dir": "D:\\AI应用\\langchain-miniopenclaw-main\\EcomRetrieval",
+  "qrels_dir": "D:\\AI应用\\langchain-miniopenclaw-main\\EcomRetrieval-qrels",
+  "subset": {
+    "target_docs": 5000,
+    "docs_indexed": 5000,
+    "nodes_indexed": 5000,
+    "queries_evaluated": 300,
+    "candidate_top_k": 20,
+    "metric_top_k": 10,
+    "seed": 42
+  },
+  "runtime": {
+    "embedding_provider": "openai",
+    "embedding_model": "qwen3-embedding:0.6b",
+    "vector_store_backend": "faiss",
+    "rerank_provider": "bailian",
+    "rerank_model": "qwen3-rerank",
+    "rerank_top_n": 8,
+    "remote_reranker_type": "RemoteApiReranker"
+  },
+  "configs": [
+    {
+      "name": "dense_no_rerank",
+      "candidate_source": "dense",
+      "reranker": "none",
+      "metrics": {
+        "queries_evaluated": 300,
+        "accuracy_at_1": 0.78,
+        "hit_at_3": 0.89,
+        "hit_at_5": 0.9133,
+        "hit_at_10": 0.94,
+        "recall_at_5": 0.9133,
+        "recall_at_10": 0.94,
+        "precision_at_5": 0.1827,
+        "precision_at_10": 0.094,
+        "mrr_at_10": 0.84,
+        "map_at_10": 0.84,
+        "ndcg_at_10": 0.8646
+      },
+      "latency": {
+        "mean_retrieval_seconds": 0.2551,
+        "mean_rerank_seconds": 0.0,
+        "mean_total_seconds": 0.2551
+      },
+      "backend_counts": {
+        "none": 900
+      },
+      "sample_improvements": [],
+      "sample_regressions": []
+    },
+    {
+      "name": "hybrid_no_rerank",
+      "candidate_source": "hybrid",
+      "reranker": "none",
+      "metrics": {
+        "queries_evaluated": 300,
+        "accuracy_at_1": 0.7633,
+        "hit_at_3": 0.8867,
+        "hit_at_5": 0.91,
+        "hit_at_10": 0.94,
+        "recall_at_5": 0.91,
+        "recall_at_10": 0.94,
+        "precision_at_5": 0.182,
+        "precision_at_10": 0.094,
+        "mrr_at_10": 0.8266,
+        "map_at_10": 0.8266,
+        "ndcg_at_10": 0.8545
+      },
+      "latency": {
+        "mean_retrieval_seconds": 0.264,
+        "mean_rerank_seconds": 0.0,
+        "mean_total_seconds": 0.264
+      },
+      "backend_counts": {
+        "none": 900
+      },
+      "sample_improvements": [],
+      "sample_regressions": []
+    },
+    {
+      "name": "hybrid_heuristic_rerank",
+      "candidate_source": "hybrid",
+      "reranker": "heuristic",
+      "metrics": {
+        "queries_evaluated": 300,
+        "accuracy_at_1": 0.7633,
+        "hit_at_3": 0.8867,
+        "hit_at_5": 0.91,
+        "hit_at_10": 0.94,
+        "recall_at_5": 0.91,
+        "recall_at_10": 0.94,
+        "precision_at_5": 0.182,
+        "precision_at_10": 0.094,
+        "mrr_at_10": 0.8266,
+        "map_at_10": 0.8266,
+        "ndcg_at_10": 0.8545
+      },
+      "latency": {
+        "mean_retrieval_seconds": 0.264,
+        "mean_rerank_seconds": 0.0003,
+        "mean_total_seconds": 0.2643
+      },
+      "backend_counts": {
+        "heuristic": 900
+      },
+      "sample_improvements": [
+        {
+          "qid": "200826",
+          "query": "大众polo原厂地胶",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "814569"
+          ],
+          "base_top5": [
+            "70444",
+            "814569",
+            "95395",
+            "93065",
+            "268589"
+          ],
+          "target_top5": [
+            "814569",
+            "70444",
+            "92074",
+            "95395",
+            "70081"
+          ]
+        }
+      ],
+      "sample_regressions": [
+        {
+          "qid": "200373",
+          "query": "悠伴果蔬清洗机",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "378407"
+          ],
+          "base_top5": [
+            "378407",
+            "1333",
+            "26142",
+            "838632",
+            "18220"
+          ],
+          "target_top5": [
+            "1333",
+            "378407",
+            "26142",
+            "838632",
+            "18220"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hybrid_remote_rerank",
+      "candidate_source": "hybrid",
+      "reranker": "RemoteApiReranker",
+      "metrics": {
+        "queries_evaluated": 300,
+        "accuracy_at_1": 0.8233,
+        "hit_at_3": 0.9033,
+        "hit_at_5": 0.9267,
+        "hit_at_10": 0.94,
+        "recall_at_5": 0.9267,
+        "recall_at_10": 0.94,
+        "precision_at_5": 0.1853,
+        "precision_at_10": 0.094,
+        "mrr_at_10": 0.8665,
+        "map_at_10": 0.8665,
+        "ndcg_at_10": 0.8847
+      },
+      "latency": {
+        "mean_retrieval_seconds": 0.264,
+        "mean_rerank_seconds": 0.2446,
+        "mean_total_seconds": 0.5086
+      },
+      "backend_counts": {
+        "bailian_api": 900
+      },
+      "sample_improvements": [
+        {
+          "qid": "200007",
+          "query": "按摩垫",
+          "base_rank": 3,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "8159"
+          ],
+          "base_top5": [
+            "2157",
+            "50628",
+            "8159",
+            "95450",
+            "599523"
+          ],
+          "target_top5": [
+            "2157",
+            "8159",
+            "43330",
+            "95450",
+            "71285"
+          ]
+        },
+        {
+          "qid": "200011",
+          "query": "毛衣绿色拼接",
+          "base_rank": 6,
+          "target_rank": 3,
+          "gold_doc_ids": [
+            "10925"
+          ],
+          "base_top5": [
+            "62402",
+            "65295",
+            "39264",
+            "24949",
+            "7788"
+          ],
+          "target_top5": [
+            "62402",
+            "24949",
+            "10925",
+            "34700",
+            "39264"
+          ]
+        },
+        {
+          "qid": "200021",
+          "query": "五福家园山药粉",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "18697"
+          ],
+          "base_top5": [
+            "77689",
+            "18697",
+            "388569",
+            "21254",
+            "25302"
+          ],
+          "target_top5": [
+            "18697",
+            "77689",
+            "25302",
+            "679055",
+            "47472"
+          ]
+        },
+        {
+          "qid": "200025",
+          "query": "背景墙吊灯",
+          "base_rank": 7,
+          "target_rank": 4,
+          "gold_doc_ids": [
+            "21582"
+          ],
+          "base_top5": [
+            "9614",
+            "516876",
+            "777654",
+            "400625",
+            "74418"
+          ],
+          "target_top5": [
+            "9614",
+            "74418",
+            "516876",
+            "21582",
+            "89488"
+          ]
+        },
+        {
+          "qid": "200065",
+          "query": "北极虾仁",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "65327"
+          ],
+          "base_top5": [
+            "320180",
+            "65327",
+            "66311",
+            "59975",
+            "29568"
+          ],
+          "target_top5": [
+            "65327",
+            "320180",
+            "66311",
+            "66354",
+            "726006"
+          ]
+        },
+        {
+          "qid": "200081",
+          "query": "山东生产的玉米粉碎机",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "79288"
+          ],
+          "base_top5": [
+            "206451",
+            "79288",
+            "75025",
+            "991254",
+            "92551"
+          ],
+          "target_top5": [
+            "79288",
+            "16649",
+            "75025",
+            "206451",
+            "10094"
+          ]
+        },
+        {
+          "qid": "200123",
+          "query": "女童礼服高级感拖尾",
+          "base_rank": 4,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "124531"
+          ],
+          "base_top5": [
+            "62964",
+            "771785",
+            "34839",
+            "124531",
+            "73595"
+          ],
+          "target_top5": [
+            "771785",
+            "124531",
+            "34839",
+            "62964",
+            "73595"
+          ]
+        },
+        {
+          "qid": "200141",
+          "query": "大宇角膜配件",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "133357"
+          ],
+          "base_top5": [
+            "551370",
+            "133357",
+            "93695",
+            "74877",
+            "88272"
+          ],
+          "target_top5": [
+            "133357",
+            "93695",
+            "551370",
+            "88272",
+            "48944"
+          ]
+        }
+      ],
+      "sample_regressions": [
+        {
+          "qid": "200000",
+          "query": "大落地窗",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "260"
+          ],
+          "base_top5": [
+            "260",
+            "98713",
+            "51594",
+            "10849",
+            "19794"
+          ],
+          "target_top5": [
+            "98713",
+            "260",
+            "51594",
+            "19794",
+            "10849"
+          ]
+        },
+        {
+          "qid": "200114",
+          "query": "柜门交链",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "120896"
+          ],
+          "base_top5": [
+            "120896",
+            "45837",
+            "69794",
+            "98437",
+            "6063"
+          ],
+          "target_top5": [
+            "69794",
+            "120896",
+            "24907",
+            "73225",
+            "67287"
+          ]
+        },
+        {
+          "qid": "200166",
+          "query": "意可可 ecoco 旗舰店鞋架",
+          "base_rank": 4,
+          "target_rank": 5,
+          "gold_doc_ids": [
+            "160243"
+          ],
+          "base_top5": [
+            "693204",
+            "24919",
+            "404233",
+            "160243",
+            "540479"
+          ],
+          "target_top5": [
+            "404233",
+            "693204",
+            "86830",
+            "24919",
+            "160243"
+          ]
+        },
+        {
+          "qid": "200169",
+          "query": "智能马桶虹吸式",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "161026"
+          ],
+          "base_top5": [
+            "161026",
+            "64243",
+            "84659",
+            "48482",
+            "377272"
+          ],
+          "target_top5": [
+            "48482",
+            "161026",
+            "64243",
+            "84659",
+            "99355"
+          ]
+        },
+        {
+          "qid": "200253",
+          "query": "宜家铁架",
+          "base_rank": 1,
+          "target_rank": 4,
+          "gold_doc_ids": [
+            "261070"
+          ],
+          "base_top5": [
+            "261070",
+            "693204",
+            "52795",
+            "71895",
+            "89873"
+          ],
+          "target_top5": [
+            "71895",
+            "693204",
+            "89873",
+            "261070",
+            "52795"
+          ]
+        },
+        {
+          "qid": "200270",
+          "query": "迈贝仕儿童口罩",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "275444"
+          ],
+          "base_top5": [
+            "275444",
+            "34135",
+            "91394",
+            "78186",
+            "11151"
+          ],
+          "target_top5": [
+            "34135",
+            "275444",
+            "91394",
+            "78186",
+            "31669"
+          ]
+        },
+        {
+          "qid": "200314",
+          "query": "结构胶枪",
+          "base_rank": 4,
+          "target_rank": 7,
+          "gold_doc_ids": [
+            "320805"
+          ],
+          "base_top5": [
+            "58888",
+            "567300",
+            "27101",
+            "320805",
+            "4289"
+          ],
+          "target_top5": [
+            "58888",
+            "4289",
+            "27101",
+            "567300",
+            "55043"
+          ]
+        },
+        {
+          "qid": "200348",
+          "query": "国际米兰摆件",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "358587"
+          ],
+          "base_top5": [
+            "358587",
+            "7406",
+            "92683",
+            "23879",
+            "79048"
+          ],
+          "target_top5": [
+            "79048",
+            "358587",
+            "23879",
+            "92683",
+            "7406"
+          ]
+        }
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "base": "hybrid_no_rerank",
+      "target": "hybrid_heuristic_rerank",
+      "improved_queries": 1,
+      "regressed_queries": 1,
+      "unchanged_queries": 298,
+      "sample_improvements": [
+        {
+          "qid": "200826",
+          "query": "大众polo原厂地胶",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "814569"
+          ],
+          "base_top5": [
+            "70444",
+            "814569",
+            "95395",
+            "93065",
+            "268589"
+          ],
+          "target_top5": [
+            "814569",
+            "70444",
+            "92074",
+            "95395",
+            "70081"
+          ]
+        }
+      ],
+      "sample_regressions": [
+        {
+          "qid": "200373",
+          "query": "悠伴果蔬清洗机",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "378407"
+          ],
+          "base_top5": [
+            "378407",
+            "1333",
+            "26142",
+            "838632",
+            "18220"
+          ],
+          "target_top5": [
+            "1333",
+            "378407",
+            "26142",
+            "838632",
+            "18220"
+          ]
+        }
+      ]
+    },
+    {
+      "base": "hybrid_no_rerank",
+      "target": "hybrid_remote_rerank",
+      "improved_queries": 41,
+      "regressed_queries": 17,
+      "unchanged_queries": 242,
+      "sample_improvements": [
+        {
+          "qid": "200007",
+          "query": "按摩垫",
+          "base_rank": 3,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "8159"
+          ],
+          "base_top5": [
+            "2157",
+            "50628",
+            "8159",
+            "95450",
+            "599523"
+          ],
+          "target_top5": [
+            "2157",
+            "8159",
+            "43330",
+            "95450",
+            "71285"
+          ]
+        },
+        {
+          "qid": "200011",
+          "query": "毛衣绿色拼接",
+          "base_rank": 6,
+          "target_rank": 3,
+          "gold_doc_ids": [
+            "10925"
+          ],
+          "base_top5": [
+            "62402",
+            "65295",
+            "39264",
+            "24949",
+            "7788"
+          ],
+          "target_top5": [
+            "62402",
+            "24949",
+            "10925",
+            "34700",
+            "39264"
+          ]
+        },
+        {
+          "qid": "200021",
+          "query": "五福家园山药粉",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "18697"
+          ],
+          "base_top5": [
+            "77689",
+            "18697",
+            "21254",
+            "25302",
+            "47472"
+          ],
+          "target_top5": [
+            "18697",
+            "77689",
+            "25302",
+            "679055",
+            "47472"
+          ]
+        },
+        {
+          "qid": "200025",
+          "query": "背景墙吊灯",
+          "base_rank": 7,
+          "target_rank": 4,
+          "gold_doc_ids": [
+            "21582"
+          ],
+          "base_top5": [
+            "9614",
+            "516876",
+            "777654",
+            "400625",
+            "74418"
+          ],
+          "target_top5": [
+            "9614",
+            "74418",
+            "516876",
+            "21582",
+            "89488"
+          ]
+        },
+        {
+          "qid": "200065",
+          "query": "北极虾仁",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "65327"
+          ],
+          "base_top5": [
+            "320180",
+            "65327",
+            "66311",
+            "59975",
+            "29568"
+          ],
+          "target_top5": [
+            "65327",
+            "320180",
+            "66311",
+            "66354",
+            "726006"
+          ]
+        },
+        {
+          "qid": "200081",
+          "query": "山东生产的玉米粉碎机",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "79288"
+          ],
+          "base_top5": [
+            "206451",
+            "79288",
+            "75025",
+            "991254",
+            "92551"
+          ],
+          "target_top5": [
+            "79288",
+            "16649",
+            "75025",
+            "206451",
+            "10094"
+          ]
+        },
+        {
+          "qid": "200123",
+          "query": "女童礼服高级感拖尾",
+          "base_rank": 4,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "124531"
+          ],
+          "base_top5": [
+            "62964",
+            "771785",
+            "34839",
+            "124531",
+            "73595"
+          ],
+          "target_top5": [
+            "771785",
+            "124531",
+            "34839",
+            "62964",
+            "73595"
+          ]
+        },
+        {
+          "qid": "200141",
+          "query": "大宇角膜配件",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "133357"
+          ],
+          "base_top5": [
+            "551370",
+            "133357",
+            "93695",
+            "74877",
+            "88272"
+          ],
+          "target_top5": [
+            "133357",
+            "93695",
+            "551370",
+            "88272",
+            "48944"
+          ]
+        }
+      ],
+      "sample_regressions": [
+        {
+          "qid": "200000",
+          "query": "大落地窗",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "260"
+          ],
+          "base_top5": [
+            "260",
+            "98713",
+            "51594",
+            "10849",
+            "19794"
+          ],
+          "target_top5": [
+            "98713",
+            "260",
+            "51594",
+            "19794",
+            "10849"
+          ]
+        },
+        {
+          "qid": "200114",
+          "query": "柜门交链",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "120896"
+          ],
+          "base_top5": [
+            "120896",
+            "45837",
+            "69794",
+            "98437",
+            "6063"
+          ],
+          "target_top5": [
+            "69794",
+            "120896",
+            "24907",
+            "73225",
+            "67287"
+          ]
+        },
+        {
+          "qid": "200166",
+          "query": "意可可 ecoco 旗舰店鞋架",
+          "base_rank": 4,
+          "target_rank": 5,
+          "gold_doc_ids": [
+            "160243"
+          ],
+          "base_top5": [
+            "693204",
+            "24919",
+            "404233",
+            "160243",
+            "540479"
+          ],
+          "target_top5": [
+            "404233",
+            "693204",
+            "86830",
+            "24919",
+            "160243"
+          ]
+        },
+        {
+          "qid": "200169",
+          "query": "智能马桶虹吸式",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "161026"
+          ],
+          "base_top5": [
+            "161026",
+            "64243",
+            "84659",
+            "48482",
+            "377272"
+          ],
+          "target_top5": [
+            "48482",
+            "161026",
+            "64243",
+            "84659",
+            "99355"
+          ]
+        },
+        {
+          "qid": "200253",
+          "query": "宜家铁架",
+          "base_rank": 1,
+          "target_rank": 4,
+          "gold_doc_ids": [
+            "261070"
+          ],
+          "base_top5": [
+            "261070",
+            "693204",
+            "52795",
+            "71895",
+            "89873"
+          ],
+          "target_top5": [
+            "71895",
+            "693204",
+            "89873",
+            "261070",
+            "52795"
+          ]
+        },
+        {
+          "qid": "200270",
+          "query": "迈贝仕儿童口罩",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "275444"
+          ],
+          "base_top5": [
+            "275444",
+            "34135",
+            "91394",
+            "78186",
+            "11151"
+          ],
+          "target_top5": [
+            "34135",
+            "275444",
+            "91394",
+            "78186",
+            "31669"
+          ]
+        },
+        {
+          "qid": "200314",
+          "query": "结构胶枪",
+          "base_rank": 4,
+          "target_rank": 7,
+          "gold_doc_ids": [
+            "320805"
+          ],
+          "base_top5": [
+            "58888",
+            "567300",
+            "27101",
+            "320805",
+            "4289"
+          ],
+          "target_top5": [
+            "58888",
+            "4289",
+            "27101",
+            "567300",
+            "55043"
+          ]
+        },
+        {
+          "qid": "200348",
+          "query": "国际米兰摆件",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "358587"
+          ],
+          "base_top5": [
+            "358587",
+            "7406",
+            "92683",
+            "23879",
+            "79048"
+          ],
+          "target_top5": [
+            "79048",
+            "358587",
+            "23879",
+            "92683",
+            "7406"
+          ]
+        }
+      ]
+    },
+    {
+      "base": "hybrid_heuristic_rerank",
+      "target": "hybrid_remote_rerank",
+      "improved_queries": 41,
+      "regressed_queries": 17,
+      "unchanged_queries": 242,
+      "sample_improvements": [
+        {
+          "qid": "200007",
+          "query": "按摩垫",
+          "base_rank": 3,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "8159"
+          ],
+          "base_top5": [
+            "2157",
+            "50628",
+            "8159",
+            "95450",
+            "599523"
+          ],
+          "target_top5": [
+            "2157",
+            "8159",
+            "43330",
+            "95450",
+            "71285"
+          ]
+        },
+        {
+          "qid": "200011",
+          "query": "毛衣绿色拼接",
+          "base_rank": 6,
+          "target_rank": 3,
+          "gold_doc_ids": [
+            "10925"
+          ],
+          "base_top5": [
+            "62402",
+            "65295",
+            "39264",
+            "24949",
+            "7788"
+          ],
+          "target_top5": [
+            "62402",
+            "24949",
+            "10925",
+            "34700",
+            "39264"
+          ]
+        },
+        {
+          "qid": "200021",
+          "query": "五福家园山药粉",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "18697"
+          ],
+          "base_top5": [
+            "77689",
+            "18697",
+            "388569",
+            "21254",
+            "25302"
+          ],
+          "target_top5": [
+            "18697",
+            "77689",
+            "25302",
+            "679055",
+            "47472"
+          ]
+        },
+        {
+          "qid": "200025",
+          "query": "背景墙吊灯",
+          "base_rank": 7,
+          "target_rank": 4,
+          "gold_doc_ids": [
+            "21582"
+          ],
+          "base_top5": [
+            "9614",
+            "516876",
+            "777654",
+            "400625",
+            "74418"
+          ],
+          "target_top5": [
+            "9614",
+            "74418",
+            "516876",
+            "21582",
+            "89488"
+          ]
+        },
+        {
+          "qid": "200065",
+          "query": "北极虾仁",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "65327"
+          ],
+          "base_top5": [
+            "320180",
+            "65327",
+            "66311",
+            "59975",
+            "29568"
+          ],
+          "target_top5": [
+            "65327",
+            "320180",
+            "66311",
+            "66354",
+            "726006"
+          ]
+        },
+        {
+          "qid": "200081",
+          "query": "山东生产的玉米粉碎机",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "79288"
+          ],
+          "base_top5": [
+            "206451",
+            "79288",
+            "75025",
+            "991254",
+            "92551"
+          ],
+          "target_top5": [
+            "79288",
+            "16649",
+            "75025",
+            "206451",
+            "10094"
+          ]
+        },
+        {
+          "qid": "200123",
+          "query": "女童礼服高级感拖尾",
+          "base_rank": 4,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "124531"
+          ],
+          "base_top5": [
+            "62964",
+            "771785",
+            "34839",
+            "124531",
+            "73595"
+          ],
+          "target_top5": [
+            "771785",
+            "124531",
+            "34839",
+            "62964",
+            "73595"
+          ]
+        },
+        {
+          "qid": "200141",
+          "query": "大宇角膜配件",
+          "base_rank": 2,
+          "target_rank": 1,
+          "gold_doc_ids": [
+            "133357"
+          ],
+          "base_top5": [
+            "551370",
+            "133357",
+            "93695",
+            "74877",
+            "88272"
+          ],
+          "target_top5": [
+            "133357",
+            "93695",
+            "551370",
+            "88272",
+            "48944"
+          ]
+        }
+      ],
+      "sample_regressions": [
+        {
+          "qid": "200000",
+          "query": "大落地窗",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "260"
+          ],
+          "base_top5": [
+            "260",
+            "98713",
+            "51594",
+            "10849",
+            "19794"
+          ],
+          "target_top5": [
+            "98713",
+            "260",
+            "51594",
+            "19794",
+            "10849"
+          ]
+        },
+        {
+          "qid": "200114",
+          "query": "柜门交链",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "120896"
+          ],
+          "base_top5": [
+            "120896",
+            "45837",
+            "69794",
+            "98437",
+            "6063"
+          ],
+          "target_top5": [
+            "69794",
+            "120896",
+            "24907",
+            "73225",
+            "67287"
+          ]
+        },
+        {
+          "qid": "200166",
+          "query": "意可可 ecoco 旗舰店鞋架",
+          "base_rank": 4,
+          "target_rank": 5,
+          "gold_doc_ids": [
+            "160243"
+          ],
+          "base_top5": [
+            "693204",
+            "24919",
+            "404233",
+            "160243",
+            "540479"
+          ],
+          "target_top5": [
+            "404233",
+            "693204",
+            "86830",
+            "24919",
+            "160243"
+          ]
+        },
+        {
+          "qid": "200169",
+          "query": "智能马桶虹吸式",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "161026"
+          ],
+          "base_top5": [
+            "161026",
+            "64243",
+            "84659",
+            "48482",
+            "377272"
+          ],
+          "target_top5": [
+            "48482",
+            "161026",
+            "64243",
+            "84659",
+            "99355"
+          ]
+        },
+        {
+          "qid": "200253",
+          "query": "宜家铁架",
+          "base_rank": 1,
+          "target_rank": 4,
+          "gold_doc_ids": [
+            "261070"
+          ],
+          "base_top5": [
+            "261070",
+            "693204",
+            "52795",
+            "71895",
+            "89873"
+          ],
+          "target_top5": [
+            "71895",
+            "693204",
+            "89873",
+            "261070",
+            "52795"
+          ]
+        },
+        {
+          "qid": "200270",
+          "query": "迈贝仕儿童口罩",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "275444"
+          ],
+          "base_top5": [
+            "275444",
+            "34135",
+            "91394",
+            "78186",
+            "11151"
+          ],
+          "target_top5": [
+            "34135",
+            "275444",
+            "91394",
+            "78186",
+            "31669"
+          ]
+        },
+        {
+          "qid": "200314",
+          "query": "结构胶枪",
+          "base_rank": 4,
+          "target_rank": 7,
+          "gold_doc_ids": [
+            "320805"
+          ],
+          "base_top5": [
+            "58888",
+            "567300",
+            "27101",
+            "320805",
+            "4289"
+          ],
+          "target_top5": [
+            "58888",
+            "4289",
+            "27101",
+            "567300",
+            "55043"
+          ]
+        },
+        {
+          "qid": "200348",
+          "query": "国际米兰摆件",
+          "base_rank": 1,
+          "target_rank": 2,
+          "gold_doc_ids": [
+            "358587"
+          ],
+          "base_top5": [
+            "358587",
+            "7406",
+            "92683",
+            "23879",
+            "79048"
+          ],
+          "target_top5": [
+            "79048",
+            "358587",
+            "23879",
+            "92683",
+            "7406"
+          ]
+        }
+      ]
+    }
+  ],
+  "stability_probe": {
+    "queries_probed": 30,
+    "top1_consistency": 1.0,
+    "top5_exact_consistency": 0.7
+  }
+}

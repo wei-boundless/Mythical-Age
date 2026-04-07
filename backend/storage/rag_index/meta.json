@@ -1,0 +1,5 @@
+{
+  "digest": "2d34736feb4592f5626112a12832c842",
+  "status": "error",
+  "error": "'text-embedding-v3' is not a valid OpenAIEmbeddingModelType"
+}

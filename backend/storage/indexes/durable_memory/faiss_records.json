@@ -1,0 +1,65 @@
+{
+  "metric": "cosine",
+  "index_type": "hnsw",
+  "hnsw_m": 32,
+  "hnsw_ef_construction": 40,
+  "hnsw_ef_search": 64,
+  "dimension": 1024,
+  "records": [
+    {
+      "text": "# Memory Index\n\n- [多模态资料入库前要先解析、清洗、切分](multimodal-ingest-pipeline.md) - 多模态文件需要先解析、清洗、切分，再做 embedding。\n\n- [终端命令优先使用 PowerShell 语法](powershell-terminal-preference.md) - 当前运行环境是 Windows PowerShell，终端命令优先采用 PowerShell 风格。\n\n- [项目当前重点是优化 Memory 和 RAG](project-focus-memory-rag.md) - 当前项目重点在记忆系统、RAG 系统和 agent 架构梳理。",
+      "metadata": {
+        "source": "durable_memory/MEMORY.md",
+        "modality": "text",
+        "page": null,
+        "section": "",
+        "collection": "durable_memory",
+        "parser": "native_multimodal"
+      }
+    },
+    {
+      "text": "title: 多模态资料入库前要先解析、清洗、切分 summary: 多模态文件需要先解析、清洗、切分，再做 embedding。\n\ntype: workflow memory_class: work tags: [workflow, multimodal, rag, ingestion] updated_at: 2026-04-05T00:00:00+00:00\n\n多模态资料进入知识库前，应遵循统一流程：\n\n1. 先解析原始文件内容。\n\n2. 再进行必要的清洗和去噪。\n\n3. 然后执行切分。\n\n4. 最后再做 embedding 和索引构建。\n\n不能把 PDF、图片、表格等原始文件直接当作可检索内容使用，必须先经过解析与清洗流程。",
+      "metadata": {
+        "source": "durable_memory/multimodal-ingest-pipeline.md",
+        "modality": "text",
+        "page": null,
+        "section": "",
+        "collection": "durable_memory",
+        "parser": "native_multimodal"
+      }
+    },
+    {
+      "text": "title: 终端命令优先使用 PowerShell 语法 summary: 当前运行环境是 Windows PowerShell，终端命令优先采用 PowerShell 风格。\n\ntype: workflow memory_class: work tags: [workflow, terminal, powershell, windows] updated_at: 2026-04-05T00:00:00+00:00 当前项目运行环境是 Windows PowerShell。\n\n在终端操作中，优先使用 PowerShell 风格命令，例如：\n\n- `Get-ChildItem` - `Get-Content` - `Test-Path` - `Select-String` 应尽量避免默认输出 bash 风格命令，例如 `ls ... | echo ...`、`cat`、`grep`、`2>/dev/null` 这类写法。",
+      "metadata": {
+        "source": "durable_memory/powershell-terminal-preference.md",
+        "modality": "text",
+        "page": null,
+        "section": "",
+        "collection": "durable_memory",
+        "parser": "native_multimodal"
+      }
+    },
+    {
+      "text": "title: 项目当前重点是优化 Memory 和 RAG summary: 当前项目重点在记忆系统、RAG 系统和 agent 架构梳理。\n\ntype: project memory_class: work tags: [project, memory, rag, architecture] updated_at: 2026-04-05T00:00:00+00:00\n\n当前项目的核心关注点是：\n\n- 优化长期记忆与会话记忆系统。\n\n- 优化 RAG 的检索流程、数据治理和安全边界。\n\n- 梳理 agent 的整体架构边界，减少 memory、RAG、tools 之间的职责混用。\n\n后续讨论系统设计或优先级时，应默认把 Memory 和 RAG 架构优化视为当前主线任务。",
+      "metadata": {
+        "source": "durable_memory/project-focus-memory-rag.md",
+        "modality": "text",
+        "page": null,
+        "section": "",
+        "collection": "durable_memory",
+        "parser": "native_multimodal"
+      }
+    },
+    {
+      "text": "# Session Title\n\n_A short and distinctive title for the session._\n\n你是谁\n\n# Current State\n\n_What is actively being worked on right now?_\n\n- 你是谁\n\n# Task Specification\n\n_What did the user ask for?_\n\n# Files and Functions\n\n_Important files, modules, and functions relevant to the current work._ - SKILL.md\n\n# Workflow\n\n_Commands, run order, and operational habits that matter in this session._\n\n# Errors and Corrections\n\n_Failures, corrections, and approaches to avoid repeating._\n\n# Learnings\n\n_Concise takeaways that will help continue the work._\n\n# Key Results\n\n_Exact outputs, conclusions, or artifacts produced for the user._\n\n# Worklog\n\n_Short chronological bullets of what happened._ - user: 你是谁 - assistant: 我是**河伯**，一个本地优先的 AI Agent。 **基本定位：** - 风格：冷静、直接、工程化 - 工作方式：先读上下文，再行动；每次操作尽量留下可审计痕迹 - 运行环境：Windows PowerShell **核心能力：** - 本地文件读写与分析 - 知识库检索（R",
+      "metadata": {
+        "source": "session-memory/313698594a4748058be4427e2a714cdf/summary.md",
+        "modality": "text",
+        "page": null,
+        "section": "",
+        "collection": "durable_memory",
+        "parser": "native_multimodal"
+      }
+    }
+  ]
+}

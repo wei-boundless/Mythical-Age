@@ -1,0 +1,297 @@
+{
+  "version": 1,
+  "tool_count": 12,
+  "tools": [
+    {
+      "name": "get_weather",
+      "module": "tools.get_weather_tool",
+      "capability_tags": [
+        "weather",
+        "forecast",
+        "realtime"
+      ],
+      "supported_modalities": [
+        "realtime"
+      ],
+      "safe_for_auto_route": true,
+      "search_terms": [
+        "天气",
+        "气温",
+        "温度",
+        "预报",
+        "weather",
+        "forecast"
+      ],
+      "typical_queries": [
+        "北京今天天气怎么样",
+        "上海明天气温多少"
+      ]
+    },
+    {
+      "name": "get_gold_price",
+      "module": "tools.get_gold_price_tool",
+      "capability_tags": [
+        "finance",
+        "gold",
+        "realtime",
+        "price"
+      ],
+      "supported_modalities": [
+        "realtime"
+      ],
+      "safe_for_auto_route": true,
+      "search_terms": [
+        "黄金",
+        "金价",
+        "gold",
+        "xau",
+        "spot gold"
+      ],
+      "typical_queries": [
+        "查询黄金价格",
+        "XAU USD price today"
+      ]
+    },
+    {
+      "name": "web_search",
+      "module": "tools.web_search_tool",
+      "capability_tags": [
+        "search",
+        "news",
+        "finance",
+        "official-docs"
+      ],
+      "supported_modalities": [
+        "web",
+        "realtime"
+      ],
+      "safe_for_auto_route": true,
+      "search_terms": [
+        "联网",
+        "搜索",
+        "最新",
+        "新闻",
+        "官网",
+        "web search"
+      ],
+      "typical_queries": [
+        "联网查 OpenAI API 最新更新"
+      ]
+    },
+    {
+      "name": "structured_data_analysis",
+      "module": "tools.structured_data_analysis_tool",
+      "capability_tags": [
+        "analytics",
+        "table",
+        "top-n",
+        "group-by",
+        "schema",
+        "dataset"
+      ],
+      "supported_modalities": [
+        "table",
+        "spreadsheet",
+        "csv",
+        "json"
+      ],
+      "safe_for_auto_route": true,
+      "search_terms": [
+        "表格",
+        "excel",
+        "csv",
+        "库存",
+        "缺货",
+        "排名",
+        "汇总",
+        "schema"
+      ],
+      "typical_queries": [
+        "销售前五的有哪些",
+        "从我的数据库中查询哪些商品库存不足"
+      ]
+    },
+    {
+      "name": "pdf_analysis",
+      "module": "tools.pdf_analysis_tool",
+      "capability_tags": [
+        "pdf",
+        "browse",
+        "deep-read",
+        "page-read",
+        "document"
+      ],
+      "supported_modalities": [
+        "pdf",
+        "document"
+      ],
+      "safe_for_auto_route": true,
+      "search_terms": [
+        "白皮书",
+        "报告",
+        "pdf",
+        "第几页",
+        "page read"
+      ],
+      "typical_queries": [
+        "白皮书第五页讲得什么",
+        "详细解读这份 PDF"
+      ]
+    },
+    {
+      "name": "search_knowledge",
+      "module": "tools.search_knowledge_tool",
+      "capability_tags": [
+        "rag",
+        "retrieval",
+        "local-knowledge",
+        "faq"
+      ],
+      "supported_modalities": [
+        "text",
+        "document",
+        "knowledge"
+      ],
+      "safe_for_auto_route": true,
+      "search_terms": [
+        "知识库",
+        "本地资料",
+        "查资料",
+        "faq",
+        "为什么找不到订单",
+        "knowledge"
+      ],
+      "typical_queries": [
+        "从本地知识库里查一下三一重工前三大股东",
+        "为什么我在我的帐户中找不到我的订单"
+      ]
+    },
+    {
+      "name": "analyze_multimodal_file",
+      "module": "tools.analyze_multimodal_file_tool",
+      "capability_tags": [
+        "multimodal",
+        "inspection",
+        "preview"
+      ],
+      "supported_modalities": [
+        "pdf",
+        "table",
+        "image",
+        "document"
+      ],
+      "safe_for_auto_route": false,
+      "search_terms": [
+        "分析文件",
+        "预览文件",
+        "多模态预览"
+      ],
+      "typical_queries": [
+        "帮我看看这个文件内容",
+        "先分析这个 PDF"
+      ]
+    },
+    {
+      "name": "index_multimodal_file",
+      "module": "tools.index_multimodal_file_tool",
+      "capability_tags": [
+        "indexing",
+        "multimodal",
+        "ingest"
+      ],
+      "supported_modalities": [
+        "pdf",
+        "table",
+        "image",
+        "document"
+      ],
+      "safe_for_auto_route": false,
+      "search_terms": [
+        "入库",
+        "索引",
+        "ingest",
+        "index"
+      ],
+      "typical_queries": [
+        "把这个文件入库",
+        "重建这个文件的索引"
+      ]
+    },
+    {
+      "name": "read_file",
+      "module": "tools.read_file_tool",
+      "capability_tags": [
+        "file",
+        "read",
+        "local"
+      ],
+      "supported_modalities": [
+        "text",
+        "code",
+        "document"
+      ],
+      "safe_for_auto_route": false,
+      "search_terms": [
+        "读取文件",
+        "read file"
+      ],
+      "typical_queries": []
+    },
+    {
+      "name": "fetch_url",
+      "module": "tools.fetch_url_tool",
+      "capability_tags": [
+        "web",
+        "fetch",
+        "verification"
+      ],
+      "supported_modalities": [
+        "web"
+      ],
+      "safe_for_auto_route": false,
+      "search_terms": [
+        "抓取网页",
+        "fetch url"
+      ],
+      "typical_queries": []
+    },
+    {
+      "name": "terminal",
+      "module": "tools.terminal_tool",
+      "capability_tags": [
+        "shell",
+        "terminal",
+        "command"
+      ],
+      "supported_modalities": [
+        "system"
+      ],
+      "safe_for_auto_route": false,
+      "search_terms": [
+        "终端",
+        "命令行",
+        "shell"
+      ],
+      "typical_queries": []
+    },
+    {
+      "name": "python_repl",
+      "module": "tools.python_repl_tool",
+      "capability_tags": [
+        "python",
+        "repl",
+        "scripting"
+      ],
+      "supported_modalities": [
+        "system"
+      ],
+      "safe_for_auto_route": false,
+      "search_terms": [
+        "python",
+        "脚本",
+        "repl"
+      ],
+      "typical_queries": []
+    }
+  ]
+}

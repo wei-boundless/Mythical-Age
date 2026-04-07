@@ -1,0 +1,37 @@
+[
+  {
+    "snapshot_id": "snap:structured_data_flow:你知道我是谁吗:2026-04-07T00:21:55+00:00",
+    "flow_id": "structured_data_flow:你知道我是谁吗",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "你知道我是谁吗",
+    "key_slots": {
+      "active_rule": "结论： - 当前现货黄金 XAU/USD 参考价约为 4657.3000 美元/盎司。 - 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg.com。 - 使用查询词：gold pr..."
+    },
+    "recent_results": [
+      "结论： - 当前现货黄金 XAU/USD 参考价约为 4657.3000 美元/盎司。 - 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg.com。 - 使用查询词：gold price today live XAU/USD per ounce - 摘要：Gold ; XAUUSD:CUR. Gold Spot. USD/t oz. 4,657.3000 ; XAUEUR:CUR. Gold/Euro Spot. E"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：你知道我是谁吗"
+    ],
+    "updated_at": "2026-04-07T00:21:55+00:00"
+  },
+  {
+    "snapshot_id": "snap:external_lookup_flow:gold-price:2026-04-07T00:20:38+00:00",
+    "flow_id": "external_lookup_flow:gold-price",
+    "flow_type": "external_lookup_flow",
+    "status": "suspended",
+    "goal": "查询黄金价格",
+    "key_slots": {
+      "active_entity": "gold_price",
+      "active_rule": "结论： - 当前现货黄金 XAU/USD 参考价约为 4657.3000 美元/盎司。 - 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg.com。 - 使用查询词：gold pr..."
+    },
+    "recent_results": [
+      "结论： - 当前现货黄金 XAU/USD 参考价约为 4657.3000 美元/盎司。 - 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg.com。 - 使用查询词：gold price today live XAU/USD per ounce - 摘要：Gold ; XAUUSD:CUR. Gold Spot. USD/t oz. 4,657.3000 ; XAUEUR:CUR. Gold/Euro Spot. E"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：查询黄金价格"
+    ],
+    "updated_at": "2026-04-07T00:20:38+00:00"
+  }
+]

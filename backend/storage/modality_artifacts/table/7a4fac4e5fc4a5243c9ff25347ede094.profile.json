@@ -1,0 +1,164 @@
+{
+  "source": "knowledge/E-commerce Data/sales_orders.xlsx",
+  "rows": 200,
+  "columns": [
+    "order_id",
+    "order_date",
+    "customer_id",
+    "product",
+    "category",
+    "stock_on_hand",
+    "unit_price",
+    "total_amount",
+    "region",
+    "status"
+  ],
+  "numeric_columns": [
+    "stock_on_hand",
+    "unit_price",
+    "total_amount"
+  ],
+  "datetime_columns": [
+    "order_date"
+  ],
+  "categorical_columns": [
+    "order_id",
+    "customer_id",
+    "product",
+    "category",
+    "region",
+    "status"
+  ],
+  "column_stats": {
+    "order_id": {
+      "display_name": "订单编号",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 200,
+      "sample_values": [
+        "SO-10001",
+        "SO-10002",
+        "SO-10003",
+        "SO-10004",
+        "SO-10005"
+      ]
+    },
+    "order_date": {
+      "display_name": "订单日期",
+      "dtype": "datetime64[ns]",
+      "non_null": 200,
+      "unique": 200,
+      "sample_values": [
+        "2025-01-01",
+        "2025-01-02",
+        "2025-01-03",
+        "2025-01-04",
+        "2025-01-05"
+      ]
+    },
+    "customer_id": {
+      "display_name": "客户编号",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 200,
+      "sample_values": [
+        "C-0001",
+        "C-0002",
+        "C-0003",
+        "C-0004",
+        "C-0005"
+      ]
+    },
+    "product": {
+      "display_name": "商品名称",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 10,
+      "sample_values": [
+        "无线鼠标",
+        "蓝牙耳机",
+        "机械键盘",
+        "保温杯",
+        "咖啡豆"
+      ]
+    },
+    "category": {
+      "display_name": "类别",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 7,
+      "sample_values": [
+        "电子",
+        "电子",
+        "电子",
+        "日用",
+        "食品"
+      ]
+    },
+    "stock_on_hand": {
+      "display_name": "当前库存",
+      "dtype": "int64",
+      "non_null": 200,
+      "unique": 6,
+      "sample_values": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6"
+      ]
+    },
+    "unit_price": {
+      "display_name": "单价",
+      "dtype": "float64",
+      "non_null": 200,
+      "unique": 10,
+      "sample_values": [
+        "89.0",
+        "229.0",
+        "479.0",
+        "39.9",
+        "78.0"
+      ]
+    },
+    "total_amount": {
+      "display_name": "总金额",
+      "dtype": "float64",
+      "non_null": 200,
+      "unique": 30,
+      "sample_values": [
+        "178.0",
+        "687.0",
+        "1916.0",
+        "199.5",
+        "468.0"
+      ]
+    },
+    "region": {
+      "display_name": "地区",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 7,
+      "sample_values": [
+        "华东",
+        "华北",
+        "华南",
+        "华中",
+        "西南"
+      ]
+    },
+    "status": {
+      "display_name": "状态",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 3,
+      "sample_values": [
+        "已完成",
+        "已完成",
+        "已完成",
+        "退款中",
+        "已取消"
+      ]
+    }
+  }
+}

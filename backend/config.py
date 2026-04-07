@@ -1,0 +1,388 @@
+from __future__ import annotations
+
+import json
+import os
+import threading
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+from dotenv import load_dotenv
+
+LLM_PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
+    "zhipu": {
+        "model": "glm-5",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
+    },
+    "bailian": {
+        "model": "qwen3.5-plus",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    },
+    "deepseek": {
+        "model": "deepseek-chat",
+        "base_url": "https://api.deepseek.com",
+    },
+    "openai": {
+        "model": "gpt-4.1-mini",
+        "base_url": "https://api.openai.com/v1",
+    },
+}
+
+EMBEDDING_PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
+    "bailian": {
+        "model": "text-embedding-v4",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    },
+    "openai": {
+        "model": "text-embedding-3-small",
+        "base_url": "https://api.openai.com/v1",
+    },
+}
+
+PROVIDER_ALIASES = {
+    "glm": "zhipu",
+    "zhipuai": "zhipu",
+    "bigmodel": "zhipu",
+    "aliyun": "bailian",
+    "dashscope": "bailian",
+    "qwen": "bailian",
+    "openai-compatible": "openai",
+    "compatible": "openai",
+}
+
+
+@dataclass(frozen=True)
+class Settings:
+    backend_dir: Path
+    project_root: Path
+    llm_provider: str
+    llm_model: str
+    llm_api_key: str | None
+    llm_base_url: str
+    embedding_provider: str
+    embedding_model: str
+    embedding_api_key: str | None
+    embedding_base_url: str
+    embedding_dimensions: int | None
+    vector_store_backend: str
+    faiss_metric: str
+    faiss_index_type: str
+    faiss_hnsw_m: int
+    faiss_hnsw_ef_construction: int
+    faiss_hnsw_ef_search: int
+    rerank_enabled: bool
+    rerank_provider: str
+    rerank_model: str | None
+    rerank_api_key: str | None
+    rerank_base_url: str | None
+    rerank_top_n: int
+    rerank_device: str | None
+    mineru_api_enabled: bool
+    mineru_api_mode: str
+    mineru_api_base_url: str | None
+    mineru_api_parse_path: str
+    mineru_api_key: str | None
+    mineru_api_timeout_seconds: int
+    rag_chunk_size: int = 500
+    rag_chunk_overlap: int = 60
+    component_char_limit: int = 20_000
+    terminal_timeout_seconds: int = 30
+
+
+def _load_env_file() -> Path:
+    backend_dir = Path(__file__).resolve().parent
+    load_dotenv(backend_dir / ".env")
+    return backend_dir
+
+
+def _first_env(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def _normalize_provider(
+    value: str | None,
+    *,
+    default: str,
+    defaults: dict[str, dict[str, str]],
+) -> str:
+    normalized = (value or default).strip().lower()
+    normalized = PROVIDER_ALIASES.get(normalized, normalized)
+    if normalized in defaults:
+        return normalized
+    return default
+
+
+def _resolve_llm_api_key(provider: str) -> str | None:
+    if provider == "zhipu":
+        return _first_env("LLM_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY")
+    if provider == "bailian":
+        return _first_env("LLM_API_KEY", "BAILIAN_API_KEY", "DASHSCOPE_API_KEY")
+    if provider == "deepseek":
+        return _first_env("LLM_API_KEY", "DEEPSEEK_API_KEY")
+    return _first_env("LLM_API_KEY", "OPENAI_API_KEY")
+
+
+def _resolve_llm_model(provider: str) -> str:
+    if provider == "zhipu":
+        return _first_env("LLM_MODEL", "ZHIPU_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    if provider == "bailian":
+        return _first_env("LLM_MODEL", "BAILIAN_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    if provider == "deepseek":
+        return _first_env("LLM_MODEL", "DEEPSEEK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    return _first_env("LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+
+
+def _resolve_llm_base_url(provider: str) -> str:
+    if provider == "zhipu":
+        return _first_env("LLM_BASE_URL", "ZHIPU_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+    if provider == "bailian":
+        return _first_env("LLM_BASE_URL", "BAILIAN_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+    if provider == "deepseek":
+        return _first_env("LLM_BASE_URL", "DEEPSEEK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+    return _first_env("LLM_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+
+
+def _resolve_embedding_api_key(provider: str) -> str | None:
+    if provider == "bailian":
+        return _first_env("EMBEDDING_API_KEY", "BAILIAN_API_KEY", "DASHSCOPE_API_KEY")
+    return _first_env("EMBEDDING_API_KEY", "OPENAI_API_KEY")
+
+
+def _resolve_embedding_model(provider: str) -> str:
+    return _first_env("EMBEDDING_MODEL") or EMBEDDING_PROVIDER_DEFAULTS[provider]["model"]
+
+
+def _resolve_embedding_base_url(provider: str) -> str:
+    if provider == "bailian":
+        return (
+            _first_env("EMBEDDING_BASE_URL", "BAILIAN_BASE_URL")
+            or EMBEDDING_PROVIDER_DEFAULTS[provider]["base_url"]
+        )
+    return (
+        _first_env("EMBEDDING_BASE_URL", "OPENAI_BASE_URL")
+        or EMBEDDING_PROVIDER_DEFAULTS[provider]["base_url"]
+    )
+
+
+def _resolve_embedding_dimensions() -> int | None:
+    raw = _first_env("EMBEDDING_DIMENSIONS")
+    if not raw:
+        return 1024
+    try:
+        value = int(raw)
+    except ValueError:
+        return 1024
+    return value if value > 0 else 1024
+
+
+def _resolve_vector_store_backend() -> str:
+    value = (_first_env("VECTOR_STORE_BACKEND") or "llamaindex").strip().lower()
+    if value in {"faiss", "llamaindex"}:
+        return value
+    return "llamaindex"
+
+
+def _resolve_faiss_metric() -> str:
+    value = (_first_env("FAISS_METRIC") or "cosine").strip().lower()
+    if value in {"cosine", "inner_product", "l2"}:
+        return value
+    return "cosine"
+
+
+def _resolve_faiss_index_type() -> str:
+    value = (_first_env("FAISS_INDEX_TYPE") or "flat").strip().lower()
+    if value in {"flat", "hnsw"}:
+        return value
+    return "flat"
+
+
+def _resolve_positive_int(name: str, default: int) -> int:
+    raw = _first_env(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _resolve_bool(value: str | None, *, default: bool) -> bool:
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _resolve_rerank_provider() -> str:
+    return (_first_env("RERANK_PROVIDER") or "heuristic").strip().lower()
+
+
+def _resolve_rerank_model() -> str | None:
+    value = _first_env("RERANK_MODEL")
+    return value or None
+
+
+def _resolve_rerank_api_key() -> str | None:
+    value = _first_env("RERANK_API_KEY")
+    return value or None
+
+
+def _resolve_rerank_base_url() -> str | None:
+    value = _first_env("RERANK_BASE_URL")
+    return value or None
+
+
+def _resolve_rerank_top_n() -> int:
+    raw = _first_env("RERANK_TOP_N")
+    if not raw:
+        return 8
+    try:
+        value = int(raw)
+    except ValueError:
+        return 8
+    return value if value > 0 else 8
+
+
+def _resolve_rerank_device() -> str | None:
+    value = _first_env("RERANK_DEVICE")
+    return value or None
+
+
+def _resolve_mineru_api_base_url() -> str | None:
+    value = _first_env("MINERU_API_BASE_URL", "MINERU_BASE_URL")
+    return value or None
+
+
+def _resolve_mineru_api_mode() -> str:
+    explicit = (_first_env("MINERU_API_MODE") or "").strip().lower()
+    if explicit in {"local_sync", "cloud_v4_batch"}:
+        return explicit
+
+    base_url = (_resolve_mineru_api_base_url() or "").lower()
+    parse_path = (_first_env("MINERU_API_PARSE_PATH", "MINERU_PARSE_PATH") or "").lower()
+    if "mineru.net" in base_url or "/api/v4/" in base_url or "/api/v4/" in parse_path:
+        return "cloud_v4_batch"
+    return "local_sync"
+
+
+def _resolve_mineru_api_parse_path() -> str:
+    default = "/api/v4/file-urls/batch" if _resolve_mineru_api_mode() == "cloud_v4_batch" else "/file_parse"
+    value = _first_env("MINERU_API_PARSE_PATH", "MINERU_PARSE_PATH") or default
+    normalized = value.strip()
+    if not normalized:
+        return default
+    if normalized.startswith("http://") or normalized.startswith("https://"):
+        return normalized
+    if not normalized.startswith("/"):
+        return "/" + normalized
+    return normalized
+
+
+def _resolve_mineru_api_key() -> str | None:
+    value = _first_env("MINERU_API_KEY", "MINERU_API_TOKEN")
+    return value or None
+
+
+def _resolve_mineru_api_timeout_seconds() -> int:
+    return _resolve_positive_int("MINERU_API_TIMEOUT_SECONDS", 180)
+
+
+def _resolve_mineru_api_enabled() -> bool:
+    if not _resolve_bool(os.getenv("MINERU_API_ENABLED"), default=False):
+        return False
+    return bool(_resolve_mineru_api_base_url())
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    backend_dir = _load_env_file()
+    project_root = backend_dir.parent
+
+    llm_provider = _normalize_provider(
+        os.getenv("LLM_PROVIDER"),
+        default="zhipu",
+        defaults=LLM_PROVIDER_DEFAULTS,
+    )
+    embedding_provider = _normalize_provider(
+        os.getenv("EMBEDDING_PROVIDER"),
+        default="bailian",
+        defaults=EMBEDDING_PROVIDER_DEFAULTS,
+    )
+
+    return Settings(
+        backend_dir=backend_dir,
+        project_root=project_root,
+        llm_provider=llm_provider,
+        llm_model=_resolve_llm_model(llm_provider),
+        llm_api_key=_resolve_llm_api_key(llm_provider),
+        llm_base_url=_resolve_llm_base_url(llm_provider),
+        embedding_provider=embedding_provider,
+        embedding_model=_resolve_embedding_model(embedding_provider),
+        embedding_api_key=_resolve_embedding_api_key(embedding_provider),
+        embedding_base_url=_resolve_embedding_base_url(embedding_provider),
+        embedding_dimensions=_resolve_embedding_dimensions(),
+        vector_store_backend=_resolve_vector_store_backend(),
+        faiss_metric=_resolve_faiss_metric(),
+        faiss_index_type=_resolve_faiss_index_type(),
+        faiss_hnsw_m=_resolve_positive_int("FAISS_HNSW_M", 32),
+        faiss_hnsw_ef_construction=_resolve_positive_int("FAISS_HNSW_EF_CONSTRUCTION", 40),
+        faiss_hnsw_ef_search=_resolve_positive_int("FAISS_HNSW_EF_SEARCH", 64),
+        rerank_enabled=_resolve_bool(os.getenv("RERANK_ENABLED"), default=False),
+        rerank_provider=_resolve_rerank_provider(),
+        rerank_model=_resolve_rerank_model(),
+        rerank_api_key=_resolve_rerank_api_key(),
+        rerank_base_url=_resolve_rerank_base_url(),
+        rerank_top_n=_resolve_rerank_top_n(),
+        rerank_device=_resolve_rerank_device(),
+        mineru_api_enabled=_resolve_mineru_api_enabled(),
+        mineru_api_mode=_resolve_mineru_api_mode(),
+        mineru_api_base_url=_resolve_mineru_api_base_url(),
+        mineru_api_parse_path=_resolve_mineru_api_parse_path(),
+        mineru_api_key=_resolve_mineru_api_key(),
+        mineru_api_timeout_seconds=_resolve_mineru_api_timeout_seconds(),
+    )
+
+
+class RuntimeConfigManager:
+    def __init__(self, config_path: Path) -> None:
+        self._config_path = config_path
+        self._lock = threading.Lock()
+        self._default_config = {"rag_mode": False}
+
+    def load(self) -> dict[str, Any]:
+        with self._lock:
+            if not self._config_path.exists():
+                self.save(self._default_config)
+            try:
+                return json.loads(self._config_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                self.save(self._default_config)
+                return dict(self._default_config)
+
+    def save(self, payload: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(self._default_config)
+        merged.update(payload)
+        self._config_path.write_text(
+            json.dumps(merged, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return merged
+
+    def get_rag_mode(self) -> bool:
+        return bool(self.load().get("rag_mode", False))
+
+    def set_rag_mode(self, enabled: bool) -> dict[str, Any]:
+        return self.save({"rag_mode": enabled})
+
+
+runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")

@@ -1,0 +1,8 @@
+{
+  "digest": "bc09380cf929c0fea3256ece12100260",
+  "status": "ready",
+  "documents": 3,
+  "nodes": 18,
+  "collection": "session_memory",
+  "vector_backend": "faiss"
+}
