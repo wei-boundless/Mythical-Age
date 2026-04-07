@@ -112,6 +112,4 @@
 
 
 它不是“套壳调用模型”，而是一个可以展开讲架构取舍的完整作品。
-## 致谢
 
-项目中 `skill` 设计与思路参考了 [ConardLi/rag-skill](https://github.com/ConardLi/rag-skill)。
