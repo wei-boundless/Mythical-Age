@@ -5,6 +5,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL_PATH = ROOT / "tools" / "get_gold_price_tool.py"
@@ -36,6 +38,11 @@ def _load_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture(name="module")
+def module_fixture():
+    return _load_module()
 
 
 def test_prefers_price_bearing_result(module) -> None:

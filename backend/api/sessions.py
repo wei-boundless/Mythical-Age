@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from graph.agent import agent_manager
+from api.deps import require_runtime
 
 router = APIRouter()
 
@@ -26,67 +26,53 @@ class GenerateTitleRequest(BaseModel):
 
 @router.get("/sessions")
 async def list_sessions() -> list[dict[str, Any]]:
-    session_manager = agent_manager.session_manager
-    if session_manager is None:
-        raise HTTPException(status_code=503, detail="Agent manager is not initialized")
-    return session_manager.list_sessions()
+    runtime = require_runtime()
+    return runtime.session_manager.list_sessions()
 
 
 @router.post("/sessions")
 async def create_session(payload: CreateSessionRequest) -> dict[str, Any]:
-    session_manager = agent_manager.session_manager
-    if session_manager is None:
-        raise HTTPException(status_code=503, detail="Agent manager is not initialized")
-    return session_manager.create_session(title=payload.title)
+    runtime = require_runtime()
+    return runtime.session_manager.create_session(title=payload.title)
 
 
 @router.put("/sessions/{session_id}")
 async def rename_session(session_id: str, payload: RenameSessionRequest) -> dict[str, Any]:
-    session_manager = agent_manager.session_manager
-    if session_manager is None:
-        raise HTTPException(status_code=503, detail="Agent manager is not initialized")
-    return session_manager.rename_session(session_id, payload.title)
+    runtime = require_runtime()
+    return runtime.session_manager.rename_session(session_id, payload.title)
 
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str) -> dict[str, bool]:
-    session_manager = agent_manager.session_manager
-    if session_manager is None:
-        raise HTTPException(status_code=503, detail="Agent manager is not initialized")
-    session_manager.delete_session(session_id)
+    runtime = require_runtime()
+    runtime.session_manager.delete_session(session_id)
     return {"ok": True}
 
 
 @router.get("/sessions/{session_id}/messages")
 async def get_session_messages(session_id: str) -> dict[str, Any]:
-    session_manager = agent_manager.session_manager
-    if session_manager is None or agent_manager.base_dir is None:
-        raise HTTPException(status_code=503, detail="Agent manager is not initialized")
+    runtime = require_runtime()
     return {
-        "system_prompt": agent_manager.build_system_prompt_for_session(session_id),
-        "messages": session_manager.load_session(session_id),
+        "system_prompt": runtime.query_runtime.build_system_prompt_for_session(session_id),
+        "messages": runtime.session_manager.load_session(session_id),
     }
 
 
 @router.get("/sessions/{session_id}/history")
 async def get_session_history(session_id: str) -> dict[str, Any]:
-    session_manager = agent_manager.session_manager
-    if session_manager is None:
-        raise HTTPException(status_code=503, detail="Agent manager is not initialized")
-    return session_manager.get_history(session_id)
+    runtime = require_runtime()
+    return runtime.session_manager.get_history(session_id)
 
 
 @router.post("/sessions/{session_id}/generate-title")
 async def generate_title(session_id: str, payload: GenerateTitleRequest) -> dict[str, str]:
-    session_manager = agent_manager.session_manager
-    if session_manager is None:
-        raise HTTPException(status_code=503, detail="Agent manager is not initialized")
+    runtime = require_runtime()
     if payload.message:
         seed = payload.message
     else:
-        messages = session_manager.load_session(session_id)
+        messages = runtime.session_manager.load_session(session_id)
         first_user = next((item["content"] for item in messages if item.get("role") == "user"), "")
         seed = first_user
-    title = await agent_manager.generate_title(seed or DEFAULT_SESSION_TITLE)
-    session_manager.set_title(session_id, title)
+    title = await runtime.query_runtime.generate_title(seed or DEFAULT_SESSION_TITLE)
+    runtime.session_manager.set_title(session_id, title)
     return {"session_id": session_id, "title": title}

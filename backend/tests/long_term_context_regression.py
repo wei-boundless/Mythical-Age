@@ -9,8 +9,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from graph.long_term_context import build_long_term_context_bundle
-from graph.prompt_builder import build_system_prompt
+from query.long_term_context import build_long_term_context_bundle
+from query.prompt_builder import build_system_prompt
 
 
 def _assert(condition: bool, message: str) -> None:

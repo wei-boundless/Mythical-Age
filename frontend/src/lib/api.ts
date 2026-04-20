@@ -131,6 +131,17 @@ export async function setRagMode(enabled: boolean) {
   });
 }
 
+export async function getPermissionMode() {
+  return request<{ mode: string; supported_modes: string[] }>("/config/permission-mode");
+}
+
+export async function setPermissionMode(mode: string) {
+  return request<{ mode: string; supported_modes: string[] }>("/config/permission-mode", {
+    method: "PUT",
+    body: JSON.stringify({ mode })
+  });
+}
+
 export async function compressSession(sessionId: string) {
   return request<{ archived_count: number; remaining_count: number }>(
     `/sessions/${sessionId}/compress`,

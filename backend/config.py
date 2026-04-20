@@ -60,6 +60,8 @@ class Settings:
     llm_model: str
     llm_api_key: str | None
     llm_base_url: str
+    llm_timeout_seconds: float
+    llm_max_retries: int
     embedding_provider: str
     embedding_model: str
     embedding_api_key: str | None
@@ -212,6 +214,28 @@ def _resolve_positive_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+def _resolve_nonnegative_int(name: str, default: int) -> int:
+    raw = _first_env(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
+def _resolve_positive_float(name: str, default: float) -> float:
+    raw = _first_env(name)
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 def _resolve_bool(value: str | None, *, default: bool) -> bool:
     if value is None:
         return default
@@ -326,6 +350,8 @@ def get_settings() -> Settings:
         llm_model=_resolve_llm_model(llm_provider),
         llm_api_key=_resolve_llm_api_key(llm_provider),
         llm_base_url=_resolve_llm_base_url(llm_provider),
+        llm_timeout_seconds=_resolve_positive_float("LLM_TIMEOUT_SECONDS", 45.0),
+        llm_max_retries=_resolve_nonnegative_int("LLM_MAX_RETRIES", 2),
         embedding_provider=embedding_provider,
         embedding_model=_resolve_embedding_model(embedding_provider),
         embedding_api_key=_resolve_embedding_api_key(embedding_provider),
@@ -357,7 +383,7 @@ class RuntimeConfigManager:
     def __init__(self, config_path: Path) -> None:
         self._config_path = config_path
         self._lock = threading.Lock()
-        self._default_config = {"rag_mode": False}
+        self._default_config = {"rag_mode": False, "permission_mode": "default"}
 
     def load(self) -> dict[str, Any]:
         with self._lock:
@@ -383,6 +409,13 @@ class RuntimeConfigManager:
 
     def set_rag_mode(self, enabled: bool) -> dict[str, Any]:
         return self.save({"rag_mode": enabled})
+
+    def get_permission_mode(self) -> str:
+        return str(self.load().get("permission_mode", "default") or "default")
+
+    def set_permission_mode(self, mode: str) -> dict[str, Any]:
+        normalized = (mode or "default").strip() or "default"
+        return self.save({"permission_mode": normalized})
 
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")

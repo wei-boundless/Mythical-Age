@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from RAG.collections import build_default_collections
-from graph.memory_indexer import memory_indexer
+from retrieval.memory_index import memory_indexer
 from structured_memory import MemoryManager, MemoryNote
 
 

@@ -1,18 +1,18 @@
-from .compact import CompactResult, ContextCompactor
+from __future__ import annotations
+
 from .consolidation import ConsolidationReport, DurableMemoryConsolidator
 from .consolidation_scheduler import ConsolidationConfig, ConsolidationScheduler
-from .durable_candidates import DurableCandidate, DurableCandidateDecision, evaluate_durable_candidate
 from .dialogue_state import DialogueState, DialogueStateManager, DialogueTurn
+from .durable_candidates import DurableCandidate, DurableCandidateDecision, evaluate_durable_candidate
+from .exact_lookup import ExactMemoryMatch, find_exact_memory_matches
 from .extraction_scheduler import ExtractionConfig, ExtractionScheduler
 from .extractor import MemoryExtractor
-from .exact_lookup import ExactMemoryMatch, find_exact_memory_matches
 from .flow_snapshots import FlowSnapshot, FlowSnapshotManager
 from .frontmatter import format_frontmatter, parse_frontmatter
 from .memory_manager import MemoryManager
 from .models import Message, MemoryNote
-from .process_state import ProcessState, ProcessStateManager
 from .process_engine import ProcessStateEngine
-from .prompt_builder import PromptBuilder
+from .process_state import ProcessState, ProcessStateManager
 from .session_memory import SessionMemoryManager
 from .session_processor import SessionUnderstandingProcessor
 from .team_memory import TeamMemoryManager
@@ -62,3 +62,18 @@ __all__ = [
     "UnderstandingReconciler",
     "evaluate_durable_candidate",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"CompactResult", "ContextCompactor"}:
+        from .compact import CompactResult, ContextCompactor
+
+        return {
+            "CompactResult": CompactResult,
+            "ContextCompactor": ContextCompactor,
+        }[name]
+    if name == "PromptBuilder":
+        from .prompt_builder import PromptBuilder
+
+        return PromptBuilder
+    raise AttributeError(f"module 'structured_memory' has no attribute {name!r}")

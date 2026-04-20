@@ -9,6 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "tools" / "tool_registry.py"
 
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 
 def load_registry_module():
     spec = importlib.util.spec_from_file_location("tool_registry_test", REGISTRY_PATH)
@@ -28,7 +31,7 @@ def main() -> None:
     assert 'name: str = "search_knowledge"' in search_tool_source
 
     payload = json.loads((ROOT / "TOOLS_REGISTRY.json").read_text(encoding="utf-8"))
-    assert payload["version"] == 1
+    assert payload["version"] == 2
     assert payload["tool_count"] >= 6
 
     by_name = {tool["name"]: tool for tool in payload["tools"]}
@@ -46,6 +49,7 @@ def main() -> None:
 
     assert by_name["search_knowledge"]["safe_for_auto_route"] is True
     assert "faq" in by_name["search_knowledge"]["capability_tags"]
+    assert "retrieval" in by_name["search_knowledge"]["safety_tags"]
 
     assert by_name["python_repl"]["safe_for_auto_route"] is False
     assert by_name["terminal"]["safe_for_auto_route"] is False

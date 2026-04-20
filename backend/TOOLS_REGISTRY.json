@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "tool_count": 12,
   "tools": [
     {
@@ -13,7 +13,14 @@
       "supported_modalities": [
         "realtime"
       ],
-      "safe_for_auto_route": true,
+      "safety_tags": [
+        "read",
+        "network"
+      ],
+      "route_hints": [
+        "tool",
+        "realtime_lookup"
+      ],
       "search_terms": [
         "天气",
         "气温",
@@ -25,7 +32,11 @@
       "typical_queries": [
         "北京今天天气怎么样",
         "上海明天气温多少"
-      ]
+      ],
+      "safe_for_auto_route": true,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "get_gold_price",
@@ -39,7 +50,14 @@
       "supported_modalities": [
         "realtime"
       ],
-      "safe_for_auto_route": true,
+      "safety_tags": [
+        "read",
+        "network"
+      ],
+      "route_hints": [
+        "tool",
+        "realtime_lookup"
+      ],
       "search_terms": [
         "黄金",
         "金价",
@@ -50,7 +68,11 @@
       "typical_queries": [
         "查询黄金价格",
         "XAU USD price today"
-      ]
+      ],
+      "safe_for_auto_route": true,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "web_search",
@@ -65,7 +87,14 @@
         "web",
         "realtime"
       ],
-      "safe_for_auto_route": true,
+      "safety_tags": [
+        "read",
+        "network"
+      ],
+      "route_hints": [
+        "tool",
+        "latest_information"
+      ],
       "search_terms": [
         "联网",
         "搜索",
@@ -76,7 +105,11 @@
       ],
       "typical_queries": [
         "联网查 OpenAI API 最新更新"
-      ]
+      ],
+      "safe_for_auto_route": true,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "structured_data_analysis",
@@ -95,7 +128,14 @@
         "csv",
         "json"
       ],
-      "safe_for_auto_route": true,
+      "safety_tags": [
+        "read",
+        "compute"
+      ],
+      "route_hints": [
+        "tool",
+        "dataset_analysis"
+      ],
       "search_terms": [
         "表格",
         "excel",
@@ -109,7 +149,11 @@
       "typical_queries": [
         "销售前五的有哪些",
         "从我的数据库中查询哪些商品库存不足"
-      ]
+      ],
+      "safe_for_auto_route": true,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "pdf_analysis",
@@ -125,7 +169,14 @@
         "pdf",
         "document"
       ],
-      "safe_for_auto_route": true,
+      "safety_tags": [
+        "read",
+        "compute"
+      ],
+      "route_hints": [
+        "tool",
+        "document_analysis"
+      ],
       "search_terms": [
         "白皮书",
         "报告",
@@ -136,7 +187,11 @@
       "typical_queries": [
         "白皮书第五页讲得什么",
         "详细解读这份 PDF"
-      ]
+      ],
+      "safe_for_auto_route": true,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "search_knowledge",
@@ -152,7 +207,14 @@
         "document",
         "knowledge"
       ],
-      "safe_for_auto_route": true,
+      "safety_tags": [
+        "read",
+        "retrieval"
+      ],
+      "route_hints": [
+        "rag",
+        "knowledge_lookup"
+      ],
       "search_terms": [
         "知识库",
         "本地资料",
@@ -164,7 +226,11 @@
       "typical_queries": [
         "从本地知识库里查一下三一重工前三大股东",
         "为什么我在我的帐户中找不到我的订单"
-      ]
+      ],
+      "safe_for_auto_route": true,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "analyze_multimodal_file",
@@ -180,7 +246,14 @@
         "image",
         "document"
       ],
-      "safe_for_auto_route": false,
+      "safety_tags": [
+        "read",
+        "compute"
+      ],
+      "route_hints": [
+        "tool",
+        "file_preview"
+      ],
       "search_terms": [
         "分析文件",
         "预览文件",
@@ -189,7 +262,11 @@
       "typical_queries": [
         "帮我看看这个文件内容",
         "先分析这个 PDF"
-      ]
+      ],
+      "safe_for_auto_route": false,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "index_multimodal_file",
@@ -205,7 +282,14 @@
         "image",
         "document"
       ],
-      "safe_for_auto_route": false,
+      "safety_tags": [
+        "write",
+        "compute"
+      ],
+      "route_hints": [
+        "tool",
+        "indexing"
+      ],
       "search_terms": [
         "入库",
         "索引",
@@ -215,7 +299,11 @@
       "typical_queries": [
         "把这个文件入库",
         "重建这个文件的索引"
-      ]
+      ],
+      "safe_for_auto_route": false,
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
     },
     {
       "name": "read_file",
@@ -230,12 +318,22 @@
         "code",
         "document"
       ],
-      "safe_for_auto_route": false,
+      "safety_tags": [
+        "read"
+      ],
+      "route_hints": [
+        "tool",
+        "workspace_read"
+      ],
       "search_terms": [
         "读取文件",
         "read file"
       ],
-      "typical_queries": []
+      "typical_queries": [],
+      "safe_for_auto_route": false,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "fetch_url",
@@ -248,12 +346,23 @@
       "supported_modalities": [
         "web"
       ],
-      "safe_for_auto_route": false,
+      "safety_tags": [
+        "read",
+        "network"
+      ],
+      "route_hints": [
+        "tool",
+        "verification"
+      ],
       "search_terms": [
         "抓取网页",
         "fetch url"
       ],
-      "typical_queries": []
+      "typical_queries": [],
+      "safe_for_auto_route": false,
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "terminal",
@@ -266,13 +375,25 @@
       "supported_modalities": [
         "system"
       ],
-      "safe_for_auto_route": false,
+      "safety_tags": [
+        "write",
+        "shell",
+        "destructive"
+      ],
+      "route_hints": [
+        "tool",
+        "local_command"
+      ],
       "search_terms": [
         "终端",
         "命令行",
         "shell"
       ],
-      "typical_queries": []
+      "typical_queries": [],
+      "safe_for_auto_route": false,
+      "is_read_only": false,
+      "is_destructive": true,
+      "is_concurrency_safe": false
     },
     {
       "name": "python_repl",
@@ -285,13 +406,25 @@
       "supported_modalities": [
         "system"
       ],
-      "safe_for_auto_route": false,
+      "safety_tags": [
+        "write",
+        "compute",
+        "shell"
+      ],
+      "route_hints": [
+        "tool",
+        "local_scripting"
+      ],
       "search_terms": [
         "python",
         "脚本",
         "repl"
       ],
-      "typical_queries": []
+      "typical_queries": [],
+      "safe_for_auto_route": false,
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
     }
   ]
 }

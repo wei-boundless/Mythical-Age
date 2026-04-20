@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from graph.memory_indexer import memory_indexer
+from retrieval.memory_index import memory_indexer
 from structured_memory import DurableMemoryConsolidator, MemoryManager
 
 from .parser_adapter import MultimodalParserAdapter

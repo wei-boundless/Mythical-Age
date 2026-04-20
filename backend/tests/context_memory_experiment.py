@@ -15,7 +15,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from config import runtime_config
-from graph.agent import AgentManager
+from runtime import AppRuntime
 from structured_memory import ContextCompactor
 
 
@@ -61,13 +61,14 @@ def _prepare_temp_backend() -> Path:
 
 
 async def _run_turn(
-    manager: AgentManager,
+    manager: AppRuntime,
     session_id: str,
     user_message: str,
 ) -> TurnResult:
     session_manager = manager.session_manager
-    if session_manager is None:
-        raise RuntimeError("session manager not initialized")
+    query_runtime = manager.query_runtime
+    if session_manager is None or query_runtime is None:
+        raise RuntimeError("runtime not initialized")
 
     history = session_manager.load_session_for_agent(session_id, include_compressed_context=False)
     final_answer = ""
@@ -76,7 +77,7 @@ async def _run_turn(
     tool_events: list[dict[str, Any]] = []
     raw_events: list[str] = []
 
-    async for event in manager.astream(session_id, user_message, history):
+    async for event in query_runtime._execution_events(session_id, user_message, history):
         raw_events.append(str(event.get("type", "")))
         event_type = event.get("type")
         if event_type == "context_management":
@@ -90,8 +91,8 @@ async def _run_turn(
 
     session_manager.save_message(session_id, "user", user_message)
     session_manager.save_message(session_id, "assistant", final_answer)
-    manager.refresh_session_memory(session_id)
-    durable_saved_count = manager.extract_durable_memories(session_id)
+    query_runtime.refresh_session_memory(session_id)
+    durable_saved_count = query_runtime.extract_durable_memories(session_id)
 
     return TurnResult(
         user_message=user_message,
@@ -104,7 +105,7 @@ async def _run_turn(
     )
 
 
-def _new_session(manager: AgentManager, title: str) -> str:
+def _new_session(manager: AppRuntime, title: str) -> str:
     session_manager = manager.session_manager
     if session_manager is None:
         raise RuntimeError("session manager not initialized")
@@ -112,11 +113,62 @@ def _new_session(manager: AgentManager, title: str) -> str:
     return str(record["id"])
 
 
-async def experiment_context_pressure(manager: AgentManager) -> ExperimentResult:
+def _disable_tools(manager: AppRuntime) -> None:
+    tool_runtime = manager.tool_runtime
+    if tool_runtime is None:
+        raise RuntimeError("tool runtime not initialized")
+    tool_runtime._instances = []  # noqa: SLF001
+    tool_runtime._by_name = {}  # noqa: SLF001
+
+
+def _override_compactor(
+    manager: AppRuntime,
+    *,
+    session_id: str,
+    effective_history_token_budget: int,
+    warning_ratio: float,
+    microcompact_ratio: float,
+    full_compact_ratio: float,
+    bulky_message_token_threshold: int,
+    max_messages: int,
+):
+    facade = manager.memory_facade
+    if facade is None:
+        raise RuntimeError("memory facade not initialized")
+
+    original_compact = facade.compact_history_for_query
+
+    def forced_compact(target_session_id: str, history: list[dict[str, Any]]):
+        if target_session_id != session_id:
+            return original_compact(target_session_id, history)
+        py_history = facade.adapter.to_messages(history, session_id=target_session_id)
+        controller = facade.session_memory.context_controller(target_session_id)
+        controller.compactor = ContextCompactor(
+            facade.session_memory.manager(target_session_id),
+            effective_history_token_budget=effective_history_token_budget,
+            warning_ratio=warning_ratio,
+            microcompact_ratio=microcompact_ratio,
+            full_compact_ratio=full_compact_ratio,
+            bulky_message_token_threshold=bulky_message_token_threshold,
+            max_messages=max_messages,
+        )
+        result = controller.compact_history(py_history)
+        compacted = [
+            {"role": message.role, "content": message.content}
+            for message in result.messages
+        ]
+        return compacted, facade.context_memory._compact_trace(result)  # noqa: SLF001
+
+    facade.compact_history_for_query = forced_compact  # type: ignore[method-assign]
+    return original_compact
+
+
+async def experiment_context_pressure(manager: AppRuntime) -> ExperimentResult:
     session_id = _new_session(manager, "context-pressure")
     session_manager = manager.session_manager
-    if session_manager is None:
-        raise RuntimeError("session manager not initialized")
+    query_runtime = manager.query_runtime
+    if session_manager is None or query_runtime is None:
+        raise RuntimeError("runtime not initialized")
 
     bulky_retrieval = "[RAG retrieved context]\n" + ("Source: durable_memory\nRows: 1-20 / 200\n" * 140)
     bulky_table = "数据源：inventory.xlsx\n总商品数：200\n" + ("前 10 项：北京仓 | 123 |\n" * 120)
@@ -131,23 +183,26 @@ async def experiment_context_pressure(manager: AgentManager) -> ExperimentResult
     ]
     for role, content in scripted_history:
         session_manager.save_message(session_id, role, content)
-    manager.refresh_session_memory(session_id)
-    if manager.memory_bridge is not None:
-        manager.memory_bridge._compactor = lambda sid: ContextCompactor(  # noqa: SLF001
-            manager.memory_bridge._session_memory(sid),  # noqa: SLF001
-            effective_history_token_budget=2_000,
-            warning_ratio=0.45,
-            microcompact_ratio=0.55,
-            full_compact_ratio=0.7,
-            bulky_message_token_threshold=120,
-            max_messages=10,
-        )
-
-    turn = await _run_turn(
+    query_runtime.refresh_session_memory(session_id)
+    original_compact = _override_compactor(
         manager,
-        session_id,
-        "What are we currently optimizing? Answer in one sentence.",
+        session_id=session_id,
+        effective_history_token_budget=2_000,
+        warning_ratio=0.45,
+        microcompact_ratio=0.55,
+        full_compact_ratio=0.7,
+        bulky_message_token_threshold=120,
+        max_messages=10,
     )
+
+    try:
+        turn = await _run_turn(
+            manager,
+            session_id,
+            "What are we currently optimizing? Answer in one sentence.",
+        )
+    finally:
+        manager.memory_facade.compact_history_for_query = original_compact  # type: ignore[method-assign]
 
     context = turn.context_management or {}
     answer = turn.answer
@@ -168,7 +223,7 @@ async def experiment_context_pressure(manager: AgentManager) -> ExperimentResult
     )
 
 
-async def experiment_durable_writeback_and_exact_recall(manager: AgentManager) -> ExperimentResult:
+async def experiment_durable_writeback_and_exact_recall(manager: AppRuntime) -> ExperimentResult:
     session_id = _new_session(manager, "durable-memory")
 
     turns: list[TurnResult] = []
@@ -236,7 +291,7 @@ async def experiment_durable_writeback_and_exact_recall(manager: AgentManager) -
     )
 
 
-async def experiment_durable_relevant_surfacing(manager: AgentManager) -> ExperimentResult:
+async def experiment_durable_relevant_surfacing(manager: AppRuntime) -> ExperimentResult:
     session_id = _new_session(manager, "durable-relevant")
     session_manager = manager.session_manager
     if session_manager is None:
@@ -278,10 +333,10 @@ async def run_all() -> dict[str, Any]:
     previous_rag_mode = runtime_config.get_rag_mode()
     runtime_config.set_rag_mode(False)
     temp_backend = _prepare_temp_backend()
-    manager = AgentManager()
+    manager = AppRuntime()
     try:
         manager.initialize(temp_backend)
-        manager.tools = []
+        _disable_tools(manager)
         results: list[ExperimentResult] = []
         for runner in (
             experiment_context_pressure,

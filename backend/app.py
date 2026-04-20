@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,29 +8,18 @@ from api.compress import router as compress_router
 from api.config_api import router as config_router
 from api.files import router as files_router
 from api.sessions import router as sessions_router
+from api.tasks import router as tasks_router
 from api.tokens import router as tokens_router
-from config import get_settings
-from graph.agent import agent_manager
-from graph.memory_indexer import memory_indexer
+from bootstrap import runtime_lifespan
 from runtime_encoding import configure_process_utf8
-from tools.skills_scanner import refresh_snapshot
 
 configure_process_utf8()
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    settings = get_settings()
-    refresh_snapshot(settings.backend_dir)
-    agent_manager.initialize(settings.backend_dir)
-    memory_indexer.configure(settings.backend_dir)
-    yield
 
 
 app = FastAPI(
     title="Mini-OpenClaw API",
     version="0.1.0",
-    lifespan=lifespan,
+    lifespan=runtime_lifespan,
 )
 
 app.add_middleware(
@@ -49,6 +36,7 @@ app.include_router(files_router, prefix="/api", tags=["files"])
 app.include_router(tokens_router, prefix="/api", tags=["tokens"])
 app.include_router(compress_router, prefix="/api", tags=["compress"])
 app.include_router(config_router, prefix="/api", tags=["config"])
+app.include_router(tasks_router, prefix="/api", tags=["tasks"])
 
 
 @app.get("/health")

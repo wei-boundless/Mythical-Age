@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from graph.memory_bridge import GraphMemoryBridge
+from memory import MemoryFacade
 from structured_memory import MemoryManager, MemoryNote, Message
 from structured_memory.consolidation import DurableMemoryConsolidator
 from understanding.memory_intent import analyze_memory_intent
@@ -90,12 +90,12 @@ def test_memory_policy_partitioning() -> None:
 def test_extractor_uses_policy_classes() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        bridge = GraphMemoryBridge(root)
+        facade = MemoryFacade(root)
         messages = [
             Message(role="user", content="记住我以后喜欢你先讲结论。"),
             Message(role="user", content="记住我们以后所有终端命令优先用 PowerShell。"),
         ]
-        saved = bridge.extractor.save_extracted(messages)
+        saved = facade.extractor.save_extracted(messages)
         classes = {note.memory_class for note in saved}
 
         _assert("preference" in classes, "extractor should save a preference note")
@@ -130,21 +130,21 @@ def test_prefetch_respects_partitions() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         _save_seed_notes(root)
-        bridge = GraphMemoryBridge(root)
+        facade = MemoryFacade(root)
 
         work_query = "我们项目当前重点是什么？"
-        work_notes = bridge.prefetch_relevant_notes(work_query, analyze_memory_intent(work_query), limit=2)
+        work_notes = facade.prefetch_relevant_notes(work_query, analyze_memory_intent(work_query), limit=2)
         _assert(work_notes, "work prefetch should return notes")
         _assert(work_notes[0].memory_class == "work", "work query should surface work memory first")
         _assert(work_notes[0].filename == "project-focus.md", "project focus should surface first for project query")
 
         pref_query = "你知道我喜欢你怎么回答吗？"
-        pref_notes = bridge.prefetch_relevant_notes(pref_query, analyze_memory_intent(pref_query), limit=2)
+        pref_notes = facade.prefetch_relevant_notes(pref_query, analyze_memory_intent(pref_query), limit=2)
         _assert(pref_notes, "preference prefetch should return notes")
         _assert(pref_notes[0].memory_class == "preference", "preference query should surface preference memory first")
         _assert(pref_notes[0].filename == "answer-style.md", "answer style should surface first for preference query")
 
-        unrelated_notes = bridge.prefetch_relevant_notes("今天天气怎么样？", analyze_memory_intent("今天天气怎么样？"), limit=2)
+        unrelated_notes = facade.prefetch_relevant_notes("今天天气怎么样？", analyze_memory_intent("今天天气怎么样？"), limit=2)
         _assert(not unrelated_notes, "unrelated generic query should not surface durable notes")
 
 
@@ -152,11 +152,11 @@ def test_persistent_memory_block_combines_exact_and_relevant_without_duplication
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         _save_seed_notes(root)
-        bridge = GraphMemoryBridge(root)
+        facade = MemoryFacade(root)
         query = "我们项目当前重点是什么？"
         intent = analyze_memory_intent(query)
-        relevant = bridge.prefetch_relevant_notes(query, intent, limit=2)
-        block = bridge.build_persistent_memory_block(query=query, memory_intent=intent, relevant_notes=relevant)
+        relevant = facade.prefetch_relevant_notes(query, intent, limit=2)
+        block = facade.build_persistent_memory_block(query=query, memory_intent=intent, relevant_notes=relevant)
 
         _assert("## Exact Durable Memory Matches" in block, "block should contain exact matches section")
         _assert("## Relevant Durable Memories" in block, "block should contain relevant memory section")
@@ -218,7 +218,7 @@ def test_archived_durable_notes_are_hidden_from_runtime_reads() -> None:
 def test_durable_extraction_prefers_session_state_candidates() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        bridge = GraphMemoryBridge(root)
+        facade = MemoryFacade(root)
         session_id = "session-state-durable"
         messages = [
             {"role": "user", "content": "以后默认先给结论，再展开解释。"},
@@ -226,9 +226,9 @@ def test_durable_extraction_prefers_session_state_candidates() -> None:
             {"role": "user", "content": "终端命令优先用 PowerShell。"},
         ]
 
-        bridge.refresh_session_memory(session_id, messages)
-        saved = bridge.extract_durable_memories(session_id, messages)
-        notes = bridge.memory_manager.list_notes()
+        facade.refresh_session_memory(session_id, messages)
+        saved = facade.extract_durable_memories(session_id, messages)
+        notes = facade.memory_manager.list_notes()
 
         _assert(saved >= 1, "state-driven durable extraction should save at least one durable note")
         _assert(

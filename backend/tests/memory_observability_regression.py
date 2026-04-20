@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from graph.memory_bridge import GraphMemoryBridge
+from memory import MemoryFacade
 from structured_memory import MemoryNote
 from understanding.memory_intent import analyze_memory_intent
 
@@ -21,8 +21,8 @@ def _assert(condition: bool, message: str) -> None:
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        bridge = GraphMemoryBridge(root)
-        bridge.memory_manager.save_note(
+        facade = MemoryFacade(root)
+        facade.memory_manager.save_note(
             MemoryNote(
                 slug="project-focus",
                 title="项目当前重点是优化 Memory 和 RAG",
@@ -33,7 +33,7 @@ def main() -> None:
                 tags=["project", "memory", "rag"],
             )
         )
-        bridge.memory_manager.save_note(
+        facade.memory_manager.save_note(
             MemoryNote(
                 slug="answer-style",
                 title="用户偏好先讲结论",
@@ -52,12 +52,12 @@ def main() -> None:
 
         query = "我们项目当前重点是什么"
         intent = analyze_memory_intent(query)
-        relevant = bridge.prefetch_relevant_notes(query, intent, limit=3)
-        _compacted_history, context_compaction = bridge.compact_history_for_agent(
+        relevant = facade.prefetch_relevant_notes(query, intent, limit=3)
+        _compacted_history, context_compaction = facade.compact_history_for_query(
             "session-1",
             history,
         )
-        trace = bridge.inspect_memory_context(
+        trace = facade.inspect_query_context(
             "session-1",
             history=history,
             pending_user_message=query,
@@ -65,8 +65,8 @@ def main() -> None:
             relevant_notes=relevant,
             context_compaction=context_compaction,
         )
-        loaded_notes = bridge.memory_manager.list_notes()
-        session_block = bridge.build_session_memory_block(
+        loaded_notes = facade.memory_manager.list_notes()
+        session_block = facade.build_session_memory_block(
             "session-1",
             history=history,
             pending_user_message=query,

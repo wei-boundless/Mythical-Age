@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+import sys
+import tempfile
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from memory import MemoryFacade
+from structured_memory import MemoryNote
+from understanding.memory_intent import analyze_memory_intent
+
+
+def test_memory_facade_builds_layered_context_package() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        session_id = "memory-facade-session"
+        history = [
+            {"role": "user", "content": "继续分析 report.pdf 第三页的结论。"},
+            {"role": "assistant", "content": "第三页主要在讨论供应链风险。"},
+        ]
+
+        facade.refresh_session_memory(session_id, history)
+        package = facade.build_context_package(
+            session_id,
+            history=history,
+            pending_user_message="继续沿着之前的报告分析往下讲。",
+            retrieval_results=[
+                {
+                    "source": "knowledge/report.md",
+                    "collection": "knowledge",
+                    "text": "报告的核心矛盾在供应链和现金流之间。",
+                }
+            ],
+        )
+        block = facade.build_session_memory_block(
+            session_id,
+            history=history,
+            pending_user_message="继续沿着之前的报告分析往下讲。",
+            retrieval_results=[
+                {
+                    "source": "knowledge/report.md",
+                    "collection": "knowledge",
+                    "text": "报告的核心矛盾在供应链和现金流之间。",
+                }
+            ],
+        )
+
+        assert package.sections["active_process_context"]
+        assert "retrieval_evidence" in package.selected_sections
+        assert "# Active Goal" in block
+        assert "## Retrieval Evidence" in block
+
+
+def test_memory_facade_durable_prefetch_avoids_exact_match_duplication() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        facade.memory_manager.save_note(
+            MemoryNote(
+                slug="project-focus",
+                title="项目当前重点是优化 Memory 和 RAG",
+                summary="当前主线是优化记忆系统和 RAG。",
+                canonical_statement="项目当前重点是优化 Memory 和 RAG。",
+                body="后续所有系统设计默认围绕 Memory 和 RAG 主线推进。",
+                memory_type="project",
+                memory_class="work",
+                tags=["project", "memory", "rag"],
+            )
+        )
+        facade.memory_manager.save_note(
+            MemoryNote(
+                slug="answer-style",
+                title="用户偏好先讲结论",
+                summary="复杂问题先讲结论再展开。",
+                canonical_statement="复杂问题先讲结论。",
+                body="复杂问题先讲结论，再逐层展开。",
+                memory_type="preference",
+                memory_class="preference",
+                tags=["preference", "style"],
+            )
+        )
+
+        query = "我们项目当前重点是什么？"
+        intent = analyze_memory_intent(query)
+        relevant_notes = facade.prefetch_relevant_notes(query, intent, limit=3)
+        block = facade.build_persistent_memory_block(
+            query=query,
+            memory_intent=intent,
+            relevant_notes=relevant_notes,
+        )
+
+        assert relevant_notes
+        assert relevant_notes[0].memory_class == "work"
+        assert block.count("### 项目当前重点是优化 Memory 和 RAG") == 1
+        assert block.count("项目当前重点是优化 Memory 和 RAG") >= 1
+
+
+def test_memory_facade_exposes_context_trace_without_legacy_bridge() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        session_id = "memory-facade-trace"
+        history = [
+            {"role": "user", "content": "继续优化 memory architecture。"},
+            {"role": "assistant", "content": "优先把 session working memory 和 durable memory 分层。"},
+        ]
+
+        compacted, trace = facade.compact_history_for_query(session_id, history)
+        inspection = facade.inspect_query_context(
+            session_id,
+            history=history,
+            pending_user_message="下一步应该先改哪一层？",
+            context_compaction=trace,
+        )
+
+        assert compacted
+        assert inspection["context_management"]["pressure_level"] in {
+            "normal",
+            "warning",
+            "microcompact",
+            "full_compact",
+        }
+        assert "budget" in inspection["context_management"]
+        assert inspection["session_memory"]["storage"]["primary_state_path"].endswith("process_state.json")

@@ -15,10 +15,10 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from config import get_settings, runtime_config
-from graph.agent import AgentManager
-from graph.memory_bridge import GraphMemoryBridge
-from graph.prompt_builder import build_system_prompt
+from memory import MemoryFacade
+from query.prompt_builder import build_system_prompt
 from RAG.router import RAGQueryRouter
+from runtime import AppRuntime
 from structured_memory import ContextCompactor, Message, SessionMemoryManager
 
 
@@ -144,7 +144,7 @@ def _seed_durable_note(base_dir: Path) -> None:
     )
 
 
-def _new_session(manager: AgentManager, title: str) -> str:
+def _new_session(manager: AppRuntime, title: str) -> str:
     session_manager = manager.session_manager
     if session_manager is None:
         raise RuntimeError("session manager not initialized")
@@ -152,14 +152,65 @@ def _new_session(manager: AgentManager, title: str) -> str:
     return str(record["id"])
 
 
+def _disable_tools(manager: AppRuntime) -> None:
+    tool_runtime = manager.tool_runtime
+    if tool_runtime is None:
+        raise RuntimeError("tool runtime not initialized")
+    tool_runtime._instances = []  # noqa: SLF001
+    tool_runtime._by_name = {}  # noqa: SLF001
+
+
+def _override_compactor(
+    facade: MemoryFacade,
+    *,
+    session_id: str,
+    effective_history_token_budget: int,
+    warning_ratio: float,
+    microcompact_ratio: float,
+    full_compact_ratio: float,
+    keep_recent_messages: int,
+    full_compact_recent_messages: int,
+    bulky_message_token_threshold: int,
+    max_messages: int,
+):
+    original_compact = facade.compact_history_for_query
+
+    def forced_compact(target_session_id: str, history: list[dict[str, Any]]):
+        if target_session_id != session_id:
+            return original_compact(target_session_id, history)
+        py_history = facade.adapter.to_messages(history, session_id=target_session_id)
+        controller = facade.session_memory.context_controller(target_session_id)
+        controller.compactor = ContextCompactor(
+            facade.session_memory.manager(target_session_id),
+            effective_history_token_budget=effective_history_token_budget,
+            warning_ratio=warning_ratio,
+            microcompact_ratio=microcompact_ratio,
+            full_compact_ratio=full_compact_ratio,
+            keep_recent_messages=keep_recent_messages,
+            full_compact_recent_messages=full_compact_recent_messages,
+            bulky_message_token_threshold=bulky_message_token_threshold,
+            max_messages=max_messages,
+        )
+        result = controller.compact_history(py_history)
+        compacted = [
+            {"role": message.role, "content": message.content}
+            for message in result.messages
+        ]
+        return compacted, facade.context_memory._compact_trace(result)  # noqa: SLF001
+
+    facade.compact_history_for_query = forced_compact  # type: ignore[method-assign]
+    return original_compact
+
+
 async def _run_agent_turn(
-    manager: AgentManager,
+    manager: AppRuntime,
     session_id: str,
     user_message: str,
 ) -> AgentTurnProbe:
     session_manager = manager.session_manager
-    if session_manager is None:
-        raise RuntimeError("session manager not initialized")
+    query_runtime = manager.query_runtime
+    if session_manager is None or query_runtime is None:
+        raise RuntimeError("runtime not initialized")
 
     history = session_manager.load_session_for_agent(session_id, include_compressed_context=False)
     final_answer = ""
@@ -168,7 +219,7 @@ async def _run_agent_turn(
     memory_context: dict[str, Any] | None = None
     raw_events: list[str] = []
 
-    async for event in manager.astream(session_id, user_message, history):
+    async for event in query_runtime._execution_events(session_id, user_message, history):
         event_type = str(event.get("type", "") or "")
         raw_events.append(event_type)
         if event_type == "retrieval":
@@ -182,8 +233,8 @@ async def _run_agent_turn(
 
     session_manager.save_message(session_id, "user", user_message)
     session_manager.save_message(session_id, "assistant", final_answer)
-    manager.refresh_session_memory(session_id)
-    durable_saved_count = manager.extract_durable_memories(session_id)
+    query_runtime.refresh_session_memory(session_id)
+    durable_saved_count = query_runtime.extract_durable_memories(session_id)
 
     return AgentTurnProbe(
         user_message=user_message,
@@ -226,7 +277,7 @@ def _is_acceptable_stability(mode: str, stability: str) -> bool:
 
 def deterministic_memory_switch_and_resume(iteration: int) -> dict[str, Any]:
     root = _prepare_temp_backend_layout(copy_workspace=False)
-    bridge = GraphMemoryBridge(root)
+    facade = MemoryFacade(root)
     session_id = f"memory-switch-{iteration}"
 
     first_phase = [
@@ -237,10 +288,10 @@ def deterministic_memory_switch_and_resume(iteration: int) -> dict[str, Any]:
         {"role": "user", "content": "Switch topics and check the gold price."},
         {"role": "assistant", "content": "Result: the current international gold spot price is about 1034 per gram."},
     ]
-    bridge.refresh_session_memory(session_id, first_phase)
-    bridge.refresh_session_memory(session_id, second_phase)
-    snapshots = bridge._session_memory(session_id).load_flow_snapshots()  # noqa: SLF001
-    block = bridge.build_session_memory_block(
+    facade.refresh_session_memory(session_id, first_phase)
+    facade.refresh_session_memory(session_id, second_phase)
+    snapshots = facade.session_memory.manager(session_id).load_flow_snapshots()
+    block = facade.build_session_memory_block(
         session_id,
         history=second_phase,
         pending_user_message="Continue the earlier document analysis.",
@@ -287,7 +338,8 @@ def deterministic_memory_correction_recovery(iteration: int) -> dict[str, Any]:
 
 def deterministic_memory_compaction_restore(iteration: int) -> dict[str, Any]:
     root = _prepare_temp_backend_layout(copy_workspace=False)
-    bridge = GraphMemoryBridge(root)
+    facade = MemoryFacade(root)
+    session_id = f"compaction-{iteration}"
     history = [
         {"role": "user", "content": "We are optimizing session memory as working memory."},
         {"role": "assistant", "content": "Conclusion: session memory should preserve current task state."},
@@ -296,8 +348,9 @@ def deterministic_memory_compaction_restore(iteration: int) -> dict[str, Any]:
         {"role": "user", "content": "Do not lose the safety rule."},
         {"role": "assistant", "content": "Critical-state retention rules were added."},
     ]
-    bridge._compactor = lambda sid: ContextCompactor(  # noqa: SLF001
-        bridge._session_memory(sid),  # noqa: SLF001
+    original_compact = _override_compactor(
+        facade,
+        session_id=session_id,
         effective_history_token_budget=1_100,
         warning_ratio=0.3,
         microcompact_ratio=0.45,
@@ -307,7 +360,10 @@ def deterministic_memory_compaction_restore(iteration: int) -> dict[str, Any]:
         bulky_message_token_threshold=80,
         max_messages=8,
     )
-    compacted, trace = bridge.compact_history_for_agent(f"compaction-{iteration}", history)
+    try:
+        compacted, trace = facade.compact_history_for_query(session_id, history)
+    finally:
+        facade.compact_history_for_query = original_compact  # type: ignore[method-assign]
     _assert(trace["pressure_level"] in {"microcompact", "full_compact"}, "heavy history should trigger compact pressure")
     _assert(compacted, "compaction should still return runtime history")
     _assert(
@@ -371,11 +427,11 @@ def deterministic_rag_memory_routing(iteration: int) -> dict[str, Any]:
 
 def deterministic_prompt_package_dedup(iteration: int) -> dict[str, Any]:
     root = _prepare_temp_backend_layout(copy_workspace=False)
-    bridge = GraphMemoryBridge(root)
+    facade = MemoryFacade(root)
     session_id = f"prompt-dedup-{iteration}"
     history = [{"role": "user", "content": "Keep focusing on the battery topic."}]
-    bridge.refresh_session_memory(session_id, history)
-    package = bridge.build_context_package(
+    facade.refresh_session_memory(session_id, history)
+    package = facade.build_context_package(
         session_id,
         history=history,
         pending_user_message="What do the retrieved docs say about batteries?",
@@ -408,9 +464,9 @@ def deterministic_prompt_package_dedup(iteration: int) -> dict[str, Any]:
 
 async def live_memory_writeback_and_recall(iteration: int) -> dict[str, Any]:
     base_dir = _prepare_temp_backend_layout(copy_workspace=True)
-    manager = AgentManager()
+    manager = AppRuntime()
     manager.initialize(base_dir)
-    manager.tools = []
+    _disable_tools(manager)
     session_id = _new_session(manager, f"live-memory-{iteration}")
 
     prompts = [
@@ -469,11 +525,11 @@ async def live_memory_writeback_and_recall(iteration: int) -> dict[str, Any]:
 async def live_rag_grounded_answer(iteration: int) -> dict[str, Any]:
     base_dir = _prepare_temp_backend_layout(copy_workspace=False)
     _seed_rag_corpus(base_dir)
-    manager = AgentManager()
+    manager = AppRuntime()
     manager.initialize(base_dir)
-    manager.tools = []
-    if manager.rag_router is not None:
-        _disable_embeddings_on_router(manager.rag_router)
+    _disable_tools(manager)
+    if manager.retrieval_service is not None:
+        _disable_embeddings_on_router(manager.retrieval_service.router)
     session_id = _new_session(manager, f"live-rag-{iteration}")
     previous_rag_mode = runtime_config.get_rag_mode()
     runtime_config.set_rag_mode(True)

@@ -106,6 +106,9 @@ def _apply_skill_tool_routing(
         return
 
     if tool_registry is None:
+        if not understanding.tool_name and len(understanding.candidate_tools) == 1:
+            understanding.tool_name = understanding.candidate_tools[0]
+            understanding.reasons.append("single_candidate_tool")
         if not understanding.tool_input:
             understanding.tool_input = {"query": message}
         return

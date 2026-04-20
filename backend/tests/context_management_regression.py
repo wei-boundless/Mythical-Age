@@ -8,9 +8,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from graph.memory_bridge import GraphMemoryBridge
-from graph.prompt_builder import build_system_prompt
-from graph.session_manager import SessionManager
+from memory import MemoryFacade
+from query.prompt_builder import build_system_prompt
+from runtime.session_store import SessionManager
 from structured_memory import ContextCompactor, Message, SessionMemoryManager
 
 
@@ -140,18 +140,18 @@ def test_full_compact_uses_session_memory_as_operational_restore_layer() -> None
         _assert(result.estimated_tokens_after < result.estimated_tokens_before, "full compact should reduce token usage")
 
 
-def test_graph_memory_bridge_exposes_context_management_trace() -> None:
+def test_memory_facade_exposes_context_management_trace() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        bridge = GraphMemoryBridge(root)
+        facade = MemoryFacade(root)
         history = [
             {"role": "user", "content": "Continue optimizing the memory system."},
             {"role": "assistant", "content": "[RAG retrieved context]\n" + ("Source: durable\n" * 120)},
             {"role": "assistant", "content": "Conclusion: implement token-aware compact first, then microcompact."},
             {"role": "user", "content": "Do not forget that session memory is the working memory layer."},
         ]
-        compacted_history, context_management = bridge.compact_history_for_agent("session-1", history)
-        trace = bridge.inspect_memory_context(
+        compacted_history, context_management = facade.compact_history_for_query("session-1", history)
+        trace = facade.inspect_query_context(
             "session-1",
             history=history,
             pending_user_message="Continue advancing context management.",
@@ -195,18 +195,18 @@ def test_graph_memory_bridge_exposes_context_management_trace() -> None:
 def test_session_memory_preview_does_not_persist_before_turn_commit() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        bridge = GraphMemoryBridge(root)
+        facade = MemoryFacade(root)
         session_id = "session-preview"
         committed_history = [
             {"role": "user", "content": "Keep improving the memory system."},
             {"role": "assistant", "content": "Committed state: session memory is the working layer."},
         ]
-        bridge.refresh_session_memory(session_id, committed_history)
+        facade.refresh_session_memory(session_id, committed_history)
 
         summary_path = root / "session-memory" / session_id / "summary.md"
         committed_summary = summary_path.read_text(encoding="utf-8")
 
-        preview_block = bridge.build_session_memory_block(
+        preview_block = facade.build_session_memory_block(
             session_id,
             history=committed_history,
             pending_user_message="Preview only: split durable memory away from session memory.",
@@ -230,7 +230,7 @@ def test_session_memory_preview_does_not_persist_before_turn_commit() -> None:
 def test_session_memory_block_renders_context_package_sections_and_warm_snapshots() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        bridge = GraphMemoryBridge(root)
+        facade = MemoryFacade(root)
         session_id = "session-package"
         committed_history = [
             {"role": "user", "content": "Help me analyze the conclusion on page 3 of report.pdf."},
@@ -238,9 +238,9 @@ def test_session_memory_block_renders_context_package_sections_and_warm_snapshot
             {"role": "user", "content": "Switch topics and check the gold price."},
             {"role": "assistant", "content": "Result: the current international gold spot price is about 1034 per gram."},
         ]
-        bridge.refresh_session_memory(session_id, committed_history)
+        facade.refresh_session_memory(session_id, committed_history)
 
-        block = bridge.build_session_memory_block(
+        block = facade.build_session_memory_block(
             session_id,
             history=committed_history,
             pending_user_message="Continue the earlier document analysis.",
@@ -267,14 +267,14 @@ def test_session_memory_block_renders_context_package_sections_and_warm_snapshot
 def test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime_messages() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        bridge = GraphMemoryBridge(root)
+        facade = MemoryFacade(root)
         session_id = "session-retrieval"
         history = [
             {"role": "user", "content": "Keep focusing on the battery topic."},
         ]
-        bridge.refresh_session_memory(session_id, history)
+        facade.refresh_session_memory(session_id, history)
 
-        package = bridge.build_context_package(
+        package = facade.build_context_package(
             session_id,
             history=history,
             pending_user_message="What do the retrieved docs say about batteries?",
@@ -286,7 +286,7 @@ def test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime
                 }
             ],
         )
-        session_block = bridge.build_session_memory_block(
+        session_block = facade.build_session_memory_block(
             session_id,
             history=history,
             pending_user_message="What do the retrieved docs say about batteries?",
@@ -340,7 +340,7 @@ def main() -> None:
         test_session_manager_keeps_archival_summary_out_of_runtime_history,
         test_microcompact_reduces_bulk_outputs_without_losing_recent_turns,
         test_full_compact_uses_session_memory_as_operational_restore_layer,
-        test_graph_memory_bridge_exposes_context_management_trace,
+        test_memory_facade_exposes_context_management_trace,
         test_session_memory_preview_does_not_persist_before_turn_commit,
         test_session_memory_block_renders_context_package_sections_and_warm_snapshots,
         test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime_messages,

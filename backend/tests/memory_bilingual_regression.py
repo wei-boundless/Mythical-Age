@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from graph.memory_bridge import GraphMemoryBridge
+from memory import MemoryFacade
 from structured_memory import Message
 from understanding.memory_intent import analyze_memory_intent
 from understanding.memory_policy import evaluate_memory_write
@@ -48,12 +48,12 @@ def test_english_memory_policy_partitioning() -> None:
 
 def test_english_extractor_saves_both_work_and_preference() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        bridge = GraphMemoryBridge(Path(tmp))
+        facade = MemoryFacade(Path(tmp))
         messages = [
             Message(role="user", content="Remember that from now on we always prefer PowerShell for terminal commands."),
             Message(role="user", content="Remember that I prefer you to give the conclusion first and then explain."),
         ]
-        notes = bridge.extractor.save_extracted(messages)
+        notes = facade.extractor.save_extracted(messages)
         classes = {note.memory_class for note in notes}
         titles = {note.title for note in notes}
 
