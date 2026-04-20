@@ -47,6 +47,15 @@ class MemoryExtractor:
         "\u89c4\u8303",
         "\u4ee5\u540e\u6309\u8fd9\u4e2a",
     )
+    SYNTHETIC_WRITE_MARKERS = (
+        "已写入长期记忆",
+        "写入长期记忆",
+        "已存在长期记忆中",
+        "正在写入记忆文件",
+        "saved to durable memory",
+        "stored in durable memory",
+        "write to durable memory",
+    )
 
     def __init__(self, memory_manager: MemoryManager) -> None:
         self.memory_manager = memory_manager
@@ -296,18 +305,32 @@ class MemoryExtractor:
         if not session_dir.exists():
             return []
         state = DialogueStateManager(session_dir).load()
-        extracted: list[MemoryNote] = []
+        extracted = self._extract_request_notes_from_state(session_id, state.key_user_requests)
         for candidate in state.durable_candidates:
+            if not self._should_commit_candidate(candidate):
+                continue
             decision = evaluate_durable_candidate(candidate)
             if decision.action != "accept":
                 continue
-            extracted.append(self._note_from_candidate(session_id, candidate, decision.reason, decision.confidence))
-        return extracted
+            extracted.append(
+                self._note_from_candidate(
+                    session_id,
+                    candidate,
+                    memory_type=decision.memory_type,
+                    memory_class=decision.memory_class,
+                    reason=decision.reason,
+                    confidence=decision.confidence,
+                )
+            )
+        return self._dedupe(extracted)
 
     def _note_from_candidate(
         self,
         session_id: str,
         candidate: DurableCandidate,
+        *,
+        memory_type: str,
+        memory_class: str,
         reason: str,
         confidence: str,
     ) -> MemoryNote:
@@ -325,9 +348,9 @@ class MemoryExtractor:
                 retrieval_hints=list(candidate.retrieval_hints),
                 source_excerpt=source_excerpt,
             ),
-            memory_type=candidate.memory_type,
-            memory_class=candidate.memory_class,
-            tags=self._merge_tags([candidate.memory_class, candidate.memory_type], list(candidate.retrieval_hints)),
+            memory_type=memory_type,
+            memory_class=memory_class,
+            tags=self._merge_tags([memory_class, memory_type], list(candidate.retrieval_hints)),
             retrieval_hints=list(candidate.retrieval_hints),
             created_by="session_state_extractor",
             source_session_id=session_id,
@@ -336,3 +359,59 @@ class MemoryExtractor:
             confidence=confidence,
             last_confirmed_at="",
         )
+
+    def _should_commit_candidate(self, candidate: DurableCandidate) -> bool:
+        statement = normalize_storage_text(candidate.canonical_statement or candidate.source_excerpt or candidate.title)
+        if not statement:
+            return False
+        lowered = statement.lower()
+        if any(marker in lowered for marker in self.SYNTHETIC_WRITE_MARKERS):
+            return False
+        if statement.endswith("?") or statement.endswith("？"):
+            return False
+        return True
+
+    def _extract_request_notes_from_state(
+        self,
+        session_id: str,
+        requests: list[str],
+    ) -> list[MemoryNote]:
+        extracted: list[MemoryNote] = []
+        for request in requests:
+            statement = normalize_storage_text(request)
+            if not statement or statement.endswith("?") or statement.endswith("？"):
+                continue
+            decision = evaluate_memory_write(statement)
+            if decision.action != "durable_fact" or not decision.memory_type or not decision.memory_class:
+                continue
+            title = self._make_title(statement)
+            summary = self._summarize(statement)
+            canonical_statement = self._canonical_statement(statement)
+            tags = self._merge_tags(self._tags(statement), decision.tags)
+            retrieval_hints = self._retrieval_hints(title, summary, tags)
+            source_excerpt = self._shorten_excerpt(statement, 160)
+            extracted.append(
+                MemoryNote(
+                    slug=self.memory_manager.slugify(title),
+                    title=title,
+                    summary=summary,
+                    canonical_statement=canonical_statement,
+                    body=self._build_body(
+                        canonical_statement=canonical_statement,
+                        reason=decision.reason,
+                        retrieval_hints=retrieval_hints,
+                        source_excerpt=source_excerpt,
+                    ),
+                    memory_type=decision.memory_type,
+                    memory_class=decision.memory_class,
+                    tags=tags,
+                    retrieval_hints=retrieval_hints,
+                    created_by="session_state_extractor",
+                    source_session_id=session_id,
+                    source_role="user",
+                    source_message_excerpt=source_excerpt,
+                    confidence=self._confidence_from_decision(decision.reason),
+                    last_confirmed_at="",
+                )
+            )
+        return extracted

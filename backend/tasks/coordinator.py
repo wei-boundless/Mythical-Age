@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 from agents import EXPLORER_AGENT, WORKER_AGENT
 from tasks.models import TaskRecord
@@ -56,11 +57,11 @@ class TaskCoordinator:
     async def run_query_tasks(
         self,
         session_id: str,
-        subqueries: list[str],
-        runner: Callable[[str], AsyncIterator[dict[str, object]]],
+        executions: list[Any],
+        runner: Callable[[Any], AsyncIterator[dict[str, object]]],
     ) -> AsyncIterator[dict[str, object]]:
-        results: list[tuple[str, str]] = []
-        for index, subquery in enumerate(subqueries, start=1):
+        for index, execution in enumerate(executions, start=1):
+            subquery = execution.message
             task = self._query_task(session_id, subquery, index)
             task.mark_running()
             task.add_event("subtask_start", payload={"index": index, "query": subquery})
@@ -68,7 +69,7 @@ class TaskCoordinator:
 
             final_subcontent = ""
             try:
-                async for event in runner(subquery):
+                async for event in runner(execution):
                     event_type = str(event.get("type", ""))
                     if event_type == "token":
                         continue
@@ -86,22 +87,24 @@ class TaskCoordinator:
                 raise
 
             task.mark_completed(final_subcontent)
-            task.add_event("subtask_end", payload={"index": index, "query": subquery})
-            results.append((subquery, final_subcontent))
-            yield {"type": "subtask_end", "index": index, "query": subquery}
-
-        sections = []
-        for index, (subquery, answer) in enumerate(results, start=1):
-            answer_text = answer.strip() or "未能生成结果。"
-            sections.append(f"{index}. {subquery}\n{answer_text}")
-        yield {"type": "done", "content": "\n\n".join(sections)}
+            task.add_event(
+                "subtask_end",
+                payload={"index": index, "query": subquery, "content": final_subcontent},
+            )
+            yield {
+                "type": "subtask_end",
+                "index": index,
+                "query": subquery,
+                "content": final_subcontent,
+                "task_id": task.task_id,
+            }
 
     async def run_tool_task(
         self,
         session_id: str,
         tool_name: str,
-        runner: Callable[[], Awaitable[str]],
-    ) -> str:
+        runner: Callable[[], Awaitable[Any]],
+    ) -> Any:
         task = self._tool_task(session_id, tool_name)
         task.mark_running()
         task.add_event("tool_task_start", payload={"tool_name": tool_name})
@@ -111,6 +114,6 @@ class TaskCoordinator:
             task.mark_failed(str(exc))
             task.add_event("tool_task_error", message=str(exc))
             raise
-        task.mark_completed(result)
+        task.mark_completed(str(result))
         task.add_event("tool_task_end", payload={"tool_name": tool_name})
         return result

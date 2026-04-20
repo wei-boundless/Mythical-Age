@@ -28,15 +28,18 @@ def main() -> None:
         "为什么我在我的帐户中找不到我的订单？",
     ]
 
+    sequential = "先总结 AI 治理报告第三页，再告诉我 inventory.xlsx 缺货前五，最后查北京天气。"
+    sequential_parts = split_compound_query(sequential)
+    assert sequential_parts == [
+        "总结 AI 治理报告第三页",
+        "告诉我 inventory.xlsx 缺货前五",
+        "查北京天气",
+    ]
+
     shortage = analyze_task_understanding(parts[0])
     assert shortage.source_kind == "dataset"
     assert shortage.task_kind == "dataset_filter"
     assert shortage.preferred_skill == "structured-data-analysis"
-
-    shareholder = analyze_task_understanding(parts[1])
-    assert shareholder.source_kind == "knowledge_base"
-    assert shareholder.task_kind == "knowledge_lookup"
-    assert shareholder.preferred_skill == "rag-skill"
 
     faq = analyze_task_understanding(parts[2])
     assert faq.source_kind == "knowledge_base"

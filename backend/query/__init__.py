@@ -1,4 +1,12 @@
-from query.models import QueryContext, QueryEvent, QueryPlan, QueryRequest, QueryResult
+from query.models import QueryContext, QueryEvent, QueryExecutionPlan, QueryPlan, QueryRequest, QueryResult
 from query.runtime import QueryRuntime
 
-__all__ = ["QueryContext", "QueryEvent", "QueryPlan", "QueryRequest", "QueryResult", "QueryRuntime"]
+__all__ = [
+    "QueryContext",
+    "QueryEvent",
+    "QueryExecutionPlan",
+    "QueryPlan",
+    "QueryRequest",
+    "QueryResult",
+    "QueryRuntime",
+]

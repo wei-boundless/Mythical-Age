@@ -51,7 +51,10 @@ class MemoryManager:
     @staticmethod
     def slugify(text: str) -> str:
         slug = re.sub(r"[^a-zA-Z0-9]+", "-", text.strip().lower()).strip("-")
-        return slug or "memory-note"
+        slug = slug or "memory-note"
+        if slug == "memory":
+            return "memory-note"
+        return slug
 
     def note_path(self, slug: str) -> Path:
         return self.root_dir / f"{slug}.md"

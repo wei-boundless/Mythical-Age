@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from understanding import MemoryIntent, QueryUnderstanding
 
@@ -23,6 +23,17 @@ class QueryRequest:
 
 
 @dataclass(slots=True)
+class QueryExecutionPlan:
+    message: str
+    history: list[dict[str, Any]]
+    memory_intent: MemoryIntent
+    query_understanding: QueryUnderstanding
+    active_skill: Any | None = None
+    tool_input: dict[str, Any] = field(default_factory=dict)
+    execution_kind: Literal["agent", "direct_tool"] = "agent"
+
+
+@dataclass(slots=True)
 class QueryPlan:
     session_id: str
     message: str
@@ -31,6 +42,24 @@ class QueryPlan:
     memory_intent: MemoryIntent
     query_understanding: QueryUnderstanding
     active_skill: Any | None = None
+    tool_input: dict[str, Any] = field(default_factory=dict)
+    execution_kind: Literal["agent", "direct_tool"] = "agent"
+    executions: list[QueryExecutionPlan] = field(default_factory=list)
+
+    def iter_executions(self) -> list[QueryExecutionPlan]:
+        if self.executions:
+            return list(self.executions)
+        return [
+            QueryExecutionPlan(
+                message=self.message,
+                history=list(self.history),
+                memory_intent=self.memory_intent,
+                query_understanding=self.query_understanding,
+                active_skill=self.active_skill,
+                tool_input=dict(self.tool_input or self.query_understanding.tool_input or {}),
+                execution_kind=self.execution_kind,
+            )
+        ]
 
 
 @dataclass(slots=True)

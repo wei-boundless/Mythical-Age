@@ -194,11 +194,17 @@ class TurnUnderstandingAnalyzer:
             and previous_state.flow_state.flow_type != "general_problem_solving_flow"
         ):
             inherited_flow = previous_state.flow_state.flow_type
+            inherited_target_object = understanding.target_object
+            if inherited_target_object is None and inherited_flow not in {
+                "general_problem_solving_flow",
+                "external_lookup_flow",
+            }:
+                inherited_target_object = previous_state.context_slots.active_entity or None
             understanding = TaskUnderstanding(
                 intent=understanding.intent,
                 source_kind=understanding.source_kind,
                 task_kind=understanding.task_kind,
-                target_object=understanding.target_object or previous_state.context_slots.active_entity or None,
+                target_object=inherited_target_object,
                 modality=understanding.modality,
                 route_hint=understanding.route_hint,
                 preferred_skill=understanding.preferred_skill,

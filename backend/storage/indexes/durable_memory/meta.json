@@ -1,8 +1,0 @@
-{
-  "digest": "4904fdbde57ae38759cb1864f2d34b0f",
-  "status": "ready",
-  "documents": 5,
-  "nodes": 5,
-  "collection": "durable_memory",
-  "vector_backend": "faiss"
-}

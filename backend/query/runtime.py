@@ -7,7 +7,7 @@ from typing import Any
 
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
-from query.models import QueryContext, QueryPlan, QueryRequest
+from query.models import QueryContext, QueryExecutionPlan, QueryPlan, QueryRequest
 from query.prompt_builder import build_system_prompt
 from query.planner import QueryPlanner
 from runtime.model_runtime import ModelRuntime, ModelRuntimeError, stringify_content
@@ -210,25 +210,36 @@ class QueryRuntime:
                 plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
         else:
             plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
+        executions = plan.iter_executions()
         if trace is not None:
             trace.annotate(
                 {
                     "app.route": plan.query_understanding.route,
                     "app.tool_name": plan.query_understanding.tool_name or "",
                     "app.skill_name": plan.query_understanding.skill_name or "",
-                    "app.subquery_count": len(plan.subqueries),
+                    "app.subquery_count": len(executions),
                 }
             )
-        if len(plan.subqueries) > 1:
+        if len(executions) > 1:
+            subtask_results: list[tuple[int, str, str]] = []
             async for event in self.task_coordinator.run_query_tasks(
                 session_id,
-                plan.subqueries,
-                lambda subquery: self._stream_single_execution(session_id, subquery, history, trace=trace),
+                executions,
+                lambda execution: self._stream_planned_execution(session_id, execution, trace=trace),
             ):
+                if event.get("type") == "subtask_end":
+                    subtask_results.append(
+                        (
+                            int(event.get("index", len(subtask_results) + 1) or len(subtask_results) + 1),
+                            str(event.get("query", "") or ""),
+                            str(event.get("content", "") or ""),
+                        )
+                    )
                 yield event
+            yield {"type": "done", "content": self._compose_subtask_results(subtask_results)}
             return
 
-        async for event in self._stream_single_execution(session_id, message, history, trace=trace):
+        async for event in self._stream_planned_execution(session_id, executions[0], trace=trace):
             yield event
 
     async def _stream_single_execution(
@@ -239,234 +250,219 @@ class QueryRuntime:
         *,
         trace=None,
     ):
-        if trace is not None:
-            with trace.stage(
-                "query.single_execution",
-                inputs={"message": message},
-                metadata={"session_id": session_id},
-            ):
-                plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
-        else:
-            plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
-        context = QueryContext(
-            session_id=session_id,
-            history=list(history),
-            augmented_history=list(history),
-        )
+        plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
+        executions = plan.iter_executions()
+        execution = executions[0]
+        async for event in self._stream_planned_execution(session_id, execution, trace=trace):
+            yield event
 
-        if trace is not None:
-            with trace.stage(
-                "query.context_compaction",
-                metadata={"history_length": len(context.augmented_history)},
-            ):
-                context.augmented_history, context.context_compaction = self.memory_facade.compact_history_for_query(
-                    session_id,
-                    context.augmented_history,
-                )
-        else:
-            context.augmented_history, context.context_compaction = self.memory_facade.compact_history_for_query(
-                session_id,
-                context.augmented_history,
-            )
-        yield {"type": "context_management", "context": context.context_compaction}
-
-        if plan.query_understanding.route == "tool" and plan.query_understanding.tool_name:
-            tool_input = self.planner.resolve_tool_input_from_history(plan, history)
-            decision = self.permission_service.can_invoke_tool(
-                plan.query_understanding.tool_name,
-                allowed_tools=getattr(plan.active_skill, "allowed_tools", None),
-                direct_route=True,
-                tool_input=tool_input,
-            )
-            if not decision.allowed:
-                yield {
-                    "type": "done",
-                    "content": f"无法调用工具 {plan.query_understanding.tool_name}：{decision.reason}",
-                }
-                return
-
-            tool = self.tool_runtime.get_instance(plan.query_understanding.tool_name)
-            if tool is not None:
-                if trace is not None:
-                    trace.annotate(
-                        {
-                            "app.route": "tool",
-                            "app.tool_name": plan.query_understanding.tool_name,
-                        }
-                    )
-                yield {"type": "tool_start", "tool": plan.query_understanding.tool_name, "input": tool_input}
-                if trace is not None:
-                    with trace.stage(
-                        "query.direct_tool",
-                        run_type="tool",
-                        inputs={"tool": plan.query_understanding.tool_name, "input": tool_input},
-                    ):
-                        output = await asyncio.to_thread(tool.invoke, tool_input)
-                else:
-                    output = await asyncio.to_thread(tool.invoke, tool_input)
-                tool_content = str(output)
-                yield {"type": "tool_end", "tool": plan.query_understanding.tool_name, "output": tool_content}
-                yield {"type": "done", "content": tool_content}
-                return
-
-        relevant_memory_task = asyncio.create_task(
-            asyncio.to_thread(
-                self.memory_facade.prefetch_relevant_notes,
-                message,
-                plan.memory_intent,
-                limit=3,
-            )
-        )
-
-        if (
-            self.settings_service.get_rag_mode()
-            and plan.query_understanding.route == "rag"
-            and not plan.memory_intent.should_skip_rag
-            and not plan.query_understanding.should_skip_rag
-        ):
-            if trace is not None:
-                with trace.stage(
-                    "query.retrieval",
-                    inputs={"query": message},
-                    metadata={"top_k": 5},
-                ):
-                    context.retrieval_results = self.retrieval_service.retrieve(message, top_k=5)
-            else:
-                context.retrieval_results = self.retrieval_service.retrieve(message, top_k=5)
-            yield {"type": "retrieval", "query": message, "results": context.retrieval_results}
-
-        try:
-            context.relevant_memory_notes = await relevant_memory_task
-        except Exception:
-            context.relevant_memory_notes = None
-
-        memory_trace = self.memory_facade.inspect_query_context(
-            session_id,
-            history=history,
-            pending_user_message=message,
-            memory_intent=plan.memory_intent,
-            relevant_notes=context.relevant_memory_notes,
-            context_compaction=context.context_compaction,
-            retrieval_results=context.retrieval_results,
-        )
-        yield {"type": "memory_context", "memory": memory_trace}
-
-        allowed_names = self._allowed_tool_names_for_plan(plan)
-        tools = [
-            tool
-            for tool in self.tool_runtime.instances
-            if getattr(tool, "name", "") in allowed_names
-        ]
-        system_prompt = self.build_system_prompt_for_session(
-            session_id,
-            history=history,
-            pending_user_message=message,
-            memory_intent=plan.memory_intent,
-            relevant_memory_notes=context.relevant_memory_notes,
-            active_skill=plan.active_skill,
-            retrieval_results=context.retrieval_results,
-        )
-        agent = self.model_runtime.create_conversation_agent(
-            system_prompt=system_prompt,
-            tools=tools,
-            agent_definition=MAIN_AGENT,
-        )
-        messages = self._build_agent_messages(context.augmented_history)
-        messages.append({"role": "user", "content": message})
-
-        final_content_parts: list[str] = []
-        last_ai_message = ""
-        pending_tools: dict[str, dict[str, str]] = {}
-        tool_step_count = 0
-
-        if trace is not None:
-            trace.annotate(
-                {
-                    "app.route": plan.query_understanding.route,
-                    "app.tool_count": len(tools),
-                }
-            )
-        stream_context = (
+    async def _stream_planned_execution(
+        self,
+        session_id: str,
+        execution: QueryExecutionPlan,
+        *,
+        trace=None,
+    ):
+        execution_stage = (
             trace.stage(
-                "query.model_stream",
-                metadata={
-                    "route": plan.query_understanding.route,
-                    "tool_count": len(tools),
-                },
+                "query.single_execution",
+                inputs={"message": execution.message},
+                metadata={"session_id": session_id},
             )
             if trace is not None
             else None
         )
-        if stream_context is not None:
-            stream_context.__enter__()
+        if execution_stage is not None:
+            execution_stage.__enter__()
         try:
-            async for mode, payload in agent.astream(
-                {"messages": messages},
-                stream_mode=["messages", "updates"],
+            context = QueryContext(
+                session_id=session_id,
+                history=list(execution.history),
+                augmented_history=list(execution.history),
+            )
+
+            if trace is not None:
+                with trace.stage(
+                    "query.context_compaction",
+                    metadata={"history_length": len(context.augmented_history)},
+                ):
+                    context.augmented_history, context.context_compaction = self.memory_facade.compact_history_for_query(
+                        session_id,
+                        context.augmented_history,
+                    )
+            else:
+                context.augmented_history, context.context_compaction = self.memory_facade.compact_history_for_query(
+                    session_id,
+                    context.augmented_history,
+                )
+            yield {"type": "context_management", "context": context.context_compaction}
+
+            if execution.execution_kind == "direct_tool" and execution.query_understanding.tool_name:
+                async for event in self._stream_direct_tool_execution(session_id, execution, trace=trace):
+                    yield event
+                return
+
+            relevant_memory_task = asyncio.create_task(
+                asyncio.to_thread(
+                    self.memory_facade.prefetch_relevant_notes,
+                    execution.message,
+                    execution.memory_intent,
+                    limit=3,
+                )
+            )
+
+            if (
+                self.settings_service.get_rag_mode()
+                and execution.query_understanding.route == "rag"
+                and not execution.memory_intent.should_skip_rag
+                and not execution.query_understanding.should_skip_rag
             ):
-                if mode == "messages":
-                    chunk, _metadata = payload
-                    text = stringify_content(getattr(chunk, "content", ""))
-                    if text:
-                        final_content_parts.append(text)
-                        yield {"type": "token", "content": text}
-                    continue
+                if trace is not None:
+                    with trace.stage(
+                        "query.retrieval",
+                        inputs={"query": execution.message},
+                        metadata={"top_k": 5},
+                    ):
+                        context.retrieval_results = self.retrieval_service.retrieve(execution.message, top_k=5)
+                else:
+                    context.retrieval_results = self.retrieval_service.retrieve(execution.message, top_k=5)
+                yield {"type": "retrieval", "query": execution.message, "results": context.retrieval_results}
 
-                if mode != "updates":
-                    continue
+            try:
+                context.relevant_memory_notes = await relevant_memory_task
+            except Exception:
+                context.relevant_memory_notes = None
 
-                for update in payload.values():
-                    for agent_message in update.get("messages", []):
-                        message_type = getattr(agent_message, "type", "")
-                        tool_calls = getattr(agent_message, "tool_calls", []) or []
+            memory_trace = self.memory_facade.inspect_query_context(
+                session_id,
+                history=execution.history,
+                pending_user_message=execution.message,
+                memory_intent=execution.memory_intent,
+                relevant_notes=context.relevant_memory_notes,
+                context_compaction=context.context_compaction,
+                retrieval_results=context.retrieval_results,
+            )
+            yield {"type": "memory_context", "memory": memory_trace}
 
-                        if message_type == "ai" and not tool_calls:
-                            candidate = stringify_content(getattr(agent_message, "content", ""))
-                            if candidate:
-                                last_ai_message = candidate
+            allowed_names = self._allowed_tool_names_for_execution(execution)
+            tools = [
+                tool
+                for tool in self.tool_runtime.instances
+                if getattr(tool, "name", "") in allowed_names
+            ]
+            system_prompt = self.build_system_prompt_for_session(
+                session_id,
+                history=execution.history,
+                pending_user_message=execution.message,
+                memory_intent=execution.memory_intent,
+                relevant_memory_notes=context.relevant_memory_notes,
+                active_skill=execution.active_skill,
+                retrieval_results=context.retrieval_results,
+            )
+            agent = self.model_runtime.create_conversation_agent(
+                system_prompt=system_prompt,
+                tools=tools,
+                agent_definition=MAIN_AGENT,
+            )
+            messages = self._build_agent_messages(context.augmented_history)
+            messages.append({"role": "user", "content": execution.message})
 
-                        if tool_calls:
-                            for tool_call in tool_calls:
-                                tool_step_count += 1
-                                if tool_step_count > self.max_tool_steps:
-                                    yield {"type": "done", "content": "调用工具失败"}
-                                    return
-                                call_id = str(tool_call.get("id") or tool_call.get("name"))
-                                tool_name = str(tool_call.get("name", "tool"))
-                                tool_args = tool_call.get("args", "")
-                                if not isinstance(tool_args, str):
-                                    tool_args = json.dumps(tool_args, ensure_ascii=False)
-                                pending_tools[call_id] = {
-                                    "tool": tool_name,
-                                    "input": str(tool_args),
-                                }
-                                yield {
-                                    "type": "tool_start",
-                                    "tool": tool_name,
-                                    "input": str(tool_args),
-                                }
+            final_content_parts: list[str] = []
+            last_ai_message = ""
+            pending_tools: dict[str, dict[str, str]] = {}
+            tool_step_count = 0
 
-                        if message_type == "tool":
-                            tool_call_id = str(getattr(agent_message, "tool_call_id", ""))
-                            pending = pending_tools.pop(
-                                tool_call_id,
-                                {"tool": getattr(agent_message, "name", "tool"), "input": ""},
-                            )
-                            output = stringify_content(getattr(agent_message, "content", ""))
-                            yield {
-                                "type": "tool_end",
-                                "tool": pending["tool"],
-                                "output": output,
-                            }
-                            yield {"type": "new_response"}
-        finally:
+            if trace is not None:
+                trace.annotate(
+                    {
+                        "app.route": execution.query_understanding.route,
+                        "app.tool_count": len(tools),
+                    }
+                )
+            stream_context = (
+                trace.stage(
+                    "query.model_stream",
+                    metadata={
+                        "route": execution.query_understanding.route,
+                        "tool_count": len(tools),
+                    },
+                )
+                if trace is not None
+                else None
+            )
             if stream_context is not None:
-                stream_context.__exit__(None, None, None)
+                stream_context.__enter__()
+            try:
+                async for mode, payload in agent.astream(
+                    {"messages": messages},
+                    stream_mode=["messages", "updates"],
+                ):
+                    if mode == "messages":
+                        chunk, _metadata = payload
+                        text = stringify_content(getattr(chunk, "content", ""))
+                        if text:
+                            final_content_parts.append(text)
+                            yield {"type": "token", "content": text}
+                        continue
 
-        final_content = "".join(final_content_parts).strip() or last_ai_message.strip()
-        if trace is not None:
-            trace.annotate({"app.answer_chars": len(final_content)})
-        yield {"type": "done", "content": final_content}
+                    if mode != "updates":
+                        continue
+
+                    for update in payload.values():
+                        for agent_message in update.get("messages", []):
+                            message_type = getattr(agent_message, "type", "")
+                            tool_calls = getattr(agent_message, "tool_calls", []) or []
+
+                            if message_type == "ai" and not tool_calls:
+                                candidate = stringify_content(getattr(agent_message, "content", ""))
+                                if candidate:
+                                    last_ai_message = candidate
+
+                            if tool_calls:
+                                for tool_call in tool_calls:
+                                    tool_step_count += 1
+                                    if tool_step_count > self.max_tool_steps:
+                                        yield {"type": "done", "content": "调用工具失败"}
+                                        return
+                                    call_id = str(tool_call.get("id") or tool_call.get("name"))
+                                    tool_name = str(tool_call.get("name", "tool"))
+                                    tool_args = tool_call.get("args", "")
+                                    if not isinstance(tool_args, str):
+                                        tool_args = json.dumps(tool_args, ensure_ascii=False)
+                                    pending_tools[call_id] = {
+                                        "tool": tool_name,
+                                        "input": str(tool_args),
+                                    }
+                                    yield {
+                                        "type": "tool_start",
+                                        "tool": tool_name,
+                                        "input": str(tool_args),
+                                    }
+
+                            if message_type == "tool":
+                                tool_call_id = str(getattr(agent_message, "tool_call_id", ""))
+                                pending = pending_tools.pop(
+                                    tool_call_id,
+                                    {"tool": getattr(agent_message, "name", "tool"), "input": ""},
+                                )
+                                output = stringify_content(getattr(agent_message, "content", ""))
+                                yield {
+                                    "type": "tool_end",
+                                    "tool": pending["tool"],
+                                    "output": output,
+                                }
+                                yield {"type": "new_response"}
+            finally:
+                if stream_context is not None:
+                    stream_context.__exit__(None, None, None)
+
+            final_content = "".join(final_content_parts).strip() or last_ai_message.strip()
+            if trace is not None:
+                trace.annotate({"app.answer_chars": len(final_content)})
+            yield {"type": "done", "content": final_content}
+        finally:
+            if execution_stage is not None:
+                execution_stage.__exit__(None, None, None)
 
     async def _run_post_turn_tasks(self, session_id: str, *, title_seed: str | None = None) -> None:
         try:
@@ -475,7 +471,7 @@ class QueryRuntime:
             logger.exception("Failed to refresh session memory for %s", session_id)
 
         try:
-            await asyncio.to_thread(self.extract_durable_memories, session_id)
+            await asyncio.to_thread(self.schedule_durable_memory_extraction, session_id)
         except Exception:
             logger.exception("Failed to extract durable memories for %s", session_id)
 
@@ -493,6 +489,10 @@ class QueryRuntime:
         return summary
 
     def extract_durable_memories(self, session_id: str) -> int:
+        messages = self.session_manager.load_session(session_id)
+        return self.memory_facade.commit_durable_memory_extraction(session_id, messages)
+
+    def schedule_durable_memory_extraction(self, session_id: str) -> int:
         messages = self.session_manager.load_session(session_id)
         return self.memory_facade.submit_durable_memory_extraction(session_id, messages)
 
@@ -515,23 +515,101 @@ class QueryRuntime:
         return {"content": "", "tool_calls": []}
 
     def _allowed_tool_names_for_plan(self, plan: QueryPlan) -> set[str]:
-        route = str(plan.query_understanding.route or "").strip()
-        skill_scope = list(getattr(plan.active_skill, "allowed_tools", None) or [])
+        return self._allowed_tool_names_for_execution(plan.iter_executions()[0])
+
+    def _allowed_tool_names_for_execution(self, execution: QueryExecutionPlan) -> set[str]:
+        route = str(execution.query_understanding.route or "").strip()
+        skill_scope = list(getattr(execution.active_skill, "allowed_tools", None) or [])
 
         if route in {"memory", "rag"}:
             return set()
 
         if route == "tool":
             requested: list[str] = []
-            if plan.query_understanding.tool_name:
-                requested.append(plan.query_understanding.tool_name)
-            elif getattr(plan.query_understanding, "candidate_tools", None):
-                requested.extend(list(plan.query_understanding.candidate_tools))
+            if execution.query_understanding.tool_name:
+                requested.append(execution.query_understanding.tool_name)
+            elif getattr(execution.query_understanding, "candidate_tools", None):
+                requested.extend(list(execution.query_understanding.candidate_tools))
             elif skill_scope:
                 requested.extend(skill_scope)
             return set(self.permission_service.allowed_tool_names(allowed_tools=requested))
 
         return set(self.permission_service.allowed_tool_names(allowed_tools=skill_scope or None))
+
+    async def _stream_direct_tool_execution(
+        self,
+        session_id: str,
+        execution: QueryExecutionPlan,
+        *,
+        trace=None,
+    ):
+        tool_name = str(execution.query_understanding.tool_name or "").strip()
+        tool_input = dict(execution.tool_input or execution.query_understanding.tool_input or {"query": execution.message})
+        decision = self.permission_service.can_invoke_tool(
+            tool_name,
+            allowed_tools=getattr(execution.active_skill, "allowed_tools", None),
+            direct_route=True,
+            tool_input=tool_input,
+        )
+        if not decision.allowed:
+            yield {
+                "type": "done",
+                "content": f"无法调用工具 {tool_name}：{decision.reason}",
+            }
+            return
+
+        tool = self.tool_runtime.get_instance(tool_name)
+        if tool is None:
+            yield {"type": "done", "content": f"工具 {tool_name} 当前不可用。"}
+            return
+
+        if trace is not None:
+            trace.annotate(
+                {
+                    "app.route": "tool",
+                    "app.tool_name": tool_name,
+                }
+            )
+
+        yield {"type": "tool_start", "tool": tool_name, "input": tool_input}
+
+        async def invoke_tool() -> Any:
+            if trace is not None:
+                with trace.stage(
+                    "query.direct_tool",
+                    run_type="tool",
+                    inputs={"tool": tool_name, "input": tool_input},
+                ):
+                    return await asyncio.to_thread(tool.invoke, tool_input)
+            return await asyncio.to_thread(tool.invoke, tool_input)
+
+        output = await self.task_coordinator.run_tool_task(session_id, tool_name, invoke_tool)
+        tool_content = self._normalize_direct_tool_output(output)
+        yield {"type": "tool_end", "tool": tool_name, "output": tool_content}
+        yield {"type": "done", "content": tool_content or f"{tool_name} 已执行，但未返回可展示结果。"}
+
+    def _normalize_direct_tool_output(self, output: Any) -> str:
+        if isinstance(output, str):
+            return output.strip()
+        if isinstance(output, dict):
+            for key in ("answer", "content", "summary", "result", "output", "text"):
+                value = output.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            return json.dumps(output, ensure_ascii=False, indent=2)
+        if isinstance(output, (list, tuple)):
+            if all(isinstance(item, str) for item in output):
+                return "\n".join(str(item).strip() for item in output if str(item).strip()).strip()
+            return json.dumps(list(output), ensure_ascii=False, indent=2)
+        normalized = stringify_content(output)
+        return normalized.strip() if isinstance(normalized, str) else str(output)
+
+    def _compose_subtask_results(self, results: list[tuple[int, str, str]]) -> str:
+        sections = []
+        for index, subquery, answer in results:
+            answer_text = answer.strip() or "未能生成结果。"
+            sections.append(f"{index}. {subquery}\n{answer_text}")
+        return "\n\n".join(sections)
 
     def _user_visible_error(self, exc: Exception) -> str:
         if isinstance(exc, ModelRuntimeError):

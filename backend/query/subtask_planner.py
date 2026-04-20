@@ -1,13 +1,6 @@
 from __future__ import annotations
 
-import re
-
 from understanding import QueryUnderstanding, split_compound_query
-
-
-RESOURCE_PATH_PATTERN = re.compile(
-    r"(?i)(?:^|[\s:：'\"“”‘’(（])(?:[A-Za-z]:[\\/]|\.{0,2}[\\/]|knowledge[\\/])[^\s]+?\.(pdf|xlsx|csv|json|md|txt)\b"
-)
 
 
 class QuerySubtaskPlanner:
@@ -15,14 +8,18 @@ class QuerySubtaskPlanner:
         normalized = (message or "").strip()
         if not normalized:
             return []
-        if not self._should_fan_out(normalized, understanding):
-            return [normalized]
         parts = split_compound_query(normalized)
-        return parts if len(parts) >= 2 else [normalized]
+        if not self._should_fan_out(understanding, parts):
+            return [normalized]
+        return parts
 
-    def _should_fan_out(self, message: str, understanding: QueryUnderstanding) -> bool:
-        if understanding.route in {"tool", "memory"}:
+    def _should_fan_out(
+        self,
+        understanding: QueryUnderstanding,
+        parts: list[str],
+    ) -> bool:
+        if len(parts) < 2:
             return False
-        if RESOURCE_PATH_PATTERN.search(message):
+        if understanding.route == "memory":
             return False
         return True

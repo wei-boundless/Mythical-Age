@@ -13,5 +13,7 @@ backend/storage/modality_artifacts/
 backend/storage/rag_index/
 backend/storage/knowledge/
 backend/storage/memory_index/
+backend/durable_memory/*.md
+!backend/durable_memory/SCHEMA.md
 *.pyc
 *.pyo

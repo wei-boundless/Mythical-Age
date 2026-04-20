@@ -4,6 +4,11 @@ import re
 
 
 SPLIT_DELIMITERS = ("/", "／", ";", "；", "\n")
+RESOURCE_PATH_PATTERN = re.compile(
+    r"(?i)(?:^|[\s:：'\"“”‘’(（])(?:[A-Za-z]:[\\/]|\.{0,2}[\\/]|knowledge[\\/])[^\r\n]+?\.(pdf|xlsx|csv|json|md|txt)\b"
+)
+SEQUENCE_MARKERS = ("最后再", "接下来", "然后", "接着", "随后", "最后", "再", "先")
+FOLLOWUP_SEQUENCE_MARKERS = ("最后再", "接下来", "然后", "接着", "随后", "最后", "再")
 INTRO_PREFIXES = (
     "帮我",
     "请",
@@ -26,6 +31,44 @@ QUERY_VERB_PREFIXES = (
     "说明",
     "解释",
 )
+SEQUENCE_ACTION_PREFIXES = (
+    "请",
+    "帮我",
+    "麻烦",
+    "给我",
+    "告诉我",
+    "把",
+    "查",
+    "查询",
+    "搜",
+    "搜索",
+    "总结",
+    "分析",
+    "说明",
+    "解释",
+    "统计",
+    "列出",
+    "汇总",
+    "切到",
+    "回到",
+    "打开",
+    "看",
+    "看看",
+    "读",
+    "读取",
+    "对比",
+    "展开",
+    "按",
+    "整理",
+)
+
+SEQUENCE_MARKER_PATTERN = re.compile(
+    r"(?:^|[，,；;\s])(?P<marker>"
+    + "|".join(re.escape(marker) for marker in SEQUENCE_MARKERS)
+    + r")(?P<tail>\s*(?:"
+    + "|".join(re.escape(prefix) for prefix in SEQUENCE_ACTION_PREFIXES)
+    + r"))"
+)
 
 
 def split_compound_query(message: str) -> list[str]:
@@ -40,6 +83,10 @@ def split_compound_query(message: str) -> list[str]:
     direct_split = _split_direct_compound_query(normalized)
     if direct_split:
         return direct_split
+
+    sequential_split = _split_sequential_query(normalized)
+    if sequential_split:
+        return sequential_split
 
     return [normalized]
 
@@ -59,6 +106,8 @@ def _split_bracketed_query(message: str) -> list[str] | None:
 
 def _split_direct_compound_query(message: str) -> list[str] | None:
     if not any(delimiter in message for delimiter in SPLIT_DELIMITERS):
+        return None
+    if "/" in message and RESOURCE_PATH_PATTERN.search(message):
         return None
 
     parts = _split_body(message)
@@ -101,3 +150,56 @@ def _strip_shared_intro(parts: list[str]) -> list[str]:
             return parts
         return [remainder, *parts[1:]]
     return parts
+
+
+def _split_sequential_query(message: str) -> list[str] | None:
+    matches = list(SEQUENCE_MARKER_PATTERN.finditer(message))
+    if not matches:
+        return None
+    if not any(match.group("marker") in FOLLOWUP_SEQUENCE_MARKERS for match in matches):
+        return None
+
+    boundaries = [0]
+    for match in matches:
+        marker_start = match.start("marker")
+        if marker_start > 0 and marker_start not in boundaries:
+            boundaries.append(marker_start)
+
+    if len(boundaries) < 2:
+        return None
+
+    boundaries.sort()
+    segments: list[str] = []
+    for index, start in enumerate(boundaries):
+        end = boundaries[index + 1] if index + 1 < len(boundaries) else len(message)
+        segment = _clean_sequence_segment(message[start:end])
+        if segment:
+            segments.append(segment)
+
+    return segments if len(segments) >= 2 else None
+
+
+def _clean_sequence_segment(segment: str) -> str:
+    cleaned = segment.strip(" \t\r\n，,。；;")
+    for starter in sorted(INTRO_PREFIXES, key=len, reverse=True):
+        if not cleaned.startswith(starter):
+            continue
+        remainder = cleaned[len(starter) :].strip()
+        if any(remainder.startswith(marker) for marker in SEQUENCE_MARKERS):
+            cleaned = remainder
+            break
+
+    for marker in SEQUENCE_MARKERS:
+        if not cleaned.startswith(marker):
+            continue
+        remainder = cleaned[len(marker) :].strip()
+        remainder = remainder.lstrip("：:，, ")
+        if _looks_like_sequential_action(remainder):
+            cleaned = remainder
+            break
+
+    return cleaned.strip(" \t\r\n，,。；;")
+
+
+def _looks_like_sequential_action(text: str) -> bool:
+    return any(text.startswith(prefix) for prefix in SEQUENCE_ACTION_PREFIXES)

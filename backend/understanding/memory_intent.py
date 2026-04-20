@@ -96,6 +96,51 @@ REFERENCE_HINTS = (
     "背景",
 )
 
+DURABLE_QUERY_PROFILES = (
+    {
+        "preferred_types": ["preference"],
+        "preferred_classes": ["preference"],
+        "entity_markers": PREFERENCE_HINTS,
+        "recall_markers": (
+            "怎么回答",
+            "回答方式",
+            "先给结论",
+            "第一句",
+            "answer style",
+            "reply style",
+            "conclusion first",
+        ),
+    },
+    {
+        "preferred_types": ["workflow"],
+        "preferred_classes": ["work"],
+        "entity_markers": WORKFLOW_HINTS,
+        "recall_markers": (
+            "默认用什么",
+            "应该用什么",
+            "用什么",
+            "什么命令",
+            "terminal syntax",
+            "by default",
+        ),
+    },
+    {
+        "preferred_types": ["project"],
+        "preferred_classes": ["work"],
+        "entity_markers": PROJECT_HINTS,
+        "recall_markers": (
+            "重点",
+            "主线",
+            "优先",
+            "方向",
+            "先做什么",
+            "priority",
+            "focus",
+            "direction",
+        ),
+    },
+)
+
 
 @dataclass(slots=True)
 class MemoryIntent:
@@ -110,6 +155,7 @@ class MemoryIntent:
 def analyze_memory_intent(message: str) -> MemoryIntent:
     normalized = (message or "").strip()
     lowered = normalized.lower()
+    query_profile = _match_durable_query_profile(lowered)
     is_question = normalized.endswith("?") or normalized.endswith("？") or any(
         lowered.startswith(prefix)
         for prefix in ("what ", "how ", "do you", "did you", "which ", "why ", "where ")
@@ -122,13 +168,19 @@ def analyze_memory_intent(message: str) -> MemoryIntent:
             should_skip_rag=True,
         )
 
-    if any(marker in lowered for marker in _lower_markers(DURABLE_READ_MARKERS)) or _looks_like_memory_read_query(normalized, lowered):
+    if (
+        any(marker in lowered for marker in _lower_markers(DURABLE_READ_MARKERS))
+        or query_profile is not None
+        or _looks_like_memory_read_query(normalized, lowered)
+    ):
+        preferred_types = query_profile[0] if query_profile is not None else _infer_preferred_types(normalized, lowered)
+        preferred_classes = query_profile[1] if query_profile is not None else _infer_preferred_classes(normalized, lowered)
         return MemoryIntent(
             intent="durable_memory_query",
             memory_read_mode="durable_exact",
             should_skip_rag=True,
-            preferred_types=_infer_preferred_types(normalized, lowered),
-            preferred_memory_classes=_infer_preferred_classes(normalized, lowered),
+            preferred_types=preferred_types,
+            preferred_memory_classes=preferred_classes,
         )
 
     if not is_question and any(marker in lowered for marker in _lower_markers(WRITE_MARKERS)):
@@ -175,14 +227,34 @@ def _infer_preferred_classes(message: str, lowered: str) -> list[str]:
 def _looks_like_memory_read_query(message: str, lowered: str) -> bool:
     patterns = (
         ("project", "focus"),
+        ("project", "priority"),
+        ("project", "direction"),
         ("terminal", "default"),
         ("answer", "style"),
         ("conclusion", "first"),
         ("偏好", "什么"),
         ("默认", "什么"),
         ("项目", "重点"),
+        ("项目", "主线"),
+        ("项目", "方向"),
+        ("主线", "什么"),
+        ("主线", "哪条"),
+        ("现阶段", "优先"),
+        ("现在", "优先"),
     )
     return any(left in lowered and right in lowered for left, right in patterns)
+
+
+def _match_durable_query_profile(lowered: str) -> tuple[list[str], list[str]] | None:
+    for profile in DURABLE_QUERY_PROFILES:
+        if _contains_any(lowered, profile["entity_markers"]) and _contains_any(lowered, profile["recall_markers"]):
+            return (list(profile["preferred_types"]), list(profile["preferred_classes"]))
+    return None
+
+
+def _contains_any(text: str, markers: tuple[str, ...] | list[str]) -> bool:
+    lowered_markers = _lower_markers(tuple(markers))
+    return any(marker in text for marker in lowered_markers)
 
 
 def _lower_markers(markers: tuple[str, ...]) -> tuple[str, ...]:

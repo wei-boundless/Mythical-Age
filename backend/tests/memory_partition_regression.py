@@ -64,6 +64,10 @@ def test_memory_intent_routing() -> None:
     _assert(work_intent.memory_read_mode == "durable_exact", "work query should use durable exact read mode")
     _assert(work_intent.preferred_memory_classes == ["work"], "work query should prefer work memory")
 
+    mainline_intent = analyze_memory_intent("我们项目现在优先做什么？")
+    _assert(mainline_intent.intent == "durable_memory_query", "mainline query should route to durable memory")
+    _assert(mainline_intent.preferred_types == ["project"], "mainline query should prefer project durable notes")
+
     pref_intent = analyze_memory_intent("你知道我喜欢你怎么回答吗？")
     _assert(pref_intent.intent == "durable_memory_query", "preference query should route to durable memory")
     _assert(pref_intent.preferred_memory_classes == ["preference"], "preference query should prefer preference memory")
@@ -237,6 +241,38 @@ def test_durable_extraction_prefers_session_state_candidates() -> None:
         )
 
 
+def test_explicit_durable_commit_filters_synthetic_state_noise_and_keeps_project_type() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        session_id = "session-state-commit"
+        messages = [
+            {"role": "user", "content": "记住：默认终端命令用 PowerShell。"},
+            {"role": "assistant", "content": "已写入长期记忆：`durable_memory/work/workflow/powershell-default.md`"},
+            {"role": "user", "content": "记住：我们项目当前主线是优化 Memory 和 RAG。"},
+            {"role": "assistant", "content": "已写入长期记忆：`durable_memory/work/project/memory-rag-mainline.md`"},
+            {"role": "user", "content": "以后终端命令默认用什么？"},
+        ]
+
+        facade.refresh_session_memory(session_id, messages)
+        saved = facade.commit_durable_memory_extraction(session_id, messages)
+        notes = facade.memory_manager.list_notes()
+
+        _assert(saved >= 2, "explicit durable commit should save session-state notes immediately")
+        _assert(
+            any(note.memory_type == "project" and "主线" in note.canonical_statement for note in notes),
+            "project mainline note should be committed as a project durable memory",
+        )
+        _assert(
+            all("已写入长期记忆" not in note.title for note in notes),
+            "synthetic assistant write receipts should not be committed as durable notes",
+        )
+        _assert(
+            all(not note.canonical_statement.endswith(("?", "？")) for note in notes),
+            "question-form state noise should not be committed as durable notes",
+        )
+
+
 def test_consolidation_report_keeps_partition_signal() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -274,6 +310,7 @@ def main() -> None:
         test_memory_manifest_exposes_note_health_metadata,
         test_archived_durable_notes_are_hidden_from_runtime_reads,
         test_durable_extraction_prefers_session_state_candidates,
+        test_explicit_durable_commit_filters_synthetic_state_noise_and_keeps_project_type,
         test_consolidation_report_keeps_partition_signal,
     ]
     for test in tests:

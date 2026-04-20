@@ -142,7 +142,7 @@ def _sync_memory(runtime, session_id: str, *, durable: bool = False) -> dict[str
     session_summary = runtime.memory_facade.refresh_session_memory(session_id, messages)
     durable_saved = 0
     if durable:
-        durable_saved = runtime.memory_facade.submit_durable_memory_extraction(session_id, messages)
+        durable_saved = runtime.memory_facade.commit_durable_memory_extraction(session_id, messages)
     return {
         "session_summary_chars": len(str(session_summary or "").strip()),
         "durable_saved": durable_saved,

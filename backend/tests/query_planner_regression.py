@@ -28,6 +28,9 @@ def main() -> None:
     assert pdf_plan.query_understanding.route == "tool"
     assert pdf_plan.query_understanding.tool_name == "pdf_analysis"
     assert pdf_plan.subqueries == ["请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，先给我全文总览。"]
+    assert len(pdf_plan.iter_executions()) == 1
+    assert pdf_plan.iter_executions()[0].execution_kind == "direct_tool"
+    assert pdf_plan.iter_executions()[0].tool_input["path"].endswith(".pdf")
 
     structured_plan = planner.build_plan(
         session_id="planner-regression",
@@ -43,12 +46,32 @@ def main() -> None:
         message="请查询哪些商品库存不足/三一重工前三大股东/为什么我在我的帐户中找不到我的订单？",
         history=[],
     )
-    assert compound_plan.query_understanding.route == "rag"
+    assert compound_plan.query_understanding.route == "compound"
+    assert compound_plan.query_understanding.tool_name is None
     assert compound_plan.subqueries == [
         "哪些商品库存不足",
         "三一重工前三大股东",
         "为什么我在我的帐户中找不到我的订单？",
     ]
+    assert [execution.message for execution in compound_plan.iter_executions()] == compound_plan.subqueries
+
+    sequential_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="先总结 AI 治理报告第三页，再告诉我 inventory.xlsx 缺货前五，最后查北京天气。",
+        history=[],
+    )
+    assert sequential_plan.query_understanding.route == "compound"
+    assert sequential_plan.query_understanding.tool_name is None
+    assert sequential_plan.subqueries == [
+        "总结 AI 治理报告第三页",
+        "告诉我 inventory.xlsx 缺货前五",
+        "查北京天气",
+    ]
+    sequential_executions = sequential_plan.iter_executions()
+    assert len(sequential_executions) == 3
+    assert sequential_executions[0].query_understanding.tool_name == "pdf_analysis"
+    assert sequential_executions[1].query_understanding.tool_name == "structured_data_analysis"
+    assert sequential_executions[2].query_understanding.tool_name == "get_weather"
 
     history = [
         {"role": "user", "content": "请帮我详细解读 AI治理报告.pdf"},
@@ -69,6 +92,7 @@ def main() -> None:
     assert followup_plan.query_understanding.route == "tool"
     assert followup_plan.query_understanding.tool_name == "pdf_analysis"
     assert followup_plan.query_understanding.tool_input["mode"] == "browse"
+    assert followup_plan.iter_executions()[0].tool_input["mode"] == "browse"
     assert followup_plan.subqueries == ["回到刚才 PDF，第二部分的结论是什么？"]
 
     summary_history = [

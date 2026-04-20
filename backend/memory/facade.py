@@ -139,6 +139,14 @@ class MemoryFacade:
         py_messages = self.adapter.to_messages(messages, session_id=session_id)
         return self.durable_memory.extract_durable_memories(py_messages)
 
+    def commit_durable_memory_extraction(
+        self,
+        session_id: str,
+        messages: list[dict[str, Any]],
+    ) -> int:
+        py_messages = self.adapter.to_messages(messages, session_id=session_id)
+        return self.durable_memory.extract_durable_memories(py_messages)
+
     def submit_durable_memory_extraction(
         self,
         session_id: str,
