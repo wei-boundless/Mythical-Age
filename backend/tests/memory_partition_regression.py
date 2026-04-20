@@ -35,24 +35,13 @@ def _save_seed_notes(root: Path) -> MemoryManager:
     )
     manager.save_note(
         MemoryNote(
-            slug="powershell-rule",
-            title="终端命令优先使用 PowerShell 语法",
-            summary="当前环境下默认使用 PowerShell 风格命令。",
-            body="在终端操作中，优先使用 PowerShell 风格命令，例如 Get-ChildItem、Get-Content、Select-String。",
-            memory_type="workflow",
-            memory_class="work",
-            tags=["workflow", "terminal", "powershell"],
-        )
-    )
-    manager.save_note(
-        MemoryNote(
             slug="answer-style",
             title="用户偏好先讲结论",
             summary="复杂问题先讲结论再展开。",
             body="当问题较复杂时，先给结论，再给展开说明，避免一开始铺得太长。",
-            memory_type="preference",
+            memory_type="user",
             memory_class="preference",
-            tags=["preference", "style"],
+            tags=["user-preference", "style"],
         )
     )
     return manager
@@ -77,12 +66,11 @@ def test_memory_policy_partitioning() -> None:
     pref = evaluate_memory_write("记住我以后喜欢你先讲结论。")
     _assert(pref.action == "durable_fact", "stable preference should be durable")
     _assert(pref.memory_class == "preference", "stable preference should map to preference")
-    _assert(pref.memory_type == "preference", "stable preference should map to preference type")
+    _assert(pref.memory_type == "user", "stable preference should map to user durable type")
 
     work = evaluate_memory_write("记住我们以后所有终端命令优先用 PowerShell。")
-    _assert(work.action == "durable_fact", "workflow convention should be durable")
-    _assert(work.memory_class == "work", "workflow convention should map to work")
-    _assert(work.memory_type == "workflow", "workflow convention should map to workflow type")
+    _assert(work.action == "ignore", "workflow convention should stay out of dynamic durable memory")
+    _assert(work.reason == "static_profile_rule", "workflow convention should be treated as a static profile rule")
 
     emotion = evaluate_memory_write("我今天很难过。")
     _assert(emotion.action == "session_only", "transient emotion should remain session-only")
@@ -103,7 +91,7 @@ def test_extractor_uses_policy_classes() -> None:
         classes = {note.memory_class for note in saved}
 
         _assert("preference" in classes, "extractor should save a preference note")
-        _assert("work" in classes, "extractor should save a work note")
+        _assert("work" not in classes, "static profile rules should not be saved into dynamic durable memory")
         _assert(
             all(note.created_by == "memory_extractor" for note in saved),
             "extractor-created durable notes should record their creation source",
@@ -163,10 +151,41 @@ def test_persistent_memory_block_combines_exact_and_relevant_without_duplication
         block = facade.build_persistent_memory_block(query=query, memory_intent=intent, relevant_notes=relevant)
 
         _assert("## Exact Durable Memory Matches" in block, "block should contain exact matches section")
-        _assert("## Relevant Durable Memories" in block, "block should contain relevant memory section")
-        _assert("Schema: durable-memory.v2" in block, "block should expose durable schema version")
+        _assert("Kind: work / project" in block, "block should expose semantic durable type metadata")
         _assert("Canonical:" in block, "block should expose canonical statement metadata")
         _assert(block.count("### 项目当前重点是优化 Memory 和 RAG") == 1, "exact match should not be duplicated in the relevant section")
+
+
+def test_persistent_memory_block_hides_internal_storage_paths() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        facade.memory_manager.save_note(
+            MemoryNote(
+                slug="powershell-terminal-preference",
+                title="终端命令优先使用 PowerShell 语法",
+                summary="默认终端命令使用 PowerShell 语法。",
+                canonical_statement="默认终端命令使用 PowerShell 语法。",
+                body=(
+                    "## Canonical Memory\n默认终端命令使用 PowerShell 语法。\n\n"
+                    "## Source Evidence\n已写入长期记忆：`durable_memory/work/workflow/powershell-terminal-preference.md`"
+                ),
+                memory_type="project",
+                memory_class="work",
+                tags=["workflow", "powershell"],
+                retrieval_hints=["PowerShell", "terminal"],
+                source_message_excerpt="已写入长期记忆：`durable_memory/work/workflow/powershell-terminal-preference.md`",
+            )
+        )
+
+        query = "默认终端命令应该用什么？"
+        intent = analyze_memory_intent(query)
+        relevant = facade.prefetch_relevant_notes(query, intent, limit=2)
+        block = facade.build_persistent_memory_block(query=query, memory_intent=intent, relevant_notes=relevant)
+
+        _assert("PowerShell" in block, "block should preserve user-facing semantic content")
+        _assert("durable_memory/" not in block, "block should not expose internal durable storage paths")
+        _assert(".md" not in block, "block should not expose note filenames")
 
 
 def test_memory_manifest_exposes_note_health_metadata() -> None:
@@ -175,7 +194,7 @@ def test_memory_manifest_exposes_note_health_metadata() -> None:
         manager = _save_seed_notes(root)
         manifest = manager.build_manifest(limit=5)
 
-        _assert("[work/project]" in manifest or "[work/workflow]" in manifest, "manifest should still expose note partitioning")
+        _assert("[work/project]" in manifest, "manifest should still expose note partitioning")
         _assert("[medium/active]" in manifest, "manifest should include confidence and status metadata for durable notes")
 
 
@@ -190,7 +209,7 @@ def test_archived_durable_notes_are_hidden_from_runtime_reads() -> None:
                 summary="Prefer PowerShell in terminal commands.",
                 canonical_statement="Prefer PowerShell in terminal commands.",
                 body="## Canonical Memory\nPrefer PowerShell in terminal commands.",
-                memory_type="workflow",
+                memory_type="project",
                 memory_class="work",
                 tags=["workflow", "powershell"],
                 retrieval_hints=["PowerShell", "terminal"],
@@ -204,7 +223,7 @@ def test_archived_durable_notes_are_hidden_from_runtime_reads() -> None:
                 summary="Prefer bash in terminal commands.",
                 canonical_statement="Prefer bash in terminal commands.",
                 body="## Canonical Memory\nPrefer bash in terminal commands.",
-                memory_type="workflow",
+                memory_type="project",
                 memory_class="work",
                 tags=["workflow", "bash"],
                 retrieval_hints=["bash", "terminal"],
@@ -258,10 +277,14 @@ def test_explicit_durable_commit_filters_synthetic_state_noise_and_keeps_project
         saved = facade.commit_durable_memory_extraction(session_id, messages)
         notes = facade.memory_manager.list_notes()
 
-        _assert(saved >= 2, "explicit durable commit should save session-state notes immediately")
+        _assert(saved >= 1, "explicit durable commit should save session-state notes immediately")
         _assert(
             any(note.memory_type == "project" and "主线" in note.canonical_statement for note in notes),
             "project mainline note should be committed as a project durable memory",
+        )
+        _assert(
+            all("PowerShell" not in note.canonical_statement for note in notes),
+            "static profile rules should not be promoted into dynamic durable memory",
         )
         _assert(
             all("已写入长期记忆" not in note.title for note in notes),
@@ -270,6 +293,93 @@ def test_explicit_durable_commit_filters_synthetic_state_noise_and_keeps_project
         _assert(
             all(not note.canonical_statement.endswith(("?", "？")) for note in notes),
             "question-form state noise should not be committed as durable notes",
+        )
+
+
+def test_runtime_reads_hide_assistant_generated_memory_receipts() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        facade.memory_manager.save_note(
+            MemoryNote(
+                slug="assistant-receipt",
+                title="已写入长期记忆：`durable_memory/work/workflow/powershell-default.md`",
+                summary="已写入长期记忆：`durable_memory/work/workflow/powershell-default.md`",
+                canonical_statement="已写入长期记忆：`durable_memory/work/workflow/powershell-default.md`",
+                body="## Canonical Memory\n已写入长期记忆：`durable_memory/work/workflow/powershell-default.md`",
+                memory_type="project",
+                memory_class="work",
+                tags=["workflow", "powershell"],
+                retrieval_hints=["workflow", "powershell"],
+                created_by="session_state_extractor",
+                source_role="assistant",
+                source_message_excerpt="已写入长期记忆：`durable_memory/work/workflow/powershell-default.md`",
+                confidence="high",
+            )
+        )
+        facade.memory_manager.save_note(
+            MemoryNote(
+                slug="powershell-terminal-preference",
+                title="终端命令优先使用 PowerShell 语法",
+                summary="默认终端命令使用 PowerShell 语法。",
+                canonical_statement="默认终端命令使用 PowerShell 语法。",
+                body="## Canonical Memory\n默认终端命令使用 PowerShell 语法。",
+                memory_type="project",
+                memory_class="work",
+                tags=["workflow", "powershell"],
+                retrieval_hints=["PowerShell", "terminal"],
+                created_by="manual",
+                source_role="user",
+                source_message_excerpt="默认终端命令使用 PowerShell 语法。",
+                confidence="high",
+            )
+        )
+
+        query = "默认终端命令应该用什么？"
+        intent = analyze_memory_intent(query)
+        exact_matches = facade.durable_memory.find_exact_matches(query, intent, note_limit=3)
+        relevant_notes = facade.prefetch_relevant_notes(query, intent, limit=3)
+
+        _assert(exact_matches, "exact runtime lookup should still return the valid workflow note")
+        _assert(
+            exact_matches[0].filename == "powershell-terminal-preference.md",
+            "assistant receipt should not outrank the valid workflow note",
+        )
+        _assert(
+            all(match.filename != "assistant-receipt.md" for match in exact_matches),
+            "assistant receipt should be hidden from exact runtime lookup",
+        )
+        _assert(
+            all(note.filename != "assistant-receipt.md" for note in relevant_notes),
+            "assistant receipt should be hidden from relevant runtime lookup",
+        )
+
+
+def test_explicit_durable_commit_ignores_assistant_acknowledgement_notes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        session_id = "assistant-ack-commit"
+        messages = [
+            {"role": "user", "content": "记住：以后复杂问题先给结论。"},
+            {
+                "role": "assistant",
+                "content": "收到，岩。 **结论：** 已记住，以后复杂问题我会先给结论，再展开说明。",
+            },
+        ]
+
+        facade.refresh_session_memory(session_id, messages)
+        facade.commit_durable_memory_extraction(session_id, messages)
+        notes = facade.memory_manager.list_notes()
+
+        _assert(notes, "user durable preference should still be committed")
+        _assert(
+            all(note.source_role != "assistant" for note in notes),
+            "assistant acknowledgement notes should not be committed into durable memory",
+        )
+        _assert(
+            all("收到，岩" not in note.title for note in notes),
+            "assistant acknowledgement wording should not survive as a durable note title",
         )
 
 
@@ -283,14 +393,14 @@ def test_consolidation_report_keeps_partition_signal() -> None:
                 title="用户偏好先讲结论",
                 summary="复杂问题先讲结论再展开。",
                 body="当问题较复杂时，先给结论，再给展开说明，避免一开始铺得太长。",
-                memory_type="preference",
+                memory_type="user",
                 memory_class="preference",
-                tags=["preference", "style"],
+                tags=["user-preference", "style"],
             )
         )
         report = DurableMemoryConsolidator(root / "durable_memory").run()
 
-        _assert(report.class_counts.get("work") == 2, "report should count work notes correctly")
+        _assert(report.class_counts.get("work") == 1, "report should count work notes correctly")
         _assert(report.class_counts.get("preference") == 2, "report should count preference notes correctly")
         _assert(report.duplicate_candidates, "report should find duplicate candidates")
         _assert(report.merge_candidates, "report should generate merge candidates")
@@ -307,10 +417,13 @@ def main() -> None:
         test_extractor_uses_policy_classes,
         test_prefetch_respects_partitions,
         test_persistent_memory_block_combines_exact_and_relevant_without_duplication,
+        test_persistent_memory_block_hides_internal_storage_paths,
         test_memory_manifest_exposes_note_health_metadata,
         test_archived_durable_notes_are_hidden_from_runtime_reads,
         test_durable_extraction_prefers_session_state_candidates,
         test_explicit_durable_commit_filters_synthetic_state_noise_and_keeps_project_type,
+        test_runtime_reads_hide_assistant_generated_memory_receipts,
+        test_explicit_durable_commit_ignores_assistant_acknowledgement_notes,
         test_consolidation_report_keeps_partition_signal,
     ]
     for test in tests:

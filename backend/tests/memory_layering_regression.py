@@ -27,12 +27,12 @@ def test_memory_collections_keep_session_and_durable_layers_separate() -> None:
         session = collections["session_memory"]
 
         _assert(
-            durable.source_dirs == (root / "durable_memory",),
-            "durable collection should only index durable memory sources",
+            durable.source_dirs == (root / "durable_memory" / "notes", root / "durable_memory" / "index"),
+            "durable collection should only index durable note and index sources",
         )
         _assert(
-            durable.allowed_roots == (root / "durable_memory",),
-            "durable collection should only allow durable memory roots",
+            durable.allowed_roots == (root / "durable_memory" / "notes", root / "durable_memory" / "index"),
+            "durable collection should only allow durable note and index roots",
         )
         _assert(
             session.source_dirs == (root / "session-memory",),
@@ -59,7 +59,8 @@ def test_memory_indexer_repairs_manifest_and_excludes_session_sources() -> None:
                 tags=["memory", "durable"],
             )
         )
-        (root / "durable_memory" / "MEMORY.md").write_text(
+        (root / "durable_memory" / "index").mkdir(parents=True, exist_ok=True)
+        (root / "durable_memory" / "index" / "MEMORY.md").write_text(
             "# Memory Index\n\n"
             "- [Ghost](ghost-note.md) - stale index entry\n"
             "- [Keep Note](keep-note.md) - Canonical durable memory note.\n",
@@ -85,11 +86,11 @@ def test_memory_indexer_repairs_manifest_and_excludes_session_sources() -> None:
         indexed_sources = set(index_audit["indexed_sources"])
 
         _assert(
-            "durable_memory/keep-note.md" in indexed_sources,
+            "durable_memory/notes/keep-note.md" in indexed_sources,
             "memory indexer should still index canonical durable note files",
         )
         _assert(
-            "durable_memory/MEMORY.md" in indexed_sources,
+            "durable_memory/index/MEMORY.md" in indexed_sources,
             "memory indexer should include the repaired durable manifest",
         )
         _assert(

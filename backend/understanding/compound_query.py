@@ -60,6 +60,10 @@ SEQUENCE_ACTION_PREFIXES = (
     "展开",
     "按",
     "整理",
+    "补",
+    "补上",
+    "加",
+    "加上",
 )
 
 SEQUENCE_MARKER_PATTERN = re.compile(
@@ -76,19 +80,39 @@ def split_compound_query(message: str) -> list[str]:
     if not normalized:
         return []
 
-    bracket_split = _split_bracketed_query(normalized)
+    primary_split = _resolve_primary_split(normalized)
+    return _flatten_atomic_subtasks(primary_split)
+
+
+def _resolve_primary_split(message: str) -> list[str]:
+    bracket_split = _split_bracketed_query(message)
     if bracket_split:
         return bracket_split
 
-    direct_split = _split_direct_compound_query(normalized)
+    direct_split = _split_direct_compound_query(message)
     if direct_split:
         return direct_split
 
-    sequential_split = _split_sequential_query(normalized)
+    sequential_split = _split_sequential_query(message)
     if sequential_split:
         return sequential_split
 
-    return [normalized]
+    return [message]
+
+
+def _flatten_atomic_subtasks(parts: list[str]) -> list[str]:
+    queue = [part.strip() for part in parts if part and part.strip()]
+    flattened: list[str] = []
+
+    while queue:
+        current = queue.pop(0)
+        nested = _split_sequential_query(current)
+        if nested and len(nested) >= 2:
+            queue = nested + queue
+            continue
+        flattened.append(current)
+
+    return flattened
 
 
 def _split_bracketed_query(message: str) -> list[str] | None:

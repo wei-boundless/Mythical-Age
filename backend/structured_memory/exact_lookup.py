@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
+from memory_layout import DurableMemoryLayout
+
 from .frontmatter import parse_frontmatter
+from .note_hygiene import is_runtime_noise_note
 from .text_utils import repair_mojibake
 
 STOP_TERMS = {
@@ -59,11 +62,19 @@ def find_exact_memory_matches(
     if not query_terms:
         return []
 
+    note_root = DurableMemoryLayout(memory_root).notes_dir
     matches: list[ExactMemoryMatch] = []
-    for path in sorted(memory_root.glob("*.md")):
-        if path.name == "MEMORY.md":
-            continue
+    for path in sorted(note_root.glob("*.md")):
         note = _load_note(path)
+        if is_runtime_noise_note(
+            source_role=str(note.get("source_role", "")),
+            created_by=str(note.get("created_by", "")),
+            title=str(note.get("title", "")),
+            summary=str(note.get("summary", "")),
+            canonical_statement=str(note.get("canonical_statement", "")),
+            source_message_excerpt=str(note.get("source_message_excerpt", "")),
+        ):
+            continue
         score = _score_note(note, query_terms, preferred_types or [])
         if score <= 0:
             continue
@@ -109,6 +120,7 @@ def _load_note(path: Path) -> dict[str, str | list[str]]:
             "tags": _parse_tags(frontmatter.get("tags", "")),
             "retrieval_hints": _parse_tags(frontmatter.get("retrieval_hints", "")),
             "created_by": repair_mojibake(frontmatter.get("created_by", "")),
+            "source_role": repair_mojibake(frontmatter.get("source_role", "user")),
             "source_message_excerpt": repair_mojibake(frontmatter.get("source_message_excerpt", "")),
             "confidence": repair_mojibake(frontmatter.get("confidence", "medium")),
             "status": repair_mojibake(frontmatter.get("status", "active")),
@@ -119,35 +131,72 @@ def _load_note(path: Path) -> dict[str, str | list[str]]:
     memory_type = "project"
     memory_class = _default_memory_class(memory_type)
     summary = ""
+    title = path.stem.replace("-", " ")
+    canonical_statement = ""
+    retrieval_hints: list[str] = []
+    confidence = "medium"
+    status = "active"
+    source_role = "user"
+    source_message_excerpt = ""
     body_lines: list[str] = []
+    in_metadata_block = False
     for line in lines:
         lowered = line.lower()
-        if lowered.startswith("type:"):
-            memory_type = line.split(":", 1)[1].strip() or "project"
+        metadata_line = line[2:].strip() if line.startswith("- ") else line
+        metadata_lowered = metadata_line.lower()
+        if line.startswith("# "):
+            title = line[2:].strip() or title
+            continue
+        if lowered.startswith("## metadata"):
+            in_metadata_block = True
+            continue
+        if lowered.startswith("## canonical memory"):
+            in_metadata_block = False
+            continue
+        if metadata_lowered.startswith("type:"):
+            memory_type = metadata_line.split(":", 1)[1].strip() or "project"
             memory_class = _default_memory_class(memory_type)
             continue
-        if lowered.startswith("memory_class:"):
-            memory_class = line.split(":", 1)[1].strip() or _default_memory_class(memory_type)
+        if metadata_lowered.startswith("memory class:") or metadata_lowered.startswith("memory_class:"):
+            memory_class = metadata_line.split(":", 1)[1].strip() or _default_memory_class(memory_type)
             continue
-        if lowered.startswith("summary:"):
-            summary = line.split(":", 1)[1].strip()
+        if metadata_lowered.startswith("summary:"):
+            summary = metadata_line.split(":", 1)[1].strip()
+            continue
+        if metadata_lowered.startswith("retrieval hints:") or metadata_lowered.startswith("retrieval_hints:"):
+            retrieval_hints = _parse_tags(metadata_line.split(":", 1)[1].strip())
+            continue
+        if metadata_lowered.startswith("confidence:"):
+            confidence = metadata_line.split(":", 1)[1].strip() or "medium"
+            continue
+        if metadata_lowered.startswith("status:"):
+            status = metadata_line.split(":", 1)[1].strip() or "active"
+            continue
+        if metadata_lowered.startswith("source role:") or metadata_lowered.startswith("source_role:"):
+            source_role = metadata_line.split(":", 1)[1].strip() or "user"
+            continue
+        if metadata_lowered.startswith("source message excerpt:") or metadata_lowered.startswith("source_message_excerpt:"):
+            source_message_excerpt = metadata_line.split(":", 1)[1].strip()
+            continue
+        if in_metadata_block and line.startswith("- "):
             continue
         body_lines.append(line)
 
     return {
         "filename": path.name,
         "schema_version": "durable-memory.v2",
-        "title": repair_mojibake(path.stem.replace("-", " ")),
+        "title": repair_mojibake(title),
         "summary": repair_mojibake(summary),
-        "canonical_statement": repair_mojibake(summary),
+        "canonical_statement": repair_mojibake(canonical_statement or summary),
         "memory_type": memory_type,
         "memory_class": memory_class,
         "tags": [],
-        "retrieval_hints": [],
+        "retrieval_hints": retrieval_hints,
         "created_by": "",
-        "source_message_excerpt": "",
-        "confidence": "medium",
-        "status": "active",
+        "source_role": source_role,
+        "source_message_excerpt": source_message_excerpt,
+        "confidence": confidence,
+        "status": status,
         "body": repair_mojibake("\n".join(body_lines).strip()),
     }
 

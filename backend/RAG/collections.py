@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from memory_layout import DurableMemoryLayout
+
 
 @dataclass(frozen=True, slots=True)
 class CollectionConfig:
@@ -20,7 +22,7 @@ def build_default_collections(base_dir: Path) -> dict[str, CollectionConfig]:
     indexes_dir = base_dir / "storage" / "indexes"
     knowledge_dir = base_dir / "knowledge"
     benchmark_dir = base_dir / "knowledge-benchmark"
-    durable_memory_dir = base_dir / "durable_memory"
+    durable_memory_layout = DurableMemoryLayout(base_dir / "durable_memory")
     session_memory_dir = base_dir / "session-memory"
 
     collections = {
@@ -53,13 +55,13 @@ def build_default_collections(base_dir: Path) -> dict[str, CollectionConfig]:
         ),
         "durable_memory": CollectionConfig(
             name="durable_memory",
-            source_dirs=(durable_memory_dir,),
+            source_dirs=(durable_memory_layout.notes_dir, durable_memory_layout.index_dir),
             storage_dir=indexes_dir / "durable_memory",
             description="Durable long-term memory documents only.",
             weight=1.2,
-            allowed_roots=(durable_memory_dir,),
+            allowed_roots=(durable_memory_layout.notes_dir, durable_memory_layout.index_dir),
             allow_chat_queries=True,
-            file_extensions=(".md", ".txt", ".json"),
+            file_extensions=(".md", ".txt"),
         ),
         "session_memory": CollectionConfig(
             name="session_memory",

@@ -13,6 +13,7 @@ from llama_index.core import Document, Settings as LlamaSettings, StorageContext
 from llama_index.core.node_parser import SentenceSplitter
 
 from config import get_settings
+from memory_layout import DurableMemoryLayout
 from RAG.faiss_store import FaissIndexStore
 from embedding_compat import build_embedding_model
 from structured_memory import MemoryManager
@@ -51,7 +52,7 @@ class MemoryIndexer:
     def _memory_path(self) -> Path:
         if self.base_dir is None:
             raise RuntimeError("MemoryIndexer is not configured")
-        return self.base_dir / "durable_memory" / "MEMORY.md"
+        return DurableMemoryLayout(self.base_dir / "durable_memory").index_path
 
     @property
     def _durable_memory_dir(self) -> Path:
@@ -374,7 +375,7 @@ class MemoryIndexer:
                     {
                         "text": hit.text,
                         "score": float(hit.score),
-                        "source": hit.source or "durable_memory/MEMORY.md",
+                        "source": hit.source or "durable_memory/index/MEMORY.md",
                     }
                     for hit in hits
                 ]
@@ -391,7 +392,7 @@ class MemoryIndexer:
                     {
                         "text": text,
                         "score": float(getattr(item, "score", 0.0) or 0.0),
-                        "source": node.metadata.get("source", "durable_memory/MEMORY.md"),
+                        "source": node.metadata.get("source", "durable_memory/index/MEMORY.md"),
                     }
                 )
             return payload

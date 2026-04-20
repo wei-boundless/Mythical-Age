@@ -5,10 +5,15 @@ from .memory_manager import MemoryManager
 from .models import Message
 from .session_memory import SessionMemoryManager
 from .team_memory import TeamMemoryManager
+from query.long_term_context import build_long_term_context_bundle
 
 
 class PromptBuilder:
-    """Builds prompt sections from durable memory and session memory."""
+    """Demo-only prompt assembler for the standalone structured-memory example.
+
+    The application runtime owns prompt assembly on the main path. This adapter
+    remains only for the minimal demo agent in this package.
+    """
 
     def __init__(
         self,
@@ -28,10 +33,23 @@ class PromptBuilder:
         include_note_bodies: bool = True,
         note_limit: int = 5,
     ) -> str:
-        sections = [base_system_prompt.strip(), "", "## Persistent Memory"]
+        del include_note_bodies
+        del note_limit
 
-        index_text = self.memory_manager.load_index().strip()
-        sections.extend([index_text, "", "## Session Memory", self.session_memory_manager.load().strip()])
+        sections = [base_system_prompt.strip()]
+
+        long_term_context = build_long_term_context_bundle(self.memory_manager.root_dir.parent)
+        static_context = long_term_context.render(
+            truncate=lambda text, _limit: text,
+            limit=100_000,
+            include_memory_block=True,
+        ).strip()
+        if static_context:
+            sections.extend(["", static_context])
+
+        session_memory = self.session_memory_manager.load().strip()
+        if session_memory:
+            sections.extend(["", "## Session Memory", session_memory])
 
         if self.team_memory_manager is not None:
             sections.extend(
@@ -41,21 +59,6 @@ class PromptBuilder:
                     self.team_memory_manager.load_index().strip(),
                 ]
             )
-
-        if include_note_bodies:
-            notes = self.memory_manager.load_relevant_notes(limit=note_limit)
-            if notes:
-                sections.extend(["", "## Loaded Memory Notes"])
-                for note in notes:
-                    sections.extend(
-                        [
-                            "",
-                            f"### {note.filename}",
-                            f"Title: {note.title}",
-                            f"Type: {note.memory_type}",
-                            note.content.strip(),
-                        ]
-                    )
 
         return "\n".join(sections).strip() + "\n"
 

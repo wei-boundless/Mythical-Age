@@ -36,6 +36,14 @@ def main() -> None:
         "查北京天气",
     ]
 
+    nested_sequential = "先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。"
+    nested_parts = split_compound_query(nested_sequential)
+    assert nested_parts == [
+        "总结 PDF 第三页",
+        "给我 inventory.xlsx 最缺货的前三个仓库",
+        "补一句北京天气",
+    ]
+
     shortage = analyze_task_understanding(parts[0])
     assert shortage.source_kind == "dataset"
     assert shortage.task_kind == "dataset_filter"

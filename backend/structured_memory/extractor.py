@@ -6,6 +6,7 @@ from .dialogue_state import DialogueStateManager
 from .durable_candidates import DurableCandidate, evaluate_durable_candidate
 from .memory_manager import MemoryManager
 from .models import MemoryNote, Message
+from .note_hygiene import is_runtime_noise_note, looks_like_synthetic_memory_text
 from .text_utils import normalize_storage_text
 
 
@@ -47,67 +48,44 @@ class MemoryExtractor:
         "\u89c4\u8303",
         "\u4ee5\u540e\u6309\u8fd9\u4e2a",
     )
-    SYNTHETIC_WRITE_MARKERS = (
-        "已写入长期记忆",
-        "写入长期记忆",
-        "已存在长期记忆中",
-        "正在写入记忆文件",
-        "saved to durable memory",
-        "stored in durable memory",
-        "write to durable memory",
-    )
-
     def __init__(self, memory_manager: MemoryManager) -> None:
         self.memory_manager = memory_manager
 
     def extract(self, messages: list[Message]) -> list[MemoryNote]:
         session_id = self._session_id_from_messages(messages)
+        extracted: list[MemoryNote] = []
         if session_id:
             state_notes = self._extract_from_session_state(session_id)
             if state_notes:
-                return self._dedupe(state_notes)
+                extracted.extend(state_notes)
 
-        extracted: list[MemoryNote] = []
         for msg in messages[-20:]:
             if msg.role != "user":
                 continue
             content = normalize_storage_text(msg.content)
             lowered = content.lower()
             decision = evaluate_memory_write(content)
-            if decision.action != "durable_fact":
+            if (
+                decision.action != "durable_fact"
+                or decision.memory_type is None
+                or decision.memory_class is None
+            ):
                 continue
             if not any(trigger in lowered for trigger in self.TRIGGERS) and decision.reason != "memory_policy_feedback":
                 continue
-            title = self._make_title(content)
-            summary = self._summarize(content)
-            canonical_statement = self._canonical_statement(content)
-            tags = self._merge_tags(self._tags(content), decision.tags)
-            retrieval_hints = self._retrieval_hints(title, summary, tags)
-            source_excerpt = self._shorten_excerpt(content, 160)
-            slug = self.memory_manager.slugify(title)
-            note = MemoryNote(
-                slug=slug,
-                title=title,
-                summary=summary,
-                canonical_statement=canonical_statement,
-                body=self._build_body(
-                    canonical_statement=canonical_statement,
+            extracted.append(
+                self._note_from_statement(
+                    content,
+                    created_by="memory_extractor",
+                    source_session_id=str(msg.meta.get("session_id", "") or ""),
+                    source_role=msg.role,
                     reason=decision.reason,
-                    retrieval_hints=retrieval_hints,
-                    source_excerpt=source_excerpt,
-                ),
-                memory_type=self._classify(content, decision.memory_type),
-                memory_class=self._classify_memory_class(content, decision),
-                tags=tags,
-                retrieval_hints=retrieval_hints,
-                created_by="memory_extractor",
-                source_session_id=str(msg.meta.get("session_id", "") or ""),
-                source_role=msg.role,
-                source_message_excerpt=source_excerpt,
-                confidence=self._confidence_from_decision(decision.reason),
-                last_confirmed_at="",
+                    memory_type=decision.memory_type,
+                    memory_class=decision.memory_class,
+                    extra_tags=decision.tags,
+                    confidence=self._confidence_from_decision(decision.reason),
+                )
             )
-            extracted.append(note)
         return self._dedupe(extracted)
 
     def save_extracted(self, messages: list[Message]) -> list[MemoryNote]:
@@ -140,65 +118,6 @@ class MemoryExtractor:
     def _summarize(self, text: str) -> str:
         compact = " ".join(text.strip().split())
         return compact[:100] + ("..." if len(compact) > 100 else "")
-
-    def _classify(self, text: str, forced_type: str | None = None) -> str:
-        if forced_type:
-            return forced_type
-        lowered = text.lower()
-        if any(
-            token in lowered
-            for token in (
-                "prefer",
-                "always",
-                "never",
-                "\u8bb0\u4f4f",
-                "\u6211\u559c\u6b22",
-                "\u6211\u6700\u559c\u6b22",
-                "\u6211\u66f4\u559c\u6b22",
-                "\u504f\u597d",
-                "\u4e60\u60ef",
-                "\u9ed8\u8ba4\u7528",
-            )
-        ):
-            return "preference"
-        if any(
-            token in lowered
-            for token in (
-                "project",
-                "repo",
-                "codebase",
-                "\u9879\u76ee",
-                "\u4ee3\u7801\u5e93",
-                "\u4ed3\u5e93",
-                "\u5de5\u7a0b",
-            )
-        ):
-            return "project"
-        if any(
-            token in lowered
-            for token in (
-                "workflow",
-                "process",
-                "step",
-                "\u5de5\u4f5c\u6d41",
-                "\u6d41\u7a0b",
-                "\u6b65\u9aa4",
-                "\u4ee5\u540e\u6309\u8fd9\u4e2a",
-                "\u89c4\u8303",
-                "\u7ea6\u5b9a",
-            )
-        ):
-            return "workflow"
-        return "user"
-
-    def _classify_memory_class(self, text: str, decision: object) -> str:
-        explicit_class = getattr(decision, "memory_class", None)
-        if explicit_class in {"work", "preference"}:
-            return explicit_class
-        memory_type = self._classify(text, getattr(decision, "memory_type", None))
-        if memory_type in {"user", "preference"}:
-            return "preference"
-        return "work"
 
     def _merge_tags(self, primary: list[str], extra: list[str]) -> list[str]:
         merged: list[str] = []
@@ -241,8 +160,10 @@ class MemoryExtractor:
         source_excerpt: str,
     ) -> str:
         reason_label = {
-            "stable_work_convention": "Stable work convention",
             "stable_user_preference": "Stable user preference",
+            "stable_feedback": "Stable feedback",
+            "stable_project_fact": "Stable project fact",
+            "stable_reference_pointer": "Stable reference pointer",
             "memory_policy_feedback": "Memory policy feedback",
         }.get(reason, "Durable memory candidate")
         lines = [
@@ -287,8 +208,10 @@ class MemoryExtractor:
 
     def _confidence_from_decision(self, reason: str) -> str:
         mapping = {
-            "stable_work_convention": "high",
             "stable_user_preference": "high",
+            "stable_feedback": "high",
+            "stable_project_fact": "high",
+            "stable_reference_pointer": "medium",
             "memory_policy_feedback": "medium",
         }
         return mapping.get(reason, "medium")
@@ -364,10 +287,18 @@ class MemoryExtractor:
         statement = normalize_storage_text(candidate.canonical_statement or candidate.source_excerpt or candidate.title)
         if not statement:
             return False
-        lowered = statement.lower()
-        if any(marker in lowered for marker in self.SYNTHETIC_WRITE_MARKERS):
+        if looks_like_synthetic_memory_text(statement):
             return False
         if statement.endswith("?") or statement.endswith("？"):
+            return False
+        if is_runtime_noise_note(
+            source_role=candidate.source_role,
+            created_by="session_state_extractor",
+            title=candidate.title,
+            summary=candidate.summary,
+            canonical_statement=candidate.canonical_statement,
+            source_message_excerpt=candidate.source_excerpt,
+        ):
             return False
         return True
 
@@ -384,34 +315,59 @@ class MemoryExtractor:
             decision = evaluate_memory_write(statement)
             if decision.action != "durable_fact" or not decision.memory_type or not decision.memory_class:
                 continue
-            title = self._make_title(statement)
-            summary = self._summarize(statement)
-            canonical_statement = self._canonical_statement(statement)
-            tags = self._merge_tags(self._tags(statement), decision.tags)
-            retrieval_hints = self._retrieval_hints(title, summary, tags)
-            source_excerpt = self._shorten_excerpt(statement, 160)
             extracted.append(
-                MemoryNote(
-                    slug=self.memory_manager.slugify(title),
-                    title=title,
-                    summary=summary,
-                    canonical_statement=canonical_statement,
-                    body=self._build_body(
-                        canonical_statement=canonical_statement,
-                        reason=decision.reason,
-                        retrieval_hints=retrieval_hints,
-                        source_excerpt=source_excerpt,
-                    ),
-                    memory_type=decision.memory_type,
-                    memory_class=decision.memory_class,
-                    tags=tags,
-                    retrieval_hints=retrieval_hints,
+                self._note_from_statement(
+                    statement,
                     created_by="session_state_extractor",
                     source_session_id=session_id,
                     source_role="user",
-                    source_message_excerpt=source_excerpt,
+                    reason=decision.reason,
+                    memory_type=decision.memory_type,
+                    memory_class=decision.memory_class,
+                    extra_tags=decision.tags,
                     confidence=self._confidence_from_decision(decision.reason),
-                    last_confirmed_at="",
                 )
             )
         return extracted
+
+    def _note_from_statement(
+        self,
+        statement: str,
+        *,
+        created_by: str,
+        source_session_id: str,
+        source_role: str,
+        reason: str,
+        memory_type: str,
+        memory_class: str,
+        extra_tags: list[str],
+        confidence: str,
+    ) -> MemoryNote:
+        title = self._make_title(statement)
+        summary = self._summarize(statement)
+        canonical_statement = self._canonical_statement(statement)
+        tags = self._merge_tags(self._tags(statement), extra_tags)
+        retrieval_hints = self._retrieval_hints(title, summary, tags)
+        source_excerpt = self._shorten_excerpt(statement, 160)
+        return MemoryNote(
+            slug=self.memory_manager.slugify(title),
+            title=title,
+            summary=summary,
+            canonical_statement=canonical_statement,
+            body=self._build_body(
+                canonical_statement=canonical_statement,
+                reason=reason,
+                retrieval_hints=retrieval_hints,
+                source_excerpt=source_excerpt,
+            ),
+            memory_type=memory_type,
+            memory_class=memory_class,
+            tags=tags,
+            retrieval_hints=retrieval_hints,
+            created_by=created_by,
+            source_session_id=source_session_id,
+            source_role=source_role,
+            source_message_excerpt=source_excerpt,
+            confidence=confidence,
+            last_confirmed_at="",
+        )

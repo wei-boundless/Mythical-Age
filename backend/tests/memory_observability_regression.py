@@ -39,9 +39,9 @@ def main() -> None:
                 title="用户偏好先讲结论",
                 summary="回答复杂问题时先讲结论再展开。",
                 body="当问题较复杂时，先给结论，再给展开说明。",
-                memory_type="preference",
+                memory_type="user",
                 memory_class="preference",
-                tags=["preference", "style"],
+                tags=["user-preference", "style"],
             )
         )
 

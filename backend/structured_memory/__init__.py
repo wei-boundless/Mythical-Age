@@ -51,7 +51,6 @@ __all__ = [
     "ProcessState",
     "ProcessStateEngine",
     "ProcessStateManager",
-    "PromptBuilder",
     "ReconciledTurnUnderstanding",
     "ReconciliationDecision",
     "SessionMemoryManager",
@@ -72,8 +71,4 @@ def __getattr__(name: str):
             "CompactResult": CompactResult,
             "ContextCompactor": ContextCompactor,
         }[name]
-    if name == "PromptBuilder":
-        from .prompt_builder import PromptBuilder
-
-        return PromptBuilder
     raise AttributeError(f"module 'structured_memory' has no attribute {name!r}")

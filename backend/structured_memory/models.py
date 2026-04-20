@@ -7,7 +7,7 @@ from typing import Any, Literal
 from .frontmatter import format_frontmatter
 from .text_utils import normalize_storage_text
 
-MemoryType = Literal["user", "preference", "project", "workflow", "reference"]
+MemoryType = Literal["user", "feedback", "project", "reference"]
 MemoryClass = Literal["work", "preference"]
 MessageRole = Literal["system", "user", "assistant", "tool"]
 DEFAULT_DURABLE_SCHEMA_VERSION = "durable-memory.v2"

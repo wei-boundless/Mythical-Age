@@ -106,17 +106,17 @@ class SessionMemoryManager:
     def describe_storage(self) -> dict[str, object]:
         return {
             "primary_state_path": str(self.state_manager.process_state_path),
-            "compatibility_state_path": str(self.state_manager.compatibility_state_path),
+            "state_mirror_path": str(self.state_manager.state_mirror_path),
             "flow_snapshot_path": str(self.flow_snapshot_manager.snapshot_path),
             "primary_view_path": str(self.agent_view_path),
             "primary_compaction_view_path": str(self.compaction_view_path),
-            "compatibility_view_path": str(self.summary_path),
+            "view_mirror_path": str(self.summary_path),
             "primary_state_exists": self.state_manager.process_state_path.exists(),
-            "compatibility_state_exists": self.state_manager.compatibility_state_path.exists(),
+            "state_mirror_exists": self.state_manager.state_mirror_path.exists(),
             "flow_snapshot_exists": self.flow_snapshot_manager.snapshot_path.exists(),
             "primary_view_exists": self.agent_view_path.exists(),
             "primary_compaction_view_exists": self.compaction_view_path.exists(),
-            "compatibility_view_exists": self.summary_path.exists(),
+            "view_mirror_exists": self.summary_path.exists(),
         }
 
     def _ensure_view_files(self) -> None:

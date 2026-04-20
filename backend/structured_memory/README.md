@@ -2,12 +2,11 @@
 
 This is a minimal Python implementation of the memory pattern used in this repo:
 
-- durable memory stored as markdown files
-- `MEMORY.md` as the memory index
+- durable memory stored as markdown files under `durable_memory/notes/`
+- `durable_memory/index/MEMORY.md` as the memory index
 - frontmatter-backed topic files
 - per-session `process_state.json` runtime state
 - per-session `views/agent_view.md` working-memory view
-- `summary.md` as a compatibility mirror
 - session-memory-driven context compaction
 - prompt injection from both durable and session memory
 - post-turn memory extraction
@@ -53,7 +52,6 @@ conversation state. The Python port now mirrors that at a minimal level:
 
 - `process_state.json` acts as the runtime authority for the current session
 - `views/agent_view.md` acts as the primary rendered working-memory view
-- `summary.md` remains as a compatibility mirror during migration
 - when the message list grows beyond a threshold, `ContextCompactor` replaces
   older history with one synthetic summary message
 - the recent window is preserved verbatim
@@ -76,8 +74,12 @@ your-agent/
       USER.md
       AGENTS.md
   durable_memory/
-    MEMORY.md
-    *.md
+    notes/
+      *.md
+    index/
+      MEMORY.md
+    meta/
+      SCHEMA.md
     team/
       MEMORY.md
       *.md

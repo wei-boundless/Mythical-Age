@@ -36,7 +36,7 @@ ENGLISH_PREFERENCE_MARKERS = (
     "give the conclusion first",
     "then explain",
 )
-ENGLISH_WORKFLOW_MARKERS = (
+ENGLISH_CONVENTION_MARKERS = (
     "powershell",
     "workflow",
     "convention",
@@ -88,7 +88,7 @@ class ProcessStateEngine:
             decision=decision,
         )
         file_hints = self._extract_file_hints(projected_messages)
-        workflow_hints = self._extract_workflow_hints(projected_messages)
+        convention_hints = self._extract_convention_hints(projected_messages)
         decision_items = self._extract_decisions(projected_assistant_messages)
         result_items = self._extract_results(projected_assistant_messages)
         request_items = self._extract_user_requests(snapshot.turn_trace, max_items=max_items)
@@ -141,7 +141,7 @@ class ProcessStateEngine:
             previous_state=previous_state,
             task_switch=task_switch,
             file_hints=file_hints,
-            workflow_hints=workflow_hints,
+            convention_hints=convention_hints,
             turn_trace=snapshot.turn_trace,
         )
         context_slots = self._apply_reconciliation_to_context_slots(
@@ -186,7 +186,7 @@ class ProcessStateEngine:
             warm_context=warm_context,
             key_user_requests=request_items,
             files_and_functions=self._dedupe_items(file_hints, max_items=max_items),
-            workflow_and_constraints=self._dedupe_items(workflow_hints, max_items=max_items),
+            conventions_and_constraints=self._dedupe_items(convention_hints, max_items=max_items),
             errors_and_corrections=errors_and_corrections,
             decisions_and_learnings=self._dedupe_items(decision_items, max_items=max_items),
             key_results=self._dedupe_items(result_items, max_items=max_items),
@@ -195,7 +195,7 @@ class ProcessStateEngine:
             next_step=self._dedupe_items(next_steps, max_items=max_items),
             durable_candidates=self._build_durable_candidates(
                 turn_trace=snapshot.turn_trace,
-                workflow_items=workflow_hints,
+                convention_items=convention_hints,
                 decision_items=decision_items,
                 request_items=request_items,
                 max_items=max_items,
@@ -489,7 +489,7 @@ class ProcessStateEngine:
         previous_state: DialogueState,
         task_switch: bool,
         file_hints: list[str],
-        workflow_hints: list[str],
+        convention_hints: list[str],
         turn_trace: list[TurnUnderstanding],
     ) -> ContextSlots:
         pdf_files = [item for item in file_hints if item.lower().endswith(".pdf")]
@@ -512,7 +512,7 @@ class ProcessStateEngine:
             previous_state,
             task_switch=task_switch,
         )
-        active_rule = self._extract_constraint_slot(turn_trace, workflow_hints, previous_state, task_switch=task_switch)
+        active_rule = self._extract_constraint_slot(turn_trace, convention_hints, previous_state, task_switch=task_switch)
 
         return ContextSlots(
             active_pdf=active_pdf,
@@ -595,7 +595,7 @@ class ProcessStateEngine:
         self,
         *,
         turn_trace: list[TurnUnderstanding],
-        workflow_items: list[str],
+        convention_items: list[str],
         decision_items: list[str],
         request_items: list[str],
         max_items: int,
@@ -617,7 +617,7 @@ class ProcessStateEngine:
                         title=self._shorten(turn.excerpt, 40),
                         canonical_statement=turn.excerpt,
                         summary=self._shorten(turn.excerpt, 80),
-                        memory_type="preference",
+                        memory_type="user",
                         memory_class="preference",
                         confidence="medium",
                         rationale="User preference or stable session-level constraint detected.",
@@ -627,23 +627,23 @@ class ProcessStateEngine:
                     )
                 )
 
-        for item in workflow_items:
+        for item in convention_items:
             lowered = item.lower()
             if any(
                 marker in lowered
-                for marker in ("powershell", "workflow", "流程", "约定", "规范", "默认", *ENGLISH_WORKFLOW_MARKERS)
+                for marker in ("powershell", "workflow", "流程", "约定", "规范", "默认", *ENGLISH_CONVENTION_MARKERS)
             ):
                 candidates.append(
                     DurableCandidate(
-                        candidate_id=f"workflow:{item[:40]}",
-                        source_kind="workflow_rule",
+                        candidate_id=f"convention:{item[:40]}",
+                        source_kind="session_convention",
                         title=self._shorten(item, 40),
                         canonical_statement=item,
                         summary=self._shorten(item, 80),
-                        memory_type="workflow",
+                        memory_type="project",
                         memory_class="work",
                         confidence="medium",
-                        rationale="Stable workflow or operating convention surfaced from session constraints.",
+                        rationale="Stable operating convention surfaced from session constraints.",
                         source_role="assistant",
                         source_excerpt=item,
                         retrieval_hints=self._candidate_hints(item),
@@ -659,7 +659,7 @@ class ProcessStateEngine:
                 candidates.append(
                     DurableCandidate(
                         candidate_id=f"decision:{item[:40]}",
-                        source_kind="decision",
+                        source_kind="project_decision",
                         title=self._shorten(item, 40),
                         canonical_statement=item,
                         summary=self._shorten(item, 80),
@@ -682,7 +682,7 @@ class ProcessStateEngine:
                 candidates.append(
                     DurableCandidate(
                         candidate_id=f"request:{item[:40]}",
-                        source_kind="project_rule",
+                        source_kind="user_request",
                         title=self._shorten(item, 40),
                         canonical_statement=item,
                         summary=self._shorten(item, 80),
@@ -804,7 +804,7 @@ class ProcessStateEngine:
     def _extract_constraint_slot(
         self,
         turn_trace: list[TurnUnderstanding],
-        workflow_hints: list[str],
+        convention_hints: list[str],
         previous_state: DialogueState,
         *,
         task_switch: bool,
@@ -819,18 +819,18 @@ class ProcessStateEngine:
         )
         if latest_constraint:
             return self._shorten(latest_constraint, 120)
-        workflow_hint = next(
+        convention_hint = next(
             (
                 item
-                for item in reversed(workflow_hints)
+                for item in reversed(convention_hints)
                 if "powershell" in item.lower()
                 or any(marker in item for marker in ("默认", "优先", "规范", "约定"))
-                or any(marker in item.lower() for marker in ENGLISH_PREFERENCE_MARKERS + ENGLISH_WORKFLOW_MARKERS)
+                or any(marker in item.lower() for marker in ENGLISH_PREFERENCE_MARKERS + ENGLISH_CONVENTION_MARKERS)
             ),
             "",
         )
-        if workflow_hint:
-            return self._shorten(workflow_hint, 120)
+        if convention_hint:
+            return self._shorten(convention_hint, 120)
         if not task_switch:
             return previous_state.context_slots.active_rule
         return ""
@@ -842,7 +842,7 @@ class ProcessStateEngine:
                 hints.append(found.group(0))
         return list(dict.fromkeys(hints))
 
-    def _extract_workflow_hints(self, messages: list[Message]) -> list[str]:
+    def _extract_convention_hints(self, messages: list[Message]) -> list[str]:
         hints: list[str] = []
         for msg in messages[-20:]:
             for line in msg.content.splitlines():
@@ -852,7 +852,7 @@ class ProcessStateEngine:
                     hints.append(stripped)
                 if any(
                     marker in lowered
-                    for marker in ("powershell", "默认", "优先", "工作流", "规范", "约定", "流程", *ENGLISH_WORKFLOW_MARKERS, *ENGLISH_PREFERENCE_MARKERS)
+                    for marker in ("powershell", "默认", "优先", "工作流", "规范", "约定", "流程", *ENGLISH_CONVENTION_MARKERS, *ENGLISH_PREFERENCE_MARKERS)
                 ):
                     hints.append(stripped)
         return list(dict.fromkeys(hints))

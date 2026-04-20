@@ -33,3 +33,46 @@ def test_long_scenario_sets_point_to_known_ids() -> None:
     for scenario_ids in SCENARIO_SETS.values():
         for scenario_id in scenario_ids:
             assert scenario_id in scenarios
+
+
+def test_long_scenarios_are_rebuilt_around_batches_and_a_sixty_turn_marathon() -> None:
+    by_id = scenario_map()
+
+    assert "research-brief-and-document-resume" in by_id
+    assert "commerce-ops-data-live-switch" in by_id
+    assert "memory-preference-and-cross-session-recall" in by_id
+    assert "compound-task-decomposition-and-focus-return" in by_id
+    assert "permission-boundary-and-safe-fallback" in by_id
+    assert "multi-session-workbench-isolation" in by_id
+    assert "sixty-turn-real-user-marathon" in by_id
+
+    assert len(by_id["sixty-turn-real-user-marathon"].turns) >= 60
+    assert "mega" in SCENARIO_SETS
+    assert SCENARIO_SETS["mega"] == ("sixty-turn-real-user-marathon",)
+    assert "batches" in SCENARIO_SETS
+
+
+def test_long_scenarios_collectively_cover_runtime_capabilities() -> None:
+    covered: set[str] = set()
+    for scenario in SCENARIOS:
+        covered.update(scenario.coverage)
+
+    expected = {
+        "chat",
+        "rag",
+        "pdf_followup",
+        "structured_followup",
+        "tool_route",
+        "topic_switch",
+        "session_memory",
+        "durable_memory",
+        "memory_boundary",
+        "permissions",
+        "tasks",
+        "settings",
+        "sse",
+        "context_compaction",
+        "session_isolation",
+        "stress",
+    }
+    assert expected.issubset(covered)

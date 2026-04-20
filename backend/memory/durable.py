@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any, Callable
 
 from structured_memory import (
@@ -49,40 +50,7 @@ class DurableMemoryLayer:
         if exact_matches:
             sections.append("## Exact Durable Memory Matches")
             for match in exact_matches:
-                sections.extend(
-                    [
-                        "",
-                        f"### {match.title}",
-                        f"Schema: {getattr(match, 'schema_version', 'durable-memory.v2')}",
-                        f"Memory Class: {match.memory_class}",
-                        f"Type: {match.memory_type}",
-                    ]
-                )
-                if match.summary:
-                    sections.append(f"Summary: {match.summary}")
-                if getattr(match, "canonical_statement", ""):
-                    sections.append(f"Canonical: {getattr(match, 'canonical_statement', '')}")
-                if match.tags:
-                    sections.append(f"Tags: {', '.join(match.tags)}")
-                if getattr(match, "retrieval_hints", []):
-                    sections.append(f"Retrieval Hints: {', '.join(getattr(match, 'retrieval_hints', []))}")
-                if getattr(match, "confidence", ""):
-                    sections.append(f"Confidence: {getattr(match, 'confidence', '')}")
-                if getattr(match, "created_by", ""):
-                    sections.append(f"Created By: {getattr(match, 'created_by', '')}")
-                if getattr(match, "source_message_excerpt", ""):
-                    sections.append(f"Source: {getattr(match, 'source_message_excerpt', '')}")
-                sections.append(match.body.strip())
-
-        index_text = self.memory_manager.load_index().strip()
-        if index_text:
-            if sections:
-                sections.append("")
-            sections.extend(["## Persistent Memory Index", index_text])
-
-        manifest = self.memory_manager.build_manifest(limit=note_limit).strip()
-        if manifest:
-            sections.extend(["", "## Persistent Memory Manifest", manifest])
+                sections.extend(["", *self._render_note_for_model(match)])
 
         exact_filenames = {match.filename for match in exact_matches}
         surfaced_relevant_notes = [
@@ -94,69 +62,92 @@ class DurableMemoryLayer:
             sections.append("")
             sections.append("## Relevant Durable Memories")
             for note in surfaced_relevant_notes:
-                sections.extend(
-                    [
-                        "",
-                        f"### {note.title}",
-                        f"Schema: {getattr(note, 'schema_version', 'durable-memory.v2')}",
-                        f"Memory Class: {note.memory_class}",
-                        f"Type: {note.memory_type}",
-                    ]
-                )
-                if note.summary:
-                    sections.append(f"Summary: {note.summary}")
-                if getattr(note, "canonical_statement", ""):
-                    sections.append(f"Canonical: {getattr(note, 'canonical_statement', '')}")
-                if getattr(note, "retrieval_hints", []):
-                    sections.append(f"Retrieval Hints: {', '.join(getattr(note, 'retrieval_hints', []))}")
-                if getattr(note, "confidence", ""):
-                    sections.append(f"Confidence: {getattr(note, 'confidence', '')}")
-                if getattr(note, "created_by", ""):
-                    sections.append(f"Created By: {getattr(note, 'created_by', '')}")
-                if getattr(note, "source_message_excerpt", ""):
-                    sections.append(f"Source: {getattr(note, 'source_message_excerpt', '')}")
-                sections.append(note.content.strip())
+                sections.extend(["", *self._render_note_for_model(note)])
 
-        if exact_matches:
-            notes = [self.memory_manager.load_note(Path(match.filename).stem) for match in exact_matches]
-            note_blocks = [note.strip() for note in notes if note]
-            if note_blocks:
-                sections.append("")
-                sections.append("## Loaded Memory Notes")
-                for block in note_blocks:
-                    sections.append("")
-                    sections.append(block)
-                return "\n".join(sections).strip()
-
-        notes = [] if surfaced_relevant_notes else self.memory_manager.load_relevant_notes(limit=note_limit)
+        notes = [] if surfaced_relevant_notes else [
+            note
+            for note in self.memory_manager.load_relevant_notes(limit=note_limit + len(exact_filenames))
+            if getattr(note, "filename", "") not in exact_filenames
+        ][:note_limit]
         if notes:
             sections.append("")
-            sections.append("## Loaded Memory Notes")
+            sections.append("## Durable Memory Facts")
             for note in notes:
-                sections.extend(
-                    [
-                        "",
-                        f"### {note.title}",
-                        f"Schema: {getattr(note, 'schema_version', 'durable-memory.v2')}",
-                        f"Memory Class: {note.memory_class}",
-                        f"Type: {note.memory_type}",
-                    ]
-                )
-                if note.summary:
-                    sections.append(f"Summary: {note.summary}")
-                if getattr(note, "canonical_statement", ""):
-                    sections.append(f"Canonical: {getattr(note, 'canonical_statement', '')}")
-                if getattr(note, "retrieval_hints", []):
-                    sections.append(f"Retrieval Hints: {', '.join(getattr(note, 'retrieval_hints', []))}")
-                if getattr(note, "confidence", ""):
-                    sections.append(f"Confidence: {getattr(note, 'confidence', '')}")
-                if getattr(note, "created_by", ""):
-                    sections.append(f"Created By: {getattr(note, 'created_by', '')}")
-                if getattr(note, "source_message_excerpt", ""):
-                    sections.append(f"Source: {getattr(note, 'source_message_excerpt', '')}")
-                sections.append(note.content.strip())
+                sections.extend(["", *self._render_note_for_model(note)])
 
         return "\n".join(sections).strip()
+
+    def _render_note_for_model(self, note: Any) -> list[str]:
+        lines = [f"### {self._sanitize_for_model(getattr(note, 'title', '')).strip()}"]
+
+        memory_class = self._sanitize_for_model(str(getattr(note, "memory_class", "") or "")).strip()
+        memory_type = self._sanitize_for_model(str(getattr(note, "memory_type", "") or "")).strip()
+        if memory_class or memory_type:
+            lines.append(f"Kind: {memory_class or 'unknown'} / {memory_type or 'unknown'}")
+
+        summary = self._sanitize_for_model(str(getattr(note, "summary", "") or "")).strip()
+        canonical = self._sanitize_for_model(str(getattr(note, "canonical_statement", "") or "")).strip()
+        detail = self._sanitize_for_model(
+            str(getattr(note, "content", "") or getattr(note, "body", "") or "")
+        ).strip()
+
+        if canonical:
+            lines.append(f"Canonical: {canonical}")
+        elif summary:
+            lines.append(f"Canonical: {summary}")
+
+        if summary and summary != canonical:
+            lines.append(f"Summary: {summary}")
+
+        tags = [
+            self._sanitize_for_model(str(tag)).strip()
+            for tag in list(getattr(note, "tags", []) or [])
+            if self._sanitize_for_model(str(tag)).strip()
+        ]
+        if tags:
+            lines.append(f"Tags: {', '.join(tags[:6])}")
+
+        retrieval_hints = [
+            self._sanitize_for_model(str(hint)).strip()
+            for hint in list(getattr(note, "retrieval_hints", []) or [])
+            if self._sanitize_for_model(str(hint)).strip()
+        ]
+        if retrieval_hints:
+            lines.append(f"Recall Hints: {', '.join(retrieval_hints[:6])}")
+
+        detail_excerpt = self._detail_excerpt(detail, canonical=canonical, summary=summary)
+        if detail_excerpt:
+            lines.append(f"Details: {detail_excerpt}")
+
+        return lines
+
+    def _detail_excerpt(self, detail: str, *, canonical: str, summary: str) -> str:
+        if not detail:
+            return ""
+        normalized = detail.replace("\r\n", "\n")
+        useful_lines: list[str] = []
+        for line in normalized.splitlines():
+            stripped = line.strip(" -#*\t")
+            if not stripped:
+                continue
+            if stripped in {canonical, summary}:
+                continue
+            if stripped.lower().startswith(("schema:", "source:", "created by:", "confidence:", "status:")):
+                continue
+            useful_lines.append(stripped)
+        if not useful_lines:
+            return ""
+        excerpt = " ".join(useful_lines)
+        return excerpt[:280].strip()
+
+    def _sanitize_for_model(self, text: str) -> str:
+        cleaned = str(text or "")
+        cleaned = re.sub(r"`?[\w./\\:-]*durable_memory[\\/][^`\s]+`?", "长期记忆记录", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"`?[\w./\\:-]*session-memory[\\/][^`\s]+`?", "会话记录", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"`?[\w./\\-]+\.md`?", "长期记忆记录", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bMEMORY\.md\b", "长期记忆索引", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.strip()
 
     def prefetch_relevant_notes(
         self,
@@ -204,9 +195,9 @@ class DurableMemoryLayer:
         lowered = (query or "").lower()
         preferred: list[str] = []
 
-        if any(item in {"preference", "user"} for item in preferred_types):
+        if any(item in {"user"} for item in preferred_types):
             preferred.append("preference")
-        if any(item in {"project", "workflow", "reference"} for item in preferred_types):
+        if any(item in {"project", "feedback", "reference"} for item in preferred_types):
             preferred.append("work")
 
         if any(marker in lowered for marker in ("喜欢", "偏好", "习惯", "风格", "要求", "默认")):

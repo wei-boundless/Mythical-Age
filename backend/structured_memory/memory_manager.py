@@ -4,8 +4,11 @@ from pathlib import Path
 import re
 from typing import NamedTuple
 
+from memory_layout import DurableMemoryLayout
+
 from .frontmatter import parse_frontmatter
 from .models import DEFAULT_DURABLE_SCHEMA_VERSION, MemoryNote
+from .note_hygiene import is_runtime_noise_note
 from .text_utils import normalize_storage_text, repair_mojibake
 
 
@@ -39,8 +42,10 @@ class MemoryManager:
 
     def __init__(self, root_dir: str | Path) -> None:
         self.root_dir = Path(root_dir)
-        self.root_dir.mkdir(parents=True, exist_ok=True)
-        self.index_path = self.root_dir / "MEMORY.md"
+        self.layout = DurableMemoryLayout(self.root_dir)
+        self.layout.ensure_dirs()
+        self._migrate_legacy_layout()
+        self.index_path = self.layout.index_path
         if not self.index_path.exists():
             self.index_path.write_text(
                 "# Memory Index\n\n"
@@ -57,11 +62,11 @@ class MemoryManager:
         return slug
 
     def note_path(self, slug: str) -> Path:
-        return self.root_dir / f"{slug}.md"
+        return self.layout.notes_dir / f"{slug}.md"
 
     def list_note_paths(self) -> list[Path]:
         return sorted(
-            [path for path in self.root_dir.glob("*.md") if path.name != "MEMORY.md"],
+            list(self.layout.notes_dir.glob("*.md")),
             key=lambda item: item.name.lower(),
         )
 
@@ -174,7 +179,7 @@ class MemoryManager:
         return repair_mojibake(path.read_text(encoding="utf-8"))
 
     def load_relevant_notes(self, limit: int = 5) -> list[LoadedMemoryNote]:
-        active_notes = [note for note in self.list_notes() if self._is_runtime_visible(note.status)]
+        active_notes = [note for note in self.list_notes() if self._is_runtime_eligible(note)]
         return active_notes[:limit]
 
     def build_manifest(self, limit: int = 50) -> str:
@@ -206,11 +211,11 @@ class MemoryManager:
         exclude_filenames = exclude_filenames or set()
 
         scored: list[tuple[float, LoadedMemoryNote]] = []
-        for path in sorted(self.root_dir.glob("*.md")):
-            if path.name == "MEMORY.md" or path.name in exclude_filenames:
+        for path in self.list_note_paths():
+            if path.name in exclude_filenames:
                 continue
             note = self._load_loaded_note(path)
-            if not self._is_runtime_visible(note.status):
+            if not self._is_runtime_eligible(note):
                 continue
             score = self._score_loaded_note(
                 note,
@@ -350,57 +355,74 @@ class MemoryManager:
         status = "active"
         last_confirmed_at = ""
         body_lines: list[str] = []
+        in_metadata_block = False
 
         for line in lines:
             lowered = line.lower()
-            if lowered.startswith("title:"):
-                title = normalize_storage_text(line.split(":", 1)[1])
+            metadata_line = line[2:].strip() if line.startswith("- ") else line
+            metadata_lowered = metadata_line.lower()
+            if line.startswith("# "):
+                title = normalize_storage_text(line[2:]) or title
                 continue
-            if lowered.startswith("summary:"):
-                summary = normalize_storage_text(line.split(":", 1)[1])
+            if lowered.startswith("## metadata"):
+                in_metadata_block = True
                 continue
-            if lowered.startswith("canonical_statement:"):
-                canonical_statement = normalize_storage_text(line.split(":", 1)[1])
+            if lowered.startswith("## canonical memory"):
+                in_metadata_block = False
                 continue
-            if lowered.startswith("type:"):
-                memory_type = normalize_storage_text(line.split(":", 1)[1]) or "project"
+            if metadata_lowered.startswith("title:"):
+                title = normalize_storage_text(metadata_line.split(":", 1)[1])
+                continue
+            if metadata_lowered.startswith("summary:"):
+                summary = normalize_storage_text(metadata_line.split(":", 1)[1])
+                continue
+            if metadata_lowered.startswith("canonical_statement:"):
+                canonical_statement = normalize_storage_text(metadata_line.split(":", 1)[1])
+                continue
+            if metadata_lowered.startswith("type:"):
+                memory_type = normalize_storage_text(metadata_line.split(":", 1)[1]) or "project"
                 memory_class = self._default_memory_class(memory_type)
                 continue
-            if lowered.startswith("memory_class:"):
-                memory_class = normalize_storage_text(line.split(":", 1)[1]) or self._default_memory_class(memory_type)
+            if metadata_lowered.startswith("memory class:") or metadata_lowered.startswith("memory_class:"):
+                memory_class = normalize_storage_text(metadata_line.split(":", 1)[1]) or self._default_memory_class(memory_type)
                 continue
-            if lowered.startswith("tags:"):
-                tags = self._normalize_list_field(line.split(":", 1)[1])
+            if metadata_lowered.startswith("tags:"):
+                tags = self._normalize_list_field(metadata_line.split(":", 1)[1])
                 continue
-            if lowered.startswith("retrieval_hints:"):
-                retrieval_hints = self._normalize_list_field(line.split(":", 1)[1])
+            if metadata_lowered.startswith("retrieval hints:") or metadata_lowered.startswith("retrieval_hints:"):
+                retrieval_hints = self._normalize_list_field(metadata_line.split(":", 1)[1])
                 continue
-            if lowered.startswith("updated_at:"):
-                updated_at = normalize_storage_text(line.split(":", 1)[1])
+            if metadata_lowered.startswith("updated at:") or metadata_lowered.startswith("updated_at:"):
+                updated_at = normalize_storage_text(metadata_line.split(":", 1)[1])
                 continue
-            if lowered.startswith("created_at:"):
-                created_at = normalize_storage_text(line.split(":", 1)[1])
+            if metadata_lowered.startswith("created at:") or metadata_lowered.startswith("created_at:"):
+                created_at = normalize_storage_text(metadata_line.split(":", 1)[1])
                 continue
-            if lowered.startswith("created_by:"):
-                created_by = normalize_storage_text(line.split(":", 1)[1]) or "legacy-repair"
+            if metadata_lowered.startswith("created by:") or metadata_lowered.startswith("created_by:"):
+                created_by = normalize_storage_text(metadata_line.split(":", 1)[1]) or "legacy-repair"
                 continue
-            if lowered.startswith("source_session_id:"):
-                source_session_id = normalize_storage_text(line.split(":", 1)[1])
+            if metadata_lowered.startswith("source session id:") or metadata_lowered.startswith("source_session_id:"):
+                source_session_id = normalize_storage_text(metadata_line.split(":", 1)[1])
                 continue
-            if lowered.startswith("source_role:"):
-                source_role = normalize_storage_text(line.split(":", 1)[1]) or "user"
+            if metadata_lowered.startswith("source role:") or metadata_lowered.startswith("source_role:"):
+                source_role = normalize_storage_text(metadata_line.split(":", 1)[1]) or "user"
                 continue
-            if lowered.startswith("source_message_excerpt:"):
-                source_message_excerpt = normalize_storage_text(line.split(":", 1)[1])
+            if metadata_lowered.startswith("source message excerpt:") or metadata_lowered.startswith("source_message_excerpt:"):
+                source_message_excerpt = normalize_storage_text(metadata_line.split(":", 1)[1])
                 continue
-            if lowered.startswith("confidence:"):
-                confidence = normalize_storage_text(line.split(":", 1)[1]) or "medium"
+            if metadata_lowered.startswith("confidence:"):
+                confidence = normalize_storage_text(metadata_line.split(":", 1)[1]) or "medium"
                 continue
-            if lowered.startswith("status:"):
-                status = normalize_storage_text(line.split(":", 1)[1]) or "active"
+            if metadata_lowered.startswith("status:"):
+                status = normalize_storage_text(metadata_line.split(":", 1)[1]) or "active"
                 continue
-            if lowered.startswith("last_confirmed_at:"):
-                last_confirmed_at = normalize_storage_text(line.split(":", 1)[1])
+            if metadata_lowered.startswith("schema:") or metadata_lowered.startswith("schema_version:"):
+                schema_version = normalize_storage_text(metadata_line.split(":", 1)[1]) or DEFAULT_DURABLE_SCHEMA_VERSION
+                continue
+            if metadata_lowered.startswith("last confirmed at:") or metadata_lowered.startswith("last_confirmed_at:"):
+                last_confirmed_at = normalize_storage_text(metadata_line.split(":", 1)[1])
+                continue
+            if in_metadata_block and line.startswith("- "):
                 continue
             body_lines.append(line)
 
@@ -442,7 +464,11 @@ class MemoryManager:
 
     def _normalize_memory_type(self, value: str) -> str:
         lowered = normalize_storage_text(value).lower()
-        if lowered in {"user", "preference", "project", "workflow", "reference"}:
+        if lowered == "preference":
+            return "user"
+        if lowered == "workflow":
+            return "project"
+        if lowered in {"user", "feedback", "project", "reference"}:
             return lowered
         return "project"
 
@@ -627,6 +653,38 @@ class MemoryManager:
     def _is_runtime_visible(self, status: str) -> bool:
         normalized = normalize_storage_text(status).lower()
         return normalized not in {"archived", "deprecated", "inactive"}
+
+    def _is_runtime_eligible(self, note: LoadedMemoryNote) -> bool:
+        if not self._is_runtime_visible(note.status):
+            return False
+        return not is_runtime_noise_note(
+            source_role=note.source_role,
+            created_by=note.created_by,
+            title=note.title,
+            summary=note.summary,
+            canonical_statement=note.canonical_statement,
+            source_message_excerpt=note.source_message_excerpt,
+        )
+
+    def _migrate_legacy_layout(self) -> None:
+        legacy_files = sorted(
+            path for path in self.root_dir.glob("*.md")
+            if path.is_file()
+        )
+        for path in legacy_files:
+            if path.name == "MEMORY.md":
+                target = self.layout.index_path
+            elif path.name == "SCHEMA.md":
+                target = self.layout.schema_path
+            else:
+                target = self.layout.notes_dir / path.name
+            if target == path:
+                continue
+            if target.exists():
+                if repair_mojibake(target.read_text(encoding="utf-8")) == repair_mojibake(path.read_text(encoding="utf-8")):
+                    path.unlink()
+                continue
+            path.replace(target)
 
 
 _STOP_TERMS = {

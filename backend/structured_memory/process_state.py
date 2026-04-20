@@ -62,7 +62,7 @@ class ProcessState:
     warm_context: list[str] = field(default_factory=list)
     key_user_requests: list[str] = field(default_factory=list)
     files_and_functions: list[str] = field(default_factory=list)
-    workflow_and_constraints: list[str] = field(default_factory=list)
+    conventions_and_constraints: list[str] = field(default_factory=list)
     errors_and_corrections: list[str] = field(default_factory=list)
     decisions_and_learnings: list[str] = field(default_factory=list)
     key_results: list[str] = field(default_factory=list)
@@ -187,9 +187,11 @@ class ProcessState:
                 for item in list(payload.get("files_and_functions", []) or [])
                 if str(item).strip()
             ],
-            workflow_and_constraints=[
+            conventions_and_constraints=[
                 str(item)
-                for item in list(payload.get("workflow_and_constraints", []) or [])
+                for item in list(
+                    payload.get("conventions_and_constraints", payload.get("workflow_and_constraints", [])) or []
+                )
                 if str(item).strip()
             ],
             errors_and_corrections=[
@@ -233,11 +235,10 @@ class ProcessStateManager:
         self.session_dir = Path(session_dir)
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.process_state_path = self.session_dir / "process_state.json"
-        self.compatibility_state_path = self.session_dir / "state.json"
-        self.state_path = self.compatibility_state_path
+        self.state_mirror_path = self.session_dir / "state.json"
 
     def load(self) -> ProcessState:
-        for candidate in (self.process_state_path, self.compatibility_state_path):
+        for candidate in (self.process_state_path, self.state_mirror_path):
             state = self._load_from_path(candidate)
             if state is not None:
                 return state
@@ -246,7 +247,7 @@ class ProcessStateManager:
     def overwrite(self, state: ProcessState) -> None:
         payload = json.dumps(state.to_dict(), ensure_ascii=False, indent=2)
         self.process_state_path.write_text(payload, encoding="utf-8")
-        self.compatibility_state_path.write_text(payload, encoding="utf-8")
+        self.state_mirror_path.write_text(payload, encoding="utf-8")
 
     def _load_from_path(self, path: Path) -> ProcessState | None:
         if not path.exists():
@@ -262,4 +263,3 @@ class ProcessStateManager:
 
 DialogueState = ProcessState
 DialogueStateManager = ProcessStateManager
-

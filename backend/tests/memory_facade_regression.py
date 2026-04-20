@@ -78,9 +78,9 @@ def test_memory_facade_durable_prefetch_avoids_exact_match_duplication() -> None
                 summary="复杂问题先讲结论再展开。",
                 canonical_statement="复杂问题先讲结论。",
                 body="复杂问题先讲结论，再逐层展开。",
-                memory_type="preference",
+                memory_type="user",
                 memory_class="preference",
-                tags=["preference", "style"],
+                tags=["user-preference", "style"],
             )
         )
 

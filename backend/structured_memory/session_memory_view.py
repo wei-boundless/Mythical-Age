@@ -10,10 +10,10 @@ _A short and distinctive title for the session._
 _What is the user currently trying to achieve?_
 
 # Flow State
-_What workflow is currently active, and how confident is the system about it?_
+_What flow is currently active, and how confident is the system about it?_
 
 # Context Slots
-_Which contextual bindings are active for the current workflow?_
+_Which contextual bindings are active for the current flow?_
 
 # Current Task State
 _What is currently in progress or waiting to be done?_
@@ -27,8 +27,8 @@ _Stable instructions or constraints from the user within this session._
 # Files and Functions
 _Important files, modules, and functions relevant to the current work._
 
-# Workflow and Constraints
-_Commands, operational habits, and environment constraints that matter now._
+# Conventions and Constraints
+_Commands, operating conventions, and environment constraints that matter now._
 
 # Errors and Corrections
 _Failures, corrections, and approaches to avoid repeating._
@@ -62,7 +62,7 @@ COMPACTION_HEADER_ORDER = [
     "# Risk Watch",
     "# Key User Requests",
     "# Files and Functions",
-    "# Workflow and Constraints",
+    "# Conventions and Constraints",
     "# Errors and Corrections",
     "# Decisions and Learnings",
     "# Key Results",
@@ -81,7 +81,7 @@ COMPACTION_SECTION_LIMITS = {
     "# Risk Watch": 220,
     "# Key User Requests": 220,
     "# Files and Functions": 220,
-    "# Workflow and Constraints": 220,
+    "# Conventions and Constraints": 220,
     "# Errors and Corrections": 220,
     "# Decisions and Learnings": 240,
     "# Key Results": 260,
@@ -102,7 +102,7 @@ class SessionMemoryViewBuilder:
             "# Warm Context": self._to_bullets(state.warm_context),
             "# Key User Requests": self._to_bullets(state.key_user_requests),
             "# Files and Functions": self._to_bullets(state.files_and_functions),
-            "# Workflow and Constraints": self._to_bullets(state.workflow_and_constraints),
+            "# Conventions and Constraints": self._to_bullets(state.conventions_and_constraints),
             "# Errors and Corrections": self._to_bullets(state.errors_and_corrections),
             "# Decisions and Learnings": self._to_bullets(state.decisions_and_learnings),
             "# Key Results": self._to_bullets(state.key_results),

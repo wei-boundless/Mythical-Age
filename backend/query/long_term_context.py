@@ -4,15 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-STATIC_CONSTITUTION_COMPONENTS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Soul", ("context_profile/constitution/SOUL.md",)),
-    ("Identity", ("context_profile/constitution/IDENTITY.md",)),
-)
-
-STATIC_PROFILE_COMPONENTS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("User Profile", ("context_profile/profile/USER.md",)),
-    ("Agents Guide", ("context_profile/profile/AGENTS.md",)),
-)
+from memory.static_loader import load_static_context
+from memory_layout import DurableMemoryLayout
 
 
 @dataclass(slots=True)
@@ -46,37 +39,23 @@ class LongTermContextBundle:
 
         return "\n".join(section for section in sections if section is not None).strip()
 
-
-def _read_component(base_dir: Path, relative_paths: str | tuple[str, ...]) -> str:
-    if isinstance(relative_paths, str):
-        relative_paths = (relative_paths,)
-    for relative_path in relative_paths:
-        path = base_dir / relative_path
-        if path.exists():
-            return path.read_text(encoding="utf-8")
-    return f"[missing component: {relative_paths[0]}]"
-
-
 def build_long_term_context_bundle(
     base_dir: Path,
     *,
     persistent_memory: str | None = None,
 ) -> LongTermContextBundle:
-    constitution_sections = [
-        (label, _read_component(base_dir, relative_path))
-        for label, relative_path in STATIC_CONSTITUTION_COMPONENTS
-    ]
-    profile_sections = [
-        (label, _read_component(base_dir, relative_path))
-        for label, relative_path in STATIC_PROFILE_COMPONENTS
-    ]
+    static_context = load_static_context(base_dir)
     if persistent_memory is not None:
         memory_block = persistent_memory
     else:
-        memory_block = _read_component(base_dir, "durable_memory/MEMORY.md")
+        layout = DurableMemoryLayout(base_dir / "durable_memory")
+        if layout.index_path.exists():
+            memory_block = layout.index_path.read_text(encoding="utf-8")
+        else:
+            memory_block = "[missing component: durable_memory/index/MEMORY.md]"
 
     return LongTermContextBundle(
-        constitution_sections=constitution_sections,
-        profile_sections=profile_sections,
+        constitution_sections=list(static_context.constitution_sections),
+        profile_sections=list(static_context.profile_sections),
         memory_block=memory_block,
     )

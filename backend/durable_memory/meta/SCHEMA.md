@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`durable_memory/*.md` 是跨会话长期记忆的真相源。
+`durable_memory/notes/*.md` 是跨会话长期记忆的真相源。
 
 每条 note 分成三部分：
 

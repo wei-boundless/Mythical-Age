@@ -133,7 +133,8 @@ def build_system_prompt(
         "The long-term context system is layered: constitution for stable agent principles, profile for user/project defaults, "
         "and dynamic memory for durable facts and reusable conventions. Do not treat transient emotions, temporary moods, "
         "or user attachment to the agent as durable memory. Those can remain in session context without being promoted "
-        "to the long-term context store."
+        "to the long-term context store. When using long-term memory in answers, present only the semantic fact or convention. "
+        "Do not mention internal file paths, directory names, filenames, schema labels, or storage layout."
     )
 
     if active_skill:

@@ -15,7 +15,9 @@
 
 - `durable_memory/`
   - 动态长期记忆
-  - 用于 durable facts、可复用工作约定、可整理的长期 note
+  - `notes/` 存放可召回的动态长期 note
+  - `index/` 存放索引视图
+  - `meta/` 存放 schema 与治理文档
 - `session-memory/`
   - 当前会话 working memory
 - `sessions/`

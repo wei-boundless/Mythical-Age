@@ -98,7 +98,7 @@ REFERENCE_HINTS = (
 
 DURABLE_QUERY_PROFILES = (
     {
-        "preferred_types": ["preference"],
+        "preferred_types": ["user"],
         "preferred_classes": ["preference"],
         "entity_markers": PREFERENCE_HINTS,
         "recall_markers": (
@@ -112,7 +112,7 @@ DURABLE_QUERY_PROFILES = (
         ),
     },
     {
-        "preferred_types": ["workflow"],
+        "preferred_types": ["project"],
         "preferred_classes": ["work"],
         "entity_markers": WORKFLOW_HINTS,
         "recall_markers": (
@@ -198,14 +198,18 @@ def analyze_memory_intent(message: str) -> MemoryIntent:
 def _infer_preferred_types(message: str, lowered: str) -> list[str]:
     preferred: list[str] = []
     if any(marker in lowered for marker in _lower_markers(PREFERENCE_HINTS)):
-        preferred.append("preference")
+        preferred.append("user")
     if any(marker in lowered for marker in _lower_markers(PROJECT_HINTS)):
         preferred.append("project")
     if any(marker in lowered for marker in _lower_markers(WORKFLOW_HINTS)):
-        preferred.append("workflow")
+        preferred.append("project")
     if not preferred and any(marker in lowered for marker in _lower_markers(REFERENCE_HINTS)):
         preferred.append("reference")
-    return preferred
+    deduped: list[str] = []
+    for item in preferred:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped
 
 
 def _infer_preferred_classes(message: str, lowered: str) -> list[str]:

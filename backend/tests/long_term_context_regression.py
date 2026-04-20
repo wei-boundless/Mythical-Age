@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from query.long_term_context import build_long_term_context_bundle
 from query.prompt_builder import build_system_prompt
+from structured_memory import MemoryManager
 
 
 def _assert(condition: bool, message: str) -> None:
@@ -30,7 +31,7 @@ def test_long_term_context_bundle_layers_workspace_and_memory() -> None:
         _write(root / "context_profile" / "constitution" / "IDENTITY.md", "# Identity\n\nLocal-first agent.")
         _write(root / "context_profile" / "profile" / "USER.md", "# User\n\nPrefer Chinese.")
         _write(root / "context_profile" / "profile" / "AGENTS.md", "# Agents\n\nPrefer transparent execution.")
-        _write(root / "durable_memory" / "MEMORY.md", "# Memory Index\n\n- [PowerShell](powershell.md) - Prefer PowerShell.")
+        _write(root / "durable_memory" / "index" / "MEMORY.md", "# Memory Index\n\n- [PowerShell](powershell.md) - Prefer PowerShell.")
 
         bundle = build_long_term_context_bundle(root)
         rendered = bundle.render(truncate=lambda text, _limit: text, limit=9999)
@@ -53,7 +54,7 @@ def test_system_prompt_uses_unified_long_term_context_block() -> None:
         _write(root / "context_profile" / "constitution" / "IDENTITY.md", "# Identity\n\nLocal-first agent.")
         _write(root / "context_profile" / "profile" / "USER.md", "# User\n\nPrefer Chinese.")
         _write(root / "context_profile" / "profile" / "AGENTS.md", "# Agents\n\nPrefer transparent execution.")
-        _write(root / "durable_memory" / "MEMORY.md", "# Memory Index\n\n- [PowerShell](powershell.md) - Prefer PowerShell.")
+        _write(root / "durable_memory" / "index" / "MEMORY.md", "# Memory Index\n\n- [PowerShell](powershell.md) - Prefer PowerShell.")
 
         prompt = build_system_prompt(
             root,
@@ -133,11 +134,27 @@ def test_system_prompt_can_render_context_package_directly() -> None:
         _assert("Prefer PowerShell commands in this repo." in prompt, "package durable context should be usable as a fallback durable block")
 
 
+def test_memory_manager_stops_emitting_root_index_mirror() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        durable_root = root / "durable_memory"
+        durable_root.mkdir(parents=True, exist_ok=True)
+        _write(durable_root / "MEMORY.md", "# Legacy Memory Index\n\n- [Old](old.md) - legacy")
+
+        MemoryManager(durable_root)
+        bundle = build_long_term_context_bundle(root)
+
+        _assert("Legacy Memory Index" in bundle.memory_block, "legacy root index should be migrated into the new index path")
+        _assert((durable_root / "index" / "MEMORY.md").exists(), "new index path should exist after migration")
+        _assert(not (durable_root / "MEMORY.md").exists(), "root durable index mirror should be removed after migration")
+
+
 def main() -> None:
     tests = [
         test_long_term_context_bundle_layers_workspace_and_memory,
         test_system_prompt_uses_unified_long_term_context_block,
         test_system_prompt_can_render_context_package_directly,
+        test_memory_manager_stops_emitting_root_index_mirror,
     ]
     for test in tests:
         test()

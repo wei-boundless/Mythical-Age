@@ -71,6 +71,10 @@ def test_session_memory_compact_view_uses_state_sections() -> None:
         _assert("# Active Goal" in compact, "compact view should expose Active Goal section")
         _assert("# Current Task State" in compact, "compact view should expose Current Task State section")
         _assert("# Next Step" in compact, "compact view should expose Next Step section")
+        _assert("# Conventions and Constraints" in compact, "compact view should expose the canonical conventions section")
+        _assert("# Workflow and Constraints" not in compact, "compact view should stop rendering the legacy workflow section name")
+        _assert("What flow is currently active" in compact, "compact view should use the canonical flow description")
+        _assert("What workflow is currently active" not in compact, "compact view should stop rendering the legacy workflow prompt")
         _assert("session hygiene" in compact or "session state" in compact, "compact view should preserve task state content")
 
 
@@ -114,6 +118,13 @@ def test_session_memory_surfaces_durable_candidates_from_state() -> None:
             any(candidate.memory_class in {"preference", "work"} for candidate in state.durable_candidates),
             "durable candidates should preserve candidate memory classes",
         )
+        _assert(
+            all(
+                candidate.source_kind in {"user_preference", "session_convention", "project_decision", "user_request"}
+                for candidate in state.durable_candidates
+            ),
+            "durable candidate source kinds should use the canonical post-refactor names",
+        )
 
 
 def test_session_memory_surfaces_risk_watch_and_flags() -> None:
@@ -137,11 +148,11 @@ def test_session_memory_surfaces_risk_watch_and_flags() -> None:
         )
 
 
-def test_session_memory_persists_process_state_and_view_compatibility_mirrors() -> None:
+def test_session_memory_persists_process_state_and_view_mirrors() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         manager = SessionMemoryManager(root)
-        manager.update_from_messages(
+        rendered = manager.update_from_messages(
             [
                 Message(role="user", content="Refactor the session memory runtime into a process-state-driven design."),
                 Message(role="assistant", content="Conclusion: process state should be authoritative and markdown should stay a view."),
@@ -155,22 +166,26 @@ def test_session_memory_persists_process_state_and_view_compatibility_mirrors() 
         summary_path = root / "summary.md"
 
         _assert(process_state_path.exists(), "process-state authority file should be created")
-        _assert(state_path.exists(), "legacy state.json should still be mirrored for compatibility")
+        _assert(state_path.exists(), "state mirror should still be emitted during migration")
         _assert(agent_view_path.exists(), "agent view should be written as the primary rendered view")
         _assert(compaction_view_path.exists(), "compaction view should be written as a dedicated restore-oriented view")
-        _assert(summary_path.exists(), "legacy summary.md should still be mirrored for compatibility")
+        _assert(summary_path.exists(), "summary view mirror should still be emitted during migration")
         _assert(
             process_state_path.read_text(encoding="utf-8") == state_path.read_text(encoding="utf-8"),
-            "state.json should mirror process_state.json during Phase 1",
+            "state.json should mirror process_state.json during migration",
         )
         _assert(
             agent_view_path.read_text(encoding="utf-8") == summary_path.read_text(encoding="utf-8"),
-            "summary.md should mirror the primary agent view during Phase 1",
+            "summary.md should mirror the primary agent view during migration",
         )
         _assert(
             "# Active Goal" in compaction_view_path.read_text(encoding="utf-8"),
             "compaction view should preserve rendered state sections needed for restore",
         )
+        _assert("# Conventions and Constraints" in rendered, "agent view should render the canonical conventions section")
+        _assert("# Workflow and Constraints" not in rendered, "agent view should not render the legacy workflow section name")
+        _assert("What flow is currently active" in rendered, "agent view should use the canonical flow prompt")
+        _assert("What workflow is currently active" not in rendered, "agent view should not use the legacy workflow prompt")
 
         persisted_payload = json.loads(process_state_path.read_text(encoding="utf-8"))
         persisted_state = manager.load_state()
@@ -179,6 +194,19 @@ def test_session_memory_persists_process_state_and_view_compatibility_mirrors() 
             persisted_payload["active_goal"] == persisted_state.active_goal,
             "loading state should read from the process-state authority payload",
         )
+        _assert(
+            "conventions_and_constraints" in persisted_payload,
+            "process state should persist the canonical conventions field",
+        )
+        _assert(
+            "workflow_and_constraints" not in persisted_payload,
+            "process state should stop persisting the legacy workflow field name",
+        )
+        storage = manager.describe_storage()
+        _assert("state_mirror_path" in storage, "storage description should expose mirror paths with canonical names")
+        _assert("view_mirror_path" in storage, "storage description should expose mirror view paths with canonical names")
+        _assert("compatibility_state_path" not in storage, "storage description should stop exposing compatibility-era field names")
+        _assert("compatibility_view_path" not in storage, "storage description should stop exposing compatibility-era field names")
 
 
 def test_session_memory_can_fallback_to_legacy_state_file_when_process_state_is_missing() -> None:
@@ -202,6 +230,38 @@ def test_session_memory_can_fallback_to_legacy_state_file_when_process_state_is_
         _assert(
             loaded_state.active_goal == legacy_payload["active_goal"],
             "loading should fall back to state.json when process_state.json is absent",
+        )
+
+
+def test_process_state_can_read_legacy_workflow_field_but_rewrite_canonical_field() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manager = SessionMemoryManager(root)
+        state_path = root / "state.json"
+        process_state_path = root / "process_state.json"
+
+        legacy_payload = {
+            "version": 1,
+            "active_goal": "Keep the old state readable during migration.",
+            "workflow_and_constraints": ["Terminal commands default to PowerShell."],
+        }
+        state_path.write_text(json.dumps(legacy_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        loaded_state = manager.load_state()
+        manager.state_manager.overwrite(loaded_state)
+        rewritten_payload = json.loads(process_state_path.read_text(encoding="utf-8"))
+
+        _assert(
+            loaded_state.conventions_and_constraints == ["Terminal commands default to PowerShell."],
+            "legacy workflow field should still hydrate the canonical conventions field",
+        )
+        _assert(
+            "conventions_and_constraints" in rewritten_payload,
+            "rewritten process state should persist the canonical conventions field",
+        )
+        _assert(
+            "workflow_and_constraints" not in rewritten_payload,
+            "rewritten process state should not re-emit the legacy workflow field",
         )
 
 
@@ -371,8 +431,9 @@ def main() -> None:
         test_session_memory_persists_dialogue_state_separately_from_summary,
         test_session_memory_surfaces_durable_candidates_from_state,
         test_session_memory_surfaces_risk_watch_and_flags,
-        test_session_memory_persists_process_state_and_view_compatibility_mirrors,
+        test_session_memory_persists_process_state_and_view_mirrors,
         test_session_memory_can_fallback_to_legacy_state_file_when_process_state_is_missing,
+        test_process_state_can_read_legacy_workflow_field_but_rewrite_canonical_field,
         test_session_memory_collection_excludes_process_state_json_from_retrieval_sources,
         test_session_processor_exposes_split_understanding_and_process_collaborators,
         test_correction_feedback_clears_stale_slots_and_blocks_wrong_result_promotion,

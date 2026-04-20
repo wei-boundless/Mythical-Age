@@ -27,11 +27,15 @@ def test_conversation_scenarios_cover_required_capabilities() -> None:
 def test_conversation_scenarios_include_long_acceptance_memory_and_stress_tracks() -> None:
     by_id = {scenario.id: scenario for scenario in SCENARIOS}
 
-    assert "full-workbench-journey" in by_id
-    assert len(by_id["full-workbench-journey"].turns) >= 10
+    assert "research-brief-and-document-resume" in by_id
+    assert len(by_id["research-brief-and-document-resume"].turns) >= 4
 
-    assert "durable-memory-write-and-semantic-recall" in by_id
-    assert "durable_memory" in by_id["durable-memory-write-and-semantic-recall"].coverage
+    assert "memory-preference-and-cross-session-recall" in by_id
+    assert "durable_memory" in by_id["memory-preference-and-cross-session-recall"].coverage
+
+    assert "sixty-turn-real-user-marathon" in by_id
+    assert by_id["sixty-turn-real-user-marathon"].stress_profile is not None
+    assert by_id["sixty-turn-real-user-marathon"].stress_profile.min_turns >= 60
 
     stress_scenarios = [scenario for scenario in SCENARIOS if scenario.execution_mode == "stress"]
     assert len(stress_scenarios) >= 2

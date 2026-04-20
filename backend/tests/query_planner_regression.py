@@ -73,6 +73,23 @@ def main() -> None:
     assert sequential_executions[1].query_understanding.tool_name == "structured_data_analysis"
     assert sequential_executions[2].query_understanding.tool_name == "get_weather"
 
+    nested_sequential_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。",
+        history=[],
+    )
+    assert nested_sequential_plan.query_understanding.route == "compound"
+    assert nested_sequential_plan.subqueries == [
+        "总结 PDF 第三页",
+        "给我 inventory.xlsx 最缺货的前三个仓库",
+        "补一句北京天气",
+    ]
+    nested_executions = nested_sequential_plan.iter_executions()
+    assert len(nested_executions) == 3
+    assert nested_executions[0].query_understanding.tool_name == "pdf_analysis"
+    assert nested_executions[1].query_understanding.tool_name == "structured_data_analysis"
+    assert nested_executions[2].query_understanding.tool_name == "get_weather"
+
     history = [
         {"role": "user", "content": "请帮我详细解读 AI治理报告.pdf"},
         {"role": "assistant", "content": "已分析文件：knowledge/reports/AI治理报告.pdf"},
