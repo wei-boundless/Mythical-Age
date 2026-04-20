@@ -249,8 +249,7 @@ class SessionMemoryManager:
         context_slots = self._build_projection_context_slots(
             active_goal=active_goal,
             active_constraints=active_constraints,
-            active_work_item=active_work_item,
-            file_hints=file_hints,
+            normalized_task_summaries=normalized_task_summaries,
             previous_state=previous_state,
             task_switch=task_switch,
             flow_type=flow_type,
@@ -446,20 +445,21 @@ class SessionMemoryManager:
         *,
         active_goal: str,
         active_constraints: dict[str, Any],
-        active_work_item: str,
-        file_hints: list[str],
+        normalized_task_summaries: list[dict[str, str | list[str]]],
         previous_state: DialogueState,
         task_switch: bool,
         flow_type: str,
     ) -> ContextSlots:
-        pdf_files = [item for item in file_hints if item.lower().endswith(".pdf")]
-        dataset_files = [
-            item
-            for item in file_hints
-            if item.lower().endswith((".csv", ".xlsx", ".xls", ".json", ".parquet"))
-        ]
-        active_pdf = pdf_files[-1] if pdf_files else ("" if task_switch else previous_state.context_slots.active_pdf)
-        active_dataset = dataset_files[-1] if dataset_files else ("" if task_switch else previous_state.context_slots.active_dataset)
+        active_pdf = self._coerce_text(active_constraints.get("active_pdf"))
+        active_dataset = self._coerce_text(active_constraints.get("active_dataset"))
+        if not active_pdf:
+            active_pdf = self._extract_projection_binding_from_summaries(normalized_task_summaries, "pdf")
+        if not active_dataset:
+            active_dataset = self._extract_projection_binding_from_summaries(normalized_task_summaries, "dataset")
+        if not active_pdf and not task_switch:
+            active_pdf = previous_state.context_slots.active_pdf
+        if not active_dataset and not task_switch:
+            active_dataset = previous_state.context_slots.active_dataset
         source_kind = self._coerce_text(active_constraints.get("source_kind"))
         active_entity = ""
         lowered_goal = active_goal.lower()
@@ -494,6 +494,22 @@ class SessionMemoryManager:
             active_entity=active_entity,
             active_rule=self._shorten(active_rule, 120),
         )
+
+    def _extract_projection_binding_from_summaries(
+        self,
+        normalized_task_summaries: list[dict[str, str | list[str]]],
+        binding_kind: str,
+    ) -> str:
+        prefix = f"{binding_kind}="
+        for summary in reversed(normalized_task_summaries):
+            key_points = summary.get("key_points", [])
+            if not isinstance(key_points, list):
+                continue
+            for item in reversed(key_points):
+                text = self._coerce_text(item)
+                if text.startswith(prefix):
+                    return text[len(prefix):].strip()
+        return ""
 
     def _build_projection_current_task_state(
         self,

@@ -10,7 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from query.continuation_resolver import QueryContinuationResolver
 from query.planner import QueryPlanner
+from understanding.query_understanding import QueryUnderstanding
 
 
 def main() -> None:
@@ -31,6 +33,7 @@ def main() -> None:
     assert len(pdf_plan.iter_executions()) == 1
     assert pdf_plan.iter_executions()[0].execution_kind == "direct_tool"
     assert pdf_plan.iter_executions()[0].tool_input["path"].endswith(".pdf")
+    assert pdf_plan.iter_executions()[0].structured_binding is None
 
     structured_plan = planner.build_plan(
         session_id="planner-regression",
@@ -40,6 +43,10 @@ def main() -> None:
     assert structured_plan.query_understanding.route == "tool"
     assert structured_plan.query_understanding.tool_name == "structured_data_analysis"
     assert structured_plan.subqueries == ["切到 knowledge/E-commerce Data/inventory.xlsx，哪些仓库缺货？"]
+    assert structured_plan.iter_executions()[0].structured_binding is not None
+    assert structured_plan.iter_executions()[0].structured_binding.dataset_path.endswith("inventory.xlsx")
+    assert structured_plan.iter_executions()[0].structured_binding.source == "explicit_path"
+    assert structured_plan.iter_executions()[0].structured_binding.explicit_switch is True
 
     compound_plan = planner.build_plan(
         session_id="planner-regression",
@@ -111,6 +118,31 @@ def main() -> None:
     assert followup_plan.query_understanding.tool_input["mode"] == "browse"
     assert followup_plan.iter_executions()[0].tool_input["mode"] == "browse"
     assert followup_plan.subqueries == ["回到刚才 PDF，第二部分的结论是什么？"]
+
+    structured_followup_history = [
+        {"role": "user", "content": "给我 inventory.xlsx 最缺货的前三个仓库"},
+        {"role": "assistant", "content": "已完成 inventory 分析。"},
+    ]
+    continuation_resolver = QueryContinuationResolver(base_dir=ROOT)
+    structured_followup_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="再按仓库展开一下",
+        history=structured_followup_history,
+    )
+    promoted_structured = continuation_resolver.promote_structured_query(
+        "再按仓库展开一下",
+        structured_followup_history,
+        QueryUnderstanding(),
+    )
+    assert structured_followup_plan.query_understanding.route == "tool"
+    assert structured_followup_plan.query_understanding.tool_name == "structured_data_analysis"
+    assert "path" not in promoted_structured.tool_input
+    assert structured_followup_plan.iter_executions()[0].tool_input["path"].endswith("inventory.xlsx")
+    assert structured_followup_plan.iter_executions()[0].structured_binding is not None
+    assert structured_followup_plan.iter_executions()[0].structured_binding.source in {
+        "semantic_default",
+        "history_fallback",
+    }
 
     summary_history = [
         {"role": "user", "content": "请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，先给我全文总览。"},

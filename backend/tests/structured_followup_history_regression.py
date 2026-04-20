@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,7 +10,6 @@ if str(ROOT) not in sys.path:
 
 from structured_data.catalog import StructuredDataCatalog
 from query.planner import QueryPlanner
-from understanding.query_understanding import QueryUnderstanding
 
 
 def main() -> None:
@@ -20,7 +18,7 @@ def main() -> None:
     planner = QueryPlanner(
         base_dir=ROOT,
         skill_registry=None,
-        tool_runtime=SimpleNamespace(registry=None),
+        tool_runtime=type("RegistryStub", (), {"registry": None})(),
     )
 
     history = [
@@ -28,35 +26,25 @@ def main() -> None:
         {"role": "assistant", "content": "数据源：knowledge/E-commerce Data/inventory.xlsx"},
     ]
 
-    explicit_new_query = QueryUnderstanding(
-        intent="structured_dataset_extreme_record",
-        target_object="employee",
-        tool_name="structured_data_analysis",
-        tool_input={"query": "为我查找，谁是薪水最高的销售人员"},
+    explicit_plan = planner.build_plan(
+        session_id="structured-followup-regression",
+        message="为我查找，谁是薪水最高的销售人员",
+        history=history,
     )
-    explicit_input = planner.resolve_tool_input_from_history(
-        SimpleNamespace(
-            message="为我查找，谁是薪水最高的销售人员",
-            query_understanding=explicit_new_query,
-        ),
-        history,
-    )
-    assert "path" not in explicit_input
+    explicit_execution = explicit_plan.iter_executions()[0]
+    assert explicit_execution.tool_input.get("path", "").endswith("employees.xlsx")
+    assert explicit_execution.structured_binding is not None
+    assert explicit_execution.structured_binding.dataset_path.endswith("employees.xlsx")
 
-    followup_query = QueryUnderstanding(
-        intent="structured_followup_query",
-        target_object=None,
-        tool_name="structured_data_analysis",
-        tool_input={"query": "谁最高"},
+    followup_plan = planner.build_plan(
+        session_id="structured-followup-regression",
+        message="谁最高",
+        history=history,
     )
-    followup_input = planner.resolve_tool_input_from_history(
-        SimpleNamespace(
-            message="谁最高",
-            query_understanding=followup_query,
-        ),
-        history,
-    )
-    assert followup_input.get("path", "").endswith("inventory.xlsx")
+    followup_execution = followup_plan.iter_executions()[0]
+    assert followup_execution.tool_input.get("path", "").endswith("inventory.xlsx")
+    assert followup_execution.structured_binding is not None
+    assert followup_execution.structured_binding.dataset_path.endswith("inventory.xlsx")
 
     print("ALL PASSED (structured follow-up history regression)")
 

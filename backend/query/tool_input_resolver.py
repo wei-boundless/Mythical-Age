@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any
 
 from pdf_analysis import PdfAnalysisCatalog
-from structured_data import StructuredDataCatalog
 
 
 class ToolInputResolver:
@@ -20,6 +19,7 @@ class ToolInputResolver:
         message = plan.message
         understanding = plan.query_understanding
         tool_input = dict(understanding.tool_input or {"query": message})
+        structured_binding = getattr(plan, "structured_binding", None)
         if understanding.tool_name == "pdf_analysis" and not str(tool_input.get("path", "") or "").strip():
             resolved = PdfAnalysisCatalog.resolve_pdf_path_from_history(self.base_dir, history)
             if resolved is None:
@@ -37,16 +37,7 @@ class ToolInputResolver:
             understanding.tool_name == "structured_data_analysis"
             and not str(tool_input.get("path", "") or "").strip()
         ):
-            resolved = StructuredDataCatalog.resolve_dataset_path_from_history(self.base_dir, history)
-            if resolved is None:
-                try:
-                    resolved = StructuredDataCatalog.resolve_dataset_path(
-                        self.base_dir,
-                        str(tool_input.get("path", "") or ""),
-                        message,
-                    )
-                except ValueError:
-                    resolved = None
-            if resolved is not None:
-                tool_input["path"] = StructuredDataCatalog.relative_path(self.base_dir, resolved)
+            binding_path = str(getattr(structured_binding, "dataset_path", "") or "").strip()
+            if binding_path:
+                tool_input["path"] = binding_path
         return tool_input

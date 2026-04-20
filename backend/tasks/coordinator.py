@@ -239,7 +239,17 @@ class TaskCoordinator:
         parent_query_id = f"{session_id}-query-{len(self._tasks) + 1}"
         for index, execution in enumerate(executions, start=1):
             subquery = execution.message
+            structured_binding = getattr(execution, "structured_binding", None)
             task = self._query_task(session_id, subquery, index, parent_query_id)
+            if structured_binding is not None:
+                task.metadata["structured_binding"] = structured_binding.to_dict()
+                if task.context_ref is not None:
+                    if structured_binding.dataset_path:
+                        task.context_ref.bindings.active_dataset = structured_binding.dataset_path
+                    if structured_binding.target_object:
+                        task.context_ref.bindings.active_entity = structured_binding.target_object
+                    if task.context_ref.bindings.active_dataset:
+                        task.context_ref.bindings.source_kind = "dataset"
             task.mark_running()
             if task.context_ref is not None:
                 task.context_ref.status = "running"
@@ -250,6 +260,7 @@ class TaskCoordinator:
                 "query": subquery,
                 "task_id": task.task_id,
                 "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
+                "structured_binding": structured_binding.to_dict() if structured_binding is not None else None,
             }
 
             final_subcontent = ""
@@ -265,6 +276,8 @@ class TaskCoordinator:
                     forwarded["subtask_index"] = index
                     forwarded["subtask_query"] = subquery
                     forwarded["task_id"] = task.task_id
+                    if structured_binding is not None:
+                        forwarded["structured_binding"] = structured_binding.to_dict()
                     task.add_event(event_type or "event", payload=forwarded)
                     yield forwarded
             except Exception as exc:
@@ -294,6 +307,7 @@ class TaskCoordinator:
                     "summary": task.summary.to_dict() if task.summary is not None else None,
                     "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
                     "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
+                    "structured_binding": structured_binding.to_dict() if structured_binding is not None else None,
                 },
             )
             yield {
@@ -305,6 +319,7 @@ class TaskCoordinator:
                 "summary": task.summary.to_dict() if task.summary is not None else None,
                 "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
                 "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
+                "structured_binding": structured_binding.to_dict() if structured_binding is not None else None,
             }
 
     async def run_tool_task(

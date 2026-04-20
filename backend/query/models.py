@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from query.binding_models import StructuredDatasetBinding
 from query.context_models import EvidenceSummary, MainContextState, TaskSummaryRef
 from understanding import MemoryIntent, QueryUnderstanding
 
@@ -31,6 +32,7 @@ class QueryExecutionPlan:
     query_understanding: QueryUnderstanding
     active_skill: Any | None = None
     tool_input: dict[str, Any] = field(default_factory=dict)
+    structured_binding: StructuredDatasetBinding | None = None
     execution_kind: Literal["agent", "direct_tool"] = "agent"
 
 
@@ -44,6 +46,7 @@ class QueryPlan:
     query_understanding: QueryUnderstanding
     active_skill: Any | None = None
     tool_input: dict[str, Any] = field(default_factory=dict)
+    structured_binding: StructuredDatasetBinding | None = None
     execution_kind: Literal["agent", "direct_tool"] = "agent"
     executions: list[QueryExecutionPlan] = field(default_factory=list)
 
@@ -58,6 +61,7 @@ class QueryPlan:
                 query_understanding=self.query_understanding,
                 active_skill=self.active_skill,
                 tool_input=dict(self.tool_input or self.query_understanding.tool_input or {}),
+                structured_binding=self.structured_binding,
                 execution_kind=self.execution_kind,
             )
         ]

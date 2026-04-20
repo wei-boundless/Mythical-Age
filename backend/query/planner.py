@@ -12,6 +12,7 @@ from understanding import (
     analyze_query_understanding,
 )
 
+from query.binding_resolver import StructuredBindingResolver
 from query.continuation_resolver import QueryContinuationResolver
 from query.models import QueryExecutionPlan, QueryPlan
 from query.subtask_planner import QuerySubtaskPlanner
@@ -32,6 +33,7 @@ class QueryPlanner:
         self.continuation_resolver = QueryContinuationResolver(base_dir=base_dir)
         self.subtask_planner = QuerySubtaskPlanner()
         self.tool_input_resolver = ToolInputResolver(base_dir=base_dir)
+        self.binding_resolver = StructuredBindingResolver(base_dir=base_dir)
 
     def build_plan(
         self,
@@ -49,6 +51,7 @@ class QueryPlanner:
             query_understanding = root_execution.query_understanding
             active_skill = root_execution.active_skill
             tool_input = dict(root_execution.tool_input)
+            structured_binding = root_execution.structured_binding
             execution_kind = root_execution.execution_kind
         else:
             executions = [
@@ -65,6 +68,7 @@ class QueryPlanner:
             )
             active_skill = None
             tool_input = {}
+            structured_binding = None
             execution_kind = "agent"
         return QueryPlan(
             session_id=session_id,
@@ -75,16 +79,10 @@ class QueryPlanner:
             query_understanding=query_understanding,
             active_skill=active_skill,
             tool_input=tool_input,
+            structured_binding=structured_binding,
             execution_kind=execution_kind,
             executions=executions,
         )
-
-    def resolve_tool_input_from_history(
-        self,
-        plan: QueryPlan,
-        history: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        return self.tool_input_resolver.resolve(plan=plan, history=history)
 
     def _resolve_active_skill(
         self,
@@ -126,6 +124,11 @@ class QueryPlanner:
             understanding=query_understanding,
         )
         active_skill = self._resolve_active_skill(message, query_understanding)
+        structured_binding = self.binding_resolver.resolve(
+            message=message,
+            understanding=query_understanding,
+            history=history,
+        )
         tool_input = {}
         execution_kind = "agent"
         if query_understanding.route == "tool" and query_understanding.tool_name:
@@ -133,6 +136,7 @@ class QueryPlanner:
                 plan=SimpleNamespace(
                     message=message,
                     query_understanding=query_understanding,
+                    structured_binding=structured_binding,
                 ),
                 history=history,
             )
@@ -145,27 +149,6 @@ class QueryPlanner:
             query_understanding=query_understanding,
             active_skill=active_skill,
             tool_input=tool_input,
+            structured_binding=structured_binding,
             execution_kind=execution_kind,
         )
-
-    def _promote_contextual_pdf_query(
-        self,
-        message: str,
-        history: list[dict[str, Any]],
-        query_understanding: QueryUnderstanding,
-    ) -> QueryUnderstanding:
-        return self.continuation_resolver.promote_pdf_query(message, history, query_understanding)
-
-    def _promote_contextual_structured_query(
-        self,
-        message: str,
-        history: list[dict[str, Any]],
-        query_understanding: QueryUnderstanding,
-    ) -> QueryUnderstanding:
-        return self.continuation_resolver.promote_structured_query(message, history, query_understanding)
-
-    def _looks_like_pdf_followup(self, message: str) -> bool:
-        return self.continuation_resolver._looks_like_pdf_followup(message)
-
-    def _looks_like_structured_followup(self, message: str) -> bool:
-        return self.continuation_resolver._looks_like_structured_followup(message)

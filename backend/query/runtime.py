@@ -630,7 +630,10 @@ class QueryRuntime:
         return messages
 
     def _build_main_working_context(self, execution: QueryExecutionPlan) -> MainContextState:
-        constraints = self._extract_active_constraints(execution.message)
+        constraints = self._apply_execution_binding_to_constraints(
+            self._extract_active_constraints(execution.message),
+            execution,
+        )
         intent = str(getattr(execution.query_understanding, "intent", "") or "")
         task_kind = str(getattr(execution.query_understanding, "task_kind", "") or "")
         route = str(getattr(execution.query_understanding, "route", "") or "")
@@ -721,7 +724,10 @@ class QueryRuntime:
             or "</tool_call>" in summary.lower()
         ):
             return []
-        constraints = self._extract_active_constraints(execution.message)
+        constraints = self._apply_execution_binding_to_constraints(
+            self._extract_active_constraints(execution.message),
+            execution,
+        )
         key_points: list[str] = []
         if constraints.get("top_n") is not None:
             key_points.append(f"top_n={constraints['top_n']}")
@@ -729,6 +735,10 @@ class QueryRuntime:
             key_points.append(f"page={constraints['page']}")
         if constraints.get("group_by"):
             key_points.append(f"group_by={constraints['group_by']}")
+        if constraints.get("active_dataset"):
+            key_points.append(f"dataset={constraints['active_dataset']}")
+        if constraints.get("active_pdf"):
+            key_points.append(f"pdf={constraints['active_pdf']}")
         source_kind = str(constraints.get("source_kind", "") or "")
         task_slug = re.sub(r"[^a-z0-9]+", "-", execution.message.lower()).strip("-")[:48] or "main"
         return [
@@ -760,6 +770,26 @@ class QueryRuntime:
             "task_summary_refs": task_summaries,
             "corrections": corrections,
         }
+
+    def _apply_execution_binding_to_constraints(
+        self,
+        constraints: dict[str, Any],
+        execution: QueryExecutionPlan,
+    ) -> dict[str, Any]:
+        merged = dict(constraints)
+        tool_input = dict(getattr(execution, "tool_input", {}) or {})
+        pdf_path = str(tool_input.get("path", "") or "").strip()
+        if pdf_path and str(getattr(execution.query_understanding, "tool_name", "") or "") == "pdf_analysis":
+            merged["active_pdf"] = pdf_path
+            merged.setdefault("source_kind", "pdf")
+        binding = getattr(execution, "structured_binding", None)
+        if binding is None:
+            return merged
+        dataset_path = str(getattr(binding, "dataset_path", "") or "").strip()
+        if dataset_path:
+            merged["active_dataset"] = dataset_path
+            merged.setdefault("source_kind", "dataset")
+        return merged
 
     def _extract_active_constraints(self, message: str) -> dict[str, Any]:
         lowered = message.lower()
@@ -868,10 +898,29 @@ class QueryRuntime:
                 {
                     "app.route": "tool",
                     "app.tool_name": tool_name,
+                    "app.structured_binding_path": (
+                        execution.structured_binding.dataset_path
+                        if getattr(execution, "structured_binding", None) is not None
+                        else ""
+                    ),
+                    "app.structured_binding_source": (
+                        execution.structured_binding.source
+                        if getattr(execution, "structured_binding", None) is not None
+                        else ""
+                    ),
                 }
             )
 
-        yield {"type": "tool_start", "tool": tool_name, "input": tool_input}
+        yield {
+            "type": "tool_start",
+            "tool": tool_name,
+            "input": tool_input,
+            "structured_binding": (
+                execution.structured_binding.to_dict()
+                if getattr(execution, "structured_binding", None) is not None
+                else None
+            ),
+        }
 
         async def invoke_tool() -> Any:
             if trace is not None:
@@ -885,8 +934,17 @@ class QueryRuntime:
 
         output = await self.task_coordinator.run_tool_task(session_id, tool_name, invoke_tool)
         tool_content = self._normalize_direct_tool_output(output)
-        yield {"type": "tool_end", "tool": tool_name, "output": tool_content}
-        yield {"type": "done", "content": tool_content or f"{tool_name} 已执行，但未返回可展示结果。"}
+        binding_payload = (
+            execution.structured_binding.to_dict()
+            if getattr(execution, "structured_binding", None) is not None
+            else None
+        )
+        yield {"type": "tool_end", "tool": tool_name, "output": tool_content, "structured_binding": binding_payload}
+        yield {
+            "type": "done",
+            "content": tool_content or f"{tool_name} 已执行，但未返回可展示结果。",
+            "structured_binding": binding_payload,
+        }
 
     def _normalize_direct_tool_output(self, output: Any) -> str:
         if isinstance(output, str):

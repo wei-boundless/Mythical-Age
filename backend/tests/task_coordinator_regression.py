@@ -8,6 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from query.binding_models import StructuredDatasetBinding
 from query.models import QueryExecutionPlan
 from tasks import TaskCoordinator
 from understanding import MemoryIntent, QueryUnderstanding
@@ -21,6 +22,10 @@ async def _run_tasks() -> tuple[list[dict[str, object]], TaskCoordinator]:
             history=[],
             memory_intent=MemoryIntent(),
             query_understanding=QueryUnderstanding(),
+            structured_binding=StructuredDatasetBinding(
+                dataset_path="knowledge/E-commerce Data/inventory.xlsx",
+                source="test",
+            ),
         ),
         QueryExecutionPlan(
             message="b",
@@ -53,6 +58,8 @@ def test_task_coordinator_records_query_subtasks() -> None:
     assert records[0].result == "answer for a"
     assert records[0].context_ref is not None
     assert records[0].context_ref.parent_query_id
+    assert records[0].context_ref.bindings.active_dataset.endswith("inventory.xlsx")
+    assert records[0].context_ref.bindings.source_kind == "dataset"
     assert records[0].summary is not None
     assert records[0].summary.response == "answer for a"
     assert records[0].result_ref is not None
@@ -60,6 +67,8 @@ def test_task_coordinator_records_query_subtasks() -> None:
     assert isinstance(events[-1]["summary"], dict)
     assert isinstance(events[-1]["context_ref"], dict)
     assert isinstance(events[-1]["result_ref"], dict)
+    assert isinstance(events[0]["structured_binding"], dict)
+    assert events[0]["structured_binding"]["dataset_path"].endswith("inventory.xlsx")
 
 
 def test_task_coordinator_records_tool_tasks() -> None:

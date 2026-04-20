@@ -294,6 +294,37 @@ def test_summary_first_context_projection_does_not_reenter_message_processor() -
         _assert(not hasattr(state, "durable_candidates"), "summary-first context projection should not restore the removed durable-candidate field")
 
 
+def test_summary_first_context_projection_prefers_committed_binding_over_text_scan() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "只展开第二个子任务，给我仓库和缺货量。",
+                "active_work_item": "structured_data_followup",
+                "active_constraints": {
+                    "source_kind": "dataset",
+                    "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                },
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "task-2",
+                    "query": "给我 inventory.xlsx 最缺货的前三个仓库",
+                    "summary": "当前结果里顺带提到了 employees.xlsx，但当前绑定不应被它覆盖。",
+                    "key_points": ["dataset=knowledge/E-commerce Data/inventory.xlsx"],
+                }
+            ],
+        )
+
+        state = manager.load_state()
+
+        _assert(
+            state.context_slots.active_dataset == "knowledge/E-commerce Data/inventory.xlsx",
+            "summary-first projection should take the committed dataset binding instead of rescanning incidental filenames",
+        )
+
+
 def test_projection_candidate_pipeline_stays_conservative_and_preference_first() -> None:
     preference_candidates = _collect_projection_candidates(
         active_goal="以后默认先给结论，再展开解释。",
@@ -616,6 +647,7 @@ def main() -> None:
         test_session_memory_surfaces_risk_watch_and_flags,
         test_session_memory_accepts_summary_first_context_projection,
         test_summary_first_context_projection_does_not_reenter_message_processor,
+        test_summary_first_context_projection_prefers_committed_binding_over_text_scan,
         test_projection_candidate_pipeline_stays_conservative_and_preference_first,
         test_session_memory_persists_process_state_and_view_mirrors,
         test_session_memory_can_fallback_to_legacy_state_file_when_process_state_is_missing,

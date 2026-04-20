@@ -63,8 +63,7 @@ class QueryContinuationResolver:
             return understanding
         if not self._looks_like_structured_followup(message):
             return understanding
-        resolved = StructuredDataCatalog.resolve_dataset_path_from_history(self.base_dir, history)
-        if resolved is None:
+        if StructuredDataCatalog.resolve_dataset_path_from_history(self.base_dir, history) is None:
             return understanding
         return QueryUnderstanding(
             intent="structured_followup_query",
@@ -74,7 +73,6 @@ class QueryContinuationResolver:
             tool_input={
                 "query": message,
                 "analysis_type": "auto",
-                "path": StructuredDataCatalog.relative_path(self.base_dir, resolved),
             },
             should_skip_rag=True,
             confidence=max(float(getattr(understanding, "confidence", 0.0) or 0.0), 0.88),

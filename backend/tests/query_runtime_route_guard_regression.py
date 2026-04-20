@@ -10,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from query import QueryRuntime
+from query.binding_models import StructuredDatasetBinding
 from query.models import QueryExecutionPlan, QueryPlan
 from tasks import TaskCoordinator
 from understanding import MemoryIntent, QueryUnderstanding
@@ -224,6 +225,12 @@ def test_direct_tool_route_normalizes_final_content() -> None:
         ),
         active_skill=None,
         tool_input={"query": "请直接执行工具。"},
+        structured_binding=StructuredDatasetBinding(
+            dataset_path="knowledge/E-commerce Data/inventory.xlsx",
+            target_object="inventory",
+            source="test",
+            confidence=1.0,
+        ),
         execution_kind="direct_tool",
     )
     events, _retrieval, model_runtime, _memory_facade = asyncio.run(
@@ -240,6 +247,8 @@ def test_direct_tool_route_normalizes_final_content() -> None:
         "tool_end",
         "done",
     ]
+    tool_start = next(event for event in events if event.get("type") == "tool_start")
+    assert tool_start["structured_binding"]["dataset_path"].endswith("inventory.xlsx")
     assert events[-1]["content"] == "normalized tool answer"
     assert events[-2]["output"] == "normalized tool answer"
 

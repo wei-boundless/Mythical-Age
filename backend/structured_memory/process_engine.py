@@ -123,7 +123,6 @@ class ProcessStateEngine:
             active_understanding=snapshot.active_understanding,
             previous_state=previous_state,
             task_switch=task_switch,
-            file_hints=file_hints,
             convention_hints=convention_hints,
             turn_trace=snapshot.turn_trace,
         )
@@ -461,19 +460,10 @@ class ProcessStateEngine:
         active_understanding: ActiveUnderstanding,
         previous_state: DialogueState,
         task_switch: bool,
-        file_hints: list[str],
         convention_hints: list[str],
         turn_trace: list[TurnUnderstanding],
     ) -> ContextSlots:
-        pdf_files = [item for item in file_hints if item.lower().endswith(".pdf")]
-        dataset_files = [
-            item
-            for item in file_hints
-            if item.lower().endswith((".csv", ".xlsx", ".xls", ".json", ".parquet"))
-        ]
-
-        active_pdf = pdf_files[-1] if pdf_files else ""
-        active_dataset = dataset_files[-1] if dataset_files else ""
+        active_pdf, active_dataset = self._extract_slots_from_active_goal(active_goal)
         if not active_pdf and not task_switch:
             active_pdf = previous_state.context_slots.active_pdf
         if not active_dataset and not task_switch:
@@ -492,6 +482,21 @@ class ProcessStateEngine:
             active_dataset=active_dataset,
             active_entity=active_entity,
             active_rule=active_rule,
+        )
+
+    def _extract_slots_from_active_goal(self, active_goal: str) -> tuple[str, str]:
+        pdf_files: list[str] = []
+        dataset_files: list[str] = []
+        for found in FILE_PATTERN.finditer(active_goal or ""):
+            candidate = found.group(0)
+            lowered = candidate.lower()
+            if lowered.endswith(".pdf"):
+                pdf_files.append(candidate)
+            elif lowered.endswith((".csv", ".xlsx", ".xls", ".json", ".parquet")):
+                dataset_files.append(candidate)
+        return (
+            pdf_files[-1] if pdf_files else "",
+            dataset_files[-1] if dataset_files else "",
         )
 
     def _build_current_state(

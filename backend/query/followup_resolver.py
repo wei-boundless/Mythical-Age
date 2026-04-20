@@ -23,7 +23,7 @@ class QueryFollowupResolver:
 
         target = self._resolve_ordinal_task(normalized, tasks)
         if target is not None:
-            rewritten = self._rewrite_message(normalized, target.query, target.context_ref.to_dict() if target.context_ref else {})
+            rewritten = self._rewrite_message(normalized, target.query)
             return FollowupResolution(
                 mode="task_ref",
                 task_id=target.task_id,
@@ -37,11 +37,7 @@ class QueryFollowupResolver:
         binding_target = self._resolve_binding_task(normalized, tasks)
         if binding_target is not None:
             binding_key = self._binding_key(binding_target)
-            rewritten = self._rewrite_message(
-                normalized,
-                binding_target.query,
-                binding_target.context_ref.to_dict() if binding_target.context_ref else {},
-            )
+            rewritten = self._rewrite_message(normalized, binding_target.query)
             return FollowupResolution(
                 mode="binding_ref",
                 task_id=binding_target.task_id,
@@ -108,21 +104,5 @@ class QueryFollowupResolver:
             return "active_dataset"
         return ""
 
-    def _rewrite_message(self, message: str, source_query: str, context_ref: dict[str, object]) -> str:
-        constraint_parts: list[str] = []
-        constraints = dict(context_ref.get("constraints", {}) or {})
-        bindings = dict(context_ref.get("bindings", {}) or {})
-        for key in ("top_n", "page", "group_by", "response_style"):
-            value = constraints.get(key)
-            if value not in ("", None, [], {}):
-                constraint_parts.append(f"{key}={value}")
-        for key in ("active_dataset", "active_pdf"):
-            value = bindings.get(key)
-            if value not in ("", None):
-                constraint_parts.append(f"{key}={value}")
-        if not constraint_parts:
-            return f"延续之前的子任务“{source_query}”。当前要求：{message}"
-        return (
-            f"延续之前的子任务“{source_query}”，并保持这些约束：{', '.join(constraint_parts)}。"
-            f"当前要求：{message}"
-        )
+    def _rewrite_message(self, message: str, source_query: str) -> str:
+        return f"延续之前的子任务“{source_query}”。当前要求：{message}"

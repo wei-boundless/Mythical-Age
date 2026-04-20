@@ -58,7 +58,8 @@ def test_followup_resolver_prefers_task_ref_for_ordinal_request() -> None:
     assert resolution.mode == "task_ref"
     assert resolution.task_id.endswith("-subtask-2")
     assert "inventory.xlsx" in resolution.rewritten_message
-    assert "top_n=3" in resolution.rewritten_message
+    assert "给我 inventory.xlsx 最缺货的前三个仓库" in resolution.rewritten_message
+    assert "top_n=3" not in resolution.rewritten_message
 
 
 def test_followup_resolver_can_bind_back_to_recent_pdf_task() -> None:

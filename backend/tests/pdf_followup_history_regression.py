@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from query.continuation_resolver import QueryContinuationResolver
 from query.planner import QueryPlanner
 from understanding.query_understanding import QueryUnderstanding
 
@@ -32,6 +33,7 @@ def main() -> None:
         modality="general",
         should_skip_rag=False,
     )
+    continuation_resolver = QueryContinuationResolver(base_dir=ROOT)
     with patch(
         "query.continuation_resolver.PdfAnalysisCatalog.resolve_pdf_path_from_history",
         return_value=ROOT / "knowledge" / "reports" / "AI治理报告.pdf",
@@ -39,7 +41,7 @@ def main() -> None:
         "query.continuation_resolver.PdfAnalysisCatalog.relative_path",
         side_effect=lambda root_dir, path: str(path.relative_to(root_dir)).replace("\\", "/"),
     ):
-        promoted = planner._promote_contextual_pdf_query("第三页讲了什么？", history, original)
+        promoted = continuation_resolver.promote_pdf_query("第三页讲了什么？", history, original)
 
     assert promoted.route == "tool"
     assert promoted.intent == "pdf_page_followup_query"
@@ -56,21 +58,13 @@ def main() -> None:
         "query.tool_input_resolver.PdfAnalysisCatalog.relative_path",
         side_effect=lambda root_dir, path: str(path.relative_to(root_dir)).replace("\\", "/"),
     ):
-        resolved_input = planner.resolve_tool_input_from_history(
-            SimpleNamespace(
-                message="第三页讲了什么？",
-                query_understanding=QueryUnderstanding(
-                    intent="pdf_page_followup_query",
-                    route="tool",
-                    modality="pdf",
-                    tool_name="pdf_analysis",
-                    tool_input={"query": "第三页讲了什么？", "mode": "page_read"},
-                    should_skip_rag=True,
-                ),
-            ),
-            history,
+        plan = planner.build_plan(
+            session_id="pdf-followup-regression",
+            message="第三页讲了什么？",
+            history=history,
         )
-    assert resolved_input["path"].endswith("AI治理报告.pdf")
+    execution = plan.iter_executions()[0]
+    assert execution.tool_input["path"].endswith("AI治理报告.pdf")
 
     print("ALL PASSED (pdf follow-up history regression)")
 
