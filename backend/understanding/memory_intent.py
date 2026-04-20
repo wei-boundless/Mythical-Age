@@ -119,6 +119,25 @@ DURABLE_QUERY_PROFILES = (
         ),
     },
     {
+        "preferred_types": ["user"],
+        "preferred_classes": ["preference"],
+        "entity_markers": (
+            "复杂问题",
+            "复杂",
+            "complex question",
+            "complex questions",
+        ),
+        "recall_markers": (
+            "怎么回答",
+            "回答方式",
+            "先给结论",
+            "第一句",
+            "how should you answer",
+            "answer style",
+            "reply style",
+        ),
+    },
+    {
         "preferred_types": ["project"],
         "preferred_classes": ["work"],
         "entity_markers": WORKFLOW_HINTS,
@@ -211,13 +230,6 @@ def analyze_memory_intent(message: str) -> MemoryIntent:
         for prefix in ("what ", "how ", "do you", "did you", "which ", "why ", "where ")
     )
 
-    if any(marker in lowered for marker in _lower_markers(SESSION_MARKERS)):
-        return MemoryIntent(
-            intent="session_continuity_query",
-            memory_read_mode="session_state",
-            should_skip_rag=True,
-        )
-
     if _looks_like_manual_memory_query(lowered):
         preferred_types = query_profile[0] if query_profile is not None else _infer_preferred_types(lowered)
         preferred_classes = query_profile[1] if query_profile is not None else _infer_preferred_classes(lowered)
@@ -228,6 +240,13 @@ def analyze_memory_intent(message: str) -> MemoryIntent:
             explicit_read_inventory=True,
             preferred_types=preferred_types,
             preferred_memory_classes=preferred_classes,
+        )
+
+    if any(marker in lowered for marker in _lower_markers(SESSION_MARKERS)):
+        return MemoryIntent(
+            intent="session_continuity_query",
+            memory_read_mode="session_state",
+            should_skip_rag=True,
         )
 
     if (
@@ -308,6 +327,10 @@ def _looks_like_memory_read_query(message: str, lowered: str) -> bool:
         ("项目", "重点"),
         ("项目", "主线"),
         ("项目", "方向"),
+        ("复杂问题", "怎么回答"),
+        ("复杂问题", "先给结论"),
+        ("复杂", "怎么回答"),
+        ("回答", "先给结论"),
         ("主线", "什么"),
         ("主线", "哪条"),
     )

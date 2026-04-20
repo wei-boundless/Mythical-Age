@@ -22,6 +22,7 @@ class SessionMemoryManager:
         self.views_dir = self.session_dir / "views"
         self.views_dir.mkdir(parents=True, exist_ok=True)
         self.agent_view_path = self.views_dir / "agent_view.md"
+        self.debug_view_path = self.views_dir / "debug_view.md"
         self.compaction_view_path = self.views_dir / "compaction_view.md"
         self.summary_path = self.session_dir / "summary.md"
         self.state_manager = ProcessStateManager(self.session_dir)
@@ -31,7 +32,11 @@ class SessionMemoryManager:
         self._ensure_view_files()
 
     def load(self) -> str:
-        source_path = self.agent_view_path if self.agent_view_path.exists() else self.summary_path
+        source_path = self.summary_path if self.summary_path.exists() else self.agent_view_path
+        return normalize_storage_text(source_path.read_text(encoding="utf-8")) + "\n"
+
+    def load_debug_view(self) -> str:
+        source_path = self.debug_view_path if self.debug_view_path.exists() else self.agent_view_path
         return normalize_storage_text(source_path.read_text(encoding="utf-8")) + "\n"
 
     def load_state(self) -> DialogueState:
@@ -40,12 +45,13 @@ class SessionMemoryManager:
     def load_flow_snapshots(self) -> list[FlowSnapshot]:
         return self.flow_snapshot_manager.load()
 
-    def overwrite(self, content: str) -> None:
-        normalized = normalize_storage_text(content)
-        rendered = normalized + "\n"
-        compaction_rendered = self.view_builder.render_compaction_view(rendered)
-        self.agent_view_path.write_text(rendered, encoding="utf-8")
-        self.summary_path.write_text(rendered, encoding="utf-8")
+    def overwrite(self, model_content: str, *, debug_content: str | None = None) -> None:
+        model_rendered = normalize_storage_text(model_content) + "\n"
+        debug_rendered = normalize_storage_text(debug_content if debug_content is not None else model_content) + "\n"
+        compaction_rendered = self.view_builder.render_compaction_view(model_rendered)
+        self.agent_view_path.write_text(debug_rendered, encoding="utf-8")
+        self.debug_view_path.write_text(debug_rendered, encoding="utf-8")
+        self.summary_path.write_text(model_rendered, encoding="utf-8")
         self.compaction_view_path.write_text(compaction_rendered, encoding="utf-8")
 
     def preview_state(
@@ -68,8 +74,9 @@ class SessionMemoryManager:
         previous_state = self.load_state()
         state = self.preview_state(messages, max_items=max_items, previous_state=previous_state)
         content = self._render_state(state)
+        debug_content = self._render_debug_state(state)
         if persist:
-            self.overwrite(content)
+            self.overwrite(content, debug_content=debug_content)
             self.state_manager.overwrite(state)
             self.flow_snapshot_manager.update_for_transition(previous_state, state)
         return content
@@ -92,8 +99,9 @@ class SessionMemoryManager:
             max_items=max_items,
         )
         content = self._render_state(state)
+        debug_content = self._render_debug_state(state)
         if persist:
-            self.overwrite(content)
+            self.overwrite(content, debug_content=debug_content)
             self.state_manager.overwrite(state)
             self.flow_snapshot_manager.update_for_transition(previous_state, state)
         return content
@@ -118,7 +126,10 @@ class SessionMemoryManager:
         )
 
     def _render_state(self, state: DialogueState) -> str:
-        return self.view_builder.render_state(state)
+        return self.view_builder.render_state(state, mode="model")
+
+    def _render_debug_state(self, state: DialogueState) -> str:
+        return self.view_builder.render_state(state, mode="debug")
 
     def _parse_sections(self, content: str) -> dict[str, list[str]]:
         return self.view_builder.parse_sections(content)
@@ -135,12 +146,14 @@ class SessionMemoryManager:
             "state_mirror_path": str(self.state_manager.state_mirror_path),
             "flow_snapshot_path": str(self.flow_snapshot_manager.snapshot_path),
             "primary_view_path": str(self.agent_view_path),
+            "debug_view_path": str(self.debug_view_path),
             "primary_compaction_view_path": str(self.compaction_view_path),
             "view_mirror_path": str(self.summary_path),
             "primary_state_exists": self.state_manager.process_state_path.exists(),
             "state_mirror_exists": self.state_manager.state_mirror_path.exists(),
             "flow_snapshot_exists": self.flow_snapshot_manager.snapshot_path.exists(),
             "primary_view_exists": self.agent_view_path.exists(),
+            "debug_view_exists": self.debug_view_path.exists(),
             "primary_compaction_view_exists": self.compaction_view_path.exists(),
             "view_mirror_exists": self.summary_path.exists(),
         }
@@ -606,6 +619,8 @@ class SessionMemoryManager:
     def _ensure_view_files(self) -> None:
         if self.agent_view_path.exists():
             source = self.agent_view_path.read_text(encoding="utf-8")
+            if not self.debug_view_path.exists():
+                self.debug_view_path.write_text(source, encoding="utf-8")
             if not self.summary_path.exists():
                 self.summary_path.write_text(source, encoding="utf-8")
             if not self.compaction_view_path.exists():
@@ -617,6 +632,7 @@ class SessionMemoryManager:
         if self.summary_path.exists():
             source = self.summary_path.read_text(encoding="utf-8")
             self.agent_view_path.write_text(source, encoding="utf-8")
+            self.debug_view_path.write_text(source, encoding="utf-8")
             self.compaction_view_path.write_text(
                 self.view_builder.render_compaction_view(source),
                 encoding="utf-8",
@@ -624,6 +640,7 @@ class SessionMemoryManager:
             return
         default_view = DEFAULT_TEMPLATE
         self.agent_view_path.write_text(default_view, encoding="utf-8")
+        self.debug_view_path.write_text(default_view, encoding="utf-8")
         self.summary_path.write_text(default_view, encoding="utf-8")
         self.compaction_view_path.write_text(
             self.view_builder.render_compaction_view(default_view),

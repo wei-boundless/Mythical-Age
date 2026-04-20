@@ -801,15 +801,15 @@ class QueryRuntime:
     def _should_prefetch_durable_context(self, execution: QueryExecutionPlan) -> bool:
         if getattr(execution.memory_intent, "ignore_memory", False):
             return False
-        if getattr(execution.memory_intent, "explicit_read_inventory", False):
-            return True
-        if getattr(execution.memory_intent, "intent", "") == "memory_read_signal":
-            return True
-        if list(getattr(execution.memory_intent, "preferred_types", []) or []):
-            return True
-        if list(getattr(execution.memory_intent, "preferred_memory_classes", []) or []):
-            return True
-        return getattr(execution.memory_intent, "memory_read_mode", "none") == "durable_exact"
+        if not str(getattr(execution, "message", "") or "").strip():
+            return False
+        if getattr(execution.memory_intent, "intent", "") == "session_continuity_query":
+            return False
+        route = str(getattr(execution.query_understanding, "route", "") or "")
+        modality = str(getattr(execution.query_understanding, "modality", "") or "")
+        if route == "tool" and modality in {"realtime", "web"}:
+            return False
+        return True
 
     def _new_segment(self) -> dict[str, Any]:
         return {"content": "", "tool_calls": []}

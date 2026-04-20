@@ -180,8 +180,6 @@ class ContextController:
             "# Flow State",
             "# Context Slots",
             "# Current Task State",
-            "# Risk Watch",
-            "# Next Step",
         ]
         active_process_context = self._section_blocks(parsed_sections, active_process_headers)
         hot_truth_window = self._recent_truth_window(messages)
@@ -217,7 +215,10 @@ class ContextController:
             relevant_durable_context = []
         elif pressure_level == "full_compact":
             warm_snapshots = []
-            exact_durable_context = []
+            exact_durable_context = self._limit_items_by_tokens(
+                exact_durable_context,
+                budget_tokens=max(60, self._budget_slice(0.12)),
+            )
             relevant_durable_context = []
             retrieval_items = self._limit_items_by_tokens(retrieval_items, budget_tokens=max(60, self._budget_slice(0.35)))
 
@@ -241,7 +242,11 @@ class ContextController:
     ) -> list[str]:
         blocks: list[str] = []
         for header in headers:
-            body = [line for line in parsed_sections.get(header, []) if line.strip()]
+            body = [
+                line
+                for line in parsed_sections.get(header, [])
+                if line.strip() and not line.strip().startswith("_")
+            ]
             if not body:
                 continue
             blocks.append("\n".join([header, *body]).strip())
@@ -350,7 +355,8 @@ class ContextController:
             if has_warm:
                 dropped.append("warm_snapshots")
             if has_durable:
-                dropped.append("exact_durable_context")
+                if not context_sections.get("exact_durable_context"):
+                    dropped.append("exact_durable_context")
                 dropped.append("relevant_durable_context")
             if has_retrieval and not context_sections.get("retrieval_evidence"):
                 dropped.append("retrieval_evidence")

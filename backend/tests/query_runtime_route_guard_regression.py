@@ -197,7 +197,7 @@ def test_rag_route_prefetches_retrieval_without_tools() -> None:
     events, retrieval, model_runtime, memory_facade = asyncio.run(_collect_events(plan, rag_mode=True))
 
     assert retrieval.queries == ["基于本地知识库，告诉我 AI 治理里最常见的三类风险。"]
-    assert memory_facade.prefetch_queries == []
+    assert memory_facade.prefetch_queries == ["基于本地知识库，告诉我 AI 治理里最常见的三类风险。"]
     assert model_runtime.last_tools == []
     assert any(event.get("type") == "retrieval" for event in events)
     assert not any(event.get("type") == "tool_start" for event in events)
@@ -273,6 +273,33 @@ def test_semantic_memory_signal_keeps_rag_and_prefetches_durable() -> None:
     retrieval_index = next(i for i, event in enumerate(events) if event.get("type") == "retrieval")
     memory_index = next(i for i, event in enumerate(events) if event.get("type") == "memory_context")
     assert retrieval_index < memory_index
+
+
+def test_general_memory_adjacent_query_still_prefetches_durable_context() -> None:
+    plan = QueryPlan(
+        session_id="general-memory-adjacent",
+        message="以后我问复杂问题时，你应该先怎么回答？",
+        history=[],
+        subqueries=["以后我问复杂问题时，你应该先怎么回答？"],
+        memory_intent=MemoryIntent(
+            intent="general",
+            memory_read_mode="none",
+            should_skip_rag=False,
+        ),
+        query_understanding=QueryUnderstanding(
+            intent="knowledge_lookup_query",
+            route="rag",
+            modality="general",
+            should_skip_rag=False,
+        ),
+        active_skill=None,
+    )
+    events, retrieval, model_runtime, memory_facade = asyncio.run(_collect_events(plan, rag_mode=True))
+
+    assert retrieval.queries == ["以后我问复杂问题时，你应该先怎么回答？"]
+    assert memory_facade.prefetch_queries == ["以后我问复杂问题时，你应该先怎么回答？"]
+    assert model_runtime.last_tools == []
+    assert any(event.get("type") == "memory_context" for event in events)
 
 
 def test_execution_events_reuses_built_plan_for_subtasks() -> None:

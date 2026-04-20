@@ -87,13 +87,16 @@ COMPACTION_SECTION_LIMITS = {
 
 
 class SessionMemoryViewBuilder:
-    def render_state(self, state: DialogueState) -> str:
+    def render_state(self, state: DialogueState, *, mode: str = "debug") -> str:
+        include_debug = mode != "model"
         sections = {
             "# Session Title": [state.session_title or "Ongoing session"],
             "# Active Goal": self._to_bullets([state.active_goal] if state.active_goal else []),
-            "# Flow State": self._to_bullets(self._flow_lines(state)),
+            "# Flow State": self._to_bullets(self._flow_lines(state, include_debug=include_debug)),
             "# Context Slots": self._to_bullets(self._context_slot_lines(state)),
-            "# Current Task State": self._to_bullets(state.current_task_state),
+            "# Current Task State": self._to_bullets(
+                state.current_task_state if include_debug else self._model_current_task_lines(state)
+            ),
             "# Warm Context": self._to_bullets(state.warm_context),
             "# Key User Requests": self._to_bullets(state.key_user_requests),
             "# Files and Functions": self._to_bullets(state.files_and_functions),
@@ -101,11 +104,11 @@ class SessionMemoryViewBuilder:
             "# Errors and Corrections": self._to_bullets(state.errors_and_corrections),
             "# Decisions and Learnings": self._to_bullets(state.decisions_and_learnings),
             "# Key Results": self._to_bullets(state.key_results),
-            "# Risk Watch": self._to_bullets(state.risk_notes or state.risk_flags),
-            "# Next Step": self._to_bullets(state.next_step),
-            "# Worklog": self._to_bullets(state.worklog),
+            "# Risk Watch": self._to_bullets(state.risk_notes or state.risk_flags) if include_debug else [],
+            "# Next Step": self._to_bullets(state.next_step) if include_debug else [],
+            "# Worklog": self._to_bullets(state.worklog) if include_debug else [],
         }
-        return self._render_sections(sections)
+        return self._render_sections(sections, include_empty_headers=include_debug)
 
     def compact_view(
         self,
@@ -166,32 +169,37 @@ class SessionMemoryViewBuilder:
         template_sections = self.parse_sections(DEFAULT_TEMPLATE)
         return [line for line in template_sections.get(header, []) if line.strip().startswith("_")]
 
-    def _render_sections(self, sections: dict[str, list[str]]) -> str:
+    def _render_sections(self, sections: dict[str, list[str]], *, include_empty_headers: bool) -> str:
         ordered_headers = list(self.parse_sections(DEFAULT_TEMPLATE).keys())
         chunks: list[str] = []
         for header in ordered_headers:
-            chunks.append(header)
             lines = sections.get(header, [])
             description = self.description_for_header(header)
-            chunks.extend(description)
             body = [line for line in lines if line not in description]
             body = [line for line in body if line.strip()]
+            if not include_empty_headers and not body:
+                continue
+            chunks.append(header)
+            chunks.extend(description)
             if body:
                 chunks.extend(body)
             chunks.append("")
         return "\n".join(chunks).strip() + "\n"
 
-    def _flow_lines(self, state: DialogueState) -> list[str]:
+    def _flow_lines(self, state: DialogueState, *, include_debug: bool) -> list[str]:
         flow = state.flow_state
         task = state.task_state
         items = [
             f"当前流程类型：{flow.flow_type}",
             f"流程状态：{flow.status}",
-            f"流程置信度：{round(flow.confidence, 2)}",
         ]
-        if task.current_step:
+        if include_debug:
+            items.append(f"流程置信度：{round(flow.confidence, 2)}")
+        if include_debug and task.current_step:
             items.append(f"当前步骤：{task.current_step}")
-        if task.next_step:
+        if (not include_debug) and task.current_step and self._looks_like_result_line(task.current_step):
+            items.append(f"最近结果：{task.current_step}")
+        if include_debug and task.next_step:
             items.append(f"下一步：{task.next_step}")
         return [item for item in items if item.strip()]
 
@@ -207,6 +215,30 @@ class SessionMemoryViewBuilder:
         if slots.active_rule:
             items.append(f"当前规则：{slots.active_rule}")
         return items
+
+    def _model_current_task_lines(self, state: DialogueState) -> list[str]:
+        lines = list(state.current_task_state)
+        filtered: list[str] = []
+        dropped_prefixes = (
+            "先向用户澄清当前目标",
+            "继续处理当前用户请求",
+            "按照当前方案继续执行",
+        )
+        for line in lines:
+            compact = line.strip()
+            if not compact:
+                continue
+            if compact.startswith(dropped_prefixes):
+                continue
+            filtered.append(compact)
+        return filtered[:6]
+
+    def _looks_like_result_line(self, text: str) -> bool:
+        compact = text.strip()
+        if not compact:
+            return False
+        result_markers = ("已", "完成", "结论", "建议", "发现", "修复", "通过")
+        return any(marker in compact for marker in result_markers)
 
     def _to_bullets(self, items: list[str]) -> list[str]:
         return [f"- {item}" for item in items if item.strip()]

@@ -156,8 +156,7 @@ def test_session_memory_compact_view_uses_state_sections() -> None:
         compact = manager.compact_view()
         _assert("# Active Goal" in compact, "compact view should expose Active Goal section")
         _assert("# Current Task State" in compact, "compact view should expose Current Task State section")
-        _assert("# Next Step" in compact, "compact view should expose Next Step section")
-        _assert("# Conventions and Constraints" in compact, "compact view should expose the canonical conventions section")
+        _assert("# Next Step" not in compact, "compact view should stop exposing orchestration-only next-step guidance")
         _assert("# Workflow and Constraints" not in compact, "compact view should stop rendering the legacy workflow section name")
         _assert("What flow is currently active" in compact, "compact view should use the canonical flow description")
         _assert("What workflow is currently active" not in compact, "compact view should stop rendering the legacy workflow prompt")
@@ -214,8 +213,10 @@ def test_session_memory_surfaces_risk_watch_and_flags() -> None:
         )
 
         state = manager.load_state()
+        debug_view = manager.load_debug_view()
 
-        _assert("# Risk Watch" in summary, "summary should include risk watch section")
+        _assert("# Risk Watch" not in summary, "model-visible summary should not expose risk watch section")
+        _assert("# Risk Watch" in debug_view, "debug session view should retain risk watch section")
         _assert(state.risk_flags, "state should persist at least one risk flag in repeated-failure cases")
         _assert(
             any(flag in {"unresolved_error_loop", "low_flow_confidence"} for flag in state.risk_flags),
@@ -333,12 +334,14 @@ def test_session_memory_persists_process_state_and_view_mirrors() -> None:
         process_state_path = root / "process_state.json"
         state_path = root / "state.json"
         agent_view_path = root / "views" / "agent_view.md"
+        debug_view_path = root / "views" / "debug_view.md"
         compaction_view_path = root / "views" / "compaction_view.md"
         summary_path = root / "summary.md"
 
         _assert(process_state_path.exists(), "process-state authority file should be created")
         _assert(state_path.exists(), "state mirror should still be emitted during migration")
         _assert(agent_view_path.exists(), "agent view should be written as the primary rendered view")
+        _assert(debug_view_path.exists(), "debug view should be written as a dedicated verbose session view")
         _assert(compaction_view_path.exists(), "compaction view should be written as a dedicated restore-oriented view")
         _assert(summary_path.exists(), "summary view mirror should still be emitted during migration")
         _assert(
@@ -346,17 +349,21 @@ def test_session_memory_persists_process_state_and_view_mirrors() -> None:
             "state.json should mirror process_state.json during migration",
         )
         _assert(
-            agent_view_path.read_text(encoding="utf-8") == summary_path.read_text(encoding="utf-8"),
-            "summary.md should mirror the primary agent view during migration",
+            agent_view_path.read_text(encoding="utf-8") == debug_view_path.read_text(encoding="utf-8"),
+            "agent_view.md should mirror the verbose debug session view",
+        )
+        _assert(
+            agent_view_path.read_text(encoding="utf-8") != summary_path.read_text(encoding="utf-8"),
+            "summary.md should now be the narrowed model-visible restore view, not a mirror of the debug view",
         )
         _assert(
             "# Active Goal" in compaction_view_path.read_text(encoding="utf-8"),
             "compaction view should preserve rendered state sections needed for restore",
         )
-        _assert("# Conventions and Constraints" in rendered, "agent view should render the canonical conventions section")
         _assert("# Workflow and Constraints" not in rendered, "agent view should not render the legacy workflow section name")
         _assert("What flow is currently active" in rendered, "agent view should use the canonical flow prompt")
         _assert("What workflow is currently active" not in rendered, "agent view should not use the legacy workflow prompt")
+        _assert("# Next Step" not in rendered, "model-visible session view should not include orchestration-only next-step guidance")
 
         persisted_payload = json.loads(process_state_path.read_text(encoding="utf-8"))
         persisted_state = manager.load_state()
@@ -379,6 +386,7 @@ def test_session_memory_persists_process_state_and_view_mirrors() -> None:
         )
         storage = manager.describe_storage()
         _assert("state_mirror_path" in storage, "storage description should expose mirror paths with canonical names")
+        _assert("debug_view_path" in storage, "storage description should expose the debug session view path")
         _assert("view_mirror_path" in storage, "storage description should expose mirror view paths with canonical names")
         _assert("compatibility_state_path" not in storage, "storage description should stop exposing compatibility-era field names")
         _assert("compatibility_view_path" not in storage, "storage description should stop exposing compatibility-era field names")

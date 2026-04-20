@@ -487,15 +487,7 @@ class DurableMemoryLayer:
             return False
         if bool(getattr(memory_intent, "ignore_memory", False)):
             return False
-        if self._should_use_manifest_fallback(memory_intent):
-            return True
-        if str(getattr(memory_intent, "intent", "") or "") == "memory_read_signal":
-            return True
-        if list(getattr(memory_intent, "preferred_types", []) or []):
-            return True
-        if list(getattr(memory_intent, "preferred_memory_classes", []) or []):
-            return True
-        return getattr(memory_intent, "memory_read_mode", "none") == "durable_exact"
+        return True
 
     def _load_selected_note_dicts(
         self,

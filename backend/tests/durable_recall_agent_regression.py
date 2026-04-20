@@ -71,6 +71,22 @@ def test_recall_request_marks_inventory_queries_as_manifest_only() -> None:
         assert result.selected_notes == []
 
 
+def test_inventory_query_with_session_marker_still_routes_to_manifest_inventory() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        _seed_notes(facade)
+
+        intent = analyze_memory_intent("你刚才帮我长期记住了什么？")
+        result = facade.recall_durable_memories(query="你刚才帮我长期记住了什么？", memory_intent=intent)
+
+        assert intent.intent == "durable_memory_query"
+        assert intent.explicit_read_inventory is True
+        assert result.selection.manifest_only is True
+        assert result.selection.should_recall is False
+        assert result.selected_notes == []
+
+
 def test_recall_request_selects_small_relevant_note_subset() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -83,6 +99,14 @@ def test_recall_request_selects_small_relevant_note_subset() -> None:
         assert result.selection.reason in {"manifest_overlap_fallback", "preselected_notes"}
         assert len(result.selected_notes) <= 3
         assert any(note["filename"] == "project-focus.md" for note in result.selected_notes)
+
+
+def test_answer_style_query_infers_preference_recall_hints() -> None:
+    intent = analyze_memory_intent("以后我问复杂问题时，你应该先怎么回答？")
+
+    assert intent.intent == "memory_read_signal"
+    assert intent.preferred_types == ["user"]
+    assert intent.preferred_memory_classes == ["preference"]
 
 
 def test_ignore_memory_instruction_short_circuits_recall() -> None:
