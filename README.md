@@ -1,283 +1,112 @@
-# langchain-OpenClaw
-![Architecture Diagram](d8c11e85b04d1fdc87c376cf8e36f0dc.jpg)
-![Architecture Diagram](0b253ee89f527f37e5e02d7f12471436.jpg)
-![Architecture Diagram](ecfd6a88a857621fcc269b4fa5948977.jpg)
-可在https://www.bilibili.com/video/BV1izcXz8EJx/?vd_source=af1143f8815e17a230561ad0ef6c689b    观看视频
+ 本地智能 Agent 架构系统功能技术报告
 
-一个本地运行、文件优先、可审计的 AI Agent 工作台。
+## 1. 项目概述
 
+本项目是一个面向本地知识问答、复杂文档理解和多轮任务协作的本地智能 Agent 架构系统。系统以后端 Agent Runtime 为核心，通过任务理解、技能路由、工具调用、检索增强生成和结构化记忆管理，将聊天、知识检索、文件理解、文档分析等能力整合到统一的运行链路中。
 
-- 对话会落盘到本地 `JSON`
-- 长期记忆保存在 `Markdown`
-- 技能不是黑盒函数，而是可读可改的 `SKILL.md`
-- Prompt、工具调用、记忆注入、检索过程都能被看到
+与普通聊天应用不同，本项目更强调“可执行、可扩展、可观察”。系统不仅能够回答问题，还能够根据任务类型主动选择合适的 Skill、Tool、RAG 检索链路或文件分析能力，并在会话过程中持续维护上下文与记忆状态。
 
-如果你想做一个“能解释自己为什么这样做”的 Agent，这个项目就是为这个方向准备的。
+## 2. 主要功能
 
-## 为什么是它
+### 2.1 多轮对话与会话管理
 
-很多 Agent 项目都很强，但也很“黑盒”：
+系统支持基于会话的多轮对话。每轮用户消息、助手回复和工具调用结果都会落盘保存，形成可追踪的会话记录。服务端通过流式接口返回生成过程，前端可以实时显示模型输出和工具执行状态，从而提升交互体验与可观测性。
 
-- 记忆存在向量库里，看不到
-- Prompt 拼接在代码深处，改起来不直观
-- 技能是硬编码函数，扩展成本高
-- 出错以后很难复盘“它到底做了什么”
+主要能力包括：
 
-langchain-OpenClaw 反过来做了几个选择：
+- 支持流式对话输出
+- 支持按 `session_id` 管理独立会话
+- 支持会话标题生成与历史查看
+- 支持会话内容持久化存储
 
-| 传统做法 | langchain-OpenClaw |
-| --- | --- |
-| 向量库是唯一记忆来源 | 文件是事实源，索引只是可重建缓存 |
-| 技能写死在代码里 | 技能 = `skills/*/SKILL.md` |
-| Prompt 隐藏在代码里 | Prompt 由多个 Markdown 文件实时组装 |
-| 工具调用不透明 | 前端可看到 token、tool start/end、raw messages |
-| 项目越做越重 | 默认本地运行，无 MySQL / Redis 依赖 |
+### 2.2 任务理解与能力路由
 
-## 它现在能做什么
+系统在接收用户请求后，不是直接把问题送给模型，而是先进行任务理解。运行时会分析当前问题的任务类型、数据来源、模态特征、候选工具和路由策略，再决定进入普通对话、工具执行、知识检索、PDF 分析或表格分析链路。
 
-当前仓库已经具备一套完整的本地 Agent 基础能力：
+这一机制让系统具备更强的任务适配能力，尤其适合处理“查询知识库”“分析 PDF 第几页”“统计表格数据”“读取本地文件”等不同类型的问题。
 
-- 流式聊天：基于 FastAPI SSE 返回 token、工具调用、分段回复
-- 会话持久化：每轮对话保存到 `backend/sessions/*.json`
-- 长期记忆：`backend/memory/MEMORY.md`
-- 本地知识库检索：`backend/knowledge/` + LlamaIndex
-- 技能系统：Agent 先看技能快照，再按需读取 `SKILL.md`
-- 三栏工作台 UI：会话列表、聊天区、文件检查器
-- 文件在线编辑：可直接编辑 Memory / Skills / Workspace 文件
-- RAG 模式切换：可选择“直接拼接记忆”或“检索后注入”
+### 2.3 Skill / Tool 任务执行链路
 
-当前内置的技能包括：
+系统采用 Skill 与 Tool 分层设计。
 
-- `天气查询`
-- `联网搜索`（Tavily）
-- `本地知识库检索`
-- `失败恢复经验沉淀`
+- Skill 负责描述任务方法、执行规范和使用边界
+- Tool 负责执行具体能力，如网页搜索、表格分析、PDF 解析、知识检索、文件读取等
 
-## 界面结构
+当前系统已经具备较完整的工具注册与调度能力，支持天气查询、网页搜索、本地知识检索、结构化数据分析、PDF 分析、多模态文件分析、文件读取、终端执行等能力。Skill 层通过配置化方式组织能力，不需要把所有逻辑硬编码在单一 prompt 中，因此扩展新能力更加方便。
 
-前端是一个面向 Agent 调试的三栏工作台：
+### 2.4 本地知识库检索与 RAG
 
-- 左栏：会话列表、历史消息、Raw Messages
-- 中栏：聊天面板、工具调用链、检索卡片、流式输出
-- 右栏：Memory / Skills / Workspace 文件编辑器（Monaco）
+系统内置本地知识库检索能力，能够对本地文档进行索引、召回和检索增强回答。检索流程会根据查询内容先进行改写与路由，再选择知识库、记忆库等集合执行检索，并对多路结果进行融合与重排，最终把高相关内容注入到回答上下文中。
 
-这不是一个只给终端用的 Agent，而是一个“能看见自己内部状态”的 Agent IDE。
+该模块支持：
 
-## 一次请求发生了什么
+- 本地知识文件索引构建
+- 面向问答场景的检索路由
+- 多集合检索结果融合
+- 可选重排能力
+- 与对话链路结合的检索增强回答
 
-```mermaid
-flowchart LR
-    U["用户发送消息"] --> F["POST /api/chat"]
-    F --> S["加载会话历史 sessions/*.json"]
-    S --> R{"RAG 模式?"}
-    R -- 是 --> M["检索 memory/MEMORY.md"]
-    R -- 否 --> P["直接拼接系统提示词"]
-    M --> P
-    P --> A["LangChain create_agent"]
-    A --> T["调用工具 / 读取技能 / 生成回复"]
-    T --> E["SSE 推送 token / tool_start / tool_end / done"]
-    E --> UI["前端实时更新界面"]
-    UI --> SAVE["保存用户消息、助手消息、工具记录"]
-```
+### 2.5 PDF、表格与多模态文件处理
 
-## 技术栈
+系统支持对多种文件类型进行统一处理，包括 PDF、CSV、XLSX、DOCX、PPTX、Markdown、JSON、图片等。对于 PDF，系统支持本地解析，也支持接入 MinerU API 进行增强解析；对于表格文件，系统可以进行结构化读取、字段识别和数据分析；对于图片，则可以结合 OCR 获取文本信息。
 
-### 后端
+因此，系统不仅能回答普通文本知识问题，还可以处理“这份 PDF 第三页讲了什么”“这张表里库存最低的商品有哪些”“帮我总结文档中的关键结论”等复杂文档类任务。
 
-- Python 3.10+
-- FastAPI
-- LangChain 1.x `create_agent`
-- LlamaIndex Core
-- OpenAI-compatible model API
+### 2.6 记忆与上下文管理
 
-### 前端
-
-- Next.js 14 App Router
-- React 18
-- TypeScript
-- Tailwind CSS
-- Monaco Editor
+项目已经建立了较明确的会话记忆与上下文管理机制。系统不是简单依赖单一 summary，而是把过程状态、会话视图、兼容层摘要和长期记忆分开处理，使运行时上下文更加结构化。
 
-### 默认模型配置
+当前功能重点包括：
 
-- LLM Provider: `zhipu`
-- LLM Model: `glm-5`
-- Embedding Provider: `bailian`
-- Embedding Model: `text-embedding-v4`
+- 会话工作记忆生成与刷新
+- `process_state` 驱动的运行时状态管理
+- 会话视图和兼容摘要同步输出
+- 长期记忆提取与注入
+- 上下文压缩与视图重建
 
-目前已支持的模型厂商：
+这使系统在多轮连续对话中更容易保持任务连续性，也更便于开发者排查上下文错误。
 
-- 智谱 `zhipu`
-- 百炼 `bailian`
-- DeepSeek `deepseek`
-- OpenAI 兼容接口 `openai`
+### 2.7 文件查看与本地内容协作
 
-## 快速开始
+系统提供文件读取、文件浏览和本地内容协作能力。用户不仅可以让 Agent 回答问题，还可以结合本地文件直接开展分析与操作，例如查看项目文档、读取知识资料、定位代码文件内容等。对于以本地资料为主的 Agent 场景，这一能力非常重要。
 
-### 1. 环境要求
+### 2.8 可观测性与可扩展性
 
-- Python 3.10+
-- Node.js 18+
-- npm
+本项目的一个明显特点是可观测和可扩展。系统中的技能、工具、记忆视图、会话记录、检索链路都尽量保持透明，便于开发、调试与迭代。同时，Skill Registry、Tool Registry、RAG Registry 等机制也为后续增加新能力提供了清晰入口。
 
-### 2. 启动后端
+这意味着系统后续可以继续扩展：
 
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
-```
+- 新的 Skill 模板
+- 新的 Tool 能力
+- 新的检索集合与文档类型
+- 更复杂的多模态理解链路
+- 更细粒度的记忆控制策略
 
-至少补齐这些环境变量：
+## 3. 典型工作流程
 
-```env
-# 默认聊天模型
-ZHIPU_API_KEY=your_key
+一条用户请求在系统中的典型处理流程如下：
 
-# 默认 embedding
-BAILIAN_API_KEY=your_key
+1. 用户发送消息到后端接口。
+2. 系统读取当前会话历史与运行时记忆。
+3. 任务理解模块识别问题类型、数据来源和处理目标。
+4. 路由层决定使用普通对话、Skill、Tool、RAG 检索或 PDF / 表格分析能力。
+5. 执行结果与检索结果被整理后注入上下文。
+6. 模型生成最终回答，并以流式方式返回前端。
+7. 当前轮结果写入会话记录，同时刷新工作记忆和长期记忆。
 
-# 联网搜索技能（可选，但推荐）
-TAVILY_API_KEY=your_key
-```
+这一链路说明，本项目不是单纯的聊天接口，而是一套具备任务编排能力的 Agent Runtime。
 
-然后启动：
+## 4. 适用场景
 
-```bash
-uvicorn app:app --host 0.0.0.0 --port 8002 --reload
-```
+本项目适合以下几类场景：
 
-### 3. 启动前端
+- 本地知识库问答
+- 个人知识助理
+- PDF / 表格文档分析
+- 多轮上下文协作型问答
+- 面向研发或办公资料的本地 Agent 应用
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## 5. 总结
 
-打开 [http://localhost:3000](http://localhost:3000)。
+总体来看，本项目已经具备一个本地智能 Agent 架构系统的核心能力框架。它不仅支持基本的对话交互，还集成了任务理解、技能路由、工具执行、RAG 检索、PDF 与表格处理、结构化记忆和上下文控制等关键功能。项目当前的价值不只是“能回答问题”，而是已经形成了一套可持续扩展、可调试、可演进的 Agent 后端运行机制。
 
-## 5 分钟体验路线
-
-如果你第一次打开项目，建议按这个顺序体验：
-
-1. 发一条普通聊天消息，感受流式输出（1.黄金现在多少钱。2.帮我在知识库中查询（哪些商品库存不足/三一重工前三大股东/为什么我在我的帐户中找不到我的订单？"......）3.帮我查询北京天气）
-2. 打开右侧 Inspector，查看 `memory/MEMORY.md`
-3. 新建或编辑一个 skill，观察系统如何即时生效
-4. 打开 RAG 模式，再问一个和长期记忆相关的问题
-5. 查看 `backend/sessions/*.json`，确认对话和工具调用已真实落盘
-
-## 项目结构
-
-```text
-mini-openclaw/
-├── backend/
-│   ├── api/                 # 聊天、会话、文件、压缩、配置接口
-│   ├── graph/               # Agent 构建、Prompt 组装、Session、Memory 索引
-│   ├── tools/               # terminal / python_repl / fetch_url / read_file / knowledge search
-│   ├── context_profile/     # constitution / profile，承载长期设定与长期画像
-│   ├── skills/              # 每个技能一个目录，核心是 SKILL.md
-│   ├── durable_memory/      # 动态长期记忆文件与 MEMORY.md 入口
-│   ├── knowledge/           # 本地知识库
-│   ├── sessions/            # 会话 JSON
-│   ├── storage/             # 记忆与知识库索引缓存
-│   ├── app.py               # FastAPI 入口
-│   └── SKILLS_SNAPSHOT.md   # 技能快照
-└── frontend/
-    └── src/
-        ├── app/             # 页面入口
-        ├── components/      # 三栏 UI、聊天面板、检索卡片、编辑器
-        └── lib/             # API 客户端与全局状态
-```
-
-## 核心概念
-
-### 1. 文件即记忆
-
-本项目不是完全不用向量索引，而是把“文件”当作事实源：
-
-- 真正长期保存的是 `memory/MEMORY.md`
-- 真正会话记录是 `sessions/*.json`
-- LlamaIndex 负责构建可丢弃、可重建的索引缓存
-
-也就是说：
-
-- 你能直接读懂 Agent 的记忆
-- 你能手动修改它的记忆
-- 就算索引删了，也能从源文件重建
-
-### 2. 技能即插件
-
-技能不是 Python 函数注册，而是目录中的 `SKILL.md`：
-
-- `backend/skills/get-weather/SKILL.md`
-- `backend/skills/web-search/SKILL.md`
-- `backend/skills/retry-lesson-capture/SKILL.md`
-
-Agent 会先读取 `SKILLS_SNAPSHOT.md` 知道有哪些技能，再按需读取具体 skill 文件。
-
-这意味着：
-
-- 扩展能力更轻
-- 技能更容易审查
-- 适合面试展示和教学演示
-
-### 3. Prompt 可解释
-
-每次请求都会重新拼装系统提示词，来源包括：
-
-- `SKILLS_SNAPSHOT.md`
-- `context_profile/constitution/SOUL.md`
-- `context_profile/constitution/IDENTITY.md`
-- `context_profile/profile/USER.md`
-- `context_profile/profile/AGENTS.md`
-- `durable_memory/MEMORY.md`
-
-所以你改完文件，下一轮请求立刻生效。
-
-## 适合谁
-
-这个项目尤其适合：
-
-- 想做本地 AI Agent 原型的人
-- 想做可解释 / 可审计 Agent 的人
-- 想拿 Agent 项目做面试作品的人
-- 想研究 Prompt、Memory、Tools、Skills 如何协同的人
-
-## 当前限制
-
-为了保持轻量和透明，这个项目有一些明确边界：
-
-- 目前默认面向本地开发环境，不含账号体系和多租户
-- 知识库更适合 UTF-8 文本类文件
-- 多模态文档解析还没有完整接入
-- 技能写入与经验沉淀依赖现有工具链和提示词约束，不是单独的工作流引擎
-
-## 路线图
-
-接下来比较值得继续补的方向：
-
-- 更强的 coding agent 工作流
-- 多模态文档解析
-- 更稳定的联网检索与引用
-- 自动经验沉淀与记忆治理
-- 技能模板和 Skill Scaffold 能力
-
-## 为什么适合做面试项目
-
-因为它同时覆盖了几个面试里很容易讲清楚的点：
-
-- 后端 API 设计
-- Agent 编排
-- Prompt 工程
-- RAG 检索
-- 本地持久化
-- 前后端联动
-- 可观测性和调试体验
-
-它不是“套壳调用模型”，而是一个可以展开讲架构取舍的完整作品。
-## 致谢
-
-项目中 `skill` 设计与思路参考了 [ConardLi/rag-skill](https://github.com/ConardLi/rag-skill)。
