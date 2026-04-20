@@ -318,8 +318,12 @@ def test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime
             "system prompt should include the retrieved evidence content",
         )
         _assert(
-            "<!-- Context Management -->" in system_prompt,
-            "system prompt should include context-management notes when built from a context package",
+            "<!-- Context Management -->" not in system_prompt,
+            "system prompt should keep context-management notes out of the model-visible prompt",
+        )
+        _assert(
+            "Selected Sections:" not in system_prompt and "Dropped Sections:" not in system_prompt,
+            "prompt should not expose section-selection metadata",
         )
         _assert(
             session_block.count("Battery chemistry affects energy density") == 1,

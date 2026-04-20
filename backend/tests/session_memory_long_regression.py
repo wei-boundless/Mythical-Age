@@ -219,6 +219,49 @@ def test_task_switch_persists_warm_flow_snapshots() -> None:
         )
 
 
+def test_summary_first_projection_preserves_warm_context_on_task_switch() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "请分析 report.pdf 第3页的结论",
+                "active_work_item": "pdf_analysis",
+                "active_constraints": {"page": 3, "source_kind": "pdf"},
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "pdf-task",
+                    "query": "请分析 report.pdf 第3页的结论",
+                    "summary": "第3页主要讲供应链风险和成本压力。",
+                    "key_points": ["page=3", "pdf=report.pdf"],
+                }
+            ],
+        )
+        manager.update_from_context_state(
+            {
+                "active_goal": "换个问题，帮我查黄金价格",
+                "active_work_item": "finance_lookup",
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "price-task",
+                    "query": "帮我查黄金价格",
+                    "summary": "当前国际黄金现货约 1034 元/克。",
+                }
+            ],
+        )
+
+        summary = manager.load()
+        sections = _sections(manager)
+        warm = "\n".join(sections["# Warm Context"])
+
+        _assert("黄金价格" in "\n".join(sections["# Active Goal"]), "summary-first switch should update the active goal")
+        _assert("report.pdf" in warm or "供应链风险" in warm, "summary-first switch should demote prior flow into warm context")
+        _assert("1034 元/克" in summary, "latest summary-first result should remain visible after the switch")
+
+
 def main() -> None:
     tests = [
         test_follow_up_keeps_same_task_context,
@@ -227,6 +270,7 @@ def main() -> None:
         test_long_running_session_retains_key_points_without_unbounded_growth,
         test_meta_dialogue_and_correction_do_not_replace_active_goal,
         test_task_switch_persists_warm_flow_snapshots,
+        test_summary_first_projection_preserves_warm_context_on_task_switch,
     ]
     for test in tests:
         test()

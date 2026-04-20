@@ -44,7 +44,8 @@ class AppRuntime:
         self.retrieval_service = RetrievalService(base_dir)
         self.permission_service = PermissionService(self.settings, self.tool_runtime)
         self.model_runtime = ModelRuntime(self.settings)
-        self.task_coordinator = TaskCoordinator()
+        self.memory_facade.set_model_invoker(self.model_runtime.invoke_messages)
+        self.task_coordinator = TaskCoordinator(base_dir=base_dir)
         self.consolidation_scheduler = ConsolidationScheduler(
             base_dir / "durable_memory",
             config=ConsolidationConfig(

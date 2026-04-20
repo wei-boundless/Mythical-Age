@@ -8,7 +8,7 @@ from memory_layout import DurableMemoryLayout
 
 from .frontmatter import parse_frontmatter
 from .models import DEFAULT_DURABLE_SCHEMA_VERSION, MemoryNote
-from .note_hygiene import is_runtime_noise_note
+from .note_hygiene import is_runtime_noise_note, normalize_durable_fact_text
 from .text_utils import normalize_storage_text, repair_mojibake
 
 
@@ -34,6 +34,13 @@ class LoadedMemoryNote(NamedTuple):
     confidence: str
     status: str
     last_confirmed_at: str
+    scope: str
+    stability: str
+    source_kind: str
+    eligible_for_injection: str
+    review_after: str
+    supersedes: str
+    invalidation_reason: str
     content: str
 
 
@@ -71,9 +78,11 @@ class MemoryManager:
         )
 
     def save_note(self, note: MemoryNote) -> Path:
-        path = self.note_path(note.slug)
-        path.write_text(note.to_markdown(), encoding="utf-8", newline="\n")
-        self._upsert_index_line(note.title, path.name, note.summary)
+        governed_note, notes_to_update = self._apply_save_governance(note)
+        for staged_note in notes_to_update:
+            self._write_note(staged_note)
+        path = self._write_note(governed_note)
+        self.sync_index()
         return path
 
     def repair_store(self) -> dict[str, object]:
@@ -149,6 +158,13 @@ class MemoryManager:
                 confidence=loaded.confidence or "medium",
                 status=loaded.status or "active",
                 last_confirmed_at=loaded.last_confirmed_at,
+                scope=loaded.scope or "project",
+                stability=loaded.stability or "stable",
+                source_kind=loaded.source_kind,
+                eligible_for_injection=loaded.eligible_for_injection or "true",
+                review_after=loaded.review_after,
+                supersedes=loaded.supersedes,
+                invalidation_reason=loaded.invalidation_reason,
             )
             for path, loaded in ((path, self._load_loaded_note(path)) for path in self.list_note_paths())
         ]
@@ -188,9 +204,116 @@ class MemoryManager:
             summary_source = note.summary or note.canonical_statement
             summary = f": {summary_source}" if summary_source else ""
             manifest_lines.append(
-                f"- [{note.memory_class}/{note.memory_type}] {note.filename} [{note.confidence}/{note.status}]{summary}"
+                f"- [{note.memory_class}/{note.memory_type}] {note.filename} [{note.confidence}/{note.status}/{note.stability}]{summary}"
             )
         return "\n".join(manifest_lines)
+
+    def govern_note_store(self) -> dict[str, object]:
+        updated = 0
+        seen_active_keys: dict[tuple[str, str, str], str] = {}
+        for loaded in self.list_notes():
+            note = self._loaded_to_memory_note(loaded)
+            dirty = False
+            if is_runtime_noise_note(
+                source_role=note.source_role,
+                created_by=note.created_by,
+                title=note.title,
+                summary=note.summary,
+                canonical_statement=note.canonical_statement,
+                source_message_excerpt=note.source_message_excerpt,
+            ):
+                if note.status != "deprecated":
+                    note.status = "deprecated"
+                    dirty = True
+                if normalize_storage_text(note.eligible_for_injection).lower() != "false":
+                    note.eligible_for_injection = "false"
+                    dirty = True
+                if not note.invalidation_reason:
+                    note.invalidation_reason = "runtime_noise_note"
+                    dirty = True
+            else:
+                note, normalized_dirty = self._normalize_governed_note(note)
+                dirty = dirty or normalized_dirty
+                canonical_key = self._governance_canonical_key(note)
+                if canonical_key is not None:
+                    existing_slug = seen_active_keys.get(canonical_key)
+                    if existing_slug and existing_slug != note.slug:
+                        if note.status != "deprecated":
+                            note.status = "deprecated"
+                            dirty = True
+                        if normalize_storage_text(note.eligible_for_injection).lower() != "false":
+                            note.eligible_for_injection = "false"
+                            dirty = True
+                        if not note.invalidation_reason:
+                            note.invalidation_reason = f"duplicate_of:{existing_slug}"
+                            dirty = True
+                    elif self._is_runtime_visible(note.status) and normalize_storage_text(note.eligible_for_injection).lower() not in {"false", "no", "0"}:
+                        seen_active_keys[canonical_key] = note.slug
+            if dirty:
+                note.updated_at = MemoryNote(slug="", title="", summary="", body="").updated_at
+                self._write_note(note)
+                updated += 1
+        self.sync_index()
+        return {"status": "ok", "updated": updated}
+
+    def _normalize_governed_note(self, note: MemoryNote) -> tuple[MemoryNote, bool]:
+        dirty = False
+        normalized_canonical = normalize_durable_fact_text(note.canonical_statement)
+        normalized_summary = normalize_durable_fact_text(note.summary)
+        normalized_title = normalize_durable_fact_text(note.title)
+
+        if normalized_canonical and normalized_canonical != note.canonical_statement:
+            note.canonical_statement = normalized_canonical
+            dirty = True
+        if normalized_summary and normalized_summary != note.summary:
+            note.summary = normalized_summary
+            dirty = True
+        if normalized_title and normalized_title != note.title:
+            note.title = normalized_title[:24] if any("\u4e00" <= char <= "\u9fff" for char in normalized_title) else normalized_title
+            dirty = True
+
+        normalized_excerpt = normalize_durable_fact_text(note.source_message_excerpt)
+        if normalized_excerpt and normalized_excerpt != note.source_message_excerpt:
+            note.source_message_excerpt = normalized_excerpt
+            dirty = True
+
+        merged_hints: list[str] = []
+        for hint in note.retrieval_hints:
+            normalized_hint = normalize_durable_fact_text(hint) or normalize_storage_text(hint)
+            normalized_hint = normalize_storage_text(normalized_hint)
+            if normalized_hint and normalized_hint not in merged_hints:
+                merged_hints.append(normalized_hint)
+        if note.canonical_statement and note.canonical_statement not in merged_hints:
+            merged_hints.insert(0, note.canonical_statement)
+        if merged_hints != note.retrieval_hints:
+            note.retrieval_hints = merged_hints[:8]
+            dirty = True
+
+        body_replacement_map = {
+            normalize_storage_text(note.title): note.title,
+            normalize_storage_text(note.summary): note.summary,
+            normalize_storage_text(note.canonical_statement): note.canonical_statement,
+        }
+        updated_body = note.body
+        for original, replacement in body_replacement_map.items():
+            normalized_original = normalize_durable_fact_text(original)
+            if normalized_original and normalized_original != original and original in updated_body:
+                updated_body = updated_body.replace(original, normalized_original)
+        if updated_body != note.body:
+            note.body = updated_body
+            dirty = True
+
+        return note, dirty
+
+    def _governance_canonical_key(self, note: MemoryNote) -> tuple[str, str, str] | None:
+        canonical = normalize_storage_text(note.canonical_statement).lower()
+        if not canonical:
+            return None
+        return (
+            normalize_storage_text(note.memory_class).lower(),
+            normalize_storage_text(note.memory_type).lower(),
+            canonical,
+        )
 
     def select_relevant_notes(
         self,
@@ -250,6 +373,12 @@ class MemoryManager:
         final = "\n".join(out).rstrip() + "\n"
         self.index_path.write_text(final, encoding="utf-8", newline="\n")
 
+    def _write_note(self, note: MemoryNote) -> Path:
+        path = self.note_path(note.slug)
+        path.write_text(note.to_markdown(), encoding="utf-8", newline="\n")
+        self._upsert_index_line(note.title, path.name, note.summary)
+        return path
+
     def _remove_index_line(self, filename: str) -> None:
         lines = repair_mojibake(self.index_path.read_text(encoding="utf-8")).splitlines()
         kept = [line for line in lines if f"]({filename})" not in line]
@@ -282,6 +411,13 @@ class MemoryManager:
         confidence = normalize_storage_text(frontmatter.get("confidence", ""))
         status = normalize_storage_text(frontmatter.get("status", ""))
         last_confirmed_at = normalize_storage_text(frontmatter.get("last_confirmed_at", ""))
+        scope = normalize_storage_text(frontmatter.get("scope", ""))
+        stability = normalize_storage_text(frontmatter.get("stability", ""))
+        source_kind = normalize_storage_text(frontmatter.get("source_kind", ""))
+        eligible_for_injection = normalize_storage_text(frontmatter.get("eligible_for_injection", ""))
+        review_after = normalize_storage_text(frontmatter.get("review_after", ""))
+        supersedes = normalize_storage_text(frontmatter.get("supersedes", ""))
+        invalidation_reason = normalize_storage_text(frontmatter.get("invalidation_reason", ""))
         body_text = normalize_storage_text(body)
 
         if not frontmatter:
@@ -303,6 +439,13 @@ class MemoryManager:
                 confidence,
                 status,
                 last_confirmed_at,
+                scope,
+                stability,
+                source_kind,
+                eligible_for_injection,
+                review_after,
+                supersedes,
+                invalidation_reason,
                 body_text,
             ) = self._repair_legacy_note(raw, path)
 
@@ -326,6 +469,13 @@ class MemoryManager:
             confidence=confidence or "medium",
             status=status or "active",
             last_confirmed_at=last_confirmed_at,
+            scope=scope or "project",
+            stability=stability or "stable",
+            source_kind=source_kind,
+            eligible_for_injection=eligible_for_injection or "true",
+            review_after=review_after,
+            supersedes=supersedes,
+            invalidation_reason=invalidation_reason,
         )
         path.write_text(note.to_markdown(), encoding="utf-8", newline="\n")
         return note
@@ -334,7 +484,7 @@ class MemoryManager:
         self,
         raw: str,
         path: Path,
-    ) -> tuple[str, str, str, str, str, str, list[str], list[str], str, str, str, str, str, str, str, str, str, str]:
+    ) -> tuple[str, str, str, str, str, str, list[str], list[str], str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str]:
         text = normalize_storage_text(raw)
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         schema_version = DEFAULT_DURABLE_SCHEMA_VERSION
@@ -354,6 +504,13 @@ class MemoryManager:
         confidence = "medium"
         status = "active"
         last_confirmed_at = ""
+        scope = "project"
+        stability = "stable"
+        source_kind = ""
+        eligible_for_injection = "true"
+        review_after = ""
+        supersedes = ""
+        invalidation_reason = ""
         body_lines: list[str] = []
         in_metadata_block = False
 
@@ -422,6 +579,27 @@ class MemoryManager:
             if metadata_lowered.startswith("last confirmed at:") or metadata_lowered.startswith("last_confirmed_at:"):
                 last_confirmed_at = normalize_storage_text(metadata_line.split(":", 1)[1])
                 continue
+            if metadata_lowered.startswith("scope:"):
+                scope = normalize_storage_text(metadata_line.split(":", 1)[1]) or "project"
+                continue
+            if metadata_lowered.startswith("stability:"):
+                stability = normalize_storage_text(metadata_line.split(":", 1)[1]) or "stable"
+                continue
+            if metadata_lowered.startswith("source kind:") or metadata_lowered.startswith("source_kind:"):
+                source_kind = normalize_storage_text(metadata_line.split(":", 1)[1])
+                continue
+            if metadata_lowered.startswith("eligible for injection:") or metadata_lowered.startswith("eligible_for_injection:"):
+                eligible_for_injection = normalize_storage_text(metadata_line.split(":", 1)[1]) or "true"
+                continue
+            if metadata_lowered.startswith("review after:") or metadata_lowered.startswith("review_after:"):
+                review_after = normalize_storage_text(metadata_line.split(":", 1)[1])
+                continue
+            if metadata_lowered.startswith("supersedes:"):
+                supersedes = normalize_storage_text(metadata_line.split(":", 1)[1])
+                continue
+            if metadata_lowered.startswith("invalidation reason:") or metadata_lowered.startswith("invalidation_reason:"):
+                invalidation_reason = normalize_storage_text(metadata_line.split(":", 1)[1])
+                continue
             if in_metadata_block and line.startswith("- "):
                 continue
             body_lines.append(line)
@@ -453,6 +631,13 @@ class MemoryManager:
             confidence,
             status,
             last_confirmed_at,
+            scope,
+            stability,
+            source_kind,
+            eligible_for_injection,
+            review_after,
+            supersedes,
+            invalidation_reason,
             body,
         )
 
@@ -518,6 +703,13 @@ class MemoryManager:
                 confidence=repair_mojibake(frontmatter.get("confidence", "medium")),
                 status=repair_mojibake(frontmatter.get("status", "active")),
                 last_confirmed_at=repair_mojibake(frontmatter.get("last_confirmed_at", "")),
+                scope=repair_mojibake(frontmatter.get("scope", "project")),
+                stability=repair_mojibake(frontmatter.get("stability", "stable")),
+                source_kind=repair_mojibake(frontmatter.get("source_kind", "")),
+                eligible_for_injection=repair_mojibake(frontmatter.get("eligible_for_injection", "true")),
+                review_after=repair_mojibake(frontmatter.get("review_after", "")),
+                supersedes=repair_mojibake(frontmatter.get("supersedes", "")),
+                invalidation_reason=repair_mojibake(frontmatter.get("invalidation_reason", "")),
                 content=repair_mojibake(body.strip()),
             )
 
@@ -539,6 +731,13 @@ class MemoryManager:
             _confidence,
             _status,
             _last_confirmed_at,
+            _scope,
+            _stability,
+            _source_kind,
+            _eligible_for_injection,
+            _review_after,
+            _supersedes,
+            _invalidation_reason,
             body_text,
         ) = self._repair_legacy_note(raw, path)
         return LoadedMemoryNote(
@@ -559,6 +758,13 @@ class MemoryManager:
             confidence=_confidence,
             status=_status,
             last_confirmed_at=_last_confirmed_at,
+            scope=_scope,
+            stability=_stability,
+            source_kind=_source_kind,
+            eligible_for_injection=_eligible_for_injection,
+            review_after=_review_after,
+            supersedes=_supersedes,
+            invalidation_reason=_invalidation_reason,
             content=body_text,
         )
 
@@ -657,6 +863,8 @@ class MemoryManager:
     def _is_runtime_eligible(self, note: LoadedMemoryNote) -> bool:
         if not self._is_runtime_visible(note.status):
             return False
+        if normalize_storage_text(note.eligible_for_injection).lower() in {"false", "no", "0"}:
+            return False
         return not is_runtime_noise_note(
             source_role=note.source_role,
             created_by=note.created_by,
@@ -685,6 +893,110 @@ class MemoryManager:
                     path.unlink()
                 continue
             path.replace(target)
+
+    def _loaded_to_memory_note(self, loaded: LoadedMemoryNote) -> MemoryNote:
+        return MemoryNote(
+            slug=Path(loaded.filename).stem,
+            schema_version=loaded.schema_version or DEFAULT_DURABLE_SCHEMA_VERSION,
+            title=loaded.title,
+            summary=loaded.summary or loaded.title,
+            canonical_statement=loaded.canonical_statement or loaded.summary or loaded.title,
+            body=loaded.content or loaded.summary or loaded.title,
+            memory_type=loaded.memory_type,
+            memory_class=loaded.memory_class,
+            retrieval_hints=list(loaded.retrieval_hints),
+            created_at=loaded.created_at or loaded.updated_at or MemoryNote(slug="", title="", summary="", body="").created_at,
+            updated_at=loaded.updated_at or MemoryNote(slug="", title="", summary="", body="").updated_at,
+            created_by=loaded.created_by or "migration",
+            source_session_id=loaded.source_session_id,
+            source_role=loaded.source_role or "user",
+            source_message_excerpt=loaded.source_message_excerpt,
+            confidence=loaded.confidence or "medium",
+            status=loaded.status or "active",
+            last_confirmed_at=loaded.last_confirmed_at,
+            scope=loaded.scope or "project",
+            stability=loaded.stability or "stable",
+            source_kind=loaded.source_kind,
+            eligible_for_injection=loaded.eligible_for_injection or "true",
+            review_after=loaded.review_after,
+            supersedes=loaded.supersedes,
+            invalidation_reason=loaded.invalidation_reason,
+        )
+
+    def _apply_save_governance(self, note: MemoryNote) -> tuple[MemoryNote, list[MemoryNote]]:
+        now = MemoryNote(slug="", title="", summary="", body="").updated_at
+        incoming = note
+        incoming.updated_at = now
+        if not incoming.created_at:
+            incoming.created_at = now
+        incoming.eligible_for_injection = normalize_storage_text(incoming.eligible_for_injection) or "true"
+        incoming.scope = normalize_storage_text(incoming.scope) or "project"
+        incoming.stability = normalize_storage_text(incoming.stability) or "stable"
+
+        staged_updates: list[MemoryNote] = []
+        for loaded in self.list_notes():
+            existing = self._loaded_to_memory_note(loaded)
+            if self._notes_are_equivalent(existing, incoming):
+                merged = self._merge_equivalent_note(existing, incoming, now)
+                return merged, staged_updates
+            if self._should_supersede(existing, incoming):
+                deprecated = self._deprecate_note(existing, replacement_slug=incoming.slug, now=now)
+                staged_updates.append(deprecated)
+                if not incoming.supersedes:
+                    incoming.supersedes = existing.slug
+        return incoming, staged_updates
+
+    def _notes_are_equivalent(self, existing: MemoryNote, incoming: MemoryNote) -> bool:
+        if existing.memory_type != incoming.memory_type or existing.memory_class != incoming.memory_class:
+            return False
+        existing_canonical = normalize_storage_text(existing.canonical_statement).lower()
+        incoming_canonical = normalize_storage_text(incoming.canonical_statement).lower()
+        existing_title = normalize_storage_text(existing.title).lower()
+        incoming_title = normalize_storage_text(incoming.title).lower()
+        return bool(existing_canonical and existing_canonical == incoming_canonical) or (
+            bool(existing_title) and existing_title == incoming_title and existing_canonical == incoming_canonical
+        )
+
+    def _should_supersede(self, existing: MemoryNote, incoming: MemoryNote) -> bool:
+        if existing.memory_type != incoming.memory_type or existing.memory_class != incoming.memory_class:
+            return False
+        if normalize_storage_text(existing.status).lower() in {"deprecated", "inactive", "archived"}:
+            return False
+        existing_title = normalize_storage_text(existing.title).lower()
+        incoming_title = normalize_storage_text(incoming.title).lower()
+        existing_canonical = normalize_storage_text(existing.canonical_statement).lower()
+        incoming_canonical = normalize_storage_text(incoming.canonical_statement).lower()
+        return bool(existing_title and existing_title == incoming_title and existing_canonical and incoming_canonical and existing_canonical != incoming_canonical)
+
+    def _merge_equivalent_note(self, existing: MemoryNote, incoming: MemoryNote, now: str) -> MemoryNote:
+        merged = existing
+        merged.summary = incoming.summary if len(normalize_storage_text(incoming.summary)) >= len(normalize_storage_text(existing.summary)) else existing.summary
+        merged.body = incoming.body if len(normalize_storage_text(incoming.body)) >= len(normalize_storage_text(existing.body)) else existing.body
+        merged.canonical_statement = incoming.canonical_statement or existing.canonical_statement
+        merged.retrieval_hints = self._merge_unique(existing.retrieval_hints, incoming.retrieval_hints)
+        merged.tags = self._merge_unique(existing.tags, incoming.tags)
+        merged.updated_at = now
+        merged.last_confirmed_at = now
+        merged.source_message_excerpt = incoming.source_message_excerpt or existing.source_message_excerpt
+        merged.created_by = incoming.created_by or existing.created_by
+        merged.status = "active"
+        merged.eligible_for_injection = "true"
+        return merged
+
+    def _deprecate_note(self, note: MemoryNote, *, replacement_slug: str, now: str) -> MemoryNote:
+        note.status = "deprecated"
+        note.eligible_for_injection = "false"
+        note.invalidation_reason = f"superseded_by:{replacement_slug}"
+        note.updated_at = now
+        return note
+
+    def _merge_unique(self, left: list[str], right: list[str]) -> list[str]:
+        merged: list[str] = []
+        for item in list(left) + list(right):
+            normalized = normalize_storage_text(item)
+            if normalized and normalized not in merged:
+                merged.append(normalized)
+        return merged
 
 
 _STOP_TERMS = {

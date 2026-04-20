@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from query.context_models import EvidenceSummary, MainContextState, TaskSummaryRef
 from understanding import MemoryIntent, QueryUnderstanding
 
 
@@ -67,6 +68,9 @@ class QueryContext:
     session_id: str
     history: list[dict[str, Any]]
     augmented_history: list[dict[str, Any]]
+    main_context: MainContextState = field(default_factory=MainContextState)
+    task_summary_refs: list[TaskSummaryRef] = field(default_factory=list)
+    evidence_summaries: list[EvidenceSummary] = field(default_factory=list)
     context_compaction: dict[str, Any] | None = None
     retrieval_results: list[dict[str, Any]] = field(default_factory=list)
     relevant_memory_notes: list[Any] | None = None

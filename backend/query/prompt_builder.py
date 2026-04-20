@@ -77,29 +77,11 @@ def _render_context_package_block(
     return "\n".join(lines).strip()
 
 
-def _render_context_package_operational_notes(package: ContextPackage) -> str:
-    lines = [
-        "## Context Management Runtime",
-        f"- Pressure Level: {package.pressure_level}",
-        f"- Rebuild Reason: {package.rebuild_reason}",
-        f"- Compaction Strategy: {package.compaction_strategy}",
-    ]
-    if package.selected_sections:
-        lines.append(f"- Selected Sections: {', '.join(package.selected_sections)}")
-    if package.dropped_sections:
-        lines.append(f"- Dropped Sections: {', '.join(package.dropped_sections)}")
-    if package.compaction_decisions:
-        lines.extend(f"- {decision}" for decision in package.compaction_decisions)
-    return "\n".join(lines)
-
-
-def build_system_prompt(
+def build_static_prompt(
     base_dir: Path,
     rag_mode: bool,
-    persistent_memory: str | None = None,
-    session_memory: str | None = None,
-    context_package: ContextPackage | None = None,
-    active_skill: str | None = None,
+    *,
+    long_term_context_bundle=None,
 ) -> str:
     settings = get_settings()
     parts: list[str] = []
@@ -108,10 +90,7 @@ def build_system_prompt(
         content = _read_component(base_dir, relative_path, settings.component_char_limit)
         parts.append(f"<!-- {label} -->\n{content}")
 
-    long_term_context = build_long_term_context_bundle(
-        base_dir,
-        persistent_memory=persistent_memory,
-    )
+    long_term_context = long_term_context_bundle or build_long_term_context_bundle(base_dir)
     static_context = long_term_context.render(
         truncate=_truncate,
         limit=settings.component_char_limit,
@@ -136,7 +115,17 @@ def build_system_prompt(
         "to the long-term context store. When using long-term memory in answers, present only the semantic fact or convention. "
         "Do not mention internal file paths, directory names, filenames, schema labels, or storage layout."
     )
+    return "\n\n".join(parts)
 
+
+def build_session_memoized_prompt(
+    *,
+    context_package: ContextPackage | None = None,
+    session_memory: str | None = None,
+    active_skill: str | None = None,
+) -> str:
+    settings = get_settings()
+    parts: list[str] = []
     if active_skill:
         parts.append(f"<!-- Active Skill -->\n{_truncate(active_skill, settings.component_char_limit)}")
 
@@ -150,15 +139,21 @@ def build_system_prompt(
             "<!-- Session Memory -->\n"
             f"{_truncate(rendered_session_memory, settings.component_char_limit)}"
         )
+    return "\n\n".join(parts)
 
-    if context_package is not None:
-        operational_notes = _render_context_package_operational_notes(context_package).strip()
-        if operational_notes:
-            parts.append(
-                "<!-- Context Management -->\n"
-                f"{_truncate(operational_notes, settings.component_char_limit)}"
-            )
 
+def build_turn_prompt(
+    *,
+    persistent_memory: str | None = None,
+    context_package: ContextPackage | None = None,
+    long_term_context_bundle=None,
+) -> str:
+    settings = get_settings()
+    long_term_context = long_term_context_bundle or build_long_term_context_bundle(
+        settings.backend_dir,
+        persistent_memory=persistent_memory,
+    )
+    parts: list[str] = []
     package_durable_memory = (
         _render_context_package_block(
             context_package,
@@ -180,5 +175,36 @@ def build_system_prompt(
             "<!-- Durable Memory -->\n"
             f"## Dynamic Long-Term Memory\n{_truncate(durable_memory_block, settings.component_char_limit)}"
         )
-
     return "\n\n".join(parts)
+
+
+def build_system_prompt(
+    base_dir: Path,
+    rag_mode: bool,
+    persistent_memory: str | None = None,
+    session_memory: str | None = None,
+    context_package: ContextPackage | None = None,
+    active_skill: str | None = None,
+) -> str:
+    long_term_context = build_long_term_context_bundle(
+        base_dir,
+        persistent_memory=persistent_memory,
+    )
+    parts = [
+        build_static_prompt(
+            base_dir,
+            rag_mode,
+            long_term_context_bundle=long_term_context,
+        ),
+        build_session_memoized_prompt(
+            context_package=context_package,
+            session_memory=session_memory,
+            active_skill=active_skill,
+        ),
+        build_turn_prompt(
+            persistent_memory=persistent_memory,
+            context_package=context_package,
+            long_term_context_bundle=long_term_context,
+        ),
+    ]
+    return "\n\n".join(part for part in parts if part.strip())

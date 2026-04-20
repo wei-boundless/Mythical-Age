@@ -126,3 +126,35 @@ def test_memory_facade_exposes_context_trace_without_legacy_bridge() -> None:
         }
         assert "budget" in inspection["context_management"]
         assert inspection["session_memory"]["storage"]["primary_state_path"].endswith("process_state.json")
+
+
+def test_memory_facade_refreshes_session_memory_from_context_state() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        session_id = "memory-facade-summary-first"
+
+        rendered = facade.refresh_session_memory_from_context_state(
+            session_id,
+            {
+                "active_goal": "继续分析 report.pdf 第三页的结论。",
+                "active_work_item": "pdf_analysis",
+                "active_constraints": {"page": 3, "source_kind": "pdf"},
+                "latest_correction": "不要展开全文，只说结论。",
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "pdf-task",
+                    "query": "继续分析 report.pdf 第三页的结论。",
+                    "summary": "第三页主要在讨论供应链风险和现金流压力。",
+                    "key_points": ["page=3", "pdf=report.pdf"],
+                }
+            ],
+            corrections=["不要展开全文，只说结论。"],
+        )
+
+        stored = facade.session_memory.manager(session_id).load()
+        assert "report.pdf" in rendered
+        assert "供应链风险和现金流压力" in stored
+        assert "不要展开全文，只说结论。" in stored

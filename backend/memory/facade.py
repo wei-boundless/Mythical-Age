@@ -27,9 +27,27 @@ class MemoryFacade:
     def set_durable_memory_saved_callback(self, callback: Callable[[int], None]) -> None:
         self.durable_memory.set_saved_callback(callback)
 
+    def set_model_invoker(self, callback: Callable[[list[dict[str, str]]], Any] | None) -> None:
+        self.durable_memory.set_message_invoker(callback)
+
     def refresh_session_memory(self, session_id: str, messages: list[dict[str, Any]]) -> str:
         py_messages = self.adapter.to_messages(messages, session_id=session_id)
         return self.session_memory.refresh(session_id, py_messages)
+
+    def refresh_session_memory_from_context_state(
+        self,
+        session_id: str,
+        main_context: Any,
+        *,
+        task_summaries: list[Any] | None = None,
+        corrections: list[str] | None = None,
+    ) -> str:
+        return self.session_memory.refresh_from_context_state(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
+        )
 
     def build_session_memory_block(
         self,
@@ -90,6 +108,91 @@ class MemoryFacade:
             relevant_notes=relevant_notes,
         )
 
+    async def abuild_persistent_memory_block(
+        self,
+        *,
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        note_limit: int = 5,
+        relevant_notes: list[Any] | None = None,
+    ) -> str:
+        return await self.durable_memory.abuild_persistent_memory_block(
+            query=query,
+            memory_intent=memory_intent,
+            note_limit=note_limit,
+            relevant_notes=relevant_notes,
+        )
+
+    def build_memory_recall_request(
+        self,
+        *,
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        main_context: dict[str, object] | None = None,
+        task_summaries: list[dict[str, object]] | None = None,
+        session_summary: str = "",
+        recently_surfaced_note_ids: list[str] | None = None,
+        recent_tools: list[str] | None = None,
+    ):
+        return self.durable_memory.build_recall_request(
+            query=query,
+            memory_intent=memory_intent,
+            main_context=main_context,
+            task_summaries=task_summaries,
+            session_summary=session_summary,
+            recently_surfaced_note_ids=recently_surfaced_note_ids,
+            recent_tools=recent_tools,
+        )
+
+    def recall_durable_memories(
+        self,
+        *,
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        note_limit: int = 5,
+        main_context: dict[str, object] | None = None,
+        task_summaries: list[dict[str, object]] | None = None,
+        session_summary: str = "",
+        recently_surfaced_note_ids: list[str] | None = None,
+        recent_tools: list[str] | None = None,
+    ):
+        return self.durable_memory.recall_memories(
+            query=query,
+            memory_intent=memory_intent,
+            note_limit=note_limit,
+            main_context=main_context,
+            task_summaries=task_summaries,
+            session_summary=session_summary,
+            recently_surfaced_note_ids=recently_surfaced_note_ids,
+            recent_tools=recent_tools,
+        )
+
+    async def arecall_durable_memories(
+        self,
+        *,
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        note_limit: int = 5,
+        main_context: dict[str, object] | None = None,
+        task_summaries: list[dict[str, object]] | None = None,
+        session_summary: str = "",
+        recently_surfaced_note_ids: list[str] | None = None,
+        recent_tools: list[str] | None = None,
+    ):
+        return await self.durable_memory.arecall_memories(
+            query=query,
+            memory_intent=memory_intent,
+            note_limit=note_limit,
+            main_context=main_context,
+            task_summaries=task_summaries,
+            session_summary=session_summary,
+            recently_surfaced_note_ids=recently_surfaced_note_ids,
+            recent_tools=recent_tools,
+        )
+
+    def build_durable_manifest_block(self, *, note_limit: int = 5) -> str:
+        return self.durable_memory.build_manifest_block(note_limit=note_limit)
+
     def compact_history_for_query(
         self,
         session_id: str,
@@ -131,21 +234,28 @@ class MemoryFacade:
     ) -> list[Any]:
         return self.durable_memory.prefetch_relevant_notes(query, memory_intent, limit=limit)
 
-    def extract_durable_memories(
-        self,
-        session_id: str,
-        messages: list[dict[str, Any]],
-    ) -> int:
-        py_messages = self.adapter.to_messages(messages, session_id=session_id)
-        return self.durable_memory.extract_durable_memories(py_messages)
-
     def commit_durable_memory_extraction(
         self,
         session_id: str,
         messages: list[dict[str, Any]],
     ) -> int:
         py_messages = self.adapter.to_messages(messages, session_id=session_id)
-        return self.durable_memory.extract_durable_memories(py_messages)
+        return self.durable_memory.commit_extraction(py_messages)
+
+    def commit_durable_memory_extraction_from_context_state(
+        self,
+        session_id: str,
+        main_context: Any,
+        *,
+        task_summaries: list[Any] | None = None,
+        corrections: list[str] | None = None,
+    ) -> int:
+        return self.durable_memory.commit_extraction_from_context_state(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
+        )
 
     def submit_durable_memory_extraction(
         self,
@@ -153,4 +263,25 @@ class MemoryFacade:
         messages: list[dict[str, Any]],
     ) -> int:
         py_messages = self.adapter.to_messages(messages, session_id=session_id)
-        return self.durable_memory.submit_extraction(py_messages)
+        return self.durable_memory.schedule_extraction(py_messages)
+
+    def submit_durable_memory_extraction_from_context_state(
+        self,
+        session_id: str,
+        main_context: Any,
+        *,
+        task_summaries: list[Any] | None = None,
+        corrections: list[str] | None = None,
+    ) -> int:
+        return self.durable_memory.schedule_extraction_from_context_state(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
+        )
+
+    def describe_durable_extraction_runtime(self) -> dict[str, object]:
+        return self.durable_memory.describe_extraction_runtime()
+
+    def govern_durable_notes(self) -> dict[str, Any]:
+        return self.memory_manager.govern_note_store()

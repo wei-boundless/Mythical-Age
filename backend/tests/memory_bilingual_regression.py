@@ -29,9 +29,17 @@ def test_english_memory_write_intent() -> None:
 
 def test_english_memory_read_intent() -> None:
     intent = analyze_memory_intent("What terminal syntax should we use by default from now on?")
-    _assert(intent.intent == "durable_memory_query", "english recall query should map to durable memory read")
-    _assert(intent.memory_read_mode == "durable_exact", "english recall query should request durable exact read")
+    _assert(intent.intent == "memory_read_signal", "english semantic recall should become a weak durable-memory signal")
+    _assert(intent.memory_read_mode == "none", "english semantic recall should no longer force durable read mode")
+    _assert(intent.should_skip_rag is False, "english semantic recall should not bypass retrieval by default")
     _assert("project" in intent.preferred_types, "terminal recall should resolve to work/project preference if queried")
+
+
+def test_english_manual_memory_inventory_query_stays_strong() -> None:
+    intent = analyze_memory_intent("What do you remember about me?")
+    _assert(intent.intent == "durable_memory_query", "explicit memory inventory query should stay a strong durable route")
+    _assert(intent.memory_read_mode == "durable_exact", "explicit memory inventory query should use durable exact read")
+    _assert(intent.should_skip_rag is True, "explicit memory inventory query should bypass retrieval")
 
 
 def test_english_memory_policy_partitioning() -> None:
@@ -65,6 +73,7 @@ def main() -> None:
     tests = [
         test_english_memory_write_intent,
         test_english_memory_read_intent,
+        test_english_manual_memory_inventory_query_stays_strong,
         test_english_memory_policy_partitioning,
         test_english_extractor_filters_static_rules_and_saves_user_preference,
     ]

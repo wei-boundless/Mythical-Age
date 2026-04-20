@@ -200,6 +200,7 @@ class MemoryContextLayer:
                     }
                     for note in surfaced_relevant_notes[:note_limit]
                 ],
+                "extraction_runtime": self.durable_memory.describe_extraction_runtime(),
             },
             "context_management": context_compaction
             or {

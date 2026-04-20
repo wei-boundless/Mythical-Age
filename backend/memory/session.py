@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from context_management import ContextController
 from structured_memory import Message, SessionMemoryManager
@@ -30,3 +31,17 @@ class SessionMemoryLayer:
 
     def refresh(self, session_id: str, messages: list[Message]) -> str:
         return self.manager(session_id).update_from_messages(messages)
+
+    def refresh_from_context_state(
+        self,
+        session_id: str,
+        main_context: Any,
+        *,
+        task_summaries: list[Any] | None = None,
+        corrections: list[str] | None = None,
+    ) -> str:
+        return self.manager(session_id).update_from_context_state(
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
+        )

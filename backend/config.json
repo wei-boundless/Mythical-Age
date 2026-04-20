@@ -1,4 +1,4 @@
 {
-  "rag_mode": true,
+  "rag_mode": false,
   "permission_mode": "default"
 }

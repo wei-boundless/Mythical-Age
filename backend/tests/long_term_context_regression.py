@@ -128,8 +128,8 @@ def test_system_prompt_can_render_context_package_directly() -> None:
         _assert("Keep the memory refactor moving." in prompt, "active process context should render into the prompt")
         _assert("## Retrieval Evidence" in prompt, "retrieval section should render from the context package")
         _assert("Battery chemistry affects energy density." in prompt, "retrieval evidence should survive direct package rendering")
-        _assert("<!-- Context Management -->" in prompt, "context management notes should render from the package")
-        _assert("Pressure Level: warning" in prompt, "prompt should expose package pressure notes")
+        _assert("<!-- Context Management -->" not in prompt, "context-management notes should stay out of the model-visible prompt")
+        _assert("Pressure Level: warning" not in prompt, "prompt should not expose package pressure notes")
         _assert("## Dynamic Long-Term Memory" in prompt, "durable memory section should still render")
         _assert("Prefer PowerShell commands in this repo." in prompt, "package durable context should be usable as a fallback durable block")
 

@@ -49,17 +49,28 @@ def _save_seed_notes(root: Path) -> MemoryManager:
 
 def test_memory_intent_routing() -> None:
     work_intent = analyze_memory_intent("我们项目当前重点是什么？")
-    _assert(work_intent.intent == "durable_memory_query", "work query should route to durable memory")
-    _assert(work_intent.memory_read_mode == "durable_exact", "work query should use durable exact read mode")
+    _assert(work_intent.intent == "memory_read_signal", "work query should become a weak durable-memory signal")
+    _assert(work_intent.memory_read_mode == "none", "semantic work recall should no longer force durable read mode in memory_intent")
+    _assert(work_intent.should_skip_rag is False, "semantic work recall should not bypass retrieval by default")
     _assert(work_intent.preferred_memory_classes == ["work"], "work query should prefer work memory")
 
     mainline_intent = analyze_memory_intent("我们项目现在优先做什么？")
-    _assert(mainline_intent.intent == "durable_memory_query", "mainline query should route to durable memory")
+    _assert(mainline_intent.intent == "memory_read_signal", "mainline query should become a weak durable-memory signal")
     _assert(mainline_intent.preferred_types == ["project"], "mainline query should prefer project durable notes")
 
     pref_intent = analyze_memory_intent("你知道我喜欢你怎么回答吗？")
-    _assert(pref_intent.intent == "durable_memory_query", "preference query should route to durable memory")
+    _assert(pref_intent.intent == "memory_read_signal", "preference recall should become a weak durable-memory signal")
     _assert(pref_intent.preferred_memory_classes == ["preference"], "preference query should prefer preference memory")
+
+    manual_memory_query = analyze_memory_intent("你都长期记了什么？")
+    _assert(manual_memory_query.intent == "durable_memory_query", "explicit long-term memory inventory query should stay a strong durable route")
+    _assert(manual_memory_query.should_skip_rag is True, "explicit long-term memory inventory query should bypass retrieval")
+
+    file_followup = analyze_memory_intent("回到 inventory.xlsx，哪个仓库现在最需要优先补货？")
+    _assert(file_followup.intent == "general", "explicit file follow-up should not be hijacked by durable memory intent")
+
+    negative = analyze_memory_intent("我今天有点焦虑，但这不是要你长期记住的偏好。")
+    _assert(negative.intent == "general", "negative durable write instruction should not become a durable write intent")
 
 
 def test_memory_policy_partitioning() -> None:
@@ -78,6 +89,14 @@ def test_memory_policy_partitioning() -> None:
     attachment = evaluate_memory_write("我爱上你了。")
     _assert(attachment.action == "session_only", "attachment expression should remain session-only")
 
+    negative = evaluate_memory_write("这不是要你长期记住的偏好。")
+    _assert(negative.action == "ignore", "negative durable write instruction should be ignored")
+    _assert(negative.reason == "negative_memory_instruction", "negative durable write should record the correct reason")
+
+    task_local = evaluate_memory_write("回到 inventory.xlsx，给我最缺货的前三个仓库。")
+    _assert(task_local.action == "ignore", "task-local file request should stay out of durable memory")
+    _assert(task_local.reason == "task_local_or_runtime_state", "task-local file request should be marked as runtime/task-local noise")
+
 
 def test_extractor_uses_policy_classes() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -93,8 +112,8 @@ def test_extractor_uses_policy_classes() -> None:
         _assert("preference" in classes, "extractor should save a preference note")
         _assert("work" not in classes, "static profile rules should not be saved into dynamic durable memory")
         _assert(
-            all(note.created_by == "memory_extractor" for note in saved),
-            "extractor-created durable notes should record their creation source",
+            all(note.created_by == "durable_write_agent" for note in saved),
+            "extractor-created durable notes should record the new write-agent creation source",
         )
         _assert(
             all(note.confidence in {"high", "medium"} for note in saved),
@@ -105,7 +124,7 @@ def test_extractor_uses_policy_classes() -> None:
             "extractor-created durable notes should retain a source message excerpt",
         )
         _assert(
-            all(note.schema_version == "durable-memory.v2" for note in saved),
+            all(note.schema_version == "durable-memory.v3" for note in saved),
             "extractor-created durable notes should record the durable schema version",
         )
         _assert(
@@ -115,6 +134,40 @@ def test_extractor_uses_policy_classes() -> None:
         _assert(
             all(note.retrieval_hints for note in saved),
             "extractor-created durable notes should store retrieval hints",
+        )
+
+
+def test_extractor_uses_projection_first_and_only_falls_back_to_messages_when_needed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        notes = facade.extractor.extract(
+            [
+                Message(
+                    role="assistant",
+                    content="projection",
+                    meta={
+                        "session_id": "projection-first-session",
+                        "projection": "durable_context_state",
+                        "main_context": {
+                            "active_goal": "以后默认先给结论，再展开解释。",
+                            "latest_correction": "",
+                        },
+                        "corrections": [],
+                    },
+                ),
+                Message(
+                    role="user",
+                    content="记住我以后喜欢你先讲结论。",
+                    meta={"session_id": "projection-first-session"},
+                ),
+            ]
+        )
+
+        _assert(notes, "projection-first extraction should still emit durable notes")
+        _assert(
+            all(note.created_by != "memory_extractor" for note in notes),
+            "explicit transcript fallback should stay inactive when projection/state candidates already exist",
         )
 
 
@@ -156,6 +209,31 @@ def test_persistent_memory_block_combines_exact_and_relevant_without_duplication
         _assert(block.count("### 项目当前重点是优化 Memory 和 RAG") == 1, "exact match should not be duplicated in the relevant section")
 
 
+def test_persistent_memory_block_uses_manifest_fallback_when_no_note_matches() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _save_seed_notes(root)
+        facade = MemoryFacade(root)
+        query = "你都长期记了什么？"
+        intent = analyze_memory_intent(query)
+        block = facade.build_persistent_memory_block(query=query, memory_intent=intent, relevant_notes=[])
+
+        _assert("## Durable Memory Manifest" in block, "manifest should be used as a lightweight fallback when no durable note matches")
+        _assert("[work/project]" in block, "manifest fallback should expose durable partition metadata")
+
+
+def test_persistent_memory_block_stays_empty_for_generic_queries_without_memory_signal() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _save_seed_notes(root)
+        facade = MemoryFacade(root)
+        query = "今天天气怎么样？"
+        intent = analyze_memory_intent(query)
+        block = facade.build_persistent_memory_block(query=query, memory_intent=intent, relevant_notes=[])
+
+        _assert(block == "", "generic queries should not receive durable manifest fallback or other durable prompt noise")
+
+
 def test_persistent_memory_block_hides_internal_storage_paths() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -195,7 +273,133 @@ def test_memory_manifest_exposes_note_health_metadata() -> None:
         manifest = manager.build_manifest(limit=5)
 
         _assert("[work/project]" in manifest, "manifest should still expose note partitioning")
-        _assert("[medium/active]" in manifest, "manifest should include confidence and status metadata for durable notes")
+        _assert("[medium/active/stable]" in manifest, "manifest should include confidence, status, and stability metadata for durable notes")
+
+
+def test_memory_manager_confirms_equivalent_note_instead_of_duplicating() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manager = MemoryManager(root / "durable_memory")
+        manager.save_note(
+            MemoryNote(
+                slug="answer-style",
+                title="用户偏好先讲结论",
+                summary="复杂问题先讲结论再展开。",
+                canonical_statement="复杂问题先讲结论。",
+                body="先讲结论，再展开说明。",
+                memory_type="user",
+                memory_class="preference",
+                retrieval_hints=["结论优先"],
+            )
+        )
+        manager.save_note(
+            MemoryNote(
+                slug="answer-style-new",
+                title="用户偏好先讲结论",
+                summary="复杂问题先讲结论再展开解释。",
+                canonical_statement="复杂问题先讲结论。",
+                body="先讲结论，再展开解释，避免一开始铺太长。",
+                memory_type="user",
+                memory_class="preference",
+                retrieval_hints=["结论优先", "先给结论"],
+            )
+        )
+
+        notes = manager.list_notes()
+        _assert(len(notes) == 1, "equivalent durable notes should be confirmed instead of duplicated")
+        _assert(notes[0].last_confirmed_at, "equivalent note confirmation should record last_confirmed_at")
+        _assert("先给结论" in notes[0].retrieval_hints, "equivalent note confirmation should merge retrieval hints")
+
+
+def test_memory_manager_supersedes_conflicting_note_and_hides_old_one() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        facade.memory_manager.save_note(
+            MemoryNote(
+                slug="project-focus-old",
+                title="项目当前重点",
+                summary="当前重点是优化 Memory。",
+                canonical_statement="项目当前重点是优化 Memory。",
+                body="项目当前重点是优化 Memory。",
+                memory_type="project",
+                memory_class="work",
+            )
+        )
+        facade.memory_manager.save_note(
+            MemoryNote(
+                slug="project-focus-new",
+                title="项目当前重点",
+                summary="当前重点是优化 RAG。",
+                canonical_statement="项目当前重点是优化 RAG。",
+                body="项目当前重点是优化 RAG。",
+                memory_type="project",
+                memory_class="work",
+            )
+        )
+
+        notes = {note.filename: note for note in facade.memory_manager.list_notes()}
+        _assert(notes["project-focus-old.md"].status == "deprecated", "superseded durable note should be deprecated")
+        _assert(notes["project-focus-old.md"].eligible_for_injection == "false", "superseded durable note should stop participating in injection")
+        _assert(notes["project-focus-new.md"].supersedes == "project-focus-old", "new durable note should record which note it supersedes")
+        surfaced = facade.prefetch_relevant_notes("我们项目当前重点是什么？", analyze_memory_intent("我们项目当前重点是什么？"), limit=5)
+        _assert(
+            all(note.filename != "project-focus-old.md" for note in surfaced),
+            "superseded durable note should be hidden from runtime relevant retrieval",
+        )
+
+
+def test_memory_manager_governance_normalizes_instruction_wrapper_and_deprecates_duplicates() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manager = MemoryManager(root / "durable_memory")
+        manager.save_note(
+            MemoryNote(
+                slug="memory-note",
+                title="记住：我们项目当前主线是优化 Memory 和 RAG。",
+                summary="记住：我们项目当前主线是优化 Memory 和 RAG。",
+                canonical_statement="记住：我们项目当前主线是优化 Memory 和 RAG。",
+                body="## Canonical Memory\n记住：我们项目当前主线是优化 Memory 和 RAG。",
+                memory_type="project",
+                memory_class="work",
+                retrieval_hints=["记住：我们项目当前主线是优化 Memory 和 RAG。"],
+                created_by="memory_extractor",
+                source_role="user",
+                source_message_excerpt="记住：我们项目当前主线是优化 Memory 和 RAG。",
+            )
+        )
+        manager.save_note(
+            MemoryNote(
+                slug="memory-rag",
+                title="我们项目当前主线是优化 Memory 和 RAG。",
+                summary="我们项目当前主线是优化 Memory 和 RAG。",
+                canonical_statement="我们项目当前主线是优化 Memory 和 RAG。",
+                body="## Canonical Memory\n我们项目当前主线是优化 Memory 和 RAG。",
+                memory_type="project",
+                memory_class="work",
+                retrieval_hints=["Memory", "RAG"],
+                created_by="session_state_extractor",
+                source_role="user",
+                source_message_excerpt="我们项目当前主线是优化 Memory 和 RAG。",
+            )
+        )
+
+        report = manager.govern_note_store()
+        notes = {note.filename: note for note in manager.list_notes()}
+
+        _assert(report["updated"] >= 1, "governance should rewrite old instruction-wrapper durable notes")
+        _assert(
+            notes["memory-note.md"].canonical_statement == "我们项目当前主线是优化 Memory 和 RAG。",
+            "governance should strip explicit memory-write wrappers from canonical durable facts",
+        )
+        _assert(
+            notes["memory-rag.md"].status == "deprecated",
+            "governance should deprecate duplicate durable notes after normalization",
+        )
+        _assert(
+            notes["memory-rag.md"].eligible_for_injection == "false",
+            "duplicate durable notes should stop participating in injection after governance",
+        )
 
 
 def test_archived_durable_notes_are_hidden_from_runtime_reads() -> None:
@@ -238,25 +442,87 @@ def test_archived_durable_notes_are_hidden_from_runtime_reads() -> None:
         _assert(all(note.status != "archived" for note in surfaced), "archived notes should not surface in relevant durable retrieval")
 
 
-def test_durable_extraction_prefers_session_state_candidates() -> None:
+def test_durable_extraction_prefers_context_state_projection() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         facade = MemoryFacade(root)
         session_id = "session-state-durable"
-        messages = [
-            {"role": "user", "content": "以后默认先给结论，再展开解释。"},
-            {"role": "assistant", "content": "结论：我会默认先给结论，再展开解释。"},
-            {"role": "user", "content": "终端命令优先用 PowerShell。"},
-        ]
+        main_context = {
+            "active_goal": "以后默认先给结论，再展开解释。",
+            "active_work_item": "response_preference",
+            "latest_correction": "",
+            "next_step": "answer_current_request",
+        }
 
-        facade.refresh_session_memory(session_id, messages)
-        saved = facade.extract_durable_memories(session_id, messages)
+        facade.refresh_session_memory_from_context_state(session_id, main_context)
+        saved = facade.commit_durable_memory_extraction_from_context_state(session_id, main_context)
         notes = facade.memory_manager.list_notes()
 
-        _assert(saved >= 1, "state-driven durable extraction should save at least one durable note")
+        _assert(saved >= 1, "projection-driven durable extraction should save at least one durable note")
         _assert(
-            any(note.created_by == "session_state_extractor" for note in notes),
-            "durable extraction should record that notes came from session state",
+            any(note.created_by == "durable_write_agent" for note in notes),
+            "projection-driven durable extraction should record the write-agent source",
+        )
+
+
+def test_summary_first_durable_commit_uses_session_projection_and_blocks_task_local_noise() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+
+        preference_session = "summary-first-durable-pref"
+        preference_context = {
+            "active_goal": "以后默认先给结论，再展开解释。",
+            "active_work_item": "response_preference",
+            "next_step": "answer_current_request",
+        }
+        facade.refresh_session_memory_from_context_state(preference_session, preference_context)
+        saved_pref = facade.commit_durable_memory_extraction_from_context_state(
+            preference_session,
+            preference_context,
+        )
+        notes = facade.memory_manager.list_notes()
+
+        _assert(saved_pref >= 1, "summary-first durable commit should still preserve stable preferences")
+        _assert(
+            any("先给结论" in note.canonical_statement for note in notes),
+            "summary-first durable commit should write stable preference facts from projected state",
+        )
+
+        task_session = "summary-first-durable-task"
+        task_context = {
+            "active_goal": "给我 inventory.xlsx 里最缺货的前三个仓库。",
+            "active_work_item": "compound_query",
+            "active_constraints": {"top_n": 3, "group_by": "仓库"},
+            "next_step": "answer_current_request",
+        }
+        facade.refresh_session_memory_from_context_state(
+            task_session,
+            task_context,
+            task_summaries=[
+                {
+                    "task_id": "task-1",
+                    "query": "给我 inventory.xlsx 里最缺货的前三个仓库。",
+                    "summary": "武汉仓缺口 404，上海仓缺口 392，深圳仓缺口 392。",
+                }
+            ],
+        )
+        saved_task = facade.commit_durable_memory_extraction_from_context_state(
+            task_session,
+            task_context,
+            task_summaries=[
+                {
+                    "task_id": "task-1",
+                    "query": "给我 inventory.xlsx 里最缺货的前三个仓库。",
+                    "summary": "武汉仓缺口 404，上海仓缺口 392，深圳仓缺口 392。",
+                }
+            ],
+        )
+
+        _assert(saved_task == 0, "task-local projected results should not be promoted into durable memory")
+        _assert(
+            all("inventory.xlsx" not in note.canonical_statement for note in facade.memory_manager.list_notes()),
+            "task-local dataset requests should stay out of durable memory after summary-first commit",
         )
 
 
@@ -415,12 +681,19 @@ def main() -> None:
         test_memory_intent_routing,
         test_memory_policy_partitioning,
         test_extractor_uses_policy_classes,
+        test_extractor_uses_projection_first_and_only_falls_back_to_messages_when_needed,
         test_prefetch_respects_partitions,
         test_persistent_memory_block_combines_exact_and_relevant_without_duplication,
+        test_persistent_memory_block_uses_manifest_fallback_when_no_note_matches,
+        test_persistent_memory_block_stays_empty_for_generic_queries_without_memory_signal,
         test_persistent_memory_block_hides_internal_storage_paths,
         test_memory_manifest_exposes_note_health_metadata,
+        test_memory_manager_confirms_equivalent_note_instead_of_duplicating,
+        test_memory_manager_supersedes_conflicting_note_and_hides_old_one,
+        test_memory_manager_governance_normalizes_instruction_wrapper_and_deprecates_duplicates,
         test_archived_durable_notes_are_hidden_from_runtime_reads,
         test_durable_extraction_prefers_session_state_candidates,
+        test_summary_first_durable_commit_uses_session_projection_and_blocks_task_local_noise,
         test_explicit_durable_commit_filters_synthetic_state_noise_and_keeps_project_type,
         test_runtime_reads_hide_assistant_generated_memory_receipts,
         test_explicit_durable_commit_ignores_assistant_acknowledgement_notes,

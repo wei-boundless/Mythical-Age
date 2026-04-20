@@ -234,7 +234,7 @@ async def _run_agent_turn(
     session_manager.save_message(session_id, "user", user_message)
     session_manager.save_message(session_id, "assistant", final_answer)
     query_runtime.refresh_session_memory(session_id)
-    durable_saved_count = query_runtime.extract_durable_memories(session_id)
+    durable_saved_count = query_runtime.commit_durable_memory_extraction(session_id)
 
     return AgentTurnProbe(
         user_message=user_message,

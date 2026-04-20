@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from query import AnswerAssembler, MainContextState
+
+
+def test_answer_assembler_prefers_summary_and_dedupes() -> None:
+    assembler = AnswerAssembler()
+    main_context = MainContextState(
+        active_goal="compound",
+        active_work_item="compound_query",
+        active_constraints={"dedupe": True},
+    )
+    results = [
+        {
+            "index": 1,
+            "task_id": "t1",
+            "query": "第一个任务",
+            "summary": {"response": "同一条结论。", "response_style": ""},
+            "content": "raw-1",
+        },
+        {
+            "index": 2,
+            "task_id": "t2",
+            "query": "第二个任务",
+            "summary": {"response": "同一条结论。", "response_style": ""},
+            "content": "raw-2",
+        },
+    ]
+
+    plan = assembler.build_plan(results=results, main_context=main_context)
+    rendered = assembler.render(plan)
+
+    assert len(plan.segments) == 1
+    assert plan.dedupe_targets == ["t2"]
+    assert "raw-1" not in rendered
+    assert "同一条结论。" in rendered
+
+
+def test_answer_assembler_compresses_one_sentence_segments() -> None:
+    assembler = AnswerAssembler()
+    main_context = MainContextState(active_goal="compound", active_work_item="compound_query")
+    results = [
+        {
+            "index": 3,
+            "task_id": "t3",
+            "query": "补一句北京天气",
+            "summary": {
+                "response": "北京晴朗。当前温度 15.6°C，西南风 8.5 km/h。",
+                "response_style": "one_sentence",
+            },
+            "content": "raw-weather",
+        }
+    ]
+
+    plan = assembler.build_plan(results=results, main_context=main_context)
+    rendered = assembler.render(plan)
+
+    assert "北京晴朗。" in rendered
+    assert "西南风" not in rendered
+
+
+def main() -> None:
+    test_answer_assembler_prefers_summary_and_dedupes()
+    test_answer_assembler_compresses_one_sentence_segments()
+    print("ALL PASSED (answer assembler regression)")
+
+
+if __name__ == "__main__":
+    main()

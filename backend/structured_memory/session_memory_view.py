@@ -45,9 +45,6 @@ _Known risks in current session state and active safeguards._
 # Next Step
 _What the assistant should most likely do next if the work continues._
 
-# Durable Candidates
-_Potential long-term memories distilled from this session state._
-
 # Worklog
 _Short chronological bullets of meaningful events._
 """
@@ -67,7 +64,6 @@ COMPACTION_HEADER_ORDER = [
     "# Decisions and Learnings",
     "# Key Results",
     "# Warm Context",
-    "# Durable Candidates",
     "# Worklog",
 ]
 
@@ -86,7 +82,6 @@ COMPACTION_SECTION_LIMITS = {
     "# Decisions and Learnings": 240,
     "# Key Results": 260,
     "# Warm Context": 220,
-    "# Durable Candidates": 180,
     "# Worklog": 180,
 }
 
@@ -108,9 +103,6 @@ class SessionMemoryViewBuilder:
             "# Key Results": self._to_bullets(state.key_results),
             "# Risk Watch": self._to_bullets(state.risk_notes or state.risk_flags),
             "# Next Step": self._to_bullets(state.next_step),
-            "# Durable Candidates": self._to_bullets(
-                [self._render_candidate(item) for item in state.durable_candidates]
-            ),
             "# Worklog": self._to_bullets(state.worklog),
         }
         return self._render_sections(sections)
@@ -215,10 +207,6 @@ class SessionMemoryViewBuilder:
         if slots.active_rule:
             items.append(f"当前规则：{slots.active_rule}")
         return items
-
-    def _render_candidate(self, candidate) -> str:
-        label = f"{candidate.memory_class}/{candidate.memory_type}"
-        return f"[{label}] {candidate.canonical_statement}"
 
     def _to_bullets(self, items: list[str]) -> list[str]:
         return [f"- {item}" for item in items if item.strip()]

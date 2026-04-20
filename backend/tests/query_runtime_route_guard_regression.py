@@ -20,6 +20,8 @@ class _FakeAgent:
         self.recorder = recorder
 
     async def astream(self, *_args, **_kwargs):
+        if _args:
+            self.recorder["last_stream_payload"] = _args[0]
         self.recorder["stream_called"] = True
         yield ("messages", (SimpleNamespace(content="route-safe answer"), {}))
 
@@ -33,6 +35,10 @@ class _SettingsStub:
 
 
 class _MemoryFacadeStub:
+    def __init__(self) -> None:
+        self.prefetch_queries: list[str] = []
+        self.persistent_queries: list[str] = []
+
     def compact_history_for_query(self, _session_id: str, history: list[dict[str, object]]):
         return history, {"pressure_level": "normal"}
 
@@ -42,10 +48,13 @@ class _MemoryFacadeStub:
     def build_context_package(self, *_args, **_kwargs):
         return None
 
-    def build_persistent_memory_block(self, *_args, **_kwargs):
+    def build_persistent_memory_block(self, *, query=None, **_kwargs):
+        if isinstance(query, str) and query:
+            self.persistent_queries.append(query)
         return ""
 
-    def prefetch_relevant_notes(self, *_args, **_kwargs):
+    def prefetch_relevant_notes(self, query, *_args, **_kwargs):
+        self.prefetch_queries.append(str(query))
         return []
 
 
@@ -88,10 +97,14 @@ class _PermissionStub:
 class _ModelRuntimeStub:
     def __init__(self) -> None:
         self.last_tools: list[str] = []
+        self.last_payload_messages: list[dict[str, str]] = []
 
     def create_conversation_agent(self, **kwargs):
         self.last_tools = [getattr(tool, "name", "") for tool in kwargs.get("tools", [])]
-        return _FakeAgent({"tools": self.last_tools})
+        recorder = {"tools": self.last_tools}
+        agent = _FakeAgent(recorder)
+        self._recorder = recorder
+        return agent
 
 
 def _build_runtime(
@@ -99,14 +112,15 @@ def _build_runtime(
     rag_mode: bool,
     direct_tools: dict[str, object] | None = None,
     task_coordinator=None,
-) -> tuple[QueryRuntime, _RetrievalStub, _ModelRuntimeStub]:
+) -> tuple[QueryRuntime, _RetrievalStub, _ModelRuntimeStub, _MemoryFacadeStub]:
     retrieval = _RetrievalStub()
     model_runtime = _ModelRuntimeStub()
+    memory_facade = _MemoryFacadeStub()
     runtime = QueryRuntime(
         base_dir=Path("."),
         settings_service=_SettingsStub(rag_mode=rag_mode),
         session_manager=SimpleNamespace(),
-        memory_facade=_MemoryFacadeStub(),
+        memory_facade=memory_facade,
         retrieval_service=retrieval,
         tool_runtime=_ToolRuntimeStub(direct_tools=direct_tools),
         skill_registry=_SkillRegistryStub(),
@@ -114,7 +128,7 @@ def _build_runtime(
         model_runtime=model_runtime,
         task_coordinator=task_coordinator or TaskCoordinator(),
     )
-    return runtime, retrieval, model_runtime
+    return runtime, retrieval, model_runtime, memory_facade
 
 
 async def _collect_events(
@@ -123,8 +137,8 @@ async def _collect_events(
     rag_mode: bool,
     direct_tools: dict[str, object] | None = None,
     use_execution_events: bool = False,
-) -> tuple[list[dict[str, object]], _RetrievalStub, _ModelRuntimeStub]:
-    runtime, retrieval, model_runtime = _build_runtime(rag_mode=rag_mode, direct_tools=direct_tools)
+) -> tuple[list[dict[str, object]], _RetrievalStub, _ModelRuntimeStub, _MemoryFacadeStub]:
+    runtime, retrieval, model_runtime, memory_facade = _build_runtime(rag_mode=rag_mode, direct_tools=direct_tools)
     runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
 
     events: list[dict[str, object]] = []
@@ -135,7 +149,7 @@ async def _collect_events(
     )
     async for event in stream:
         events.append(event)
-    return events, retrieval, model_runtime
+    return events, retrieval, model_runtime, memory_facade
 
 
 def test_memory_route_disables_tools() -> None:
@@ -153,12 +167,16 @@ def test_memory_route_disables_tools() -> None:
         ),
         active_skill=None,
     )
-    events, retrieval, model_runtime = asyncio.run(_collect_events(plan, rag_mode=True))
+    events, retrieval, model_runtime, memory_facade = asyncio.run(_collect_events(plan, rag_mode=True))
 
     assert retrieval.queries == []
+    assert memory_facade.prefetch_queries == []
     assert model_runtime.last_tools == []
     assert not any(event.get("type") == "tool_start" for event in events)
     assert any(event.get("type") == "done" for event in events)
+    done = [event for event in events if event.get("type") == "done"][-1]
+    assert isinstance(done.get("main_context"), dict)
+    assert done["main_context"]["active_work_item"] == "session_summary_query"
 
 
 def test_rag_route_prefetches_retrieval_without_tools() -> None:
@@ -176,12 +194,17 @@ def test_rag_route_prefetches_retrieval_without_tools() -> None:
         ),
         active_skill=None,
     )
-    events, retrieval, model_runtime = asyncio.run(_collect_events(plan, rag_mode=True))
+    events, retrieval, model_runtime, memory_facade = asyncio.run(_collect_events(plan, rag_mode=True))
 
     assert retrieval.queries == ["基于本地知识库，告诉我 AI 治理里最常见的三类风险。"]
+    assert memory_facade.prefetch_queries == []
     assert model_runtime.last_tools == []
     assert any(event.get("type") == "retrieval" for event in events)
     assert not any(event.get("type") == "tool_start" for event in events)
+    stream_messages = list(getattr(model_runtime, "_recorder", {}).get("last_stream_payload", {}).get("messages", []))
+    assert stream_messages
+    assert stream_messages[0]["role"] == "system"
+    assert "Main Working Context" in stream_messages[0]["content"]
 
 
 def test_direct_tool_route_normalizes_final_content() -> None:
@@ -203,7 +226,7 @@ def test_direct_tool_route_normalizes_final_content() -> None:
         tool_input={"query": "请直接执行工具。"},
         execution_kind="direct_tool",
     )
-    events, _retrieval, model_runtime = asyncio.run(
+    events, _retrieval, model_runtime, _memory_facade = asyncio.run(
         _collect_events(
             plan,
             rag_mode=False,
@@ -219,6 +242,37 @@ def test_direct_tool_route_normalizes_final_content() -> None:
     ]
     assert events[-1]["content"] == "normalized tool answer"
     assert events[-2]["output"] == "normalized tool answer"
+
+
+def test_semantic_memory_signal_keeps_rag_and_prefetches_durable() -> None:
+    plan = QueryPlan(
+        session_id="semantic-memory-signal",
+        message="我们项目当前重点是什么？",
+        history=[],
+        subqueries=["我们项目当前重点是什么？"],
+        memory_intent=MemoryIntent(
+            intent="memory_read_signal",
+            memory_read_mode="durable_exact",
+            should_skip_rag=False,
+            preferred_types=["project"],
+            preferred_memory_classes=["work"],
+        ),
+        query_understanding=QueryUnderstanding(
+            intent="knowledge_lookup_query",
+            route="rag",
+            modality="general",
+            should_skip_rag=False,
+        ),
+        active_skill=None,
+    )
+    events, retrieval, model_runtime, memory_facade = asyncio.run(_collect_events(plan, rag_mode=True))
+
+    assert retrieval.queries == ["我们项目当前重点是什么？"]
+    assert memory_facade.prefetch_queries == ["我们项目当前重点是什么？"]
+    assert model_runtime.last_tools == []
+    retrieval_index = next(i for i, event in enumerate(events) if event.get("type") == "retrieval")
+    memory_index = next(i for i, event in enumerate(events) if event.get("type") == "memory_context")
+    assert retrieval_index < memory_index
 
 
 def test_execution_events_reuses_built_plan_for_subtasks() -> None:
@@ -259,7 +313,7 @@ def test_execution_events_reuses_built_plan_for_subtasks() -> None:
         active_skill=None,
         executions=[execution_a, execution_b],
     )
-    runtime, _retrieval, _model_runtime = _build_runtime(rag_mode=False)
+    runtime, _retrieval, _model_runtime, _memory_facade = _build_runtime(rag_mode=False)
     planner_calls = {"count": 0}
 
     def _build_plan(*, session_id, message, history):
@@ -277,16 +331,47 @@ def test_execution_events_reuses_built_plan_for_subtasks() -> None:
     events = asyncio.run(_run())
 
     assert planner_calls["count"] == 1
+    subtask_end = [event for event in events if event.get("type") == "subtask_end"]
+    assert len(subtask_end) == 2
+    assert all(isinstance(event.get("summary"), dict) for event in subtask_end)
+    assert all(isinstance(event.get("context_ref"), dict) for event in subtask_end)
+    assert all(isinstance(event.get("result_ref"), dict) for event in subtask_end)
     assert events[-1]["type"] == "done"
+    assert isinstance(events[-1].get("main_context"), dict)
+    assert events[-1]["main_context"]["active_work_item"] == "compound_query"
     assert "1. a" in str(events[-1]["content"])
     assert "2. b" in str(events[-1]["content"])
+
+
+def test_memory_route_does_not_promote_fake_tool_call_into_task_summary() -> None:
+    runtime, _retrieval, _model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    execution = QueryExecutionPlan(
+        message="回忆一下之前的内容。",
+        history=[],
+        memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="session_summary_query",
+            route="memory",
+            modality="memory",
+            should_skip_rag=True,
+        ),
+    )
+
+    summary_refs = runtime._build_single_execution_task_summaries(
+        execution,
+        "<tool_call>structured_data_analysis(query='inventory.xlsx')</tool_call>",
+    )
+
+    assert summary_refs == []
 
 
 def main() -> None:
     test_memory_route_disables_tools()
     test_rag_route_prefetches_retrieval_without_tools()
     test_direct_tool_route_normalizes_final_content()
+    test_semantic_memory_signal_keeps_rag_and_prefetches_durable()
     test_execution_events_reuses_built_plan_for_subtasks()
+    test_memory_route_does_not_promote_fake_tool_call_into_task_summary()
     print("ALL PASSED (query runtime route guard regression)")
 
 

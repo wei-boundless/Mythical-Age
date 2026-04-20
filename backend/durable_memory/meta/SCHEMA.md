@@ -23,12 +23,19 @@
    - `created_at`
    - `updated_at`
    - `created_by`
+   - `source_kind`
    - `source_session_id`
    - `source_role`
    - `source_message_excerpt`
    - `confidence`
    - `status`
    - `last_confirmed_at`
+   - `scope`
+   - `stability`
+   - `eligible_for_injection`
+   - `review_after`
+   - `supersedes`
+   - `invalidation_reason`
 
 ## Field Guidelines
 
@@ -49,6 +56,28 @@
 - `status`
   - 表示运行时是否应继续参与长期记忆注入。
   - 推荐值：`active` / `inactive` / `archived` / `deprecated`
+
+- `scope`
+  - 表示这条 durable note 的作用域。
+  - 推荐值：`user` / `project` / `agent` / `shared`
+
+- `stability`
+  - 表示这条 durable note 是稳定事实还是暂时保留的 provisional 事实。
+  - 推荐值：`stable` / `provisional`
+
+- `eligible_for_injection`
+  - 表示这条 durable note 在运行时是否允许继续参与 relevant selection。
+  - 推荐值：`true` / `false`
+
+- `source_kind`
+  - 表示 durable note 的来源类型。
+  - 推荐值：`preference` / `correction` / `policy` / `reference` / `derived_summary`
+
+- `supersedes`
+  - 表示当前 note 替代了哪条旧 note。
+
+- `invalidation_reason`
+  - 当 note 被降级、停用或 supersede 时，记录原因。
 
 ## Recommended Body Layout
 

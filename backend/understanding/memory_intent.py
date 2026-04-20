@@ -36,7 +36,20 @@ WRITE_MARKERS = (
     "always prefer",
 )
 
-DURABLE_READ_MARKERS = (
+MANUAL_MEMORY_READ_MARKERS = (
+    "长期记忆",
+    "记忆里",
+    "你都记了什么",
+    "你都长期记了什么",
+    "你帮我记了什么",
+    "你刚才帮我长期记住了什么",
+    "what do you remember",
+    "what have you remembered",
+    "what's in long-term memory",
+    "long-term memory",
+)
+
+SEMANTIC_MEMORY_READ_MARKERS = (
     "你记得",
     "你知道我",
     "我的偏好",
@@ -44,15 +57,9 @@ DURABLE_READ_MARKERS = (
     "我习惯",
     "默认用什么",
     "我们项目重点",
-    "长期记忆",
-    "记忆里",
     "还记得",
     "项目约定",
     "do you remember",
-    "what do you remember",
-    "what terminal syntax should we use",
-    "how should you answer",
-    "what should we prioritize",
 )
 
 PREFERENCE_HINTS = (
@@ -141,6 +148,32 @@ DURABLE_QUERY_PROFILES = (
     },
 )
 
+NEGATED_WRITE_MARKERS = (
+    "不是要你长期记住",
+    "不用长期记住",
+    "不要长期记住",
+    "别长期记住",
+    "别记到长期记忆",
+    "不要记到长期记忆",
+    "不要记住",
+    "别记住",
+    "not for long-term memory",
+    "do not remember this",
+    "don't remember this",
+)
+
+FILE_RETURN_MARKERS = (
+    "回到",
+    "再回到",
+    "继续看",
+    "继续分析",
+    "继续读",
+    "继续处理",
+)
+
+FILE_SUFFIX_MARKERS = (".pdf", ".xlsx", ".csv", ".json", ".md")
+FILE_KIND_MARKERS = ("pdf", "表格", "数据表", "dataset", "spreadsheet")
+
 
 @dataclass(slots=True)
 class MemoryIntent:
@@ -148,6 +181,10 @@ class MemoryIntent:
     memory_read_mode: MemoryReadMode = "none"
     memory_write_mode: MemoryWriteMode = "none"
     should_skip_rag: bool = False
+    explicit_read_inventory: bool = False
+    explicit_write_request: bool = False
+    explicit_forget_request: bool = False
+    ignore_memory: bool = False
     preferred_types: list[str] = field(default_factory=list)
     preferred_memory_classes: list[str] = field(default_factory=list)
 
@@ -155,6 +192,19 @@ class MemoryIntent:
 def analyze_memory_intent(message: str) -> MemoryIntent:
     normalized = (message or "").strip()
     lowered = normalized.lower()
+    if not normalized:
+        return MemoryIntent()
+
+    if _looks_like_ignore_memory_instruction(lowered):
+        return MemoryIntent(
+            intent="ignore_memory",
+            ignore_memory=True,
+            should_skip_rag=False,
+        )
+
+    if _looks_like_task_or_file_followup(lowered):
+        return MemoryIntent()
+
     query_profile = _match_durable_query_profile(lowered)
     is_question = normalized.endswith("?") or normalized.endswith("？") or any(
         lowered.startswith(prefix)
@@ -168,34 +218,51 @@ def analyze_memory_intent(message: str) -> MemoryIntent:
             should_skip_rag=True,
         )
 
-    if (
-        any(marker in lowered for marker in _lower_markers(DURABLE_READ_MARKERS))
-        or query_profile is not None
-        or _looks_like_memory_read_query(normalized, lowered)
-    ):
-        preferred_types = query_profile[0] if query_profile is not None else _infer_preferred_types(normalized, lowered)
-        preferred_classes = query_profile[1] if query_profile is not None else _infer_preferred_classes(normalized, lowered)
+    if _looks_like_manual_memory_query(lowered):
+        preferred_types = query_profile[0] if query_profile is not None else _infer_preferred_types(lowered)
+        preferred_classes = query_profile[1] if query_profile is not None else _infer_preferred_classes(lowered)
         return MemoryIntent(
             intent="durable_memory_query",
             memory_read_mode="durable_exact",
             should_skip_rag=True,
+            explicit_read_inventory=True,
             preferred_types=preferred_types,
             preferred_memory_classes=preferred_classes,
         )
 
-    if not is_question and any(marker in lowered for marker in _lower_markers(WRITE_MARKERS)):
+    if (
+        any(marker in lowered for marker in _lower_markers(SEMANTIC_MEMORY_READ_MARKERS))
+        or query_profile is not None
+        or _looks_like_memory_read_query(normalized, lowered)
+    ):
+        preferred_types = query_profile[0] if query_profile is not None else _infer_preferred_types(lowered)
+        preferred_classes = query_profile[1] if query_profile is not None else _infer_preferred_classes(lowered)
+        return MemoryIntent(
+            intent="memory_read_signal",
+            memory_read_mode="none",
+            should_skip_rag=False,
+            preferred_types=preferred_types,
+            preferred_memory_classes=preferred_classes,
+        )
+
+    if (
+        not is_question
+        and not _looks_like_negative_memory_write(lowered)
+        and any(marker in lowered for marker in _lower_markers(WRITE_MARKERS))
+    ):
         return MemoryIntent(
             intent="durable_memory_statement",
             memory_write_mode="durable_fact",
             should_skip_rag=True,
-            preferred_types=_infer_preferred_types(normalized, lowered),
-            preferred_memory_classes=_infer_preferred_classes(normalized, lowered),
+            explicit_write_request=True,
+            preferred_types=_infer_preferred_types(lowered),
+            preferred_memory_classes=_infer_preferred_classes(lowered),
         )
 
     return MemoryIntent()
 
 
-def _infer_preferred_types(message: str, lowered: str) -> list[str]:
+def _infer_preferred_types(lowered: str) -> list[str]:
     preferred: list[str] = []
     if any(marker in lowered for marker in _lower_markers(PREFERENCE_HINTS)):
         preferred.append("user")
@@ -212,7 +279,7 @@ def _infer_preferred_types(message: str, lowered: str) -> list[str]:
     return deduped
 
 
-def _infer_preferred_classes(message: str, lowered: str) -> list[str]:
+def _infer_preferred_classes(lowered: str) -> list[str]:
     preferred: list[str] = []
     if any(marker in lowered for marker in _lower_markers(PREFERENCE_HINTS)):
         preferred.append("preference")
@@ -243,10 +310,37 @@ def _looks_like_memory_read_query(message: str, lowered: str) -> bool:
         ("项目", "方向"),
         ("主线", "什么"),
         ("主线", "哪条"),
-        ("现阶段", "优先"),
-        ("现在", "优先"),
     )
     return any(left in lowered and right in lowered for left, right in patterns)
+
+
+def _looks_like_manual_memory_query(lowered: str) -> bool:
+    if any(marker in lowered for marker in _lower_markers(MANUAL_MEMORY_READ_MARKERS)):
+        return True
+    return (
+        ("记了什么" in lowered or "记住了什么" in lowered)
+        and any(marker in lowered for marker in _lower_markers(("长期", "记忆", "memory", "remember")))
+    )
+
+
+def _looks_like_negative_memory_write(lowered: str) -> bool:
+    return any(marker in lowered for marker in _lower_markers(NEGATED_WRITE_MARKERS))
+
+
+def _looks_like_ignore_memory_instruction(lowered: str) -> bool:
+    return (
+        ("ignore" in lowered and "memory" in lowered)
+        or ("不要" in lowered and "记忆" in lowered)
+        or ("别用" in lowered and "记忆" in lowered)
+    )
+
+
+def _looks_like_task_or_file_followup(lowered: str) -> bool:
+    if not any(marker in lowered for marker in _lower_markers(FILE_RETURN_MARKERS)):
+        return False
+    return any(marker in lowered for marker in FILE_SUFFIX_MARKERS) or any(
+        marker in lowered for marker in _lower_markers(FILE_KIND_MARKERS)
+    )
 
 
 def _match_durable_query_profile(lowered: str) -> tuple[list[str], list[str]] | None:

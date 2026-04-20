@@ -124,6 +124,7 @@ def _load_note(path: Path) -> dict[str, str | list[str]]:
             "source_message_excerpt": repair_mojibake(frontmatter.get("source_message_excerpt", "")),
             "confidence": repair_mojibake(frontmatter.get("confidence", "medium")),
             "status": repair_mojibake(frontmatter.get("status", "active")),
+            "eligible_for_injection": repair_mojibake(frontmatter.get("eligible_for_injection", "true")),
             "body": repair_mojibake(body.strip()),
         }
 
@@ -136,6 +137,7 @@ def _load_note(path: Path) -> dict[str, str | list[str]]:
     retrieval_hints: list[str] = []
     confidence = "medium"
     status = "active"
+    eligible_for_injection = "true"
     source_role = "user"
     source_message_excerpt = ""
     body_lines: list[str] = []
@@ -172,6 +174,9 @@ def _load_note(path: Path) -> dict[str, str | list[str]]:
         if metadata_lowered.startswith("status:"):
             status = metadata_line.split(":", 1)[1].strip() or "active"
             continue
+        if metadata_lowered.startswith("eligible for injection:") or metadata_lowered.startswith("eligible_for_injection:"):
+            eligible_for_injection = metadata_line.split(":", 1)[1].strip() or "true"
+            continue
         if metadata_lowered.startswith("source role:") or metadata_lowered.startswith("source_role:"):
             source_role = metadata_line.split(":", 1)[1].strip() or "user"
             continue
@@ -197,6 +202,7 @@ def _load_note(path: Path) -> dict[str, str | list[str]]:
         "source_message_excerpt": source_message_excerpt,
         "confidence": confidence,
         "status": status,
+        "eligible_for_injection": eligible_for_injection,
         "body": repair_mojibake("\n".join(body_lines).strip()),
     }
 
@@ -221,6 +227,8 @@ def _score_note(
     preferred_types: list[str],
 ) -> float:
     if str(note.get("status", "active")).lower() in {"archived", "deprecated", "inactive"}:
+        return 0.0
+    if str(note.get("eligible_for_injection", "true")).lower() in {"false", "no", "0"}:
         return 0.0
 
     title_terms = _extract_terms(str(note["title"]))

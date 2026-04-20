@@ -10,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from RAG.collections import build_default_collections
 from retrieval.memory_index import memory_indexer
+from memory import MemoryFacade
 from structured_memory import MemoryManager, MemoryNote
 
 
@@ -99,10 +100,58 @@ def test_memory_indexer_repairs_manifest_and_excludes_session_sources() -> None:
         )
 
 
+def test_runtime_durable_reads_auto_govern_old_instruction_wrapped_notes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        facade.memory_manager.save_note(
+            MemoryNote(
+                slug="memory-note",
+                title="记住：我们项目当前主线是优化 Memory 和 RAG。",
+                summary="记住：我们项目当前主线是优化 Memory 和 RAG。",
+                canonical_statement="记住：我们项目当前主线是优化 Memory 和 RAG。",
+                body="## Canonical Memory\n记住：我们项目当前主线是优化 Memory 和 RAG。",
+                memory_type="project",
+                memory_class="work",
+                created_by="memory_extractor",
+                source_role="user",
+                source_message_excerpt="记住：我们项目当前主线是优化 Memory 和 RAG。",
+            )
+        )
+        facade.memory_manager.save_note(
+            MemoryNote(
+                slug="memory-rag",
+                title="我们项目当前主线是优化 Memory 和 RAG。",
+                summary="我们项目当前主线是优化 Memory 和 RAG。",
+                canonical_statement="我们项目当前主线是优化 Memory 和 RAG。",
+                body="## Canonical Memory\n我们项目当前主线是优化 Memory 和 RAG。",
+                memory_type="project",
+                memory_class="work",
+                created_by="session_state_extractor",
+                source_role="user",
+                source_message_excerpt="我们项目当前主线是优化 Memory 和 RAG。",
+            )
+        )
+
+        notes = facade.prefetch_relevant_notes("我们项目当前重点是什么？", None, limit=5)
+        stored = {note.filename: note for note in facade.memory_manager.list_notes()}
+
+        _assert(notes == [], "without a memory signal generic runtime reads should still stay quiet")
+        _assert(
+            stored["memory-note.md"].canonical_statement == "我们项目当前主线是优化 Memory 和 RAG。",
+            "runtime durable access should auto-govern instruction-wrapped durable notes before reads",
+        )
+        _assert(
+            stored["memory-rag.md"].status == "deprecated",
+            "runtime durable access should auto-govern duplicate legacy notes before reads",
+        )
+
+
 def main() -> None:
     tests = [
         test_memory_collections_keep_session_and_durable_layers_separate,
         test_memory_indexer_repairs_manifest_and_excludes_session_sources,
+        test_runtime_durable_reads_auto_govern_old_instruction_wrapped_notes,
     ]
     for test in tests:
         test()

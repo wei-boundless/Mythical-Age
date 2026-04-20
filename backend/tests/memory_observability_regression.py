@@ -75,7 +75,7 @@ def main() -> None:
             include_durable_context=True,
         )
 
-        _assert(trace["memory_intent"]["read_mode"] == "durable_exact", "trace should expose durable exact read mode")
+        _assert(trace["memory_intent"]["read_mode"] == "none", "trace should expose downgraded semantic read mode")
         _assert(trace["memory_intent"]["preferred_memory_classes"] == ["work"], "trace should expose preferred work class")
         _assert(trace["session_memory"]["present"] is True, "trace should show session memory presence")
         _assert("# Active Goal" in trace["session_memory"]["preview"], "session preview should expose session-state sections")

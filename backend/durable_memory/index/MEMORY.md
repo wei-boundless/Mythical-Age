@@ -1,6 +1,8 @@
 # Memory Index
 
-- [记住：我们项目当前主线是优化 Memory 和](memory-note.md) - 记住：我们项目当前主线是优化 Memory 和 RAG。
+- [以后复杂问题先给结论。](memory-note.md) - 以后复杂问题先给结论。
+- [我们项目当前主线是优化 Memory 和 RAG](memory-rag.md) - 我们项目当前主线是优化 Memory 和 RAG。
 - [User Favorite Star](user-favorite-star.md) - 用户岩喜欢的明星是周杰伦（Jay Chou）。
-
-- [记住：我们项目当前主线是优化 Memory 和 RAG。](memory-rag.md) - 记住：我们项目当前主线是优化 Memory 和 RAG。
+- [复杂问题回答格式偏好](复杂问题回答格式偏好.md) - 以后复杂问题先给结论，再展开解释。
+- [记住：以后复杂问题先给结论，再展开解释。](记住-以后复杂问题先给结论-再展开解释.md) - 记住：以后复杂问题先给结论，再展开解释。
+- [记住：以后复杂问题先给结论。](记住-以后复杂问题先给结论.md) - 记住：以后复杂问题先给结论。

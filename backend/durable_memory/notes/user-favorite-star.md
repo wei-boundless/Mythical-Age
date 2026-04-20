@@ -5,10 +5,10 @@ summary: 用户岩喜欢的明星是周杰伦（Jay Chou）。
 canonical_statement: 用户岩喜欢的明星是周杰伦（Jay Chou）。
 type: user
 memory_class: preference
-tags: [user-preference, favorite-star, music, jay-chou]
-retrieval_hints: [喜欢的明星, 周杰伦, Jay Chou, 歌手, 音乐偏好]
+tags: []
+retrieval_hints: [用户岩喜欢的明星是周杰伦（Jay Chou）。, 喜欢的明星, 周杰伦, Jay Chou, 歌手, 音乐偏好]
 created_at: 2026-04-07T01:44:49
-updated_at: 2026-04-07T01:44:49
+updated_at: 2026-04-20T17:44:32+00:00
 created_by: user
 source_session_id: 
 source_role: user
@@ -16,6 +16,13 @@ source_message_excerpt: 我喜欢周杰伦，你可以记住吗
 confidence: high
 status: active
 last_confirmed_at: 
+scope: project
+stability: stable
+source_kind: 
+eligible_for_injection: true
+review_after: 
+supersedes: 
+invalidation_reason: 
 ---
 
 用户岩喜欢的明星是周杰伦（Jay Chou）。

@@ -3,7 +3,6 @@ from __future__ import annotations
 from .consolidation import ConsolidationReport, DurableMemoryConsolidator
 from .consolidation_scheduler import ConsolidationConfig, ConsolidationScheduler
 from .dialogue_state import DialogueState, DialogueStateManager, DialogueTurn
-from .durable_candidates import DurableCandidate, DurableCandidateDecision, evaluate_durable_candidate
 from .exact_lookup import ExactMemoryMatch, find_exact_memory_matches
 from .extraction_scheduler import ExtractionConfig, ExtractionScheduler
 from .extractor import MemoryExtractor
@@ -29,8 +28,6 @@ __all__ = [
     "ConsolidationReport",
     "ConsolidationScheduler",
     "ContextCompactor",
-    "DurableCandidate",
-    "DurableCandidateDecision",
     "DialogueState",
     "DialogueStateManager",
     "DialogueTurn",
@@ -59,7 +56,6 @@ __all__ = [
     "TurnUnderstandingAnalyzer",
     "TurnUnderstandingSnapshot",
     "UnderstandingReconciler",
-    "evaluate_durable_candidate",
 ]
 
 

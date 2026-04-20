@@ -26,6 +26,19 @@ ASSISTANT_ACK_MARKERS = (
     "i will keep following",
 )
 
+INSTRUCTION_PREFIXES = (
+    "记住：",
+    "记住:",
+    "记住",
+    "请记住：",
+    "请记住:",
+    "请记住",
+    "remember that ",
+    "remember ",
+    "please remember that ",
+    "please remember ",
+)
+
 
 def normalize_runtime_text(*parts: str) -> str:
     combined = " ".join(normalize_storage_text(part) for part in parts if normalize_storage_text(part))
@@ -44,6 +57,23 @@ def looks_like_assistant_ack_text(*parts: str) -> bool:
     if not normalized:
         return False
     return any(marker in normalized for marker in ASSISTANT_ACK_MARKERS)
+
+
+def normalize_durable_fact_text(text: str) -> str:
+    cleaned = normalize_storage_text(text).strip()
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    for prefix in INSTRUCTION_PREFIXES:
+        normalized_prefix = normalize_storage_text(prefix).strip()
+        if not normalized_prefix:
+            continue
+        prefix_lower = normalized_prefix.lower()
+        if lowered.startswith(prefix_lower):
+            cleaned = cleaned[len(normalized_prefix) :].strip()
+            break
+    cleaned = cleaned.lstrip("：:,- ").strip()
+    return cleaned
 
 
 def is_runtime_noise_note(

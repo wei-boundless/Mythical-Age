@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 from time import time
 from typing import Any
 
+from tasks.context_models import TaskContextRef, TaskResultRef, TaskSummary
+
 
 @dataclass(slots=True)
 class TaskEvent:
@@ -21,10 +23,14 @@ class TaskRecord:
     task_id: str
     task_type: str
     query: str
+    parent_query_id: str = ""
     agent_type: str = "main"
     status: str = "pending"
     result: str = ""
     error: str = ""
+    context_ref: TaskContextRef | None = None
+    summary: TaskSummary | None = None
+    result_ref: TaskResultRef | None = None
     created_at: float = field(default_factory=time)
     started_at: float | None = None
     finished_at: float | None = None

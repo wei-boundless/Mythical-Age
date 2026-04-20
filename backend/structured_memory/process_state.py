@@ -4,7 +4,6 @@ from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 
-from .durable_candidates import DurableCandidate
 from .models import utc_now_iso
 
 
@@ -69,13 +68,11 @@ class ProcessState:
     risk_flags: list[str] = field(default_factory=list)
     risk_notes: list[str] = field(default_factory=list)
     next_step: list[str] = field(default_factory=list)
-    durable_candidates: list[DurableCandidate] = field(default_factory=list)
     worklog: list[str] = field(default_factory=list)
     turn_trace: list[TurnUnderstanding] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
-        payload["durable_candidates"] = [item.to_dict() for item in self.durable_candidates]
         payload["turn_trace"] = [asdict(item) for item in self.turn_trace]
         payload["flow_state"] = asdict(self.flow_state)
         payload["task_state"] = asdict(self.task_state)
@@ -100,11 +97,6 @@ class ProcessState:
                 ],
             )
             for item in list(payload.get("turn_trace", []) or [])
-            if isinstance(item, dict)
-        ]
-        durable_candidates = [
-            DurableCandidate.from_dict(item)
-            for item in list(payload.get("durable_candidates", []) or [])
             if isinstance(item, dict)
         ]
         flow_payload = payload.get("flow_state", {})
@@ -224,7 +216,6 @@ class ProcessState:
                 for item in list(payload.get("next_step", []) or [])
                 if str(item).strip()
             ],
-            durable_candidates=durable_candidates,
             worklog=[str(item) for item in list(payload.get("worklog", []) or []) if str(item).strip()],
             turn_trace=turn_trace,
         )

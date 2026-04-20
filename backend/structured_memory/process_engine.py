@@ -4,7 +4,6 @@ from __future__ import annotations
 from understanding.task_understanding import TaskUnderstanding
 
 from .dialogue_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
-from .durable_candidates import DurableCandidate
 from .models import Message, utc_now_iso
 from .text_utils import normalize_storage_text
 from .turn_understanding import (
@@ -45,22 +44,6 @@ ENGLISH_CONVENTION_MARKERS = (
     "by default",
     "default to",
 )
-ENGLISH_PROJECT_MARKERS = (
-    "memory",
-    "rag",
-    "project focus",
-    "project direction",
-    "architecture",
-    "long-term",
-)
-ENGLISH_REQUEST_MEMORY_MARKERS = (
-    "remember",
-    "by default",
-    "default to",
-    "prefer",
-    "preference",
-)
-
 
 class ProcessStateEngine:
     """Owns process-state assembly from a reconciled understanding snapshot."""
@@ -193,13 +176,6 @@ class ProcessStateEngine:
             risk_flags=self._dedupe_items(risk_flags, max_items=max_items),
             risk_notes=self._dedupe_items(risk_notes, max_items=max_items),
             next_step=self._dedupe_items(next_steps, max_items=max_items),
-            durable_candidates=self._build_durable_candidates(
-                turn_trace=snapshot.turn_trace,
-                convention_items=convention_hints,
-                decision_items=decision_items,
-                request_items=request_items,
-                max_items=max_items,
-            ),
             worklog=self._dedupe_items(
                 [f"{msg.role}: {self._shorten(msg.content, 140)}" for msg in projected_messages[-max_items:]],
                 max_items=max_items,
@@ -412,9 +388,6 @@ class ProcessStateEngine:
     def _extract_terms(self, text: str) -> set[str]:
         return self.turn_analyzer._extract_terms(text)
 
-    def _candidate_hints(self, text: str) -> list[str]:
-        return self.turn_analyzer._candidate_hints(text)
-
     def _looks_like_coding_request(self, text: str) -> bool:
         return self.turn_analyzer._looks_like_coding_request(text)
 
@@ -590,125 +563,6 @@ class ProcessStateEngine:
         items.extend(f"此前请求：{item}" for item in prior_requests)
 
         return self._dedupe_items(items, max_items=max_items)
-
-    def _build_durable_candidates(
-        self,
-        *,
-        turn_trace: list[TurnUnderstanding],
-        convention_items: list[str],
-        decision_items: list[str],
-        request_items: list[str],
-        max_items: int,
-    ) -> list[DurableCandidate]:
-        candidates: list[DurableCandidate] = []
-
-        for turn in turn_trace:
-            if turn.role != "user":
-                continue
-            lowered = turn.excerpt.lower()
-            if turn.turn_type == "constraint_or_preference" and any(
-                marker in lowered
-                for marker in ("喜欢", "偏好", "习惯", "默认", "先给结论", "powershell", *ENGLISH_PREFERENCE_MARKERS)
-            ):
-                candidates.append(
-                    DurableCandidate(
-                        candidate_id=f"user-pref:{turn.excerpt[:40]}",
-                        source_kind="user_preference",
-                        title=self._shorten(turn.excerpt, 40),
-                        canonical_statement=turn.excerpt,
-                        summary=self._shorten(turn.excerpt, 80),
-                        memory_type="user",
-                        memory_class="preference",
-                        confidence="medium",
-                        rationale="User preference or stable session-level constraint detected.",
-                        source_role="user",
-                        source_excerpt=turn.excerpt,
-                        retrieval_hints=self._candidate_hints(turn.excerpt),
-                    )
-                )
-
-        for item in convention_items:
-            lowered = item.lower()
-            if any(
-                marker in lowered
-                for marker in ("powershell", "workflow", "流程", "约定", "规范", "默认", *ENGLISH_CONVENTION_MARKERS)
-            ):
-                candidates.append(
-                    DurableCandidate(
-                        candidate_id=f"convention:{item[:40]}",
-                        source_kind="session_convention",
-                        title=self._shorten(item, 40),
-                        canonical_statement=item,
-                        summary=self._shorten(item, 80),
-                        memory_type="project",
-                        memory_class="work",
-                        confidence="medium",
-                        rationale="Stable operating convention surfaced from session constraints.",
-                        source_role="assistant",
-                        source_excerpt=item,
-                        retrieval_hints=self._candidate_hints(item),
-                    )
-                )
-
-        for item in decision_items:
-            lowered = item.lower()
-            if any(
-                marker in lowered
-                for marker in ("记忆系统", "memory", "rag", "架构", "项目", "长期", *ENGLISH_PROJECT_MARKERS)
-            ):
-                candidates.append(
-                    DurableCandidate(
-                        candidate_id=f"decision:{item[:40]}",
-                        source_kind="project_decision",
-                        title=self._shorten(item, 40),
-                        canonical_statement=item,
-                        summary=self._shorten(item, 80),
-                        memory_type="project",
-                        memory_class="work",
-                        confidence="medium",
-                        rationale="Project-level decision looks stable enough to consider for durable memory.",
-                        source_role="assistant",
-                        source_excerpt=item,
-                        retrieval_hints=self._candidate_hints(item),
-                    )
-                )
-
-        for item in request_items:
-            lowered = item.lower()
-            if any(
-                marker in lowered
-                for marker in ("以后", "默认", "优先", "记住", *ENGLISH_REQUEST_MEMORY_MARKERS)
-            ):
-                candidates.append(
-                    DurableCandidate(
-                        candidate_id=f"request:{item[:40]}",
-                        source_kind="user_request",
-                        title=self._shorten(item, 40),
-                        canonical_statement=item,
-                        summary=self._shorten(item, 80),
-                        memory_type="reference",
-                        memory_class="work",
-                        confidence="medium",
-                        rationale="User request may represent a durable convention and should be reviewed.",
-                        source_role="user",
-                        source_excerpt=item,
-                        retrieval_hints=self._candidate_hints(item),
-                    )
-                )
-
-        deduped: list[DurableCandidate] = []
-        seen: set[tuple[str, str, str]] = set()
-        for candidate in candidates:
-            key = (
-                candidate.memory_class,
-                candidate.memory_type,
-                candidate.canonical_statement.strip().lower(),
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(candidate)
-        return deduped[:max_items]
 
     def _infer_flow_type(
         self,

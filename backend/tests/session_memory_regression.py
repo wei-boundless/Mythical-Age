@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import importlib.util
 import json
 import tempfile
@@ -12,6 +13,91 @@ if str(BACKEND_DIR) not in sys.path:
 
 from structured_memory import Message, SessionMemoryManager
 from structured_memory.session_processor import SessionUnderstandingProcessor
+
+
+@dataclass(slots=True)
+class _ProjectionCandidate:
+    source_kind: str
+    canonical_statement: str
+
+
+def _collect_projection_candidates(
+    *,
+    active_goal: str,
+    convention_items: list[str],
+    decision_items: list[str],
+    correction_items: list[str] | None = None,
+    max_items: int,
+) -> list[_ProjectionCandidate]:
+    preference_markers = (
+        "喜欢",
+        "偏好",
+        "习惯",
+        "默认",
+        "先给结论",
+        "回答方式",
+        "reply style",
+        "response style",
+        "answer style",
+        "conclusion first",
+        "give the conclusion first",
+        "prefer",
+        "preference",
+    )
+    convention_markers = (
+        "powershell",
+        "workflow",
+        "流程",
+        "约定",
+        "规范",
+        "默认",
+        "terminal commands",
+        "by default",
+        "default to",
+    )
+    project_markers = (
+        "记忆系统",
+        "memory",
+        "rag",
+        "架构",
+        "项目",
+        "长期",
+        "project focus",
+        "project direction",
+        "architecture",
+    )
+
+    def _normalize(text: object) -> str:
+        return " ".join(str(text or "").strip().split())
+
+    def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
+        lowered = _normalize(text).lower()
+        return any(marker in lowered for marker in markers)
+
+    candidates: list[_ProjectionCandidate] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _append(source_kind: str, text: str) -> None:
+        normalized = _normalize(text)
+        key = (source_kind, normalized.lower())
+        if not normalized or key in seen:
+            return
+        seen.add(key)
+        candidates.append(_ProjectionCandidate(source_kind=source_kind, canonical_statement=normalized))
+
+    if _contains_any(active_goal, preference_markers):
+        _append("user_preference", active_goal)
+    for item in list(correction_items or []):
+        if _contains_any(item, preference_markers):
+            _append("user_preference", item)
+    for item in convention_items:
+        if _contains_any(item, convention_markers):
+            _append("session_convention", item)
+    for item in decision_items:
+        if _contains_any(item, project_markers):
+            _append("project_decision", item)
+
+    return candidates[:max_items]
 
 
 def _load_build_default_collections():
@@ -99,7 +185,7 @@ def test_session_memory_persists_dialogue_state_separately_from_summary() -> Non
         _assert(state.active_goal in summary, "summary should be rendered from persisted dialogue state")
 
 
-def test_session_memory_surfaces_durable_candidates_from_state() -> None:
+def test_session_memory_no_longer_synthesizes_durable_candidates_from_state() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         manager = SessionMemoryManager(Path(tmp))
         summary = manager.update_from_messages(
@@ -112,19 +198,8 @@ def test_session_memory_surfaces_durable_candidates_from_state() -> None:
 
         state = manager.load_state()
 
-        _assert(state.durable_candidates, "dialogue state should persist durable candidates")
-        _assert("# Durable Candidates" in summary, "summary should expose the durable candidate section")
-        _assert(
-            any(candidate.memory_class in {"preference", "work"} for candidate in state.durable_candidates),
-            "durable candidates should preserve candidate memory classes",
-        )
-        _assert(
-            all(
-                candidate.source_kind in {"user_preference", "session_convention", "project_decision", "user_request"}
-                for candidate in state.durable_candidates
-            ),
-            "durable candidate source kinds should use the canonical post-refactor names",
-        )
+        _assert(not hasattr(state, "durable_candidates"), "working-memory state should no longer expose durable-candidate fields")
+        _assert("# Durable Candidates" not in summary, "working-memory summary should stop rendering durable candidate sections")
 
 
 def test_session_memory_surfaces_risk_watch_and_flags() -> None:
@@ -146,6 +221,102 @@ def test_session_memory_surfaces_risk_watch_and_flags() -> None:
             any(flag in {"unresolved_error_loop", "low_flow_confidence"} for flag in state.risk_flags),
             "risk flags should include loop or confidence risk signals",
         )
+
+
+def test_session_memory_accepts_summary_first_context_projection() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        summary = manager.update_from_context_state(
+            {
+                "active_goal": "只展开第二个子任务，给我 inventory.xlsx 里最缺货的前三个仓库。",
+                "active_work_item": "compound_query",
+                "active_constraints": {"top_n": 3, "group_by": "仓库", "response_style": "brief"},
+                "latest_correction": "不是按地区，按仓库。",
+                "next_step": "follow_up_or_refine_subtask_results",
+            },
+            task_summaries=[
+                {
+                    "task_id": "task-2",
+                    "query": "给我 inventory.xlsx 里最缺货的前三个仓库",
+                    "summary": "武汉仓缺口 404，上海仓缺口 392，深圳仓缺口 392。",
+                    "key_points": ["top_n=3", "dataset=inventory.xlsx"],
+                }
+            ],
+            corrections=["不是按地区，按仓库。"],
+        )
+
+        state = manager.load_state()
+
+        _assert("inventory.xlsx" in state.active_goal, "summary-first refresh should preserve the active goal")
+        _assert(
+            any("武汉仓缺口 404" in item for item in state.key_results),
+            "summary-first refresh should project task summaries into key results",
+        )
+        _assert(
+            "不是按地区，按仓库。" in summary,
+            "summary-first refresh should preserve explicit corrections in the rendered view",
+        )
+        _assert(
+            any("top_n=3" in item or "group_by=仓库" in item for item in state.conventions_and_constraints),
+            "summary-first refresh should surface active constraints without needing raw transcript replay",
+        )
+
+
+def test_summary_first_context_projection_does_not_reenter_message_processor() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+
+        def _fail_process(*_args, **_kwargs):
+            raise AssertionError("summary-first context projection should not go back through message processing")
+
+        manager.processor.process = _fail_process  # type: ignore[method-assign]
+        summary = manager.update_from_context_state(
+            {
+                "active_goal": "继续分析 report.pdf 第3页的结论。",
+                "active_work_item": "pdf_analysis",
+                "active_constraints": {"page": 3, "source_kind": "pdf"},
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "pdf-task",
+                    "query": "继续分析 report.pdf 第3页的结论。",
+                    "summary": "第三页主要在讨论供应链风险和现金流压力。",
+                    "key_points": ["page=3", "pdf=report.pdf"],
+                }
+            ],
+        )
+
+        state = manager.load_state()
+        _assert("report.pdf" in summary, "summary-first context projection should still render the projected goal")
+        _assert(state.context_slots.active_pdf == "report.pdf", "summary-first projection should rebuild slots directly from context state")
+        _assert(not hasattr(state, "durable_candidates"), "summary-first context projection should not restore the removed durable-candidate field")
+
+
+def test_projection_candidate_pipeline_stays_conservative_and_preference_first() -> None:
+    preference_candidates = _collect_projection_candidates(
+        active_goal="以后默认先给结论，再展开解释。",
+        convention_items=["response_style=brief"],
+        decision_items=[],
+        correction_items=[],
+        max_items=6,
+    )
+    task_candidates = _collect_projection_candidates(
+        active_goal="给我 inventory.xlsx 里最缺货的前三个仓库。",
+        convention_items=["top_n=3", "group_by=仓库"],
+        decision_items=["武汉仓缺口 404，上海仓缺口 392，深圳仓缺口 392。"],
+        correction_items=["不是按地区，按仓库。"],
+        max_items=6,
+    )
+
+    _assert(
+        any(candidate.source_kind == "user_preference" for candidate in preference_candidates),
+        "projection candidate pipeline should still promote stable user preferences",
+    )
+    _assert(
+        all("inventory.xlsx" not in candidate.canonical_statement for candidate in task_candidates),
+        "projection candidate pipeline should stay conservative about task-local dataset requests",
+    )
 
 
 def test_session_memory_persists_process_state_and_view_mirrors() -> None:
@@ -201,6 +372,10 @@ def test_session_memory_persists_process_state_and_view_mirrors() -> None:
         _assert(
             "workflow_and_constraints" not in persisted_payload,
             "process state should stop persisting the legacy workflow field name",
+        )
+        _assert(
+            "durable_candidates" not in persisted_payload,
+            "process state should stop persisting empty durable-candidate payloads on the main working-memory path",
         )
         storage = manager.describe_storage()
         _assert("state_mirror_path" in storage, "storage description should expose mirror paths with canonical names")
@@ -429,8 +604,11 @@ def main() -> None:
         test_session_memory_hygiene,
         test_session_memory_compact_view_uses_state_sections,
         test_session_memory_persists_dialogue_state_separately_from_summary,
-        test_session_memory_surfaces_durable_candidates_from_state,
+        test_session_memory_no_longer_synthesizes_durable_candidates_from_state,
         test_session_memory_surfaces_risk_watch_and_flags,
+        test_session_memory_accepts_summary_first_context_projection,
+        test_summary_first_context_projection_does_not_reenter_message_processor,
+        test_projection_candidate_pipeline_stays_conservative_and_preference_first,
         test_session_memory_persists_process_state_and_view_mirrors,
         test_session_memory_can_fallback_to_legacy_state_file_when_process_state_is_missing,
         test_process_state_can_read_legacy_workflow_field_but_rewrite_canonical_field,

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+
+from memory.admission_policy import DurableAdmissionPolicy
+from memory.manifest_scan import scan_memory_headers
+from memory.mutation_planner import DurableMutationPlanner
+from memory.store_writer import DurableStoreWriter
+from memory.write_agent import DurableWriteExtractorAgent
+from memory.write_models import DurableExtractionBundle
 from understanding import evaluate_memory_write
 
-from .dialogue_state import DialogueStateManager
-from .durable_candidates import DurableCandidate, evaluate_durable_candidate
 from .memory_manager import MemoryManager
 from .models import MemoryNote, Message
-from .note_hygiene import is_runtime_noise_note, looks_like_synthetic_memory_text
 from .text_utils import normalize_storage_text
 
 
@@ -16,83 +21,35 @@ class MemoryExtractor:
     Replace or wrap this with an LLM call if you want smarter extraction.
     """
 
-    TRIGGERS = (
+    EXPLICIT_WRITE_MARKERS = (
+        "记住",
+        "记一下",
+        "别忘了",
+        "记到长期记忆",
         "remember",
-        "preference",
-        "prefer",
-        "always",
-        "never",
-        "important",
-        "use this",
-        "my workflow",
-        "our project",
-        "\u8bb0\u4f4f",
-        "\u8bb0\u4e00\u4e0b",
-        "\u522b\u5fd8\u4e86",
-        "\u4e0d\u8981\u5fd8",
-        "\u6211\u559c\u6b22",
-        "\u6211\u6700\u559c\u6b22",
-        "\u6211\u66f4\u559c\u6b22",
-        "\u6211\u7684\u504f\u597d",
-        "\u6211\u4e60\u60ef",
-        "\u6211\u901a\u5e38",
-        "\u4ee5\u540e\u90fd",
-        "\u9ed8\u8ba4\u7528",
-        "\u8bf7\u7528",
-        "\u9879\u76ee\u91cc",
-        "\u6211\u4eec\u9879\u76ee",
-        "\u6211\u4eec\u7684\u9879\u76ee",
-        "\u5de5\u4f5c\u6d41",
-        "\u6d41\u7a0b\u662f",
-        "\u7ea6\u5b9a",
-        "\u89c4\u8303",
-        "\u4ee5\u540e\u6309\u8fd9\u4e2a",
+        "remember that",
+        "don't forget",
     )
+
     def __init__(self, memory_manager: MemoryManager) -> None:
         self.memory_manager = memory_manager
+        self.write_agent = DurableWriteExtractorAgent()
+        self.admission_policy = DurableAdmissionPolicy()
+        self.mutation_planner = DurableMutationPlanner()
+        self.store_writer = DurableStoreWriter(memory_manager)
+
+    def set_message_invoker(self, callback) -> None:
+        self.write_agent.set_message_invoker(callback)
 
     def extract(self, messages: list[Message]) -> list[MemoryNote]:
-        session_id = self._session_id_from_messages(messages)
-        extracted: list[MemoryNote] = []
-        if session_id:
-            state_notes = self._extract_from_session_state(session_id)
-            if state_notes:
-                extracted.extend(state_notes)
-
-        for msg in messages[-20:]:
-            if msg.role != "user":
-                continue
-            content = normalize_storage_text(msg.content)
-            lowered = content.lower()
-            decision = evaluate_memory_write(content)
-            if (
-                decision.action != "durable_fact"
-                or decision.memory_type is None
-                or decision.memory_class is None
-            ):
-                continue
-            if not any(trigger in lowered for trigger in self.TRIGGERS) and decision.reason != "memory_policy_feedback":
-                continue
-            extracted.append(
-                self._note_from_statement(
-                    content,
-                    created_by="memory_extractor",
-                    source_session_id=str(msg.meta.get("session_id", "") or ""),
-                    source_role=msg.role,
-                    reason=decision.reason,
-                    memory_type=decision.memory_type,
-                    memory_class=decision.memory_class,
-                    extra_tags=decision.tags,
-                    confidence=self._confidence_from_decision(decision.reason),
-                )
-            )
-        return self._dedupe(extracted)
+        extracted = self._extract_from_projection_messages(messages)
+        if extracted:
+            return self._dedupe(extracted)
+        return self._dedupe(self._extract_from_explicit_messages(messages))
 
     def save_extracted(self, messages: list[Message]) -> list[MemoryNote]:
         notes = self.extract(messages)
-        for note in notes:
-            self.memory_manager.save_note(note)
-        return notes
+        return self.store_writer.save_notes(notes)
 
     def _make_title(self, text: str) -> str:
         compact = " ".join(text.strip().split())
@@ -223,112 +180,102 @@ class MemoryExtractor:
                 return session_id
         return ""
 
-    def _extract_from_session_state(self, session_id: str) -> list[MemoryNote]:
-        session_dir = self.memory_manager.root_dir.parent / "session-memory" / session_id
-        if not session_dir.exists():
-            return []
-        state = DialogueStateManager(session_dir).load()
-        extracted = self._extract_request_notes_from_state(session_id, state.key_user_requests)
-        for candidate in state.durable_candidates:
-            if not self._should_commit_candidate(candidate):
-                continue
-            decision = evaluate_durable_candidate(candidate)
-            if decision.action != "accept":
-                continue
-            extracted.append(
-                self._note_from_candidate(
-                    session_id,
-                    candidate,
-                    memory_type=decision.memory_type,
-                    memory_class=decision.memory_class,
-                    reason=decision.reason,
-                    confidence=decision.confidence,
-                )
-            )
-        return self._dedupe(extracted)
-
-    def _note_from_candidate(
-        self,
-        session_id: str,
-        candidate: DurableCandidate,
-        *,
-        memory_type: str,
-        memory_class: str,
-        reason: str,
-        confidence: str,
-    ) -> MemoryNote:
-        title = normalize_storage_text(candidate.title) or "Session Durable Memory"
-        slug = self.memory_manager.slugify(title)
-        source_excerpt = self._shorten_excerpt(candidate.source_excerpt or candidate.canonical_statement, 160)
-        return MemoryNote(
-            slug=slug,
-            title=title,
-            summary=normalize_storage_text(candidate.summary) or title,
-            canonical_statement=normalize_storage_text(candidate.canonical_statement) or normalize_storage_text(candidate.summary) or title,
-            body=self._build_body(
-                canonical_statement=normalize_storage_text(candidate.canonical_statement) or title,
-                reason=reason,
-                retrieval_hints=list(candidate.retrieval_hints),
-                source_excerpt=source_excerpt,
-            ),
-            memory_type=memory_type,
-            memory_class=memory_class,
-            tags=self._merge_tags([memory_class, memory_type], list(candidate.retrieval_hints)),
-            retrieval_hints=list(candidate.retrieval_hints),
-            created_by="session_state_extractor",
-            source_session_id=session_id,
-            source_role=candidate.source_role,
-            source_message_excerpt=source_excerpt,
-            confidence=confidence,
-            last_confirmed_at="",
-        )
-
-    def _should_commit_candidate(self, candidate: DurableCandidate) -> bool:
-        statement = normalize_storage_text(candidate.canonical_statement or candidate.source_excerpt or candidate.title)
-        if not statement:
-            return False
-        if looks_like_synthetic_memory_text(statement):
-            return False
-        if statement.endswith("?") or statement.endswith("？"):
-            return False
-        if is_runtime_noise_note(
-            source_role=candidate.source_role,
-            created_by="session_state_extractor",
-            title=candidate.title,
-            summary=candidate.summary,
-            canonical_statement=candidate.canonical_statement,
-            source_message_excerpt=candidate.source_excerpt,
-        ):
-            return False
-        return True
-
-    def _extract_request_notes_from_state(
-        self,
-        session_id: str,
-        requests: list[str],
-    ) -> list[MemoryNote]:
+    def _extract_from_projection_messages(self, messages: list[Message]) -> list[MemoryNote]:
         extracted: list[MemoryNote] = []
-        for request in requests:
-            statement = normalize_storage_text(request)
-            if not statement or statement.endswith("?") or statement.endswith("？"):
+        for message in messages:
+            if str(message.meta.get("projection", "") or "") != "durable_context_state":
                 continue
-            decision = evaluate_memory_write(statement)
-            if decision.action != "durable_fact" or not decision.memory_type or not decision.memory_class:
-                continue
-            extracted.append(
-                self._note_from_statement(
-                    statement,
-                    created_by="session_state_extractor",
-                    source_session_id=session_id,
-                    source_role="user",
-                    reason=decision.reason,
-                    memory_type=decision.memory_type,
-                    memory_class=decision.memory_class,
-                    extra_tags=decision.tags,
-                    confidence=self._confidence_from_decision(decision.reason),
-                )
+            bundle = DurableExtractionBundle(
+                session_id=str(message.meta.get("session_id", "") or ""),
+                turn_id=str(message.meta.get("turn_id", "") or ""),
+                message_slice=[
+                    {
+                        "role": msg.role,
+                        "content": msg.content,
+                    }
+                    for msg in messages[-8:]
+                ],
+                main_context=dict(message.meta.get("main_context", {}) or {}),
+                task_summaries=[
+                    item
+                    for item in list(message.meta.get("task_summaries", []) or [])
+                    if isinstance(item, dict)
+                ],
+                corrections=[
+                    str(item)
+                    for item in list(message.meta.get("corrections", []) or [])
+                    if str(item).strip()
+                ],
+                session_projection={},
+                manifest_headers=[
+                    {
+                        "note_id": header.note_id,
+                        "filename": header.filename,
+                        "memory_type": header.memory_type,
+                        "memory_class": header.memory_class,
+                        "title": header.title,
+                        "description": header.description,
+                        "status": header.status,
+                        "confidence": header.confidence,
+                        "eligible_for_injection": header.eligible_for_injection,
+                        "canonical_statement": header.canonical_statement,
+                        "summary": header.summary,
+                    }
+                    for header in scan_memory_headers(self.memory_manager.root_dir, limit=200)
+                ],
             )
+            extracted.extend(self._extract_notes_from_bundle(bundle))
         return extracted
+
+    def _extract_from_explicit_messages(self, messages: list[Message]) -> list[MemoryNote]:
+        candidates = [
+            {
+                "role": msg.role,
+                "content": normalize_storage_text(msg.content),
+                "session_id": str(msg.meta.get("session_id", "") or ""),
+            }
+            for msg in messages[-20:]
+            if msg.role == "user" and self._is_explicit_write_candidate(normalize_storage_text(msg.content))
+        ]
+        if not candidates:
+            return []
+        bundle = DurableExtractionBundle(
+            session_id=str(candidates[-1].get("session_id", "") or ""),
+            turn_id="explicit-fallback",
+            message_slice=candidates,
+            main_context={},
+            task_summaries=[],
+            corrections=[],
+            session_projection={},
+            manifest_headers=[
+                {
+                    "note_id": header.note_id,
+                    "filename": header.filename,
+                    "memory_type": header.memory_type,
+                    "memory_class": header.memory_class,
+                    "title": header.title,
+                    "description": header.description,
+                    "status": header.status,
+                    "confidence": header.confidence,
+                    "eligible_for_injection": header.eligible_for_injection,
+                    "canonical_statement": header.canonical_statement,
+                    "summary": header.summary,
+                }
+                for header in scan_memory_headers(self.memory_manager.root_dir, limit=200)
+            ],
+        )
+        return self._extract_notes_from_bundle(bundle)
+
+    def _extract_notes_from_bundle(self, bundle: DurableExtractionBundle) -> list[MemoryNote]:
+        drafts = asyncio.run(self.write_agent.extract(bundle))
+        if not drafts:
+            return []
+        decisions = self.admission_policy.evaluate_many(
+            drafts,
+            existing_headers=scan_memory_headers(self.memory_manager.root_dir, limit=200),
+        )
+        plan = self.mutation_planner.build_plan(decisions)
+        return self.store_writer.plan_notes(plan)
 
     def _note_from_statement(
         self,
@@ -371,3 +318,7 @@ class MemoryExtractor:
             confidence=confidence,
             last_confirmed_at="",
         )
+
+    def _is_explicit_write_candidate(self, text: str) -> bool:
+        lowered = normalize_storage_text(text).lower()
+        return any(marker in lowered for marker in self.EXPLICIT_WRITE_MARKERS)

@@ -165,12 +165,82 @@ REJECT_MARKERS = (
     "错了",
 )
 
+NEGATED_MEMORY_MARKERS = (
+    "不是要你长期记住",
+    "不用长期记住",
+    "不要长期记住",
+    "别长期记住",
+    "别记到长期记忆",
+    "不要记到长期记忆",
+    "不用记到长期记忆",
+    "不要记住",
+    "别记住",
+    "无需记住",
+    "not for long-term memory",
+    "do not remember this",
+    "don't remember this",
+    "do not save this",
+    "don't save this",
+    "not something to remember",
+)
+
+EXPLICIT_WRITE_MARKERS = (
+    "记住",
+    "记一下",
+    "别忘了",
+    "记到长期记忆",
+    "remember",
+    "remember that",
+    "don't forget",
+)
+
+TASK_LOCAL_MARKERS = (
+    ".pdf",
+    ".xlsx",
+    ".csv",
+    ".json",
+    "第1页",
+    "第2页",
+    "第3页",
+    "前三",
+    "top 3",
+    "top3",
+    "回到",
+    "继续看",
+    "继续分析",
+    "继续展开",
+    "这个文件",
+    "这个表",
+    "report.pdf",
+    "inventory.xlsx",
+)
+
+DERIVABLE_FACT_MARKERS = (
+    "代码里",
+    "仓库里",
+    "repo",
+    "代码库",
+    "文档里",
+    "文件里",
+    "知识库里",
+    "from the repo",
+    "from code",
+    "from the docs",
+)
+
 
 def evaluate_memory_write(content: str) -> MemoryWriteDecision:
     normalized = (content or "").strip()
     lowered = normalized.lower()
     if not normalized:
         return MemoryWriteDecision(action="ignore", reason="empty")
+
+    if _contains_any(lowered, NEGATED_MEMORY_MARKERS):
+        return MemoryWriteDecision(
+            action="ignore",
+            reason="negative_memory_instruction",
+            tags=["explicit-negative"],
+        )
 
     if any(marker in lowered for marker in _lower_markers(EMOTIONAL_ATTACHMENT_MARKERS)):
         return MemoryWriteDecision(
@@ -186,11 +256,25 @@ def evaluate_memory_write(content: str) -> MemoryWriteDecision:
             tags=["emotion", "session-only"],
         )
 
+    if _looks_like_task_local_runtime_state(lowered):
+        return MemoryWriteDecision(
+            action="ignore",
+            reason="task_local_or_runtime_state",
+            tags=["task-local"],
+        )
+
     if any(marker in lowered for marker in _lower_markers(STATIC_PROFILE_RULE_MARKERS)):
         return MemoryWriteDecision(
             action="ignore",
             reason="static_profile_rule",
             tags=["profile-rule"],
+        )
+
+    if _contains_any(lowered, DERIVABLE_FACT_MARKERS):
+        return MemoryWriteDecision(
+            action="ignore",
+            reason="derivable_from_repo_or_source",
+            tags=["derivable"],
         )
 
     if any(marker in lowered for marker in _lower_markers(TESTING_MARKERS)) and any(
@@ -204,9 +288,7 @@ def evaluate_memory_write(content: str) -> MemoryWriteDecision:
             tags=["memory-policy", "testing"],
         )
 
-    if any(marker in lowered for marker in _lower_markers(FEEDBACK_MARKERS)) and any(
-        marker in lowered for marker in _lower_markers(USER_PREFERENCE_MARKERS + PROJECT_FACT_MARKERS)
-    ):
+    if _looks_like_feedback_memory(lowered):
         return MemoryWriteDecision(
             action="durable_fact",
             reason="stable_feedback",
@@ -215,7 +297,7 @@ def evaluate_memory_write(content: str) -> MemoryWriteDecision:
             tags=["feedback"],
         )
 
-    if any(marker in lowered for marker in _lower_markers(PROJECT_FACT_MARKERS)):
+    if _looks_like_stable_project_fact(lowered):
         return MemoryWriteDecision(
             action="durable_fact",
             reason="stable_project_fact",
@@ -224,7 +306,7 @@ def evaluate_memory_write(content: str) -> MemoryWriteDecision:
             tags=["project"],
         )
 
-    if any(marker in lowered for marker in _lower_markers(USER_PREFERENCE_MARKERS)):
+    if _looks_like_user_preference(lowered):
         return MemoryWriteDecision(
             action="durable_fact",
             reason="stable_user_preference",
@@ -233,7 +315,7 @@ def evaluate_memory_write(content: str) -> MemoryWriteDecision:
             tags=["user-preference"],
         )
 
-    if any(marker in lowered for marker in _lower_markers(REFERENCE_MARKERS)):
+    if _looks_like_reference_pointer(lowered):
         return MemoryWriteDecision(
             action="durable_fact",
             reason="stable_reference_pointer",
@@ -324,6 +406,56 @@ def _normalize_memory_class(value: str) -> MemoryClass:
     if lowered == "preference":
         return "preference"
     return "work"
+
+
+def _looks_like_feedback_memory(lowered: str) -> bool:
+    return _contains_any(lowered, FEEDBACK_MARKERS) and (
+        _looks_like_user_preference(lowered) or _looks_like_stable_project_fact(lowered)
+    )
+
+
+def _looks_like_user_preference(lowered: str) -> bool:
+    return _contains_any(lowered, USER_PREFERENCE_MARKERS)
+
+
+def _looks_like_stable_project_fact(lowered: str) -> bool:
+    strong_scope_markers = (
+        "我们项目",
+        "项目重点",
+        "项目主线",
+        "项目方向",
+        "项目长期",
+        "our project",
+        "project focus",
+        "project direction",
+        "project mainline",
+    )
+    supporting_fact_markers = (
+        "重点",
+        "主线",
+        "方向",
+        "架构",
+        "memory",
+        "rag",
+        "workflow",
+        "约定",
+        "规范",
+        "长期",
+    )
+    return _contains_any(lowered, strong_scope_markers) and _contains_any(lowered, supporting_fact_markers)
+
+
+def _looks_like_reference_pointer(lowered: str) -> bool:
+    return _contains_any(lowered, REFERENCE_MARKERS)
+
+
+def _looks_like_task_local_runtime_state(lowered: str) -> bool:
+    return _contains_any(lowered, TASK_LOCAL_MARKERS)
+
+
+def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
+    lowered_markers = _lower_markers(markers)
+    return any(marker in text for marker in lowered_markers)
 
 
 def _lower_markers(markers: tuple[str, ...]) -> tuple[str, ...]:

@@ -51,6 +51,15 @@ def test_task_coordinator_records_query_subtasks() -> None:
     assert all(task.status == "completed" for task in records)
     assert all(task.agent_type == "explorer" for task in records)
     assert records[0].result == "answer for a"
+    assert records[0].context_ref is not None
+    assert records[0].context_ref.parent_query_id
+    assert records[0].summary is not None
+    assert records[0].summary.response == "answer for a"
+    assert records[0].result_ref is not None
+    assert events[0]["task_id"] == records[0].task_id
+    assert isinstance(events[-1]["summary"], dict)
+    assert isinstance(events[-1]["context_ref"], dict)
+    assert isinstance(events[-1]["result_ref"], dict)
 
 
 def test_task_coordinator_records_tool_tasks() -> None:
@@ -66,6 +75,7 @@ def test_task_coordinator_records_tool_tasks() -> None:
     assert task.status == "completed"
     assert task.agent_type == "worker"
     assert task.metadata["tool_name"] == "terminal"
+    assert task.result_ref is not None
 
 
 def main() -> None:
