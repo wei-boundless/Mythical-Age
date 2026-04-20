@@ -64,6 +64,26 @@ class SessionMemoryManager:
         baseline = previous_state if previous_state is not None else self.load_state()
         return self.processor.process(messages, baseline, max_items=max_items)
 
+    def preview_views(
+        self,
+        messages: list[Message],
+        max_items: int = 6,
+        *,
+        previous_state: DialogueState | None = None,
+    ) -> dict[str, str]:
+        state = self.preview_state(
+            messages,
+            max_items=max_items,
+            previous_state=previous_state,
+        )
+        model_content = self._render_state(state)
+        debug_content = self._render_debug_state(state)
+        return {
+            "model": model_content,
+            "debug": debug_content,
+            "compaction": self.view_builder.render_compaction_view(model_content),
+        }
+
     def update_from_messages(
         self,
         messages: list[Message],

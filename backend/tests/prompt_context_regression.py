@@ -42,8 +42,25 @@ def test_prompt_builder_splits_static_session_and_turn_layers() -> None:
                 "retrieval_evidence": ["knowledge/a.md | knowledge: grounded evidence"],
                 "exact_durable_context": ["Exact durable memory: Prefer PowerShell commands in this repo."],
             },
+            model_visible_sections={
+                "active_process_context": ["# Active Goal\n\nKeep the prompt clean."],
+                "retrieval_evidence": ["knowledge/a.md | knowledge: grounded evidence"],
+                "exact_durable_context": ["Exact durable memory: Prefer PowerShell commands in this repo."],
+            },
+            debug_sections={
+                "active_process_context": ["# Active Goal\n\nKeep the prompt clean."],
+                "retrieval_evidence": ["knowledge/a.md | knowledge: grounded evidence"],
+                "exact_durable_context": ["Exact durable memory: Prefer PowerShell commands in this repo."],
+                "debug_session_trace": ["# Next Step\n\n- Debug-only next step should stay out of prompt."],
+            },
             pressure_level="warning",
             selected_sections=["active_process_context", "retrieval_evidence", "exact_durable_context"],
+            debug_selected_sections=[
+                "active_process_context",
+                "retrieval_evidence",
+                "exact_durable_context",
+                "debug_session_trace",
+            ],
             dropped_sections=["warm_snapshots"],
             compaction_strategy="warning_only",
             compaction_decisions=["warning pressure"],
@@ -75,6 +92,7 @@ def test_prompt_builder_splits_static_session_and_turn_layers() -> None:
         _assert("<!-- Context Management -->" not in full_prompt, "full prompt should exclude context-management notes")
         _assert("Selected Sections:" not in full_prompt, "full prompt should exclude selection metadata")
         _assert("Dropped Sections:" not in full_prompt, "full prompt should exclude dropped-section metadata")
+        _assert("Debug-only next step" not in full_prompt, "full prompt should stay on model-visible sections only")
 
 
 def main() -> None:

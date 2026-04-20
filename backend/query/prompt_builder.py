@@ -32,6 +32,7 @@ def _render_context_package_block(
     *,
     include_durable_context: bool,
     include_runtime_context: bool = True,
+    mode: str = "model",
 ) -> str:
     section_order = [
         ("static_context", None),
@@ -43,6 +44,7 @@ def _render_context_package_block(
         ("relevant_durable_context", "## Relevant Durable Context"),
     ]
     lines: list[str] = []
+    sections = _sections_for_package(package, mode=mode)
     for section_name, heading in section_order:
         if not include_runtime_context and section_name in {
             "static_context",
@@ -57,7 +59,7 @@ def _render_context_package_block(
             "relevant_durable_context",
         }:
             continue
-        items = list(package.sections.get(section_name, []))
+        items = list(sections.get(section_name, []))
         if not items:
             continue
         if heading is not None:
@@ -75,6 +77,20 @@ def _render_context_package_block(
             else:
                 lines.append(f"- {stripped}")
     return "\n".join(lines).strip()
+
+
+def _sections_for_package(
+    package: ContextPackage,
+    *,
+    mode: str,
+) -> dict[str, list[str]]:
+    if hasattr(package, "sections_for"):
+        return package.sections_for("debug" if mode == "debug" else "model")
+    if mode == "debug" and hasattr(package, "debug_sections"):
+        return getattr(package, "debug_sections")
+    if hasattr(package, "model_visible_sections"):
+        return getattr(package, "model_visible_sections")
+    return package.sections
 
 
 def build_static_prompt(

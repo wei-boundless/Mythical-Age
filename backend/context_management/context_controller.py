@@ -85,27 +85,41 @@ class ContextController:
         if pending_user_message:
             preview_messages.append(Message(role="user", content=pending_user_message))
 
-        preview_content = self._preview_content(preview_messages)
-        compaction_view = self.session_memory_manager.compact_view(content=preview_content)
-        sections = self.session_memory_manager.parse_sections(compaction_view)
+        preview_views = self.session_memory_manager.preview_views(preview_messages)
+        compaction_view = preview_views["compaction"]
+        model_sections = self.session_memory_manager.parse_sections(compaction_view)
+        debug_view = preview_views["debug"]
+        debug_source_sections = self.session_memory_manager.parse_sections(debug_view)
 
         tokens_before = self.compactor.conversation_tokens(messages)
         pressure_level = self.compactor.pressure_level(tokens_before, len(messages))
         budget = self._build_budget()
-        context_sections = self._select_sections(
-            sections,
+        model_visible_sections = self._select_sections(
+            model_sections,
             preview_messages,
             pressure_level=pressure_level,
             exact_durable_matches=exact_durable_matches,
             relevant_durable_matches=relevant_durable_matches,
             retrieval_evidence=retrieval_evidence,
             static_context=static_context,
+            include_debug_trace=False,
         )
-        selected_sections = [name for name, items in context_sections.items() if items]
+        debug_sections = self._select_sections(
+            debug_source_sections,
+            preview_messages,
+            pressure_level=pressure_level,
+            exact_durable_matches=exact_durable_matches,
+            relevant_durable_matches=relevant_durable_matches,
+            retrieval_evidence=retrieval_evidence,
+            static_context=static_context,
+            include_debug_trace=True,
+        )
+        selected_sections = [name for name, items in model_visible_sections.items() if items]
+        debug_selected_sections = [name for name, items in debug_sections.items() if items]
         dropped_sections = self._dropped_sections_for_pressure(
             pressure_level,
-            context_sections=context_sections,
-            has_warm=bool(context_sections.get("warm_snapshots")),
+            context_sections=model_visible_sections,
+            has_warm=bool(model_visible_sections.get("warm_snapshots")),
             has_retrieval=bool(retrieval_evidence),
             has_durable=bool(exact_durable_matches or relevant_durable_matches),
         )
@@ -113,15 +127,18 @@ class ContextController:
         token_accounting = self._token_accounting(
             tokens_before=tokens_before,
             compaction_view=compaction_view,
-            sections=context_sections,
+            sections=model_visible_sections,
             budget=budget,
         )
 
         return ContextPackage(
             pressure_level=pressure_level,
             budget=budget,
-            sections=context_sections,
+            sections=model_visible_sections,
+            model_visible_sections=model_visible_sections,
+            debug_sections=debug_sections,
             selected_sections=selected_sections,
+            debug_selected_sections=debug_selected_sections,
             dropped_sections=dropped_sections,
             dropped_items=[],
             rebuild_reason=rebuild_reason,
@@ -174,6 +191,7 @@ class ContextController:
         relevant_durable_matches: list[dict[str, Any]] | None,
         retrieval_evidence: list[str] | None,
         static_context: list[str] | None,
+        include_debug_trace: bool,
     ) -> dict[str, list[str]]:
         active_process_headers = [
             "# Active Goal",
@@ -195,6 +213,7 @@ class ContextController:
         )
         static_items = list(static_context or self.static_context)
         retrieval_items = self._retrieval_items(retrieval_evidence)
+        debug_session_trace = self._debug_trace_blocks(parsed_sections) if include_debug_trace else []
 
         if pressure_level == "warning":
             warm_snapshots = self._limit_items_by_tokens(warm_snapshots, budget_tokens=max(80, self._budget_slice(0.5)))
@@ -230,6 +249,7 @@ class ContextController:
             "warm_snapshots": warm_snapshots,
             "exact_durable_context": exact_durable_context,
             "relevant_durable_context": relevant_durable_context,
+            "debug_session_trace": debug_session_trace,
         }
 
     def _budget_slice(self, ratio: float) -> int:
@@ -259,6 +279,20 @@ class ContextController:
             for message in window
             if self._shorten(message.content, 180)
         ]
+
+    def _debug_trace_blocks(self, parsed_sections: dict[str, list[str]]) -> list[str]:
+        debug_headers = [
+            "# Key User Requests",
+            "# Files and Functions",
+            "# Conventions and Constraints",
+            "# Errors and Corrections",
+            "# Decisions and Learnings",
+            "# Key Results",
+            "# Risk Watch",
+            "# Next Step",
+            "# Worklog",
+        ]
+        return self._section_blocks(parsed_sections, debug_headers)
 
     def _warm_snapshot_items(
         self,

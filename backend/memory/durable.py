@@ -8,7 +8,6 @@ from typing import Any, Callable
 from memory.manifest_scan import MemoryHeader, format_memory_manifest, scan_memory_headers
 from memory.read_agent import MemoryReadAgent
 from memory.read_models import MemoryRecallRequest, MemoryRecallResult, MemoryRecallSelection
-from memory.relevant_selector import RelevantMemorySelector
 from structured_memory import (
     ExactMemoryMatch,
     ExtractionConfig,
@@ -16,6 +15,7 @@ from structured_memory import (
     MemoryExtractor,
     MemoryManager,
     Message,
+    find_exact_memory_matches,
 )
 
 
@@ -23,7 +23,6 @@ class DurableMemoryLayer:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
         self.memory_manager = MemoryManager(base_dir / "durable_memory")
-        self.selector = RelevantMemorySelector(self.memory_manager)
         self.read_agent = MemoryReadAgent()
         self.extractor = MemoryExtractor(self.memory_manager)
         self.scheduler = ExtractionScheduler(
@@ -234,19 +233,7 @@ class DurableMemoryLayer:
             )
 
         if selected_notes:
-            note_dicts = [self._note_to_dict(note) for note in selected_notes]
-            selected_headers = [self._header_dict_from_note_dict(note) for note in note_dicts]
-            return MemoryRecallResult(
-                selection=MemoryRecallSelection(
-                    should_recall=bool(note_dicts),
-                    selected_note_ids=[str(item.get("note_id", "") or "") for item in selected_headers],
-                    reason="preselected_notes",
-                    confidence=1.0 if note_dicts else 0.0,
-                ),
-                selected_headers=selected_headers,
-                selected_notes=note_dicts,
-                rendered_summary=self._render_selected_summary(note_dicts),
-            )
+            return self._result_from_preselected_notes(selected_notes)
 
         request = self.build_recall_request(
             query=query,
@@ -261,16 +248,10 @@ class DurableMemoryLayer:
             selection = self.read_agent._select_with_fallback(request)
         else:
             selection = asyncio.run(self.read_agent.select_relevant(request))
-        selected_headers = [
-            header for header in request.manifest_headers
-            if str(header.get("note_id", "") or "") in set(selection.selected_note_ids)
-        ][:note_limit]
-        note_dicts = self._load_selected_note_dicts(selected_headers, limit=note_limit)
-        return MemoryRecallResult(
-            selection=selection,
-            selected_headers=selected_headers,
-            selected_notes=note_dicts,
-            rendered_summary=self._render_selected_summary(note_dicts),
+        return self._result_from_selection(
+            selection,
+            manifest_headers=request.manifest_headers,
+            note_limit=note_limit,
         )
 
     async def arecall_memories(
@@ -298,19 +279,7 @@ class DurableMemoryLayer:
             )
 
         if selected_notes:
-            note_dicts = [self._note_to_dict(note) for note in selected_notes]
-            selected_headers = [self._header_dict_from_note_dict(note) for note in note_dicts]
-            return MemoryRecallResult(
-                selection=MemoryRecallSelection(
-                    should_recall=bool(note_dicts),
-                    selected_note_ids=[str(item.get("note_id", "") or "") for item in selected_headers],
-                    reason="preselected_notes",
-                    confidence=1.0 if note_dicts else 0.0,
-                ),
-                selected_headers=selected_headers,
-                selected_notes=note_dicts,
-                rendered_summary=self._render_selected_summary(note_dicts),
-            )
+            return self._result_from_preselected_notes(selected_notes)
 
         request = self.build_recall_request(
             query=query,
@@ -322,16 +291,10 @@ class DurableMemoryLayer:
             recent_tools=recent_tools,
         )
         selection = await self.read_agent.select_relevant(request)
-        selected_headers = [
-            header for header in request.manifest_headers
-            if str(header.get("note_id", "") or "") in set(selection.selected_note_ids)
-        ][:note_limit]
-        note_dicts = self._load_selected_note_dicts(selected_headers, limit=note_limit)
-        return MemoryRecallResult(
-            selection=selection,
-            selected_headers=selected_headers,
-            selected_notes=note_dicts,
-            rendered_summary=self._render_selected_summary(note_dicts),
+        return self._result_from_selection(
+            selection,
+            manifest_headers=request.manifest_headers,
+            note_limit=note_limit,
         )
 
     def _render_note_for_model(self, note: Any) -> list[str]:
@@ -413,21 +376,15 @@ class DurableMemoryLayer:
         *,
         limit: int = 3,
     ) -> list[Any]:
+        self._ensure_runtime_governance()
+        if memory_intent is None:
+            return []
         result = self.recall_memories(
             query=query,
             memory_intent=memory_intent,
             note_limit=limit,
         )
         return [self._dict_to_note_proxy(item) for item in result.selected_notes[:limit]]
-
-    def _should_prefetch_relevant_notes(
-        self,
-        query: str | None,
-        memory_intent: Any | None,
-    ) -> bool:
-        if not str(query or "").strip():
-            return False
-        return self._should_attempt_recall(query, memory_intent)
 
     def _should_surface_durable_context(
         self,
@@ -436,18 +393,13 @@ class DurableMemoryLayer:
         *,
         recall_result: MemoryRecallResult | None = None,
     ) -> bool:
-        if not self._should_prefetch_relevant_notes(query, memory_intent):
+        if not self._should_attempt_recall(query, memory_intent):
             return False
         if recall_result is not None and recall_result.selected_notes:
             return True
         return bool(self.find_exact_matches(query, memory_intent, note_limit=3)) or (
             recall_result is not None and recall_result.selection.manifest_only
         )
-
-    def _should_use_manifest_fallback(self, memory_intent: Any | None) -> bool:
-        return bool(getattr(memory_intent, "explicit_read_inventory", False)) or str(
-            getattr(memory_intent, "intent", "") or ""
-        ) == "durable_memory_query"
 
     def find_exact_matches(
         self,
@@ -457,7 +409,26 @@ class DurableMemoryLayer:
         note_limit: int,
     ) -> list[ExactMemoryMatch]:
         self._ensure_runtime_governance()
-        return self.selector.select_exact(query, memory_intent, note_limit=note_limit)
+        if (
+            not query
+            or memory_intent is None
+            or bool(getattr(memory_intent, "ignore_memory", False))
+        ):
+            return []
+        if not (
+            bool(getattr(memory_intent, "explicit_read_inventory", False))
+            or str(getattr(memory_intent, "intent", "") or "") == "memory_read_signal"
+            or list(getattr(memory_intent, "preferred_types", []) or [])
+            or list(getattr(memory_intent, "preferred_memory_classes", []) or [])
+            or getattr(memory_intent, "memory_read_mode", "none") == "durable_exact"
+        ):
+            return []
+        return find_exact_memory_matches(
+            self.memory_manager.root_dir,
+            query,
+            preferred_types=list(getattr(memory_intent, "preferred_types", []) or []),
+            limit=min(3, note_limit),
+        )
 
     def _ensure_runtime_governance(self) -> None:
         if self._runtime_governed:
@@ -530,6 +501,49 @@ class DurableMemoryLayer:
                 lines.append(f"Details: {detail}")
             lines.append("")
         return "\n".join(lines).strip()
+
+    def _result_from_preselected_notes(
+        self,
+        selected_notes: list[Any],
+    ) -> MemoryRecallResult:
+        note_dicts = [self._note_to_dict(note) for note in selected_notes]
+        selected_headers = [self._header_dict_from_note_dict(note) for note in note_dicts]
+        return MemoryRecallResult(
+            selection=MemoryRecallSelection(
+                should_recall=bool(note_dicts),
+                selected_note_ids=[str(item.get("note_id", "") or "") for item in selected_headers],
+                reason="preselected_notes",
+                confidence=1.0 if note_dicts else 0.0,
+            ),
+            selected_headers=selected_headers,
+            selected_notes=note_dicts,
+            rendered_summary=self._render_selected_summary(note_dicts),
+        )
+
+    def _result_from_selection(
+        self,
+        selection: MemoryRecallSelection,
+        *,
+        manifest_headers: list[dict[str, object]],
+        note_limit: int,
+    ) -> MemoryRecallResult:
+        selected_ids = {
+            str(note_id or "")
+            for note_id in selection.selected_note_ids
+            if str(note_id or "")
+        }
+        selected_headers = [
+            header
+            for header in manifest_headers
+            if str(header.get("note_id", "") or "") in selected_ids
+        ][:note_limit]
+        note_dicts = self._load_selected_note_dicts(selected_headers, limit=note_limit)
+        return MemoryRecallResult(
+            selection=selection,
+            selected_headers=selected_headers,
+            selected_notes=note_dicts,
+            rendered_summary=self._render_selected_summary(note_dicts),
+        )
 
     def _note_to_dict(self, note: Any, *, note_id: str = "") -> dict[str, object]:
         filename = str(getattr(note, "filename", "") or "")

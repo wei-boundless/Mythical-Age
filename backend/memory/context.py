@@ -41,6 +41,7 @@ class MemoryContextLayer:
         return self._render_context_package_block(
             package,
             include_durable_context=include_durable_context,
+            mode="model",
         )
 
     def build_context_package(
@@ -101,14 +102,24 @@ class MemoryContextLayer:
         context_compaction: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         manager = self.session_memory.manager(session_id)
-        session_summary = self.build_session_memory_block(
+        package = self.build_context_package(
             session_id,
             history=history,
             pending_user_message=pending_user_message,
             memory_intent=memory_intent,
             relevant_notes=relevant_notes,
             retrieval_results=retrieval_results,
+            rebuild_reason="inspect_query_context",
+        )
+        model_session_summary = self._render_context_package_block(
+            package,
             include_durable_context=False,
+            mode="model",
+        )
+        debug_session_summary = self._render_context_package_block(
+            package,
+            include_durable_context=False,
+            mode="debug",
         )
         preview_history = list(history or [])
         if pending_user_message:
@@ -139,8 +150,9 @@ class MemoryContextLayer:
                 ),
             },
             "session_memory": {
-                "present": bool(session_summary.strip()),
-                "preview": session_summary[:600].strip(),
+                "present": bool(model_session_summary.strip()),
+                "preview": debug_session_summary[:600].strip(),
+                "model_preview": model_session_summary[:600].strip(),
                 "storage": manager.describe_storage(),
                 "active_goal": session_state.active_goal,
                 "flow_state": {
@@ -229,6 +241,7 @@ class MemoryContextLayer:
         package: ContextPackage,
         *,
         include_durable_context: bool = True,
+        mode: str = "model",
     ) -> str:
         section_order = [
             ("active_process_context", None),
@@ -237,15 +250,19 @@ class MemoryContextLayer:
             ("warm_snapshots", "## Warm Flow Snapshots"),
             ("exact_durable_context", "## Exact Durable Context"),
             ("relevant_durable_context", "## Relevant Durable Context"),
+            ("debug_session_trace", "## Debug Session Trace"),
         ]
         lines: list[str] = []
+        sections = self._sections_for_package(package, mode=mode)
         for section_name, heading in section_order:
             if not include_durable_context and section_name in {
                 "exact_durable_context",
                 "relevant_durable_context",
             }:
                 continue
-            items = list(package.sections.get(section_name, []))
+            if mode != "debug" and section_name == "debug_session_trace":
+                continue
+            items = list(sections.get(section_name, []))
             if not items:
                 continue
             if heading is not None:
@@ -256,13 +273,27 @@ class MemoryContextLayer:
                 stripped = str(item).strip()
                 if not stripped:
                     continue
-                if section_name == "active_process_context":
+                if section_name in {"active_process_context", "debug_session_trace"}:
                     if lines:
                         lines.append("")
                     lines.append(stripped)
                 else:
                     lines.append(f"- {stripped}")
         return "\n".join(lines).strip()
+
+    def _sections_for_package(
+        self,
+        package: ContextPackage,
+        *,
+        mode: str,
+    ) -> dict[str, list[str]]:
+        if hasattr(package, "sections_for"):
+            return package.sections_for("debug" if mode == "debug" else "model")
+        if mode == "debug" and hasattr(package, "debug_sections"):
+            return getattr(package, "debug_sections")
+        if hasattr(package, "model_visible_sections"):
+            return getattr(package, "model_visible_sections")
+        return package.sections
 
     def _retrieval_items_from_results(
         self,
