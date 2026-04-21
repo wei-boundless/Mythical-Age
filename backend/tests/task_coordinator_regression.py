@@ -77,14 +77,27 @@ def test_task_coordinator_records_tool_tasks() -> None:
     async def runner() -> str:
         return "tool ok"
 
-    result = asyncio.run(coordinator.run_tool_task("session-2", "terminal", runner))
+    task = asyncio.run(
+        coordinator.run_tool_task(
+            "session-2",
+            "pdf_analysis",
+            runner,
+            query="把这份 PDF 的核心结论压成三条行动建议。",
+            tool_input={"path": "knowledge/AI Knowledge/report.pdf", "query": "把这份 PDF 的核心结论压成三条行动建议。"},
+            task_kind="pdf",
+        )
+    )
     task = coordinator.list_tasks(session_id="session-2")[0]
 
-    assert result == "tool ok"
+    assert task.result == "tool ok"
     assert task.status == "completed"
     assert task.agent_type == "worker"
-    assert task.metadata["tool_name"] == "terminal"
+    assert task.metadata["tool_name"] == "pdf_analysis"
     assert task.result_ref is not None
+    assert task.summary is not None
+    assert task.context_ref is not None
+    assert task.context_ref.bindings.active_pdf.endswith("report.pdf")
+    assert task.context_ref.status == "completed"
 
 
 def main() -> None:

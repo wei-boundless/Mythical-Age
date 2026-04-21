@@ -25,6 +25,11 @@ def main() -> None:
     assert pdf_page.preferred_skill == "pdf-analysis"
     assert pdf_page.parameters["mode"] == "page_read"
 
+    pdf_explicit = analyze_task_understanding(
+        "现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。"
+    )
+    assert pdf_explicit.parameters["path"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+
     faq = analyze_task_understanding("为什么我在我的帐户中找不到我的订单？")
     assert faq.source_kind == "knowledge_base"
     assert faq.task_kind == "faq_explanation"

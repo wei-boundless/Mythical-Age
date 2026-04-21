@@ -14,6 +14,7 @@ from llama_index.core.node_parser import SentenceSplitter
 
 from config import get_settings
 from memory_layout import DurableMemoryLayout
+from pdf_runtime import suppress_pypdf_warnings
 from RAG.faiss_store import FaissIndexStore
 from embedding_compat import build_embedding_model
 from structured_memory import MemoryManager
@@ -200,9 +201,11 @@ class MemoryIndexer:
             return ""
 
         try:
-            reader = PdfReader(str(path))
+            with suppress_pypdf_warnings():
+                reader = PdfReader(str(path))
+                pages = list(reader.pages[:20])
             page_texts: list[str] = []
-            for page in reader.pages[:20]:
+            for page in pages:
                 text = (page.extract_text() or "").strip()
                 if text:
                     page_texts.append(text)

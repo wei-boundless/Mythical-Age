@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from agents import EXPLORER_AGENT, WORKER_AGENT
+from query.binding_models import StructuredDatasetBinding
 from tasks.context_models import TaskBindings, TaskConstraints, TaskContextRef, TaskResultRef, TaskSummary
 from tasks.models import TaskRecord
 
@@ -58,15 +59,33 @@ class TaskCoordinator:
             )
         )
 
-    def _tool_task(self, session_id: str, tool_name: str) -> TaskRecord:
+    def _tool_task(
+        self,
+        session_id: str,
+        tool_name: str,
+        *,
+        query: str,
+        parent_query_id: str,
+    ) -> TaskRecord:
+        task_id = f"{session_id}-tool-{tool_name}-{len(self._tasks) + 1}"
         return self._register(
             TaskRecord(
-                task_id=f"{session_id}-tool-{tool_name}-{len(self._tasks) + 1}",
+                task_id=task_id,
                 task_type="tool",
-                query=tool_name,
-                parent_query_id=f"{session_id}-tool-parent",
+                query=query,
+                parent_query_id=parent_query_id,
                 agent_type=WORKER_AGENT.agent_type,
-                metadata={"session_id": session_id, "tool_name": tool_name},
+                context_ref=self._build_task_context_ref(
+                    task_id=task_id,
+                    parent_query_id=parent_query_id,
+                    query=query,
+                ),
+                metadata={
+                    "session_id": session_id,
+                    "tool_name": tool_name,
+                    "parent_query_id": parent_query_id,
+                    "execution_kind": "direct_tool",
+                },
             )
         )
 
@@ -209,6 +228,59 @@ class TaskCoordinator:
             response_style=context_ref.constraints.response_style if context_ref is not None else "",
         )
 
+    def _apply_direct_tool_context(
+        self,
+        *,
+        task: TaskRecord,
+        tool_name: str,
+        tool_input: dict[str, Any] | None,
+        structured_binding: StructuredDatasetBinding | None,
+        task_kind: str = "",
+        constraints: TaskConstraints | None = None,
+    ) -> None:
+        context_ref = task.context_ref
+        if context_ref is None:
+            return
+        payload = dict(tool_input or {})
+        if task_kind:
+            context_ref.task_kind = task_kind
+        if constraints is not None:
+            context_ref.constraints = constraints
+        if tool_name == "pdf_analysis":
+            pdf_path = str(payload.get("path", "") or "").strip()
+            if pdf_path:
+                context_ref.bindings.active_pdf = pdf_path
+                context_ref.bindings.source_kind = "pdf"
+                if not context_ref.task_kind:
+                    context_ref.task_kind = "pdf"
+        elif tool_name == "structured_data_analysis":
+            dataset_path = str(payload.get("path", "") or "").strip()
+            if structured_binding is not None and structured_binding.dataset_path:
+                dataset_path = structured_binding.dataset_path
+                task.metadata["structured_binding"] = structured_binding.to_dict()
+            if dataset_path:
+                context_ref.bindings.active_dataset = dataset_path
+                context_ref.bindings.source_kind = "dataset"
+                if not context_ref.task_kind:
+                    context_ref.task_kind = "structured_data"
+            if structured_binding is not None and structured_binding.target_object:
+                context_ref.bindings.active_entity = structured_binding.target_object
+        elif tool_name == "get_weather":
+            location = str(payload.get("location", "") or payload.get("query", "") or "").strip()
+            if location:
+                context_ref.bindings.active_location = location
+                context_ref.bindings.source_kind = "weather"
+                if not context_ref.task_kind:
+                    context_ref.task_kind = "weather"
+        elif tool_name == "get_gold_price":
+            context_ref.bindings.active_entity = "黄金"
+            context_ref.bindings.source_kind = "finance"
+            if not context_ref.task_kind:
+                context_ref.task_kind = "finance"
+
+        if payload:
+            task.metadata["tool_input"] = payload
+
     def _persist_result_ref(self, *, session_id: str, task_id: str, content: str) -> TaskResultRef:
         preview = " ".join(str(content or "").split()).strip()[:160]
         if self._result_store_dir is None:
@@ -327,21 +399,60 @@ class TaskCoordinator:
         session_id: str,
         tool_name: str,
         runner: Callable[[], Awaitable[Any]],
-    ) -> Any:
-        task = self._tool_task(session_id, tool_name)
+        *,
+        query: str = "",
+        tool_input: dict[str, Any] | None = None,
+        structured_binding: StructuredDatasetBinding | None = None,
+        task_kind: str = "",
+        constraints: TaskConstraints | None = None,
+        render_content: Callable[[Any], str] | None = None,
+    ) -> TaskRecord:
+        parent_query_id = f"{session_id}-tool-parent-{len(self._tasks) + 1}"
+        task = self._tool_task(
+            session_id,
+            tool_name,
+            query=query or tool_name,
+            parent_query_id=parent_query_id,
+        )
+        self._apply_direct_tool_context(
+            task=task,
+            tool_name=tool_name,
+            tool_input=tool_input,
+            structured_binding=structured_binding,
+            task_kind=task_kind,
+            constraints=constraints,
+        )
         task.mark_running()
+        if task.context_ref is not None:
+            task.context_ref.status = "running"
         task.add_event("tool_task_start", payload={"tool_name": tool_name})
         try:
-            result = await runner()
+            raw_result = await runner()
         except Exception as exc:
             task.mark_failed(str(exc))
+            if task.context_ref is not None:
+                task.context_ref.status = "failed"
             task.add_event("tool_task_error", message=str(exc))
             raise
-        task.mark_completed(str(result))
+        visible_content = render_content(raw_result) if render_content is not None else str(raw_result)
+        task.mark_completed(visible_content)
         task.result_ref = self._persist_result_ref(
             session_id=session_id,
             task_id=task.task_id,
-            content=str(result),
+            content=visible_content,
         )
-        task.add_event("tool_task_end", payload={"tool_name": tool_name})
-        return result
+        task.summary = self._build_task_summary(task.query, visible_content, task.context_ref)
+        if task.context_ref is not None:
+            task.context_ref.status = "completed"
+            task.context_ref.summary = task.summary.response
+            task.context_ref.result_ref_id = task.result_ref.result_id
+        task.add_event(
+            "tool_task_end",
+            payload={
+                "tool_name": tool_name,
+                "summary": task.summary.to_dict() if task.summary is not None else None,
+                "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
+                "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
+            },
+        )
+        return task

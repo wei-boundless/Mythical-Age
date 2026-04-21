@@ -100,6 +100,10 @@ RESEARCH_DOCUMENT_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "把这份 PDF 的核心结论压成三条行动建议。",
+        "followup.mode=binding_ref",
+        "followup.task_id.nonempty",
+        "used_task_summary_refs.nonempty",
+        "main.active_pdf.nonempty",
         "response.nonempty",
     ),
 )
@@ -381,7 +385,15 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "event.tool=pdf_analysis",
         "response.nonempty",
     ),
-    user("main", "把这份 PDF 的结论压成三条行动建议。", "response.nonempty"),
+    user(
+        "main",
+        "把这份 PDF 的结论压成三条行动建议。",
+        "followup.mode=binding_ref",
+        "followup.task_id.nonempty",
+        "used_task_summary_refs.nonempty",
+        "main.active_pdf.nonempty",
+        "response.nonempty",
+    ),
     user(
         "main",
         "切到 knowledge/E-commerce Data/inventory.xlsx，先看哪些仓库缺货。",
@@ -438,6 +450,10 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "回到刚才 PDF，第二部分的约束重点是什么？",
         "plan.tool=pdf_analysis",
         "event.tool=pdf_analysis",
+        "followup.mode=binding_ref",
+        "followup.task_id.nonempty",
+        "used_task_summary_refs.nonempty",
+        "main.active_pdf.nonempty",
         "response.nonempty",
     ),
     user("main", "记住：以后复杂问题先给结论。", "response.nonempty", durable=True),

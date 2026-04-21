@@ -11,6 +11,14 @@ from structured_memory.text_utils import normalize_storage_text
 from .context_compactor import ContextCompactor
 from .context_models import ContextBudget, ContextControllerResult, ContextPackage, PressureLevel
 
+_HOT_TRUTH_TOOL_CALL_RE = re.compile(r"<tool_call[^>]*>.*?(?:</tool_call>)?", re.IGNORECASE | re.DOTALL)
+_HOT_TRUTH_THINK_RE = re.compile(r"</think>", re.IGNORECASE)
+_HOT_TRUTH_TOOL_BLOCK_RE = re.compile(
+    r"\*\*工具(?:调用|输出):\*\*.*?(?=(?:\n\s*---\s*\n)|(?:\*\*结论)|(?:\n\s*结论：)|(?:\n\s*岩，)|\Z)",
+    re.DOTALL,
+)
+_HOT_TRUTH_FENCED_JSON_RE = re.compile(r"```json\s*.*?```", re.IGNORECASE | re.DOTALL)
+
 
 class ContextController:
     """Builds a context package and delegates compaction execution through a stable interface."""
@@ -281,11 +289,27 @@ class ContextController:
 
     def _recent_truth_window(self, messages: list[Message], *, limit: int = 4) -> list[str]:
         window = messages[-limit:]
-        return [
-            f"{message.role}: {self._shorten(message.content, 180)}"
-            for message in window
-            if self._shorten(message.content, 180)
-        ]
+        items: list[str] = []
+        for message in window:
+            content = self._sanitize_hot_truth_content(message.content, role=message.role)
+            shortened = self._shorten(content, 180)
+            if not shortened:
+                continue
+            items.append(f"{message.role}: {shortened}")
+        return items
+
+    def _sanitize_hot_truth_content(self, content: str, *, role: str) -> str:
+        normalized = normalize_storage_text(str(content or ""))
+        if not normalized:
+            return ""
+        if role != "assistant":
+            return normalized
+        cleaned = _HOT_TRUTH_TOOL_CALL_RE.sub("", normalized)
+        cleaned = _HOT_TRUTH_THINK_RE.sub("", cleaned)
+        cleaned = _HOT_TRUTH_TOOL_BLOCK_RE.sub("", cleaned)
+        cleaned = _HOT_TRUTH_FENCED_JSON_RE.sub("", cleaned)
+        lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+        return "\n".join(lines).strip()
 
     def _debug_trace_blocks(self, parsed_sections: dict[str, list[str]]) -> list[str]:
         debug_headers = [

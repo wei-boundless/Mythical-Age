@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pdf_runtime import suppress_pypdf_warnings
+
 from .mineru_client import MinerUApiClient, MinerUBlock, MinerUParseResult, build_default_mineru_client
 
 
@@ -121,12 +123,14 @@ class PdfTextParser:
             return []
 
         try:
-            reader = PdfReader(str(file_path))
+            with suppress_pypdf_warnings():
+                reader = PdfReader(str(file_path))
+                pages_iterable = list(reader.pages)
         except Exception:
             return []
 
         pages: list[tuple[int, str]] = []
-        for page_number, page in enumerate(reader.pages, start=1):
+        for page_number, page in enumerate(pages_iterable, start=1):
             text = (page.extract_text() or "").strip()
             if not text:
                 continue

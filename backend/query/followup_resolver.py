@@ -47,6 +47,7 @@ class QueryFollowupResolver:
             return FollowupResolution(
                 mode="binding_ref",
                 task_id=binding_target.task_id,
+                binding_owner_task_id=binding_target.task_id,
                 binding_key=binding_key,
                 confidence=0.9,
                 reason="binding_reference",
@@ -91,11 +92,14 @@ class QueryFollowupResolver:
 
     def _resolve_binding_task(self, message: str, tasks: list) -> object | None:
         candidates = list(reversed(tasks))
-        if any(marker in message for marker in ("刚才 PDF", "刚才的 PDF", "回到刚才 PDF", "那份报告")):
+        if any(
+            marker in message
+            for marker in ("刚才 PDF", "刚才的 PDF", "回到刚才 PDF", "那份报告", "这份 PDF", "这份pdf", "这个 PDF")
+        ):
             for task in candidates:
                 if task.context_ref and task.context_ref.bindings.active_pdf:
                     return task
-        if any(marker in message for marker in ("刚才那个表", "那个表", "那张表", "刚才的数据表")):
+        if any(marker in message for marker in ("刚才那个表", "那个表", "那张表", "刚才的数据表", "这个表", "这张表")):
             for task in candidates:
                 if task.context_ref and task.context_ref.bindings.active_dataset:
                     return task

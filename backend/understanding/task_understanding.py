@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from pdf_analysis.catalog import PdfAnalysisCatalog
 from understanding.memory_intent import MemoryIntent
 
 
@@ -207,6 +208,11 @@ def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
         reasons.append("page_markers")
     if task_kind == "document_deep_read":
         reasons.append("deep_read_markers")
+    parameters = {"query": message, "mode": mode}
+    explicit_references = PdfAnalysisCatalog.extract_explicit_pdf_references(message)
+    if explicit_references:
+        parameters["path"] = explicit_references[0]
+        reasons.append("explicit_pdf_reference")
 
     return TaskUnderstanding(
         intent=f"pdf_{task_kind}",
@@ -217,7 +223,7 @@ def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
         route_hint="tool",
         preferred_skill="pdf-analysis",
         candidate_tools=["pdf_analysis"],
-        parameters={"query": message, "mode": mode},
+        parameters=parameters,
         should_skip_rag=True,
         confidence=0.93 if mode == "page_read" else 0.88,
         reasons=reasons,

@@ -13,6 +13,11 @@ class PdfAnalysisCatalog:
         ("财报", ("财报", "q1", "q2", "q3", "q4")),
         ("指南", ("指南", "guide")),
     )
+    PDF_REFERENCE_PATTERNS: tuple[str, ...] = (
+        r"((?:[A-Za-z]:)?(?:\.{1,2}[\\/])?(?:knowledge|Knowledge)[^\n\"'，。；;（）()]*?\.pdf)",
+        r"[\"'`]([^\"'`\n]+?\.pdf)[\"'`]",
+        r"([^\s\n,，。；;（）()]+\.pdf)",
+    )
 
     @staticmethod
     def list_pdf_paths(root_dir: Path) -> list[Path]:
@@ -46,6 +51,28 @@ class PdfAnalysisCatalog:
         return str(path.relative_to(root_dir)).replace("\\", "/")
 
     @staticmethod
+    def extract_explicit_pdf_references(text: str) -> list[str]:
+        references: list[str] = []
+        seen: set[str] = set()
+        source = str(text or "").strip()
+        if not source:
+            return references
+        for pattern in PdfAnalysisCatalog.PDF_REFERENCE_PATTERNS:
+            for matched in re.finditer(pattern, source, flags=re.IGNORECASE):
+                candidate = next((group for group in matched.groups() if group), "").strip()
+                if not candidate:
+                    continue
+                normalized = candidate.strip("\"'`").strip()
+                if not normalized.lower().endswith(".pdf"):
+                    continue
+                key = normalized.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                references.append(normalized)
+        return references
+
+    @staticmethod
     def resolve_pdf_path_from_history(root_dir: Path, history: list[dict[str, Any]]) -> Path | None:
         candidates = PdfAnalysisCatalog.list_pdf_paths(root_dir)
         if not candidates:
@@ -57,20 +84,13 @@ class PdfAnalysisCatalog:
             if content:
                 recent_texts.append(content)
 
-        # 1. Prefer explicit PDF filenames from recent assistant/tool outputs.
+        # History restore only recovers explicit prior references. It must not
+        # re-decide the current turn by semantically scoring the transcript.
         for text in recent_texts:
-            for matched_name in re.findall(r"([^\s:：\n]+\.pdf)", text, flags=re.IGNORECASE):
+            for matched_name in PdfAnalysisCatalog.extract_explicit_pdf_references(text):
                 resolved = PdfAnalysisCatalog._match_filename(root_dir, candidates, matched_name)
                 if resolved is not None:
                     return resolved
-
-        # 2. Fall back to scoring recent transcript against known PDFs.
-        transcript = "\n".join(recent_texts)
-        if not transcript:
-            return None
-        scored = PdfAnalysisCatalog._score_candidates(root_dir, candidates, transcript)
-        if scored and scored[0][0] > 0:
-            return scored[0][1]
         return None
 
     @staticmethod

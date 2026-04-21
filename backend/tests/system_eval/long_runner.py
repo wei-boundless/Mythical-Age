@@ -47,6 +47,8 @@ class TurnResult:
     followup_task_id: str = ""
     followup_task_ids: list[str] = field(default_factory=list)
     used_task_summary_refs: list[str] = field(default_factory=list)
+    active_pdf: str = ""
+    active_dataset: str = ""
     session_model_preview: str = ""
     session_debug_preview: str = ""
     model_preview_has_active_rule: bool = False
@@ -123,6 +125,27 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             expected = check.split("=", 1)[1]
             if expected not in turn.response_text:
                 failures.append(f"{check} (actual={turn.response_text[:160]})")
+            continue
+        if check.startswith("followup.mode="):
+            expected = check.split("=", 1)[1]
+            if turn.followup_mode != expected:
+                failures.append(f"{check} (actual={turn.followup_mode})")
+            continue
+        if check == "followup.task_id.nonempty":
+            if not turn.followup_task_id.strip():
+                failures.append(check)
+            continue
+        if check == "used_task_summary_refs.nonempty":
+            if not turn.used_task_summary_refs:
+                failures.append(check)
+            continue
+        if check == "main.active_pdf.nonempty":
+            if not turn.active_pdf.strip():
+                failures.append(check)
+            continue
+        if check == "main.active_dataset.nonempty":
+            if not turn.active_dataset.strip():
+                failures.append(check)
             continue
         if check.startswith("tasks>="):
             expected = int(check.split(">=", 1)[1])
@@ -292,6 +315,7 @@ def _execute_user_turn(
     main_context = dict(done_payload.get("main_context") or {})
     task_summary_refs = list(done_payload.get("task_summary_refs") or [])
     active_work_item = str(main_context.get("active_work_item", "") or "")
+    active_constraints = dict(main_context.get("active_constraints") or {})
     runtime_effective_route = ""
     if active_work_item.startswith("followup_task_"):
         runtime_effective_route = "followup_direct"
@@ -319,7 +343,7 @@ def _execute_user_turn(
         tool_names=[name for name in tool_names if name],
         response_text=response_text,
         runtime_effective_route=runtime_effective_route or plan.query_understanding.route,
-        followup_mode="direct_task_handle" if active_work_item.startswith("followup_task_") else "",
+        followup_mode=str(done_payload.get("followup_mode", "") or ("direct_task_handle" if active_work_item.startswith("followup_task_") else "")),
         followup_task_id=str(main_context.get("followup_target_task_id", "") or ""),
         followup_task_ids=[
             str(task_id)
@@ -331,6 +355,8 @@ def _execute_user_turn(
             for item in task_summary_refs
             if str(dict(item or {}).get("task_id", "") or "").strip()
         ],
+        active_pdf=str(active_constraints.get("active_pdf", "") or ""),
+        active_dataset=str(active_constraints.get("active_dataset", "") or ""),
         session_model_preview=model_preview[:300],
         session_debug_preview=debug_preview[:300],
         model_preview_has_active_rule=("当前规则：" in model_preview or "active_rule" in model_preview),

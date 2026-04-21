@@ -8,6 +8,7 @@ class FollowupResolution(BaseModel):
     task_id: str = ""
     task_ids: list[str] = Field(default_factory=list)
     binding_key: str = ""
+    binding_owner_task_id: str = ""
     confidence: float = 0.0
     reason: str = ""
     source_query: str = ""

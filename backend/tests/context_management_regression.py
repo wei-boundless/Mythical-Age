@@ -130,8 +130,8 @@ def test_full_compact_uses_session_memory_as_operational_restore_layer() -> None
         _assert(result.messages[0].role == "system", "full compact should prepend a system summary message")
         _assert("# Active Goal" in result.messages[0].content, "full compact summary should be driven by session-memory sections")
         _assert(
-            "Current Task State" in result.messages[0].content,
-            "session-memory working state should be preserved in the compact summary",
+            ("# Key Results" in result.messages[0].content) or ("# Warm Context" in result.messages[0].content),
+            "full compact should preserve restore-relevant working facts even after narrowing the restore view",
         )
         _assert(
             any("Critical-state retention rules" in item.content for item in result.messages[1:]),
@@ -257,7 +257,10 @@ def test_session_memory_block_renders_context_package_sections_and_warm_snapshot
         _assert("## Hot Truth Window" in block, "session block should render context-package hot-truth section")
         _assert("## Retrieval Evidence" in block, "session block should render retrieval evidence from the context package")
         _assert("## Warm Flow Snapshots" in block, "session block should render warm flow snapshots when prior flows exist")
-        _assert("report.pdf" in block, "warm flow snapshot rendering should preserve prior flow resume context")
+        _assert(
+            "page 3 mainly discusses supply-chain risk" in block,
+            "warm flow snapshot rendering should preserve prior flow conclusions as resume context",
+        )
         _assert(
             block.index("## Retrieval Evidence") < block.index("## Warm Flow Snapshots"),
             "prompt-facing session block should order retrieval evidence ahead of warm snapshots",
@@ -339,6 +342,40 @@ def test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime
         )
 
 
+def test_hot_truth_window_ignores_internal_protocol_in_assistant_history() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        session_id = "session-hot-truth-clean"
+        history = [
+            {"role": "user", "content": "基于本地知识库，告诉我 AI 治理里最常见的三类风险。"},
+            {
+                "role": "assistant",
+                "content": (
+                    "我来检索本地知识库。</think>**工具调用:**\n```json\n"
+                    "[{\"name\":\"search_knowledge\"}]\n```\n\n---\n\n"
+                    "**工具输出:**\n[搜索结果 失败]\n\n"
+                    "**结论：本地知识库当前为空，无法基于知识库回答该问题。**\n\n"
+                    "岩，目前 knowledge 目录下没有任何文档。"
+                ),
+            },
+            {"role": "user", "content": "把它改写成适合周会汇报的三条。"},
+        ]
+        facade.refresh_session_memory(session_id, history)
+
+        block = facade.build_session_memory_block(
+            session_id,
+            history=history,
+            pending_user_message="把它改写成适合周会汇报的三条。",
+        )
+
+        _assert("## Hot Truth Window" in block, "session block should still include hot truth window")
+        _assert("</think>" not in block, "hot truth window should not replay thinking protocol markers")
+        _assert("<tool_call" not in block, "hot truth window should not replay tool-call protocol tags")
+        _assert("**工具调用:**" not in block, "hot truth window should not replay tool protocol headings")
+        _assert("本地知识库当前为空" in block, "hot truth window should retain the canonical assistant conclusion")
+
+
 def main() -> None:
     tests = [
         test_session_manager_keeps_archival_summary_out_of_runtime_history,
@@ -348,6 +385,7 @@ def main() -> None:
         test_session_memory_preview_does_not_persist_before_turn_commit,
         test_session_memory_block_renders_context_package_sections_and_warm_snapshots,
         test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime_messages,
+        test_hot_truth_window_ignores_internal_protocol_in_assistant_history,
     ]
     for test in tests:
         test()

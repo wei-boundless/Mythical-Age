@@ -9,13 +9,17 @@ from typing import Any
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
 from query.answer_assembler import AnswerAssembler
+from query.binding_models import StructuredDatasetBinding
 from query.context_models import MainContextState, TaskSummaryRef
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryContext, QueryExecutionPlan, QueryPlan, QueryRequest
+from query.output_boundary import AssistantOutputBoundary, contains_internal_protocol, sanitize_visible_assistant_content
 from query.prompt_builder import build_system_prompt
 from query.planner import QueryPlanner
 from runtime.model_runtime import ModelRuntime, ModelRuntimeError, stringify_content
+from tasks.context_models import TaskConstraints
 from tasks.coordinator import TaskCoordinator
+from understanding import MemoryIntent, QueryUnderstanding
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +269,9 @@ class QueryRuntime:
             trace.annotate(
                 {
                     "app.followup_mode": followup_resolution.mode,
-                    "app.followup_task_id": followup_resolution.task_id,
+                    "app.followup_task_id": (
+                        followup_resolution.binding_owner_task_id or followup_resolution.task_id
+                    ),
                     "app.followup_task_ids": ",".join(followup_resolution.task_ids),
                 }
             )
@@ -292,7 +298,18 @@ class QueryRuntime:
                 "content": self._assemble_subtask_results(followup_results, main_context=main_context),
                 "main_context": main_context.to_dict(),
                 "task_summary_refs": [item.to_dict() for item in task_summary_refs],
+                "followup_mode": followup_resolution.mode,
             }
+            return
+        if followup_resolution.mode == "binding_ref" and self._binding_owner_task(session_id, followup_resolution) is not None:
+            async for event in self._stream_binding_followup(
+                session_id,
+                message,
+                history,
+                followup_resolution=followup_resolution,
+                trace=trace,
+            ):
+                yield event
             return
         if trace is not None:
             with trace.stage(
@@ -395,16 +412,17 @@ class QueryRuntime:
             if execution.execution_kind == "direct_tool" and execution.query_understanding.tool_name:
                 async for event in self._stream_direct_tool_execution(session_id, execution, trace=trace):
                     if event.get("type") == "done":
-                        final_content = str(event.get("content", "") or "")
                         event = dict(event)
-                        event["main_context"] = context.main_context.to_dict()
-                        event["task_summary_refs"] = [
-                            item.to_dict()
-                            for item in self._build_single_execution_task_summaries(
-                                execution,
-                                final_content,
-                            )
-                        ]
+                        event.setdefault("main_context", context.main_context.to_dict())
+                        if "task_summary_refs" not in event:
+                            final_content = str(event.get("content", "") or "")
+                            event["task_summary_refs"] = [
+                                item.to_dict()
+                                for item in self._build_single_execution_task_summaries(
+                                    execution,
+                                    final_content,
+                                )
+                            ]
                     yield event
                 return
 
@@ -470,10 +488,10 @@ class QueryRuntime:
             messages = self._build_agent_messages(context)
             messages.append({"role": "user", "content": execution.message})
 
-            final_content_parts: list[str] = []
             last_ai_message = ""
             pending_tools: dict[str, dict[str, str]] = {}
             tool_step_count = 0
+            output_boundary = AssistantOutputBoundary()
 
             if trace is not None:
                 trace.annotate(
@@ -504,8 +522,9 @@ class QueryRuntime:
                         chunk, _metadata = payload
                         text = stringify_content(getattr(chunk, "content", ""))
                         if text:
-                            final_content_parts.append(text)
-                            yield {"type": "token", "content": text}
+                            visible_delta = output_boundary.ingest_stream_text(text)
+                            if visible_delta:
+                                yield {"type": "token", "content": visible_delta}
                         continue
 
                     if mode != "updates":
@@ -519,7 +538,8 @@ class QueryRuntime:
                             if message_type == "ai" and not tool_calls:
                                 candidate = stringify_content(getattr(agent_message, "content", ""))
                                 if candidate:
-                                    last_ai_message = candidate
+                                    output_boundary.ingest_ai_update(candidate, has_tool_calls=False)
+                                    last_ai_message = sanitize_visible_assistant_content(candidate)
 
                             if tool_calls:
                                 for tool_call in tool_calls:
@@ -536,6 +556,7 @@ class QueryRuntime:
                                         "tool": tool_name,
                                         "input": str(tool_args),
                                     }
+                                    output_boundary.ingest_tool_call(tool_name, str(tool_args))
                                     yield {
                                         "type": "tool_start",
                                         "tool": tool_name,
@@ -549,6 +570,7 @@ class QueryRuntime:
                                     {"tool": getattr(agent_message, "name", "tool"), "input": ""},
                                 )
                                 output = stringify_content(getattr(agent_message, "content", ""))
+                                output_boundary.ingest_tool_result(str(pending["tool"]), output)
                                 yield {
                                     "type": "tool_end",
                                     "tool": pending["tool"],
@@ -559,9 +581,16 @@ class QueryRuntime:
                 if stream_context is not None:
                     stream_context.__exit__(None, None, None)
 
-            final_content = "".join(final_content_parts).strip() or last_ai_message.strip()
+            output_boundary.finalize_segment(fallback_content=last_ai_message)
+            output_response = output_boundary.build_response()
+            final_content = output_response.visible_text.strip() or last_ai_message.strip()
             if trace is not None:
-                trace.annotate({"app.answer_chars": len(final_content)})
+                trace.annotate(
+                    {
+                        "app.answer_chars": len(final_content),
+                        "app.output_leak_flags": ",".join(output_response.leak_flags),
+                    }
+                )
             task_summary_refs = self._build_single_execution_task_summaries(
                 execution,
                 final_content,
@@ -712,7 +741,7 @@ class QueryRuntime:
             active_work_item="compound_query",
             followup_target_task_id=followup_target_task_id or None,
             followup_target_task_ids=[task_ref.task_id for task_ref in task_refs if task_ref.task_id],
-            active_constraints=constraints,
+            active_constraints=self._merge_constraints_from_results(constraints, results),
             latest_correction=self._extract_latest_correction(message),
             next_step="follow_up_or_refine_subtask_results",
         )
@@ -736,12 +765,14 @@ class QueryRuntime:
         work_item = "followup_task_result_assembly"
         if followup_resolution.mode == "compound_subset":
             work_item = "followup_task_subset_assembly"
+        elif followup_resolution.mode == "binding_ref":
+            work_item = "followup_task_binding_execution"
         return MainContextState(
             active_goal=message.strip(),
             active_work_item=work_item,
             followup_target_task_id=target_task_id or None,
             followup_target_task_ids=target_task_ids,
-            active_constraints=constraints,
+            active_constraints=self._merge_constraints_from_results(constraints, results),
             latest_correction=self._extract_latest_correction(message),
             next_step="answer_selected_task_results",
         )
@@ -774,13 +805,12 @@ class QueryRuntime:
         execution: QueryExecutionPlan,
         content: str,
     ) -> list[TaskSummaryRef]:
-        summary = " ".join(str(content or "").split()).strip()
+        summary = " ".join(sanitize_visible_assistant_content(str(content or "")).split()).strip()
         route = str(getattr(execution.query_understanding, "route", "") or "")
         if (
             not summary
             or route == "memory"
-            or "<tool_call" in summary.lower()
-            or "</tool_call>" in summary.lower()
+            or contains_internal_protocol(summary)
         ):
             return []
         constraints = self._apply_execution_binding_to_constraints(
@@ -810,6 +840,30 @@ class QueryRuntime:
                 key_points=key_points,
             )
         ]
+
+    def _merge_constraints_from_results(
+        self,
+        constraints: dict[str, Any],
+        results: list[dict[str, object]],
+    ) -> dict[str, Any]:
+        merged = dict(constraints)
+        for item in reversed(results):
+            context_ref_payload = item.get("context_ref")
+            if not isinstance(context_ref_payload, dict):
+                continue
+            bindings = dict(context_ref_payload.get("bindings") or {})
+            if bindings.get("active_pdf") and not merged.get("active_pdf"):
+                merged["active_pdf"] = str(bindings["active_pdf"])
+            if bindings.get("active_dataset") and not merged.get("active_dataset"):
+                merged["active_dataset"] = str(bindings["active_dataset"])
+            if bindings.get("active_location") and not merged.get("active_location"):
+                merged["active_location"] = str(bindings["active_location"])
+            if bindings.get("source_kind") and not merged.get("source_kind"):
+                merged["source_kind"] = str(bindings["source_kind"])
+            summary_payload = item.get("summary")
+            if isinstance(summary_payload, dict) and summary_payload.get("response_style") and not merged.get("response_style"):
+                merged["response_style"] = str(summary_payload["response_style"])
+        return merged
 
     def _capture_session_memory_projection(
         self,
@@ -904,6 +958,13 @@ class QueryRuntime:
         task_ids = [task_id for task_id in followup_resolution.task_ids if task_id]
         if not task_ids and followup_resolution.task_id:
             task_ids = [followup_resolution.task_id]
+        return self._followup_results_from_task_ids(session_id, task_ids)
+
+    def _followup_results_from_task_ids(
+        self,
+        session_id: str,
+        task_ids: list[str],
+    ) -> list[dict[str, object]]:
         if not task_ids:
             return []
         records: list[dict[str, object]] = []
@@ -925,6 +986,165 @@ class QueryRuntime:
                 }
             )
         return sorted(records, key=lambda item: int(item.get("index", 0) or 0))
+
+    def _binding_owner_task(self, session_id: str, followup_resolution) -> Any | None:
+        owner_task_id = str(
+            getattr(followup_resolution, "binding_owner_task_id", "")
+            or getattr(followup_resolution, "task_id", "")
+            or ""
+        ).strip()
+        if not owner_task_id:
+            return None
+        task = self.task_coordinator.get_task(owner_task_id)
+        if task is None:
+            return None
+        if str(task.metadata.get("session_id", "")) != session_id:
+            return None
+        return task
+
+    def _binding_execution_from_owner(
+        self,
+        *,
+        message: str,
+        history: list[dict[str, Any]],
+        owner_task,
+    ) -> QueryExecutionPlan | None:
+        context_ref = getattr(owner_task, "context_ref", None)
+        if context_ref is None:
+            return None
+        bindings = context_ref.bindings
+        tool_name = str(owner_task.metadata.get("tool_name", "") or "").strip()
+        query_understanding: QueryUnderstanding | None = None
+        structured_binding: StructuredDatasetBinding | None = None
+        tool_input: dict[str, Any] = {"query": message}
+
+        if bindings.active_pdf:
+            tool_name = tool_name or "pdf_analysis"
+            tool_input["path"] = bindings.active_pdf
+            query_understanding = QueryUnderstanding(
+                intent="pdf_followup_query",
+                source_kind="pdf",
+                task_kind=context_ref.task_kind or "pdf",
+                modality="pdf",
+                route="tool",
+                tool_name=tool_name,
+                tool_input=dict(tool_input),
+                should_skip_rag=True,
+            )
+        elif bindings.active_dataset:
+            tool_name = tool_name or "structured_data_analysis"
+            tool_input["path"] = bindings.active_dataset
+            structured_binding = StructuredDatasetBinding(
+                dataset_path=bindings.active_dataset,
+                target_object=bindings.active_entity,
+                source="binding_owner",
+                confidence=1.0,
+                derived_from_task_id=owner_task.task_id,
+            )
+            query_understanding = QueryUnderstanding(
+                intent="structured_followup_query",
+                source_kind="dataset",
+                task_kind=context_ref.task_kind or "structured_data",
+                modality="table",
+                route="tool",
+                tool_name=tool_name,
+                tool_input=dict(tool_input),
+                should_skip_rag=True,
+            )
+        elif bindings.active_location:
+            tool_name = tool_name or "get_weather"
+            tool_input["location"] = bindings.active_location
+            query_understanding = QueryUnderstanding(
+                intent="weather_followup_query",
+                source_kind="weather",
+                task_kind=context_ref.task_kind or "weather",
+                modality="realtime",
+                route="tool",
+                tool_name=tool_name,
+                tool_input=dict(tool_input),
+                should_skip_rag=True,
+            )
+        elif bindings.active_entity == "黄金":
+            tool_name = tool_name or "get_gold_price"
+            query_understanding = QueryUnderstanding(
+                intent="finance_followup_query",
+                source_kind="finance",
+                task_kind=context_ref.task_kind or "finance",
+                modality="realtime",
+                route="tool",
+                tool_name=tool_name,
+                tool_input=dict(tool_input),
+                should_skip_rag=True,
+            )
+        if query_understanding is None:
+            return None
+        return QueryExecutionPlan(
+            message=message,
+            history=list(history),
+            memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
+            query_understanding=query_understanding,
+            tool_input=tool_input,
+            structured_binding=structured_binding,
+            execution_kind="direct_tool",
+        )
+
+    async def _stream_binding_followup(
+        self,
+        session_id: str,
+        message: str,
+        history: list[dict[str, Any]],
+        *,
+        followup_resolution,
+        trace=None,
+    ):
+        owner_task = self._binding_owner_task(session_id, followup_resolution)
+        if owner_task is None:
+            return
+        if trace is not None:
+            trace.annotate(
+                {
+                    "app.route": "followup_binding",
+                    "app.binding_owner_task_id": owner_task.task_id,
+                }
+            )
+        execution = self._binding_execution_from_owner(
+            message=message,
+            history=history,
+            owner_task=owner_task,
+        )
+        if execution is None:
+            return
+        async for event in self._stream_planned_execution(session_id, execution, trace=trace):
+            if event.get("type") != "done":
+                yield event
+                continue
+            event = dict(event)
+            task_summary_payloads = list(event.get("task_summary_refs") or [])
+            task_ids = [
+                str(dict(item or {}).get("task_id", "") or "").strip()
+                for item in task_summary_payloads
+                if str(dict(item or {}).get("task_id", "") or "").strip()
+            ]
+            followup_results = self._followup_results_from_task_ids(session_id, task_ids)
+            if followup_results:
+                synthetic_resolution = followup_resolution.model_copy(
+                    update={
+                        "task_id": task_ids[-1] if task_ids else followup_resolution.task_id,
+                        "task_ids": task_ids or list(followup_resolution.task_ids),
+                    }
+                )
+                main_context = self._build_followup_main_context(
+                    message,
+                    followup_results,
+                    followup_resolution=synthetic_resolution,
+                )
+                event["main_context"] = main_context.to_dict()
+                event["content"] = self._assemble_subtask_results(
+                    followup_results,
+                    main_context=main_context,
+                )
+            event["followup_mode"] = followup_resolution.mode
+            yield event
 
     def _extract_latest_correction(self, message: str) -> str:
         correction_markers = ("不对", "改成", "纠正", "不是", "更正")
@@ -1036,8 +1256,24 @@ class QueryRuntime:
                     return await asyncio.to_thread(tool.invoke, tool_input)
             return await asyncio.to_thread(tool.invoke, tool_input)
 
-        output = await self.task_coordinator.run_tool_task(session_id, tool_name, invoke_tool)
-        tool_content = self._normalize_direct_tool_output(output)
+        active_constraints = self._extract_active_constraints(execution.message)
+        task = await self.task_coordinator.run_tool_task(
+            session_id,
+            tool_name,
+            invoke_tool,
+            query=execution.message,
+            tool_input=tool_input,
+            structured_binding=getattr(execution, "structured_binding", None),
+            task_kind=str(getattr(execution.query_understanding, "task_kind", "") or ""),
+            constraints=TaskConstraints(
+                top_n=active_constraints.get("top_n"),
+                group_by=str(active_constraints.get("group_by", "") or ""),
+                page=active_constraints.get("page"),
+                response_style=str(active_constraints.get("response_style", "") or ""),
+            ),
+            render_content=self._normalize_direct_tool_output,
+        )
+        tool_content = task.result
         binding_payload = (
             execution.structured_binding.to_dict()
             if getattr(execution, "structured_binding", None) is not None
@@ -1048,23 +1284,41 @@ class QueryRuntime:
             "type": "done",
             "content": tool_content or f"{tool_name} 已执行，但未返回可展示结果。",
             "structured_binding": binding_payload,
+            "task_summary_refs": (
+                [
+                    TaskSummaryRef(
+                        task_id=task.task_id,
+                        query=task.query,
+                        summary=task.summary.response,
+                        task_kind=task.context_ref.task_kind if task.context_ref is not None else "",
+                        response_style=task.summary.response_style if task.summary is not None else "",
+                        key_points=list(task.summary.key_points if task.summary is not None else []),
+                    ).to_dict()
+                ]
+                if task.summary is not None
+                else []
+            ),
         }
 
     def _normalize_direct_tool_output(self, output: Any) -> str:
         if isinstance(output, str):
-            return output.strip()
+            return sanitize_visible_assistant_content(output).strip()
         if isinstance(output, dict):
             for key in ("answer", "content", "summary", "result", "output", "text"):
                 value = output.get(key)
                 if isinstance(value, str) and value.strip():
-                    return value.strip()
+                    return sanitize_visible_assistant_content(value).strip()
             return json.dumps(output, ensure_ascii=False, indent=2)
         if isinstance(output, (list, tuple)):
             if all(isinstance(item, str) for item in output):
-                return "\n".join(str(item).strip() for item in output if str(item).strip()).strip()
+                parts = [
+                    sanitize_visible_assistant_content(str(item)).strip()
+                    for item in output
+                ]
+                return "\n".join(item for item in parts if item).strip()
             return json.dumps(list(output), ensure_ascii=False, indent=2)
         normalized = stringify_content(output)
-        return normalized.strip() if isinstance(normalized, str) else str(output)
+        return sanitize_visible_assistant_content(normalized).strip() if isinstance(normalized, str) else str(output)
 
     def _assemble_subtask_results(
         self,
@@ -1154,8 +1408,10 @@ class QueryRuntime:
                 for sanitized in [self._sanitize_tool_call(tool_call)]
                 if sanitized is not None
             ]
-            content = str(segment.get("content", "") or "")
+            content = sanitize_visible_assistant_content(str(segment.get("content", "") or ""))
             if self._looks_like_skill_document(content) and not filtered_tool_calls:
+                continue
+            if not content.strip() and not filtered_tool_calls:
                 continue
             persisted.append(
                 {

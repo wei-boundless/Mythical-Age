@@ -67,11 +67,12 @@ def test_followup_resolver_can_bind_back_to_recent_pdf_task() -> None:
 
     resolution = resolver.resolve(
         session_id="session-1",
-        message="回到刚才 PDF，第二部分的结论是什么？",
+        message="把这份 PDF 的核心结论压成三条行动建议。",
     )
 
     assert resolution.mode == "binding_ref"
     assert resolution.binding_key == "active_pdf"
+    assert resolution.binding_owner_task_id == resolution.task_id
     assert resolution.source_query == "总结 PDF 第三页"
 
 
