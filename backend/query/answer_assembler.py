@@ -21,10 +21,21 @@ class AnswerAssembler:
         segments: list[AnswerSegment] = []
         dedupe_targets: list[str] = []
         seen_bodies: set[str] = set()
+        selected_task_ids = [
+            str(task_id)
+            for task_id in list(main_context.followup_target_task_ids or [])
+            if str(task_id).strip()
+        ]
+        selected_task_id = str(main_context.followup_target_task_id or "").strip()
+        if selected_task_id and selected_task_id not in selected_task_ids:
+            selected_task_ids.insert(0, selected_task_id)
+        selected_task_set = set(selected_task_ids)
         for item in results:
             index = int(item.get("index", len(segments) + 1) or len(segments) + 1)
             query = str(item.get("query", "") or "")
             task_id = str(item.get("task_id", "") or "")
+            if selected_task_set and task_id not in selected_task_set:
+                continue
             summary_payload = item.get("summary")
             body = ""
             response_style = style_constraints.default_style

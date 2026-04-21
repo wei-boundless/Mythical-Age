@@ -57,9 +57,8 @@ def test_followup_resolver_prefers_task_ref_for_ordinal_request() -> None:
 
     assert resolution.mode == "task_ref"
     assert resolution.task_id.endswith("-subtask-2")
-    assert "inventory.xlsx" in resolution.rewritten_message
-    assert "给我 inventory.xlsx 最缺货的前三个仓库" in resolution.rewritten_message
-    assert "top_n=3" not in resolution.rewritten_message
+    assert resolution.task_ids == [resolution.task_id]
+    assert resolution.source_query == "给我 inventory.xlsx 最缺货的前三个仓库"
 
 
 def test_followup_resolver_can_bind_back_to_recent_pdf_task() -> None:
@@ -73,12 +72,27 @@ def test_followup_resolver_can_bind_back_to_recent_pdf_task() -> None:
 
     assert resolution.mode == "binding_ref"
     assert resolution.binding_key == "active_pdf"
-    assert "总结 PDF 第三页" in resolution.rewritten_message
+    assert resolution.source_query == "总结 PDF 第三页"
+
+
+def test_followup_resolver_can_select_multiple_tasks_for_subset_request() -> None:
+    coordinator = asyncio.run(_seed_tasks())
+    resolver = QueryFollowupResolver(coordinator)
+
+    resolution = resolver.resolve(
+        session_id="session-1",
+        message="把第一个和第三个子任务各压成一句话，不要重复第二个。",
+    )
+
+    assert resolution.mode == "compound_subset"
+    assert resolution.task_ids == ["session-1-subtask-1", "session-1-subtask-3"]
+    assert resolution.task_id == "session-1-subtask-1"
 
 
 def main() -> None:
     test_followup_resolver_prefers_task_ref_for_ordinal_request()
     test_followup_resolver_can_bind_back_to_recent_pdf_task()
+    test_followup_resolver_can_select_multiple_tasks_for_subset_request()
     print("ALL PASSED (followup resolution regression)")
 
 

@@ -193,12 +193,19 @@ class ContextController:
         static_context: list[str] | None,
         include_debug_trace: bool,
     ) -> dict[str, list[str]]:
-        active_process_headers = [
-            "# Active Goal",
-            "# Flow State",
-            "# Context Slots",
-            "# Current Task State",
-        ]
+        active_process_headers = (
+            [
+                "# Active Goal",
+                "# Flow State",
+                "# Context Slots",
+                "# Current Task State",
+            ]
+            if include_debug_trace
+            else [
+                "# Active Goal",
+                "# Context Slots",
+            ]
+        )
         active_process_context = self._section_blocks(parsed_sections, active_process_headers)
         hot_truth_window = self._recent_truth_window(messages)
         persisted_snapshots = self.session_memory_manager.load_flow_snapshots()

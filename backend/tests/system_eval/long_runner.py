@@ -42,6 +42,15 @@ class TurnResult:
     event_types: list[str]
     tool_names: list[str]
     response_text: str
+    runtime_effective_route: str = ""
+    followup_mode: str = ""
+    followup_task_id: str = ""
+    followup_task_ids: list[str] = field(default_factory=list)
+    used_task_summary_refs: list[str] = field(default_factory=list)
+    session_model_preview: str = ""
+    session_debug_preview: str = ""
+    model_preview_has_active_rule: bool = False
+    model_preview_has_next_step: bool = False
     trace_id: str = ""
     trace_url: str = ""
     trace_available: bool = False
@@ -265,6 +274,31 @@ def _execute_user_turn(
 
     trace_ref = extract_langsmith_trace_reference(events)
     response_text = final_text(events)
+    memory_payload = next(
+        (
+            dict(item.get("data") or {}).get("memory", {})
+            for item in reversed(events)
+            if item.get("event") == "memory_context"
+        ),
+        {},
+    )
+    session_memory_payload = dict(memory_payload.get("session_memory") or {})
+    model_preview = str(session_memory_payload.get("model_preview", "") or "")
+    debug_preview = str(session_memory_payload.get("preview", "") or "")
+    done_payload = next(
+        (dict(item.get("data") or {}) for item in reversed(events) if item.get("event") == "done"),
+        {},
+    )
+    main_context = dict(done_payload.get("main_context") or {})
+    task_summary_refs = list(done_payload.get("task_summary_refs") or [])
+    active_work_item = str(main_context.get("active_work_item", "") or "")
+    runtime_effective_route = ""
+    if active_work_item.startswith("followup_task_"):
+        runtime_effective_route = "followup_direct"
+    elif any(item.get("event") == "tool_start" for item in events):
+        runtime_effective_route = "tool"
+    elif any(item.get("event") == "retrieval" for item in events):
+        runtime_effective_route = "rag"
     tool_names = [
         str(dict(item.get("data") or {}).get("tool", "") or "")
         for item in events
@@ -284,6 +318,23 @@ def _execute_user_turn(
         event_types=[str(item.get("event", "")) for item in events],
         tool_names=[name for name in tool_names if name],
         response_text=response_text,
+        runtime_effective_route=runtime_effective_route or plan.query_understanding.route,
+        followup_mode="direct_task_handle" if active_work_item.startswith("followup_task_") else "",
+        followup_task_id=str(main_context.get("followup_target_task_id", "") or ""),
+        followup_task_ids=[
+            str(task_id)
+            for task_id in list(main_context.get("followup_target_task_ids", []) or [])
+            if str(task_id).strip()
+        ],
+        used_task_summary_refs=[
+            str(dict(item or {}).get("task_id", "") or "")
+            for item in task_summary_refs
+            if str(dict(item or {}).get("task_id", "") or "").strip()
+        ],
+        session_model_preview=model_preview[:300],
+        session_debug_preview=debug_preview[:300],
+        model_preview_has_active_rule=("当前规则：" in model_preview or "active_rule" in model_preview),
+        model_preview_has_next_step=("# Next Step" in model_preview or "当前下一步：" in model_preview),
         trace_id=str(trace_ref["trace_id"]),
         trace_url=str(trace_ref["trace_url"]),
         trace_available=bool(trace_ref["trace_available"]),

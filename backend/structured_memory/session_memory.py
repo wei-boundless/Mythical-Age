@@ -197,8 +197,6 @@ class SessionMemoryManager:
         active_work_item = self._coerce_text(self._read_value(main_context, "active_work_item"))
         active_constraints = self._coerce_mapping(self._read_value(main_context, "active_constraints"))
         latest_correction = self._coerce_text(self._read_value(main_context, "latest_correction"))
-        next_step_value = self._coerce_text(self._read_value(main_context, "next_step"))
-
         correction_items = self._dedupe_text_items(
             [latest_correction, *corrections]
         )
@@ -256,12 +254,14 @@ class SessionMemoryManager:
         )
         current_task_state = self._build_projection_current_task_state(
             active_goal=active_goal,
-            active_work_item=active_work_item,
             constraint_items=constraint_items,
             normalized_task_summaries=normalized_task_summaries,
-            correction_items=correction_items,
-            next_step_value=next_step_value,
             max_items=max_items,
+        )
+        current_step = self._build_projection_task_current_step(
+            active_goal=active_goal,
+            current_task_state=current_task_state,
+            normalized_task_summaries=normalized_task_summaries,
         )
         key_results = process_engine._dedupe_items(
             [item["summary"] for item in normalized_task_summaries if item["summary"]],
@@ -285,18 +285,15 @@ class SessionMemoryManager:
             normalized_task_summaries=normalized_task_summaries,
             max_items=max_items,
         )
-        next_steps = process_engine._dedupe_items(
-            [next_step_value or f"继续处理当前用户请求：{process_engine._shorten(active_goal, 120)}"],
-            max_items=max_items,
-        )
+        next_steps: list[str] = []
         task_state = TaskState(
-            current_step=current_task_state[0] if current_task_state else f"处理当前请求：{process_engine._shorten(active_goal, 120)}",
+            current_step=current_step,
             completed_steps=process_engine._dedupe_items(
                 [f"已完成：{item}" for item in key_results[:2]],
                 max_items=3,
             ),
-            pending_steps=process_engine._dedupe_items(list(next_steps[:2]), max_items=3),
-            next_step=next_steps[0] if next_steps else "",
+            pending_steps=[],
+            next_step="",
         )
         errors_and_corrections = process_engine._dedupe_items(
             list(correction_items),
@@ -475,12 +472,6 @@ class SessionMemoryManager:
             active_entity = "dataset"
         elif not task_switch:
             active_entity = previous_state.context_slots.active_entity
-        active_rule = ""
-        rendered_constraints = self._render_constraints(active_constraints)
-        if rendered_constraints:
-            active_rule = rendered_constraints
-        elif not task_switch:
-            active_rule = previous_state.context_slots.active_rule
         if flow_type == "external_lookup_flow":
             active_pdf = ""
             active_dataset = ""
@@ -492,7 +483,7 @@ class SessionMemoryManager:
             active_pdf=active_pdf,
             active_dataset=active_dataset,
             active_entity=active_entity,
-            active_rule=self._shorten(active_rule, 120),
+            active_rule="",
         )
 
     def _extract_projection_binding_from_summaries(
@@ -515,16 +506,11 @@ class SessionMemoryManager:
         self,
         *,
         active_goal: str,
-        active_work_item: str,
         constraint_items: list[str],
         normalized_task_summaries: list[dict[str, str | list[str]]],
-        correction_items: list[str],
-        next_step_value: str,
         max_items: int,
     ) -> list[str]:
         items: list[str] = []
-        if active_work_item:
-            items.append(f"当前工作项：{active_work_item}")
         items.append(f"当前目标：{self._shorten(active_goal, 160)}")
         if constraint_items:
             items.append(f"当前约束：{self._shorten(constraint_items[0], 160)}")
@@ -532,11 +518,24 @@ class SessionMemoryManager:
             items.append(
                 f"最新结果摘要：{self._shorten(self._coerce_text(normalized_task_summaries[-1].get('summary')), 160)}"
             )
-        if correction_items:
-            items.append(f"最新纠正：{self._shorten(correction_items[-1], 160)}")
-        if next_step_value:
-            items.append(f"当前下一步：{self._shorten(next_step_value, 160)}")
         return self.processor.process_engine._dedupe_items(items, max_items=max_items, max_chars=220)
+
+    def _build_projection_task_current_step(
+        self,
+        *,
+        active_goal: str,
+        current_task_state: list[str],
+        normalized_task_summaries: list[dict[str, str | list[str]]],
+    ) -> str:
+        if normalized_task_summaries:
+            latest_summary = self._coerce_text(normalized_task_summaries[-1].get("summary"))
+            if latest_summary:
+                return f"整理结果：{self._shorten(latest_summary, 120)}"
+        for item in current_task_state:
+            compact = self._coerce_text(item)
+            if compact.startswith("当前目标：") or compact.startswith("当前约束："):
+                return compact
+        return f"围绕当前目标回答：{self._shorten(active_goal, 120)}"
 
     def _build_projection_warm_context(
         self,
@@ -551,15 +550,13 @@ class SessionMemoryManager:
         items: list[str] = []
         if task_switch and previous_state.active_goal and previous_state.active_goal != active_goal:
             items.append(f"上一阶段目标：{self._shorten(previous_state.active_goal, 120)}")
-            if previous_state.current_task_state:
-                items.append(f"上一阶段状态：{self._shorten(previous_state.current_task_state[0], 120)}")
             if previous_state.key_results:
                 items.append(f"上一阶段结果：{self._shorten(previous_state.key_results[0], 120)}")
             items.extend(previous_state.warm_context[:2])
         else:
             items.extend(previous_state.warm_context[:2])
-            if previous_state.current_task_state:
-                items.append(f"延续状态：{self._shorten(previous_state.current_task_state[0], 120)}")
+            if previous_state.key_results:
+                items.append(f"此前结果：{self._shorten(previous_state.key_results[0], 120)}")
         prior_query = previous_state.active_goal if previous_state.active_goal and previous_state.active_goal != active_goal else ""
         if prior_query and not task_switch:
             items.append(f"此前请求：{self._shorten(prior_query, 120)}")

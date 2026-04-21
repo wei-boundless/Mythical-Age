@@ -260,16 +260,49 @@ class QueryRuntime:
         trace=None,
     ):
         followup_resolution = self.followup_resolver.resolve(session_id=session_id, message=message)
-        effective_message = followup_resolution.rewritten_message or message
+        followup_results = self._followup_results_from_resolution(session_id, followup_resolution)
+        if trace is not None:
+            trace.annotate(
+                {
+                    "app.followup_mode": followup_resolution.mode,
+                    "app.followup_task_id": followup_resolution.task_id,
+                    "app.followup_task_ids": ",".join(followup_resolution.task_ids),
+                }
+            )
+        if self._should_answer_from_followup(
+            message=message,
+            followup_resolution=followup_resolution,
+            results=followup_results,
+        ):
+            main_context = self._build_followup_main_context(
+                message,
+                followup_results,
+                followup_resolution=followup_resolution,
+            )
+            task_summary_refs = self._task_summary_refs_from_results(followup_results)
+            if trace is not None:
+                trace.annotate(
+                    {
+                        "app.route": "followup_direct",
+                        "app.subquery_count": len(followup_results),
+                    }
+                )
+            yield {
+                "type": "done",
+                "content": self._assemble_subtask_results(followup_results, main_context=main_context),
+                "main_context": main_context.to_dict(),
+                "task_summary_refs": [item.to_dict() for item in task_summary_refs],
+            }
+            return
         if trace is not None:
             with trace.stage(
                 "query.plan",
-                inputs={"message": effective_message, "history_length": len(history)},
+                inputs={"message": message, "history_length": len(history)},
                 metadata={"session_id": session_id},
             ):
-                plan = self.planner.build_plan(session_id=session_id, message=effective_message, history=history)
+                plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
         else:
-            plan = self.planner.build_plan(session_id=session_id, message=effective_message, history=history)
+            plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
         executions = plan.iter_executions()
         if trace is not None:
             trace.annotate(
@@ -278,8 +311,6 @@ class QueryRuntime:
                     "app.tool_name": plan.query_understanding.tool_name or "",
                     "app.skill_name": plan.query_understanding.skill_name or "",
                     "app.subquery_count": len(executions),
-                    "app.followup_mode": followup_resolution.mode,
-                    "app.followup_task_id": followup_resolution.task_id,
                 }
             )
         if len(executions) > 1:
@@ -313,9 +344,7 @@ class QueryRuntime:
         *,
         trace=None,
     ):
-        followup_resolution = self.followup_resolver.resolve(session_id=session_id, message=message)
-        effective_message = followup_resolution.rewritten_message or message
-        plan = self.planner.build_plan(session_id=session_id, message=effective_message, history=history)
+        plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
         executions = plan.iter_executions()
         execution = executions[0]
         async for event in self._stream_planned_execution(session_id, execution, trace=trace):
@@ -682,9 +711,39 @@ class QueryRuntime:
             active_goal=message.strip(),
             active_work_item="compound_query",
             followup_target_task_id=followup_target_task_id or None,
+            followup_target_task_ids=[task_ref.task_id for task_ref in task_refs if task_ref.task_id],
             active_constraints=constraints,
             latest_correction=self._extract_latest_correction(message),
             next_step="follow_up_or_refine_subtask_results",
+        )
+
+    def _build_followup_main_context(
+        self,
+        message: str,
+        results: list[dict[str, object]],
+        *,
+        followup_resolution,
+    ) -> MainContextState:
+        constraints = self._extract_active_constraints(message)
+        task_refs = self._task_summary_refs_from_results(results)
+        if task_refs:
+            latest = task_refs[-1]
+            if latest.response_style:
+                constraints = dict(constraints)
+                constraints.setdefault("response_style", latest.response_style)
+        target_task_ids = [task_id for task_id in followup_resolution.task_ids if task_id]
+        target_task_id = followup_resolution.task_id or (target_task_ids[0] if target_task_ids else "")
+        work_item = "followup_task_result_assembly"
+        if followup_resolution.mode == "compound_subset":
+            work_item = "followup_task_subset_assembly"
+        return MainContextState(
+            active_goal=message.strip(),
+            active_work_item=work_item,
+            followup_target_task_id=target_task_id or None,
+            followup_target_task_ids=target_task_ids,
+            active_constraints=constraints,
+            latest_correction=self._extract_latest_correction(message),
+            next_step="answer_selected_task_results",
         )
 
     def _task_summary_refs_from_results(self, results: list[dict[str, object]]) -> list[TaskSummaryRef]:
@@ -821,6 +880,51 @@ class QueryRuntime:
         elif any(ext in lowered for ext in (".xlsx", ".csv", ".xls")):
             constraints["source_kind"] = "dataset"
         return constraints
+
+    def _should_answer_from_followup(
+        self,
+        *,
+        message: str,
+        followup_resolution,
+        results: list[dict[str, object]],
+    ) -> bool:
+        if not results:
+            return False
+        if followup_resolution.mode not in {"task_ref", "compound_subset"}:
+            return False
+        return bool(message.strip())
+
+    def _followup_results_from_resolution(
+        self,
+        session_id: str,
+        followup_resolution,
+    ) -> list[dict[str, object]]:
+        if followup_resolution.mode not in {"task_ref", "compound_subset"}:
+            return []
+        task_ids = [task_id for task_id in followup_resolution.task_ids if task_id]
+        if not task_ids and followup_resolution.task_id:
+            task_ids = [followup_resolution.task_id]
+        if not task_ids:
+            return []
+        records: list[dict[str, object]] = []
+        for task_id in task_ids:
+            task = self.task_coordinator.get_task(task_id)
+            if task is None:
+                continue
+            if str(task.metadata.get("session_id", "")) != session_id:
+                continue
+            records.append(
+                {
+                    "index": int(task.metadata.get("subtask_index", 0) or len(records) + 1),
+                    "query": task.query,
+                    "content": task.result,
+                    "task_id": task.task_id,
+                    "summary": task.summary.to_dict() if task.summary is not None else None,
+                    "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
+                    "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
+                }
+            )
+        return sorted(records, key=lambda item: int(item.get("index", 0) or 0))
 
     def _extract_latest_correction(self, message: str) -> str:
         correction_markers = ("不对", "改成", "纠正", "不是", "更正")

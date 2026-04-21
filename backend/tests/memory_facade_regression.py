@@ -56,12 +56,16 @@ def test_memory_facade_builds_layered_context_package() -> None:
         assert "debug_session_trace" in package.debug_selected_sections
         assert "retrieval_evidence" in package.selected_sections
         assert "# Active Goal" in block
+        assert "# Flow State" not in block
+        assert "# Current Task State" not in block
         assert "## Retrieval Evidence" in block
         assert "## Debug Session Trace" not in block
         assert "# Risk Watch" not in block
         assert "# Next Step" not in block
         assert not any("# Risk Watch" in item for item in package.sections["active_process_context"])
         assert not any("# Next Step" in item for item in package.sections["active_process_context"])
+        assert not any("# Flow State" in item for item in package.sections["active_process_context"])
+        assert not any("# Current Task State" in item for item in package.sections["active_process_context"])
         assert any("# Next Step" in item for item in package.debug_sections["debug_session_trace"])
 
 
@@ -140,6 +144,9 @@ def test_memory_facade_exposes_context_trace_without_legacy_bridge() -> None:
         assert inspection["session_memory"]["model_preview"]
         assert "## Debug Session Trace" in inspection["session_memory"]["preview"]
         assert "# Next Step" not in inspection["session_memory"]["model_preview"]
+        assert "当前规则：" not in inspection["session_memory"]["model_preview"]
+        assert "active_rule" not in inspection["session_memory"]["model_visible"]["context_slots"]
+        assert "active_rule" in inspection["session_memory"]["debug_visible"]["context_slots"]
         assert inspection["session_memory"]["preview"] != inspection["session_memory"]["model_preview"]
 
 

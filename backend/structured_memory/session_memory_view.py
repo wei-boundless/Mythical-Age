@@ -93,7 +93,7 @@ class SessionMemoryViewBuilder:
             "# Session Title": [state.session_title or "Ongoing session"],
             "# Active Goal": self._to_bullets([state.active_goal] if state.active_goal else []),
             "# Flow State": self._to_bullets(self._flow_lines(state, include_debug=include_debug)),
-            "# Context Slots": self._to_bullets(self._context_slot_lines(state)),
+            "# Context Slots": self._to_bullets(self._context_slot_lines(state, include_debug=include_debug)),
             "# Current Task State": self._to_bullets(
                 state.current_task_state if include_debug else self._model_current_task_lines(state)
             ),
@@ -203,7 +203,7 @@ class SessionMemoryViewBuilder:
             items.append(f"下一步：{task.next_step}")
         return [item for item in items if item.strip()]
 
-    def _context_slot_lines(self, state: DialogueState) -> list[str]:
+    def _context_slot_lines(self, state: DialogueState, *, include_debug: bool) -> list[str]:
         slots = state.context_slots
         items: list[str] = []
         if slots.active_pdf:
@@ -212,23 +212,24 @@ class SessionMemoryViewBuilder:
             items.append(f"当前数据集：{slots.active_dataset}")
         if slots.active_entity:
             items.append(f"当前实体：{slots.active_entity}")
-        if slots.active_rule:
+        if include_debug and slots.active_rule:
             items.append(f"当前规则：{slots.active_rule}")
         return items
 
     def _model_current_task_lines(self, state: DialogueState) -> list[str]:
         lines = list(state.current_task_state)
         filtered: list[str] = []
-        dropped_prefixes = (
-            "先向用户澄清当前目标",
-            "继续处理当前用户请求",
-            "按照当前方案继续执行",
+        allowed_prefixes = (
+            "当前目标：",
+            "当前约束：",
+            "最新结果摘要：",
+            "当前工作项：",
         )
         for line in lines:
             compact = line.strip()
             if not compact:
                 continue
-            if compact.startswith(dropped_prefixes):
+            if not compact.startswith(allowed_prefixes):
                 continue
             filtered.append(compact)
         return filtered[:6]

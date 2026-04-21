@@ -66,9 +66,51 @@ def test_answer_assembler_compresses_one_sentence_segments() -> None:
     assert "西南风" not in rendered
 
 
+def test_answer_assembler_can_filter_to_followup_target_tasks() -> None:
+    assembler = AnswerAssembler()
+    main_context = MainContextState(
+        active_goal="followup",
+        active_work_item="followup_task_subset_assembly",
+        followup_target_task_ids=["t1", "t3"],
+        active_constraints={"response_style": "one_sentence"},
+    )
+    results = [
+        {
+            "index": 1,
+            "task_id": "t1",
+            "query": "第一个任务",
+            "summary": {"response": "第一条。还有补充。", "response_style": ""},
+            "content": "raw-1",
+        },
+        {
+            "index": 2,
+            "task_id": "t2",
+            "query": "第二个任务",
+            "summary": {"response": "第二条。还有补充。", "response_style": ""},
+            "content": "raw-2",
+        },
+        {
+            "index": 3,
+            "task_id": "t3",
+            "query": "第三个任务",
+            "summary": {"response": "第三条。还有补充。", "response_style": ""},
+            "content": "raw-3",
+        },
+    ]
+
+    plan = assembler.build_plan(results=results, main_context=main_context)
+    rendered = assembler.render(plan)
+
+    assert [segment.task_id for segment in plan.segments] == ["t1", "t3"]
+    assert "第二个任务" not in rendered
+    assert "第一条。" in rendered
+    assert "第三条。" in rendered
+
+
 def main() -> None:
     test_answer_assembler_prefers_summary_and_dedupes()
     test_answer_assembler_compresses_one_sentence_segments()
+    test_answer_assembler_can_filter_to_followup_target_tasks()
     print("ALL PASSED (answer assembler regression)")
 
 

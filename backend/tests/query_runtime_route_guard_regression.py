@@ -132,6 +132,35 @@ def _build_runtime(
     return runtime, retrieval, model_runtime, memory_facade
 
 
+async def _seed_compound_tasks(coordinator: TaskCoordinator) -> None:
+    executions = [
+        QueryExecutionPlan(
+            message="总结 PDF 第三页",
+            history=[],
+            memory_intent=MemoryIntent(),
+            query_understanding=QueryUnderstanding(route="tool", tool_name="pdf_analysis", task_kind="pdf_followup_query"),
+        ),
+        QueryExecutionPlan(
+            message="给我 inventory.xlsx 里最缺货的前三个仓库",
+            history=[],
+            memory_intent=MemoryIntent(),
+            query_understanding=QueryUnderstanding(route="tool", tool_name="structured_data_analysis", task_kind="structured_followup_query"),
+        ),
+        QueryExecutionPlan(
+            message="补一句北京天气",
+            history=[],
+            memory_intent=MemoryIntent(),
+            query_understanding=QueryUnderstanding(route="tool", tool_name="get_weather", task_kind="weather_query"),
+        ),
+    ]
+
+    async def runner(execution: QueryExecutionPlan):
+        yield {"type": "done", "content": f"answer for {execution.message}"}
+
+    async for _event in coordinator.run_query_tasks("session-1", executions, runner):
+        pass
+
+
 async def _collect_events(
     plan: QueryPlan,
     *,
@@ -401,6 +430,41 @@ def test_memory_route_does_not_promote_fake_tool_call_into_task_summary() -> Non
     assert summary_refs == []
 
 
+def test_followup_task_ref_is_answered_without_replanning() -> None:
+    coordinator = TaskCoordinator()
+    asyncio.run(_seed_compound_tasks(coordinator))
+    runtime, retrieval, model_runtime, memory_facade = _build_runtime(
+        rag_mode=True,
+        task_coordinator=coordinator,
+    )
+
+    def _unexpected_plan(**_kwargs):
+        raise AssertionError("planner should not run for direct follow-up task assembly")
+
+    runtime.planner.build_plan = _unexpected_plan  # type: ignore[method-assign]
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._execution_events(
+            "session-1",
+            "只展开第二个子任务，给我仓库和缺货量。",
+            [],
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+
+    assert retrieval.queries == []
+    assert memory_facade.prefetch_queries == []
+    assert model_runtime.last_tools == []
+    assert [event["type"] for event in events] == ["done"]
+    done = events[0]
+    assert done["main_context"]["active_work_item"] == "followup_task_result_assembly"
+    assert done["main_context"]["followup_target_task_ids"] == ["session-1-subtask-2"]
+    assert "inventory.xlsx" in str(done["content"])
+
+
 def main() -> None:
     test_memory_route_disables_tools()
     test_rag_route_prefetches_retrieval_without_tools()
@@ -408,6 +472,7 @@ def main() -> None:
     test_semantic_memory_signal_keeps_rag_and_prefetches_durable()
     test_execution_events_reuses_built_plan_for_subtasks()
     test_memory_route_does_not_promote_fake_tool_call_into_task_summary()
+    test_followup_task_ref_is_answered_without_replanning()
     print("ALL PASSED (query runtime route guard regression)")
 
 

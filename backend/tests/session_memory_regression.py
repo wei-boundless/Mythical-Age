@@ -155,12 +155,15 @@ def test_session_memory_compact_view_uses_state_sections() -> None:
 
         compact = manager.compact_view()
         _assert("# Active Goal" in compact, "compact view should expose Active Goal section")
-        _assert("# Current Task State" in compact, "compact view should expose Current Task State section")
+        _assert(
+            "# Current Task State" not in compact,
+            "compact view should stop exposing governance-heavy current-task sections by default",
+        )
         _assert("# Next Step" not in compact, "compact view should stop exposing orchestration-only next-step guidance")
         _assert("# Workflow and Constraints" not in compact, "compact view should stop rendering the legacy workflow section name")
         _assert("What flow is currently active" in compact, "compact view should use the canonical flow description")
         _assert("What workflow is currently active" not in compact, "compact view should stop rendering the legacy workflow prompt")
-        _assert("session hygiene" in compact or "session state" in compact, "compact view should preserve task state content")
+        _assert("session hygiene" in compact or "session state" in compact, "compact view should preserve restore-relevant content")
 
 
 def test_session_memory_persists_dialogue_state_separately_from_summary() -> None:
@@ -322,6 +325,142 @@ def test_summary_first_context_projection_prefers_committed_binding_over_text_sc
         _assert(
             state.context_slots.active_dataset == "knowledge/E-commerce Data/inventory.xlsx",
             "summary-first projection should take the committed dataset binding instead of rescanning incidental filenames",
+        )
+
+
+def test_summary_first_model_view_hides_active_rule_and_next_step_prose() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "把第一个和第三个子任务各压成一句话，不要重复第二个。",
+                "active_work_item": "followup_task_subset_assembly",
+                "active_constraints": {"response_style": "one_sentence", "dedupe": True},
+                "next_step": "answer_selected_task_results",
+            },
+            task_summaries=[
+                {
+                    "task_id": "task-1",
+                    "query": "总结 PDF 第三页",
+                    "summary": "第三页主要讨论供应链风险。",
+                    "key_points": ["page=3", "pdf=report.pdf"],
+                },
+                {
+                    "task_id": "task-3",
+                    "query": "补一句北京天气",
+                    "summary": "北京当前阴天，12.4°C。",
+                    "key_points": [],
+                },
+            ],
+        )
+
+        model_view = manager.load()
+        debug_view = manager.load_debug_view()
+
+        _assert("当前规则：" not in model_view, "model-visible session view should hide active_rule prose")
+        _assert("当前下一步：" not in model_view, "model-visible session view should hide next-step prose")
+        _assert(
+            "当前规则：" in debug_view or "# Next Step" in debug_view,
+            "debug view should retain governance-only fields",
+        )
+
+
+def test_summary_first_projection_state_strips_governance_prose_at_source() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "把第一个和第三个子任务各压成一句话，不要重复第二个。",
+                "active_work_item": "followup_task_subset_assembly",
+                "active_constraints": {"response_style": "one_sentence", "dedupe": True},
+                "latest_correction": "不要重复第二个。",
+                "next_step": "answer_selected_task_results",
+            },
+            task_summaries=[
+                {
+                    "task_id": "task-1",
+                    "query": "总结 PDF 第三页",
+                    "summary": "第三页主要讨论供应链风险。",
+                    "key_points": ["page=3", "pdf=report.pdf"],
+                },
+                {
+                    "task_id": "task-3",
+                    "query": "补一句北京天气",
+                    "summary": "北京当前阴天，12.4°C。",
+                    "key_points": [],
+                },
+            ],
+            corrections=["不要重复第二个。"],
+        )
+
+        state = manager.load_state()
+
+        _assert(
+            state.context_slots.active_rule == "",
+            "summary-first projection should stop materializing active_rule control prose in state",
+        )
+        _assert(
+            not state.next_step and state.task_state.next_step == "",
+            "summary-first projection should not persist orchestration next-step prose in working state",
+        )
+        _assert(
+            all(
+                not item.startswith(("当前工作项：", "当前下一步：", "最新纠正："))
+                for item in state.current_task_state
+            ),
+            "summary-first projection should keep current-task state to goal/constraint/result facts only",
+        )
+        _assert(
+            state.task_state.current_step.startswith(("整理结果：", "当前目标：", "围绕当前目标回答：")),
+            "summary-first projection should keep task_state.current_step as control-truth, not workflow logging",
+        )
+
+
+def test_summary_first_projection_warm_context_uses_results_not_previous_task_state() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "总结 PDF 第三页。",
+                "active_work_item": "pdf_analysis",
+                "active_constraints": {"page": 3, "source_kind": "pdf"},
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "task-1",
+                    "query": "总结 PDF 第三页",
+                    "summary": "第三页主要讨论供应链风险。",
+                    "key_points": ["page=3", "pdf=report.pdf"],
+                }
+            ],
+        )
+        manager.update_from_context_state(
+            {
+                "active_goal": "补一句北京天气。",
+                "active_work_item": "weather_lookup",
+                "active_constraints": {"source_kind": "weather"},
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "task-2",
+                    "query": "补一句北京天气",
+                    "summary": "北京当前晴朗，12.4°C。",
+                    "key_points": [],
+                }
+            ],
+        )
+
+        state = manager.load_state()
+
+        _assert(
+            all("延续状态：" not in item and "上一阶段状态：" not in item for item in state.warm_context),
+            "summary-first warm context should stop rehydrating prior task-state prose",
+        )
+        _assert(
+            any("上一阶段结果：" in item for item in state.warm_context),
+            "summary-first warm context should retain prior result summaries as restore hints",
         )
 
 
@@ -648,6 +787,9 @@ def main() -> None:
         test_session_memory_accepts_summary_first_context_projection,
         test_summary_first_context_projection_does_not_reenter_message_processor,
         test_summary_first_context_projection_prefers_committed_binding_over_text_scan,
+        test_summary_first_model_view_hides_active_rule_and_next_step_prose,
+        test_summary_first_projection_state_strips_governance_prose_at_source,
+        test_summary_first_projection_warm_context_uses_results_not_previous_task_state,
         test_projection_candidate_pipeline_stays_conservative_and_preference_first,
         test_session_memory_persists_process_state_and_view_mirrors,
         test_session_memory_can_fallback_to_legacy_state_file_when_process_state_is_missing,

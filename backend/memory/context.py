@@ -154,6 +154,23 @@ class MemoryContextLayer:
                 "preview": debug_session_summary[:600].strip(),
                 "model_preview": model_session_summary[:600].strip(),
                 "storage": manager.describe_storage(),
+                "model_visible": {
+                    "preview": model_session_summary[:600].strip(),
+                    "context_slots": {
+                        "active_pdf": session_state.context_slots.active_pdf,
+                        "active_dataset": session_state.context_slots.active_dataset,
+                        "active_entity": session_state.context_slots.active_entity,
+                    },
+                },
+                "debug_visible": {
+                    "preview": debug_session_summary[:600].strip(),
+                    "context_slots": {
+                        "active_pdf": session_state.context_slots.active_pdf,
+                        "active_dataset": session_state.context_slots.active_dataset,
+                        "active_entity": session_state.context_slots.active_entity,
+                        "active_rule": session_state.context_slots.active_rule,
+                    },
+                },
                 "active_goal": session_state.active_goal,
                 "flow_state": {
                     "flow_id": session_state.flow_state.flow_id,
