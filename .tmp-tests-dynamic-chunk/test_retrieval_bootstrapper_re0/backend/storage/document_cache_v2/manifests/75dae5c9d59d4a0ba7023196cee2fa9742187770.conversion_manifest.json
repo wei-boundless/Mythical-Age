@@ -1,0 +1,10 @@
+{
+  "doc_id": "75dae5c9d59d4a0ba7023196cee2fa9742187770",
+  "source_path": "knowledge/beta.md",
+  "version_digest": "2fe3f192eb411a5b923193e87b9f3f540e71aa33",
+  "parser_backend": "legacy_fallback",
+  "quality_flags": [
+    "fallback_parser"
+  ],
+  "block_count": 1
+}

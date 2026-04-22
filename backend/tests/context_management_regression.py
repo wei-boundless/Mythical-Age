@@ -286,6 +286,21 @@ def test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime
                     "source": "knowledge/battery.md",
                     "collection": "knowledge",
                     "text": "Battery chemistry affects energy density and charging behavior.",
+                    "metadata": {
+                        "section_path": ["Battery Guide", "Charging"],
+                        "parent_context": {
+                            "unit_id": "parent-1",
+                            "node_kind": "parent",
+                            "section_path": ["Battery Guide", "Charging"],
+                            "section_label": "Charging",
+                            "text": "This section explains why chemistry, temperature, and charging protocol all change charging behavior.",
+                        },
+                        "document_context": {
+                            "unit_id": "doc-1-summary",
+                            "node_kind": "document",
+                            "text": "The document is an overview of battery chemistry, charging limits, and safety tradeoffs.",
+                        },
+                    },
                 }
             ],
         )
@@ -298,6 +313,21 @@ def test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime
                     "source": "knowledge/battery.md",
                     "collection": "knowledge",
                     "text": "Battery chemistry affects energy density and charging behavior.",
+                    "metadata": {
+                        "section_path": ["Battery Guide", "Charging"],
+                        "parent_context": {
+                            "unit_id": "parent-1",
+                            "node_kind": "parent",
+                            "section_path": ["Battery Guide", "Charging"],
+                            "section_label": "Charging",
+                            "text": "This section explains why chemistry, temperature, and charging protocol all change charging behavior.",
+                        },
+                        "document_context": {
+                            "unit_id": "doc-1-summary",
+                            "node_kind": "document",
+                            "text": "The document is an overview of battery chemistry, charging limits, and safety tradeoffs.",
+                        },
+                    },
                 }
             ],
             include_durable_context=False,
@@ -321,6 +351,14 @@ def test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime
             "system prompt should include the retrieved evidence content",
         )
         _assert(
+            "Parent Context: Charging" in system_prompt,
+            "system prompt should include parent-section retrieval context",
+        )
+        _assert(
+            "Document Context: The document is an overview of battery chemistry" in system_prompt,
+            "system prompt should include document-level retrieval context",
+        )
+        _assert(
             "<!-- Context Management -->" not in system_prompt,
             "system prompt should keep context-management notes out of the model-visible prompt",
         )
@@ -331,6 +369,10 @@ def test_retrieval_evidence_enters_prompt_package_without_duplication_in_runtime
         _assert(
             session_block.count("Battery chemistry affects energy density") == 1,
             "retrieval evidence should appear only once in the session-memory package",
+        )
+        _assert(
+            session_block.count("Parent Context: Charging") == 1,
+            "parent context should appear only once in the session-memory package",
         )
         _assert(
             all("[RAG retrieved context]" not in str(item.get("content", "")) for item in runtime_messages),

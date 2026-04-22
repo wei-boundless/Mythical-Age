@@ -20,8 +20,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from config import get_settings
-from document_conversion.docling_converter import DoclingConverter
-from document_conversion.models import ConversionResult, SourceFileRecord
+from document_conversion.models import SourceFileRecord
+from document_conversion.structured_text import build_markdown_conversion_result
 from embedding_compat import build_embedding_model
 from normalized_ingestion import NormalizedDocumentBuilder, build_indexable_units
 from normalized_ingestion.models import IndexableUnit
@@ -83,7 +83,6 @@ def _stable_digest(*parts: str) -> str:
 
 def _build_units(corpus: pd.DataFrame) -> list[IndexableUnit]:
     units: list[IndexableUnit] = []
-    converter = DoclingConverter(enabled=False, repo_root=PROJECT_ROOT)
     builder = NormalizedDocumentBuilder()
     corpus_source = PROJECT_ROOT / "scifact" / "_beir_extract" / "scifact" / "corpus.jsonl"
     for row in corpus.to_dict(orient="records"):
@@ -103,18 +102,15 @@ def _build_units(corpus: pd.DataFrame) -> list[IndexableUnit]:
             size_bytes=0,
             modified_ns=0,
         )
-        conversion = ConversionResult(
-            doc_id=doc_id,
-            collection="benchmark",
-            source_path=f"scifact/{doc_id}.jsonl",
-            source_type="scifact_jsonl",
-            version_digest=version_digest,
+        conversion = build_markdown_conversion_result(
+            record,
+            markdown,
             parser_backend="scifact_jsonl",
             title=title,
             language="en",
             page_count=1,
-            blocks=tuple(converter._blocks_from_markdown(markdown, record)),
             metadata={"title": title, "benchmark_source": str(corpus_source)},
+            doc_id=doc_id,
         )
         document, blocks, object_refs = builder.build(conversion)
         units.extend(build_indexable_units(document, blocks, object_refs))
@@ -248,7 +244,7 @@ def run_eval(config: EvalConfig, *, scifact_root: Path, index_root: Path) -> dic
         build_seconds = 0.0
 
     dense_health = backend.dense_health("benchmark", embed_model=embed_model)
-    benchmark_mode = "hybrid_ready" if dense_health.get("available") and dense_health.get("query_ok") else "lexical_only"
+    benchmark_mode = "hybrid_ready" if dense_health.get("available") and dense_health.get("query_ok") else "sparse_fallback_only"
     if benchmark_mode != "hybrid_ready" and not config.allow_degraded:
         raise RuntimeError(
             f"Benchmark dense path is not healthy: {json.dumps(dense_health, ensure_ascii=False)}. "

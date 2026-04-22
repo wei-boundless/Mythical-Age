@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+STRUCTURE_CONTRACT_VERSION = "structure_contract_v1"
+
 
 def _stable_digest(*parts: str) -> str:
     digest = hashlib.sha1()
@@ -58,6 +60,8 @@ class ConversionBlock:
     block_type: str
     text: str
     modality: str = "text"
+    section_label: str = ""
+    structure_role: str = "content"
     page: int | None = None
     section_path: tuple[str, ...] = ()
     reading_order: int = 0
@@ -76,6 +80,9 @@ class ConversionResult:
     title: str = ""
     language: str | None = None
     page_count: int = 0
+    structure_contract_version: str = STRUCTURE_CONTRACT_VERSION
+    parser_route: tuple[str, ...] = ()
+    fallback_used: bool = False
     quality_flags: tuple[str, ...] = ()
     blocks: tuple[ConversionBlock, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -97,6 +104,9 @@ class ConversionResult:
             source_type=record.source_type,
             version_digest=record.version_digest,
             parser_backend=parser_backend,
+            structure_contract_version=STRUCTURE_CONTRACT_VERSION,
+            parser_route=(parser_backend,),
+            fallback_used=parser_backend != "docling",
             quality_flags=quality_flags,
             metadata=dict(metadata or {}),
         )

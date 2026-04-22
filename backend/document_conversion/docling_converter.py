@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from document_conversion.models import ConversionBlock, ConversionResult, SourceFileRecord
 from document_conversion.quality import infer_quality_flags
+from document_conversion.structured_text import build_markdown_conversion_result
 from pdf_analysis.parser import PdfSegment, PdfTextParser
 
 if TYPE_CHECKING:
@@ -59,25 +59,19 @@ class DoclingConverter:
             if document is None:
                 return None
             markdown = self._export_markdown(document)
-            blocks = self._blocks_from_markdown(markdown, record)
-            if not blocks:
-                return ConversionResult.empty(
-                    record,
-                    parser_backend="docling",
-                    quality_flags=("empty_conversion",),
-                )
-            flags = infer_quality_flags(tuple(blocks), parser_backend="docling")
-            return ConversionResult(
-                doc_id=ConversionResult.empty(record, parser_backend="docling").doc_id,
-                collection=record.collection,
-                source_path=record.source_path,
-                source_type=record.source_type,
-                version_digest=record.version_digest,
+            return build_markdown_conversion_result(
+                record,
+                markdown,
                 parser_backend="docling",
                 title=Path(record.source_path).stem,
-                quality_flags=flags,
-                blocks=tuple(blocks),
-                metadata={"prefer_ocr": self.prefer_ocr},
+                parser_route=("docling",),
+                fallback_used=False,
+                metadata={
+                    "prefer_ocr": self.prefer_ocr,
+                    "source_type": record.source_type,
+                    "source_path": record.source_path,
+                    "fallback_used": False,
+                },
             )
         except Exception:
             return None
@@ -100,9 +94,18 @@ class DoclingConverter:
             parser_backend="mineru_pdf",
             title=record.absolute_path.stem,
             page_count=len({block.page for block in blocks if block.page is not None}),
+            structure_contract_version=ConversionResult.empty(record, parser_backend="mineru_pdf").structure_contract_version,
+            parser_route=("docling", "mineru_pdf"),
+            fallback_used=True,
             quality_flags=flags,
             blocks=tuple(blocks),
-            metadata={"prefer_ocr": self.prefer_ocr, "pdf_parser": "mineru_first"},
+            metadata={
+                "prefer_ocr": self.prefer_ocr,
+                "pdf_parser": "mineru_first",
+                "source_type": record.source_type,
+                "source_path": record.source_path,
+                "fallback_used": True,
+            },
         )
 
     def _convert_with_fallback(self, record: SourceFileRecord) -> ConversionResult:
@@ -122,8 +125,16 @@ class DoclingConverter:
             version_digest=record.version_digest,
             parser_backend="legacy_fallback",
             title=record.absolute_path.stem,
+            structure_contract_version=ConversionResult.empty(record, parser_backend="legacy_fallback").structure_contract_version,
+            parser_route=("docling", "legacy_fallback"),
+            fallback_used=True,
             quality_flags=flags,
             blocks=tuple(fallback_blocks),
+            metadata={
+                "source_type": record.source_type,
+                "source_path": record.source_path,
+                "fallback_used": True,
+            },
         )
 
     def _export_markdown(self, document: object) -> str:
@@ -135,31 +146,6 @@ class DoclingConverter:
         if hasattr(document, "export_to_text"):
             return str(document.export_to_text() or "").strip()
         return str(document).strip()
-
-    def _blocks_from_markdown(self, markdown: str, record: SourceFileRecord) -> list[ConversionBlock]:
-        normalized = (markdown or "").replace("\r\n", "\n").strip()
-        if not normalized:
-            return []
-
-        parts = [part.strip() for part in re.split(r"\n\s*\n+", normalized) if part.strip()]
-        blocks: list[ConversionBlock] = []
-        for idx, part in enumerate(parts):
-            stripped = part.strip()
-            if not stripped:
-                continue
-            first_line = stripped.splitlines()[0].strip()
-            block_type = "heading" if first_line.startswith("#") else "paragraph"
-            modality = "table" if "|" in stripped and "\n" in stripped else "text"
-            blocks.append(
-                ConversionBlock(
-                    block_id=f"{record.version_digest}:{idx}",
-                    block_type=block_type if modality != "table" else "table",
-                    text=stripped,
-                    modality=modality,
-                    reading_order=idx,
-                )
-            )
-        return blocks
 
     def _blocks_from_pdf_segments(
         self,
@@ -179,16 +165,23 @@ class DoclingConverter:
                 block_type = "figure"
             elif segment.section:
                 block_type = "section_block"
+            section_label = str(segment.section or "").strip()
             blocks.append(
                 ConversionBlock(
                     block_id=f"{record.version_digest}:pdf:{idx}",
                     block_type=block_type,
                     text=text,
                     modality=modality,
+                    section_label=section_label,
+                    structure_role="object" if modality in {"table", "image"} else "section" if segment.section else "content",
                     page=segment.page,
-                    section_path=(str(segment.section),) if segment.section else (),
+                    section_path=(section_label,) if section_label else (),
                     reading_order=idx,
-                    metadata=dict(segment.metadata),
+                    metadata={
+                        **dict(segment.metadata),
+                        "source_type": record.source_type,
+                        "source_path": record.source_path,
+                    },
                 )
             )
         return blocks
@@ -216,7 +209,12 @@ class DoclingConverter:
                     block_id=f"{record.version_digest}:0",
                     block_type="paragraph",
                     text=text,
+                    structure_role="content",
                     reading_order=0,
+                    metadata={
+                        "source_type": record.source_type,
+                        "source_path": record.source_path,
+                    },
                 )
             ]
 
@@ -241,10 +239,16 @@ class DoclingConverter:
                     block_type=block_type,
                     text=(chunk.text or "").strip(),
                     modality=chunk.modality,
+                    section_label=str(chunk.section or "").strip(),
+                    structure_role="object" if block_type in {"table", "figure"} else "section" if chunk.section else "content",
                     page=chunk.page,
                     section_path=section_path,
                     reading_order=idx,
-                    metadata=dict(chunk.metadata),
+                    metadata={
+                        **dict(chunk.metadata),
+                        "source_type": record.source_type,
+                        "source_path": record.source_path,
+                    },
                 )
             )
         return [block for block in blocks if block.text]

@@ -74,14 +74,44 @@ def build_lexical_index_payload(texts: Sequence[str]) -> dict[str, Any]:
             entry["doc_indexes"].append(doc_idx)
             entry["term_freqs"].append(tf)
     avg_doc_length = (sum(doc_lengths) / len(doc_lengths)) if doc_lengths else 0.0
+    doc_count = len(texts)
+    term_ids = {term: index for index, term in enumerate(sorted(postings))}
+    idf = {
+        term: math.log(1.0 + ((max(doc_count, 1) - len(entry["doc_indexes"]) + 0.5) / (len(entry["doc_indexes"]) + 0.5)))
+        for term, entry in postings.items()
+    }
     return {
         "doc_lengths": doc_lengths,
         "avg_doc_length": avg_doc_length,
-        "doc_count": len(texts),
+        "doc_count": doc_count,
         "k1": 1.5,
         "b": 0.75,
         "postings": postings,
+        "term_ids": term_ids,
+        "idf": idf,
     }
+
+
+def build_sparse_vector_payload(
+    text: str,
+    *,
+    term_ids: dict[str, int],
+    idf: dict[str, float] | None = None,
+) -> tuple[list[int], list[float]]:
+    token_freqs = Counter(lexical_tokens(text))
+    if not token_freqs:
+        return ([], [])
+    indices: list[int] = []
+    values: list[float] = []
+    for term, tf in sorted(token_freqs.items(), key=lambda item: term_ids.get(item[0], 10**18)):
+        term_id = term_ids.get(term)
+        if term_id is None:
+            continue
+        local_idf = float((idf or {}).get(term, 1.0) or 1.0)
+        weight = (1.0 + math.log(float(tf))) * local_idf
+        indices.append(int(term_id))
+        values.append(float(weight))
+    return (indices, values)
 
 
 def score_lexical_query(

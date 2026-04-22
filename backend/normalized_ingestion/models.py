@@ -14,6 +14,9 @@ class NormalizedDocument:
     title: str
     language: str | None = None
     page_count: int = 0
+    structure_contract_version: str = ""
+    parser_route: tuple[str, ...] = ()
+    fallback_used: bool = False
     parser_backend: str = ""
     quality_flags: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -26,6 +29,11 @@ class NormalizedBlock:
     block_type: str
     text: str
     normalized_text: str
+    source_type: str = ""
+    parser_backend: str = ""
+    section_label: str = ""
+    structure_role: str = "content"
+    quality_flags: tuple[str, ...] = ()
     clean_text: str = ""
     cleaning_flags: tuple[str, ...] = ()
     eligibility: str = "drop"
@@ -62,6 +70,8 @@ class IndexableUnit:
     source_path: str
     text: str
     modality: str
+    node_kind: str = "leaf"
+    parent_unit_id: str | None = None
     block_id: str | None = None
     object_ref_id: str | None = None
     page: int | None = None

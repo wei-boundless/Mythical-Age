@@ -42,6 +42,8 @@ def test_document_pipeline_v2_scaffold_can_build_minimal_artifacts(tmp_path: Pat
     assert document.doc_id
     assert blocks
     assert units
+    assert document.structure_contract_version
+    assert any(unit.metadata.get("structure_contract_version") == document.structure_contract_version for unit in units)
     assert cache.conversion_path(document.doc_id).exists()
     assert cache.normalized_manifest_path(document.doc_id).exists()
     assert index_layout.collection_dir("knowledge").exists()

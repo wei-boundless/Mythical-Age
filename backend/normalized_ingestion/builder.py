@@ -34,9 +34,18 @@ class NormalizedDocumentBuilder:
             title=result.title or result.source_path.rsplit("/", 1)[-1],
             language=result.language,
             page_count=result.page_count,
+            structure_contract_version=result.structure_contract_version,
+            parser_route=result.parser_route,
+            fallback_used=result.fallback_used,
             parser_backend=result.parser_backend,
             quality_flags=result.quality_flags,
-            metadata=dict(result.metadata),
+            metadata={
+                **dict(result.metadata),
+                "source_type": result.source_type,
+                "source_path": result.source_path,
+                "parser_route": list(result.parser_route),
+                "fallback_used": result.fallback_used,
+            },
         )
         blocks: list[NormalizedBlock] = []
         object_refs: list[NormalizedObjectRef] = []
@@ -63,13 +72,25 @@ class NormalizedDocumentBuilder:
                 block_type=block.block_type,
                 text=block.text,
                 normalized_text=_normalize_text(block.text),
+                source_type=result.source_type,
+                parser_backend=result.parser_backend,
+                section_label=block.section_label or " > ".join(str(item) for item in block.section_path if str(item).strip()),
+                structure_role=block.structure_role,
+                quality_flags=result.quality_flags,
                 page=block.page,
                 section_path=block.section_path,
                 reading_order=block.reading_order,
                 modality=block.modality,
                 bbox=block.bbox,
                 object_ref_ids=tuple(object_ref_ids),
-                metadata=dict(block.metadata),
+                metadata={
+                    **dict(block.metadata),
+                    "source_type": result.source_type,
+                    "source_path": result.source_path,
+                    "parser_backend": result.parser_backend,
+                    "section_label": block.section_label,
+                    "structure_role": block.structure_role,
+                },
             )
             blocks.append(clean_block(raw_block))
         return document, blocks, object_refs

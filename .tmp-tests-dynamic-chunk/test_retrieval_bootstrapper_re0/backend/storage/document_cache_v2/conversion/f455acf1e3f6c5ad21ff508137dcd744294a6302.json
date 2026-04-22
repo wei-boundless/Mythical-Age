@@ -1,0 +1,43 @@
+{
+  "doc_id": "f455acf1e3f6c5ad21ff508137dcd744294a6302",
+  "collection": "knowledge",
+  "source_path": "knowledge/alpha.md",
+  "source_type": "md",
+  "version_digest": "81312d8c84ca51b9d1c682eb4ed8505313724f1c",
+  "parser_backend": "legacy_fallback",
+  "title": "alpha",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling",
+    "legacy_fallback"
+  ],
+  "fallback_used": true,
+  "quality_flags": [
+    "fallback_parser"
+  ],
+  "blocks": [
+    {
+      "block_id": "81312d8c84ca51b9d1c682eb4ed8505313724f1c:0",
+      "block_type": "paragraph",
+      "text": "# Alpha\n\nAI governance risk management baseline.",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "knowledge/alpha.md"
+      }
+    }
+  ],
+  "metadata": {
+    "source_type": "md",
+    "source_path": "knowledge/alpha.md",
+    "fallback_used": true
+  }
+}

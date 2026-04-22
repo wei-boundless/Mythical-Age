@@ -19,6 +19,9 @@ class RetrievalV2Layout:
     def dense_dir(self, name: str) -> Path:
         return self.collection_dir(name) / "dense"
 
+    def sparse_dir(self, name: str) -> Path:
+        return self.collection_dir(name) / "sparse"
+
     def lexical_dir(self, name: str) -> Path:
         return self.collection_dir(name) / "lexical"
 

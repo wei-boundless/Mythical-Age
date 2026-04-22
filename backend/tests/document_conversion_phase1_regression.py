@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from document_conversion import DoclingConverter, discover_source_files
+from document_conversion import DoclingConverter, SourceFileRecord, build_markdown_conversion_result, discover_source_files
 from normalized_ingestion import NormalizedDocumentBuilder, build_indexable_units
 from pdf_analysis.parser import PdfSegment
 from RAG.collections import CollectionConfig
@@ -84,9 +84,15 @@ def test_docling_converter_uses_legacy_parser_fallback_and_builds_units(tmp_path
     units = build_indexable_units(document, blocks, object_refs)
 
     assert result.parser_backend == "legacy_fallback"
+    assert result.fallback_used is True
+    assert result.parser_route == ("docling", "legacy_fallback")
     assert result.blocks
     assert any(block.block_type in {"paragraph", "section_block"} for block in blocks)
+    assert document.structure_contract_version
+    assert document.fallback_used is True
+    assert all(block.source_type == "md" for block in blocks)
     assert any(unit.unit_type == "content_block" for unit in units)
+    assert any(unit.metadata.get("structure_contract_version") for unit in units)
 
 
 def test_docling_converter_uses_pdf_parser_fallback_for_pdfs(tmp_path: Path) -> None:
@@ -115,7 +121,46 @@ def test_docling_converter_uses_pdf_parser_fallback_for_pdfs(tmp_path: Path) -> 
     units = build_indexable_units(document, blocks, object_refs)
 
     assert result.parser_backend == "mineru_pdf"
+    assert result.fallback_used is True
+    assert result.parser_route == ("docling", "mineru_pdf")
     assert result.page_count == 2
     assert any(block.block_type == "section_block" for block in blocks)
     assert any(block.block_type == "table" for block in blocks)
+    assert any(block.section_label == "Summary" for block in blocks)
+    assert any(unit.metadata.get("fallback_used") is True for unit in units)
     assert any(unit.unit_type == "content_block" for unit in units)
+
+
+def test_structured_markdown_helper_builds_formal_conversion_result(tmp_path: Path) -> None:
+    corpus_path = tmp_path / "benchmark.jsonl"
+    corpus_path.write_text("{}", encoding="utf-8")
+    record = SourceFileRecord(
+        collection="benchmark",
+        absolute_path=corpus_path,
+        source_path="scifact/doc-1.jsonl",
+        source_type="scifact_jsonl",
+        version_digest="digest-1",
+        size_bytes=2,
+        modified_ns=0,
+    )
+
+    result = build_markdown_conversion_result(
+        record,
+        "# Title\n\nParagraph one.\n\nA | B\n1 | 2",
+        parser_backend="scifact_jsonl",
+        title="Title",
+        language="en",
+        page_count=1,
+        metadata={"benchmark_source": str(corpus_path)},
+        doc_id="doc-1",
+    )
+
+    assert result.doc_id == "doc-1"
+    assert result.parser_backend == "scifact_jsonl"
+    assert result.parser_route == ("scifact_jsonl",)
+    assert result.fallback_used is False
+    assert result.structure_contract_version
+    assert len(result.blocks) == 3
+    assert result.blocks[0].block_type == "heading"
+    assert result.blocks[1].section_path == ("Title",)
+    assert result.blocks[2].block_type == "table"

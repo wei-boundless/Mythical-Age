@@ -386,9 +386,19 @@ class ContextController:
         return self._dedupe(items)
 
     def _retrieval_items(self, retrieval_evidence: list[str] | None) -> list[str]:
-        return self._dedupe(
-            [self._shorten(item, 180) for item in list(retrieval_evidence or []) if self._shorten(item, 180)]
-        )
+        items: list[str] = []
+        for item in list(retrieval_evidence or []):
+            shortened = self._shorten_retrieval_item(item)
+            if shortened:
+                items.append(shortened)
+        return self._dedupe(items)
+
+    def _shorten_retrieval_item(self, item: str) -> str:
+        lines = [self._shorten(str(line).strip(), 180) for line in str(item or "").splitlines()]
+        compact_lines = [line for line in lines if line]
+        if not compact_lines:
+            return ""
+        return "\n".join(compact_lines[:3]).strip()
 
     def _limit_items_by_tokens(self, items: list[str], *, budget_tokens: int) -> list[str]:
         kept: list[str] = []

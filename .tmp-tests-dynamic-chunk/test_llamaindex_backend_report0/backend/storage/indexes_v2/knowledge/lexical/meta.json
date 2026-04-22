@@ -1,0 +1,13 @@
+{
+  "collection": "knowledge",
+  "status": "fallback_ready",
+  "lexical_documents": 1,
+  "sparse_enabled": true,
+  "sparse_documents": 1,
+  "sparse_status": "fallback_ready",
+  "sparse_backend": "lexical_fallback",
+  "sparse_fallback_active": true,
+  "tokenizer": "mixed_word_cjk_bigram_v1",
+  "k1": 1.5,
+  "b": 0.75
+}

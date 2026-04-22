@@ -1,0 +1,46 @@
+[
+  {
+    "unit_id": "u1",
+    "unit_type": "content_block",
+    "collection": "knowledge",
+    "doc_id": "doc-1",
+    "source_path": "knowledge/alpha.md",
+    "modality": "text",
+    "node_kind": "leaf",
+    "parent_unit_id": null,
+    "block_id": "b1",
+    "object_ref_id": null,
+    "page": 3,
+    "block_type": "paragraph",
+    "section_path": [],
+    "parser_backend": "test",
+    "quality_flags": [],
+    "index_profiles": [
+      "dense_main",
+      "lexical_main"
+    ],
+    "text": "人工智能安全治理研究报告介绍总体框架。"
+  },
+  {
+    "unit_id": "u2",
+    "unit_type": "content_block",
+    "collection": "knowledge",
+    "doc_id": "doc-1",
+    "source_path": "knowledge/alpha.md",
+    "modality": "text",
+    "node_kind": "leaf",
+    "parent_unit_id": null,
+    "block_id": "b2",
+    "object_ref_id": null,
+    "page": 3,
+    "block_type": "paragraph",
+    "section_path": [],
+    "parser_backend": "test",
+    "quality_flags": [],
+    "index_profiles": [
+      "dense_main",
+      "lexical_main"
+    ],
+    "text": "报告进一步说明风险分类和治理要求。"
+  }
+]

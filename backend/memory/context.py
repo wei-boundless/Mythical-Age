@@ -321,13 +321,76 @@ class MemoryContextLayer:
             source = str(item.get("source", "") or "").strip()
             text = str(item.get("text", "") or "").strip()
             collection = str(item.get("collection", "") or "").strip()
+            metadata = dict(item.get("metadata", {}) or {})
             prefix_parts = [part for part in (source, collection) if part]
             prefix = " | ".join(prefix_parts)
+            evidence_lines: list[str] = []
             if prefix and text:
-                items.append(f"{prefix}: {text}")
+                evidence_lines.append(f"{prefix}: {text}")
             elif text:
-                items.append(text)
+                evidence_lines.append(text)
+            elif prefix:
+                evidence_lines.append(prefix)
+
+            parent_line = self._hierarchy_context_line(
+                metadata.get("parent_context"),
+                label="Parent Context",
+                fallback_section=metadata.get("section_path"),
+                max_chars=220,
+            )
+            if parent_line:
+                evidence_lines.append(parent_line)
+
+            document_line = self._hierarchy_context_line(
+                metadata.get("document_context"),
+                label="Document Context",
+                max_chars=220,
+            )
+            if document_line:
+                evidence_lines.append(document_line)
+
+            if evidence_lines:
+                items.append("\n".join(evidence_lines))
         return items
+
+    def _hierarchy_context_line(
+        self,
+        payload: object,
+        *,
+        label: str,
+        fallback_section: object | None = None,
+        max_chars: int,
+    ) -> str:
+        if not isinstance(payload, dict):
+            if label != "Parent Context":
+                return ""
+            section_label = self._section_label_from_path(fallback_section)
+            return f"{label}: {section_label}" if section_label else ""
+        text = self._compact_text(str(payload.get("text", "") or ""), max_chars=max_chars)
+        section_path = payload.get("section_path")
+        section_label = str(payload.get("section_label", "") or "").strip() or self._section_label_from_path(section_path)
+        parts: list[str] = []
+        if section_label and label == "Parent Context":
+            parts.append(section_label)
+        if text:
+            parts.append(text)
+        if not parts:
+            return ""
+        return f"{label}: {' | '.join(parts)}"
+
+    @staticmethod
+    def _compact_text(text: str, *, max_chars: int) -> str:
+        normalized = " ".join(str(text or "").split()).strip()
+        if len(normalized) <= max_chars:
+            return normalized
+        return normalized[: max(0, max_chars - 3)].rstrip() + "..."
+
+    @staticmethod
+    def _section_label_from_path(section_path: object | None) -> str:
+        if not isinstance(section_path, (list, tuple)):
+            return ""
+        parts = [str(item).strip() for item in section_path if str(item).strip()]
+        return " > ".join(parts[-2:]) if parts else ""
 
     def _compact_trace(self, result: ContextControllerResult) -> dict[str, Any]:
         compact = result.compact_result

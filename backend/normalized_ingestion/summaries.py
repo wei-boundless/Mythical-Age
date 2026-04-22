@@ -1,6 +1,32 @@
 from __future__ import annotations
 
+import re
+
 from normalized_ingestion.models import NormalizedBlock
+
+
+def summarize_text_fragments(
+    texts: list[str],
+    *,
+    max_chars: int = 720,
+    max_fragments: int = 4,
+) -> str:
+    snippets: list[str] = []
+    total_chars = 0
+    seen: set[str] = set()
+    for text in texts:
+        normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        snippets.append(normalized)
+        total_chars += len(normalized)
+        if len(snippets) >= max_fragments or total_chars >= max_chars:
+            break
+    merged = "\n\n".join(snippets).strip()
+    if len(merged) <= max_chars:
+        return merged
+    return merged[: max_chars - 3].rstrip() + "..."
 
 
 def summarize_page_blocks(

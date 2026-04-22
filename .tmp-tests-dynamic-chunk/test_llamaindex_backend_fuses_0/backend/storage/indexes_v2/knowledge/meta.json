@@ -1,0 +1,31 @@
+{
+  "collection": "knowledge",
+  "status": "ready",
+  "dense_documents": 2,
+  "dense_documents_indexed": 2,
+  "sparse_documents": 2,
+  "parser_backends": [
+    "test"
+  ],
+  "vector_backend": "qdrant",
+  "qdrant_collection": "agent__knowledge",
+  "build_batch_size": 128,
+  "dense_status": "ready",
+  "dense_verification": {
+    "collection": "knowledge",
+    "collection_name": "agent__knowledge",
+    "vector_backend": "qdrant",
+    "available": true,
+    "query_ok": true,
+    "points_count": 2,
+    "status": "ready"
+  },
+  "sparse_backend": "qdrant_sparse",
+  "sparse_status": "ready",
+  "sparse_fallback_active": true,
+  "lexical_enabled": true,
+  "lexical_documents": 2,
+  "lexical_status": "fallback_ready",
+  "sparse_enabled": true,
+  "hybrid_strategy": "rrf_weighted_app_fallback"
+}

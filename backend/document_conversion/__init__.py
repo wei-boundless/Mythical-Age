@@ -9,6 +9,8 @@ __all__ = [
     "DocumentCacheV2Layout",
     "DoclingConverter",
     "SourceFileRecord",
+    "build_markdown_blocks",
+    "build_markdown_conversion_result",
     "discover_source_files",
     "infer_quality_flags",
 ]
@@ -19,6 +21,8 @@ _EXPORTS = {
     "DocumentCacheV2Layout": ("document_conversion.cache", "DocumentCacheV2Layout"),
     "DoclingConverter": ("document_conversion.docling_converter", "DoclingConverter"),
     "SourceFileRecord": ("document_conversion.models", "SourceFileRecord"),
+    "build_markdown_blocks": ("document_conversion.structured_text", "build_markdown_blocks"),
+    "build_markdown_conversion_result": ("document_conversion.structured_text", "build_markdown_conversion_result"),
     "discover_source_files": ("document_conversion.discovery", "discover_source_files"),
     "infer_quality_flags": ("document_conversion.quality", "infer_quality_flags"),
 }
@@ -29,6 +33,7 @@ if TYPE_CHECKING:
     from document_conversion.docling_converter import DoclingConverter
     from document_conversion.models import ConversionBlock, ConversionResult, SourceFileRecord
     from document_conversion.quality import infer_quality_flags
+    from document_conversion.structured_text import build_markdown_blocks, build_markdown_conversion_result
 
 
 def __getattr__(name: str):
