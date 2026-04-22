@@ -55,7 +55,6 @@ FULL_ONLY_TARGETS: tuple[RegressionTarget, ...] = (
     RegressionTarget("tests/skills_registry_regression.py", "routing", "skill metadata registry"),
     RegressionTarget("tests/task_understanding_regression.py", "routing", "task understanding"),
     RegressionTarget("tests/compound_query_regression.py", "tasks", "compound query fan-out"),
-    RegressionTarget("tests/bm25_hybrid_regression.py", "retrieval", "hybrid retrieval"),
     RegressionTarget("tests/memory_facade_regression.py", "memory", "memory facade"),
     RegressionTarget("tests/memory_layering_regression.py", "memory", "memory layering"),
     RegressionTarget("tests/memory_partition_regression.py", "memory", "memory partition"),
@@ -70,6 +69,10 @@ FULL_ONLY_TARGETS: tuple[RegressionTarget, ...] = (
     RegressionTarget("tests/pdf_followup_history_regression.py", "pdf", "PDF follow-up"),
     RegressionTarget("tests/pdf_rag_page_window_regression.py", "pdf", "PDF page window"),
     RegressionTarget("tests/agent_tool_step_guard_regression.py", "runtime", "tool step guard"),
+    RegressionTarget("tests/cross_encoder_rerank_regression.py", "retrieval", "local cross-encoder rerank contract"),
+    RegressionTarget("tests/remote_rerank_regression.py", "retrieval", "remote rerank fallback contract"),
+    RegressionTarget("tests/retrieval_core_phase2_regression.py", "retrieval", "v2 dense lexical fusion backend"),
+    RegressionTarget("tests/retrieval_service_cutover_regression.py", "retrieval", "retrieval service cutover and metadata"),
 )
 
 

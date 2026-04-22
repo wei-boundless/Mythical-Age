@@ -1,645 +1,630 @@
-# Phase 5 Hybrid 最终粒度融合修复执行计划书
+# Phase 5 检索重构重新规划计划书
 
 > 编写日期：2026-04-22  
-> 对应背景：`docs/42-RAG成熟方案对照与改造执行清单.md` 中 `Phase 5`  
-> 目标：针对当前 `Qdrant native RRF + lexical fallback` 链路中“`hybrid` 的整体排序质量有所提升，但 `accuracy@1` 仍低于 `lexical-only`”的问题，完成一次面向正式主链的结构修复计划，明确坏点、目标设计、实施顺序、回滚边界和验收规则，直到 `hybrid top1` 在正式测试集上稳定优于 `lexical fallback`。
+> 对应背景：`docs/42-RAG成熟方案对照与改造执行清单.md`、`docs/43-RAG成熟方案现状审查矩阵-Phase1.md`、`docs/44-结构约束下动态分块实施小清单.md`  
+> 目的：在确认上一轮 `Phase 5` 设计越界并已回退后，重新按成熟、可产业化的 RAG 做法规划后续检索重构路线。
 
 ---
 
-## 1. 问题定义
+## 1. 问题重新定义
 
-当前问题不是“RRF 参数还没调好”，而是：
+本轮暴露出来的核心问题，不是“某个融合公式写错了”，而是：
 
-- `hybrid` 已经接通，但融合发生的位置和粒度仍不符合成熟 RAG 主链原则；
-- 系统在叶子级候选上先做 native RRF，再在应用层收口到 `doc/page/object` 粒度；
-- 这会让 lexical 在 top1 上原本很强的精确命中被提前压平；
-- 因而出现“`hit@3 / hit@5 / mrr@10` 上升，但 `accuracy@1` 反而下降”的结构性症状。
+1. 我们把 `前处理契约`、`检索主链迁移`、`benchmark 评测闭环` 混成了一次性重构。
+2. 代码状态、索引状态、评测产物一度失配，导致旧结果被误当成当前实现的能力。
+3. `docs/44` 的边界被越权外推到了 hybrid 设计，破坏了计划书的执行约束作用。
+4. 我们在没有先锁“当前正式基线”的情况下，直接跳到了高风险的 hybrid 主链重写。
 
-换句话说，当前坏掉的不是“有没有 hybrid”，而是：
+因此，这次重构要修的真正系统属性是：
 
-`最终返回粒度的所有权` 仍不在融合之前，而在融合之后。
+- 阶段边界
+- 基线一致性
+- 检索链路迁移顺序
+- 评测与代码的可追踪一致性
 
-这与本仓库既有目标设计直接冲突：
+正确的终态不是“立刻上 native hybrid”，而是：
 
-- 成熟方案要求：`dense 与 sparse 必须在同一最终返回粒度上融合`
-- 当前实现实际是：`leaf-level native fusion -> app-side coalesce to final grain`
-
-因此本计划书要修复的是一个明确的系统设计问题：
-
-**把 hybrid 的融合单位从“叶子命中点”改成“最终返回粒度对象”，并把该规则固化成正式主链，而不是继续靠参数微调补救。**
-
----
-
-## 2. 当前坏点与证据
-
-## 2.1 正式验收结果
-
-本轮正式构建和验收产物：
-
-- [scifact_phase5_build_report.json](/D:/AI应用/langchain-agent/output/scifact_phase5_build_report.json)
-- [scifact_phase5_hybrid_vs_lexical.json](/D:/AI应用/langchain-agent/output/scifact_phase5_hybrid_vs_lexical.json)
-- [scifact_phase5_detailed_diff.json](/D:/AI应用/langchain-agent/output/scifact_phase5_detailed_diff.json)
-
-当前 300-query SciFact test 结果：
-
-- `hybrid`
-  - `accuracy@1 = 0.5167`
-  - `hit@3 = 0.7100`
-  - `hit@5 = 0.7967`
-  - `mrr@10 = 0.6292`
-- `lexical_fallback`
-  - `accuracy@1 = 0.5267`
-  - `hit@3 = 0.6667`
-  - `hit@5 = 0.7167`
-  - `mrr@10 = 0.6129`
-
-这说明：
-
-1. `hybrid` 不是完全失败。
-2. `hybrid` 的中后位排序质量优于 `lexical fallback`。
-3. 但 `top1` 仍然输给 `lexical fallback`。
-
-因此当前首要坏点不是“召回彻底坏掉”，而是“融合顺序和粒度让正确答案在 top1 被压下去”。
-
-## 2.2 逐题差异证据
-
-在 [scifact_phase5_detailed_diff.json](/D:/AI应用/langchain-agent/output/scifact_phase5_detailed_diff.json) 中，300 条 query 的差异分布为：
-
-- `both_correct = 135`
-- `both_wrong = 122`
-- `hybrid_only = 20`
-- `lexical_only = 23`
-
-这意味着：
-
-- `hybrid` 只比 `lexical fallback` 净少赢了 3 条 top1；
-- 不是大面积掉分，而是少量 top1 排名被压错。
-
-更关键的是，在已抽样保存的 `lexical_only` 样本中：
-
-- 大多数 query 中，`hybrid` 仍然把 gold 文档放进了 `top3` 或 `top5`
-- 只有极少数 query 是 gold 被完全挤出 `top5`
-
-这进一步说明：
-
-- 主问题是 `top1 ranking` 被压平；
-- 次问题才是个别 query 的 dense 假阳性或 sparse 噪声过强。
-
-## 2.3 当前代码坏点
-
-### 坏点 A. native hybrid 发生在最终返回粒度之前
-
-当前主路径：
-
-- [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
-
-关键位置：
-
-- `retrieve()` 优先走 native hybrid
-- `_retrieve_hybrid_qdrant()` 直接对 Qdrant 叶子点执行 `FusionQuery(RRF)`
-- `_finalize_collection_hits()` 在 native hybrid 之后才做 `result_granularity` 收口
-
-这意味着当前结构是：
-
-`leaf query -> native RRF -> app-side coalesce -> final grain`
-
-而不是目标结构：
-
-`dense leaf recall -> sparse leaf recall -> final grain aggregation -> final grain fusion`
-
-### 坏点 B. `dense/sparse` 的返回粒度在 native hybrid 路径中不可见
-
-当前已经在：
-
-- `_result_granularity()`
-- `_coalesce_key()`
-
-中定义了 `document / page / object` 三类最终返回粒度。
-
-但这些规则只在应用层的后处理里发挥作用，并没有前移到 native hybrid 之前。
-
-直接后果：
-
-- `RRF` 看到的是叶子命中，不是最终返回对象；
-- 同一个 doc 下多个弱相关 leaf 可能会共同抬高一个错误 top1；
-- lexical 本来精确命中的 doc 反而因为只贡献单点排名，在 leaf-level fusion 中被压下去。
-
-### 坏点 C. native hybrid 的 `retrieval_modes` 标注过粗
-
-当前 `_retrieve_hybrid_qdrant()` 对所有返回统一打：
-
-- `("dense", "sparse", "hybrid_native")`
-
-但从现有样本可见，部分命中只有 `dense` breakdown，没有 `sparse` breakdown。
-
-直接后果：
-
-- service 统计中的 `sparse_hit_count / hybrid_native_hit_count` 会被污染；
-- 后续想根据 breakdown 决定是否做 lexical boost 或 dense gate 时，依据不可信。
-
-### 坏点 D. native hybrid 仍缺少“top1 保护”原则
-
-当前 `semantic_lookup` 下直接使用统一的 RRF。
-
-但从 SciFact 结果看：
-
-- lexical 对某些 claim 类 query 的 top1 非常强；
-- native RRF 在这些 query 上会把正确 top1 压成 top2/top3；
-- 系统没有任何“exact sparse winner”保护或“高置信 lexical top1 守门”机制。
-
-这里的关键不是回退到 lexical-only，而是：
-
-在最终粒度融合后，允许对明显的高置信 sparse exact match 做受控保护。
+- 先有一个与代码一致、可稳定重建、可稳定评测的正式基线；
+- 再在这个基线上逐步迁移 `sparse -> hybrid -> rerank`；
+- 每一步都能明确判断：是 ingestion 变了、retriever 变了，还是只是产物状态没对齐。
 
 ---
 
-## 3. 本地设计约束
+## 2. 当前本地系统现状
 
-本计划书必须服从以下既有文档和原则：
+基于当前代码审查，系统处于下面这个状态：
 
-- [41-RAG检索持续修复与稳定达标计划书.md](/D:/AI应用/langchain-agent/docs/41-RAG检索持续修复与稳定达标计划书.md)
-- [42-RAG成熟方案对照与改造执行清单.md](/D:/AI应用/langchain-agent/docs/42-RAG成熟方案对照与改造执行清单.md)
-- [43-RAG成熟方案现状审查矩阵-Phase1.md](/D:/AI应用/langchain-agent/docs/43-RAG成熟方案现状审查矩阵-Phase1.md)
-- [44-结构约束下动态分块实施小清单.md](/D:/AI应用/langchain-agent/docs/44-结构约束下动态分块实施小清单.md)
+### 2.1 已稳定落地的部分
 
-提炼出的强约束如下：
+- `document_conversion -> normalized_ingestion -> chunking` 的结构契约已经存在
+- 结构约束下的动态分块已落地
+- `document_summary / parent_section / leaf_block` 三层节点已生成
+- `RetrievalService` 默认仍走 `v2_primary`
 
-1. 不允许 benchmark 特化捷径进入主链。
-2. 不允许为了个别 query 刷分而硬编码规则。
-3. 结构修复优先于 prompt 或参数修复。
-4. 最终返回粒度必须是正式规则，而不是事后拼接。
-5. 任何迁移都要保留 cutover 和 rollback。
-6. 必须先锁执行顺序，再写代码。
+### 2.2 当前检索主链的真实状态
+
+当前 [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py) 实际主链是：
+
+`dense retrieval -> application lexical retrieval -> app-side fusion -> coalesce`
+
+也就是说，当前正式代码还不是：
+
+- `Qdrant sparse` 主召回
+- `Qdrant native hybrid` 主融合
+- `final-grain hybrid` 主链
+
+### 2.3 当前最大的工程风险
+
+最大风险不是“召回不够强”，而是：
+
+- 容易拿旧索引和旧评测结果误判当前代码状态
+- 文档 `44` 和后续检索设计之间缺少严格的职责切面
+- 一旦直接继续推进 hybrid，极容易再次把 `ingestion` 问题、`retriever` 问题、`artifact` 问题混在一起
 
 ---
 
-## 4. 外部成熟方案可借鉴点
+## 3. 外部成熟方案的产业级共识
 
-本次只借鉴“与当前问题直接相关”的成熟做法，不做泛泛框架综述。
+本次只抽取与当前问题直接相关、且能落工程的成熟原则。
 
-## 4.1 Qdrant Hybrid Search
+### 3.1 Microsoft Learn: Advanced RAG
 
 参考：
 
+- <https://learn.microsoft.com/en-us/azure/developer/ai/advanced-retrieval-augmented-generation>
+
+可直接借鉴的原则：
+
+1. 产业级 RAG 必须拆成 `Ingestion / Inference / Evaluation` 三大阶段，而不是边改边混。
+2. ingestion 必须先做：
+   - 内容预处理
+   - chunking 策略
+   - chunking 组织
+   - update 策略
+3. 元数据必须作为正式索引输入保留。
+4. chunking 组织应支持：
+   - `hierarchical indexes`
+   - `Small2Big`
+   - summary-first narrowing
+5. 更新策略必须显式支持：
+   - versioning
+   - partial update
+   - reindex 策略
+
+### 3.2 Qdrant 官方：Hybrid / Multi-stage / Grouping / Reranking
+
+参考：
+
+- <https://qdrant.tech/documentation/search/>
 - <https://qdrant.tech/documentation/search/hybrid-queries/>
+- <https://qdrant.tech/documentation/advanced-tutorials/reranking-hybrid-search/>
 
-可借鉴点：
+可直接借鉴的原则：
 
-- Qdrant 原生 `prefetch + fusion` 适合作为底座；
-- 但前提是调用方已经知道“要融合的对象是什么”；
-- 如果业务最终关心的是 doc/page/object，而不是 leaf point，那么调用方就必须先把候选映射到业务粒度。
+1. hybrid 不只是 dense+sparse 拼起来，还应支持 filtering、grouping、staged query、reranking。
+2. multi-stage query 是正式能力，不是临时 hack。
+3. rerank 前应先取较大的 candidate set，再缩到最终 top-k。
+4. late interaction / reranking 是第二阶段，不应替代第一阶段召回。
+5. 若一个业务对象由多个点组成，应优先考虑分组与业务粒度的一致性，而不是直接把点级排名当最终答案。
 
-## 4.2 LlamaIndex Fusion / Auto Merging 思路
-
-参考：
-
-- <https://developers.llamaindex.ai/python/framework-api-reference/retrievers/auto_merging/>
-- <https://developers.llamaindex.ai/python/framework-api-reference/retrievers/recursive/>
-
-可借鉴点：
-
-- 叶子召回与父级归并是两个阶段；
-- 不能把叶子级排序直接当成最终业务排序；
-- 最终展示对象和初始召回对象应该分层处理。
-
-## 4.3 BEIR / SciFact 评测启示
+### 3.3 AWS 官方：Grounding / Hybrid Retrieval / Rerank / Governance
 
 参考：
 
-- <https://arxiv.org/abs/2104.08663>
+- <https://docs.aws.amazon.com/prescriptive-guidance/latest/agentic-ai-serverless/grounding-and-rag.html>
+- <https://docs.aws.amazon.com/jp_jp/kendra/latest/dg/searching-retrieve.html>
+- <https://docs.aws.amazon.com/bedrock/latest/userguide/rerank-use.html>
 
-可借鉴点：
+可直接借鉴的原则：
 
-- 对 claim retrieval，`top1` 往往比平滑的 rank 指标更敏感；
-- 因此如果 `mrr@10` 提升而 `accuracy@1` 下降，优先怀疑的是 top1 ranking logic，不是简单地“hybrid 更好了”。
-
----
-
-## 5. 设计取舍
-
-## 5.1 不采用的方案
-
-### 方案 A. 继续只调 RRF 参数或 prefetch 深度
-
-问题：
-
-- 只能缓解，不解决“融合单位错了”的根因；
-- 可能把一部分 query 修好，但长期不可维护。
-
-结论：
-
-- 不采用为主方案；
-- 只允许在结构修复完成后做小范围微调。
-
-### 方案 B. 回退到 lexical top1 主导
-
-问题：
-
-- 这等于承认 native hybrid 主链失败；
-- 会把 `Phase 5` 变成“用 fallback 冒充正式结果”。
-
-结论：
-
-- 不采用为主方案；
-- lexical 只保留为 fallback 与诊断对照。
-
-### 方案 C. 直接上跨编码器 rerank 补 top1
-
-问题：
-
-- rerank 只应做第二阶段；
-- 当前 top1 问题发生在一阶段融合，不应让 rerank 背锅。
-
-结论：
-
-- 本轮不采用。
-
-## 5.2 采用的方案
-
-采用的正式方向是：
-
-**把 hybrid 改成“两阶段融合”**
-
-1. `dense/sparse` 仍在 leaf 层召回；
-2. 先分别收口到最终业务粒度 `doc/page/object`；
-3. 再在这个最终粒度上做融合；
-4. 最后再根据 query_mode 应用有限的 top1 保护或 tie-break 规则。
-
-这是本轮唯一推荐方向。
+1. 企业 RAG 的首要属性是 trust、accuracy、explainability。
+2. grounding 之外，还必须有 traceability、access control、update management、observability。
+3. passage retrieval 应有明确的长度与数量边界。
+4. hybrid search 可以是正式生产能力，但 rerank 必须建立在已有候选集之上。
+5. reranker 的职责是重排，不是弥补召回链路设计错误。
 
 ---
 
-## 6. 目标设计
+## 4. 明确借鉴与明确不借鉴
 
-## 6.1 canonical truth
+### 4.1 明确借鉴
 
-关于 “最终结果对象是谁” 的 canonical truth 固定如下：
+本仓库后续应明确借鉴下面这些成熟做法：
 
-- `semantic_lookup`：默认 `document`，若命中 `object_ref_id` 则允许 `object`
-- `page_grounded_lookup`：优先 `page`，若是显式对象则 `object`
-- `table_lookup`：优先 `object`，其次 `page`，最后 `document`
-- `document_overview`：只允许 `document`
+1. `ingestion / inference / evaluation` 三阶段严格拆分
+2. 结构化内容预处理与元数据保留
+3. 层级索引或 `Small2Big` 组织
+4. hybrid 作为正式检索能力，但必须建立在统一业务粒度与可追踪评测之上
+5. rerank 只做第二阶段
+6. build/version/eval 的链路版本化
 
-这个规则已经有雏形，但必须前移为 hybrid 前的正式聚合规则，而不是只在结果元数据里声明。
+### 4.2 明确不借鉴
 
-## 6.2 各阶段职责
+这次明确不再采用：
 
-### Stage A. leaf recall
+1. 在没有统一基线前，直接切到 native hybrid 主路径
+2. 用 benchmark 结果反向定义当前代码结构
+3. 在前处理文档里顺带定义 hybrid 主链
+4. 让 rerank 承担一阶段主召回补锅职责
+5. 用未标记链路版本的旧产物指导新设计
 
-输入：
+---
 
-- query
-- dense leaf index
-- sparse leaf index
+## 5. 新的目标设计
 
-输出：
+## 5.1 设计边界重新锁定
 
-- dense leaf candidates
-- sparse leaf candidates
+从现在开始，边界固定如下：
 
-允许：
+### 边界 A. `docs/44`
 
-- dense/sparse 各自独立 top_k
+只负责：
 
-禁止：
+- 结构清洗
+- 动态分块
+- 三层节点
+- 检索输入契约
 
-- 在这一阶段直接决定最终 top1
+不负责：
 
-### Stage B. final-grain aggregation
+- sparse
+- hybrid
+- rerank
+- 评测主链收益
 
-输入：
+### 边界 B. 本文档
 
-- dense leaf candidates
-- sparse leaf candidates
-- `query_mode -> result_granularity` 规则
+只负责：
 
-输出：
+- 检索主链迁移
+- build/version/eval 一致性
+- sparse/hybrid/rerank 的正式切换顺序
+- cutover / rollback
 
-- dense final-grain candidates
-- sparse final-grain candidates
+### 边界 C. benchmark
 
-允许：
+只负责：
 
-- 同一 doc/page/object 下多 leaf 合并
-- 保留来源 leaf ids、max score、evidence snippets
-
-禁止：
-
-- 不同最终对象之间提前融合
-
-### Stage C. final-grain fusion
-
-输入：
-
-- dense final-grain candidates
-- sparse final-grain candidates
-
-输出：
-
-- fused final-grain ranking
-
-允许：
-
-- RRF 或可解释加权策略
-- query-mode 特定 tie-break
-
-禁止：
-
-- 回到 leaf 级别重排
-
-### Stage D. present / context expansion
-
-输入：
-
-- fused final-grain ranking
-
-输出：
-
-- 带 `parent_context / document_context / score_breakdown / result_granularity` 的正式结果
-
-禁止：
-
-- 在这一阶段改变排序主结论
-
-## 6.3 top1 保护原则
-
-只允许在最终粒度阶段做轻量保护，不允许 query 硬编码。
-
-允许的弱规则：
-
-- 若 sparse final-grain top1 与 dense final-grain top1 不同，但 sparse top1 具有明显 exact-entity / exact-claim 优势，可作为 tie-break 信号
-- 该信号只能在：
-  - 分数非常接近
-  - sparse 命中文本覆盖率显著更高
-  - dense 并无明显语义领先
-  时生效
+- 验证当前正式代码
+- 输出有链路版本标记的结果
 
 不允许：
 
-- 直接“lexical 胜就 lexical 第一”
-- 单 query 规则表
+- 继续替代当前代码定义系统状态
+
+## 5.2 目标主链
+
+新的正式目标链路调整为：
+
+`Docling / MinerU -> normalized ingestion -> dynamic chunking -> three-layer nodes -> stable retrieval baseline -> sparse migration -> hybrid candidate comparison -> rerank -> answer assembly`
+
+这里特别强调：
+
+- `stable retrieval baseline` 是一个正式阶段，不再跳过
+- `sparse migration` 与 `hybrid candidate comparison` 必须分开
+- `rerank` 只能在 hybrid 候选稳定后接入
+
+## 5.3 当前阶段的正式目标
+
+当前最合理的正式目标，不是“立刻做最强 hybrid”，而是：
+
+1. 先把当前 `docs/44` 后版本固化成可重建基线
+2. 让 benchmark 只反映当前代码
+3. 在基线之上并行比较：
+   - app lexical baseline
+   - qdrant sparse candidate
+   - hybrid candidate
+4. 只允许胜出的方案进入下一步 cutover
 
 ---
 
-## 7. 固定执行流
+## 6. 固定执行顺序
 
-本次修复必须严格按下面顺序推进。
-
-## Phase A. 审计与冻结
+## Phase 0. 基线冻结与产物清场
 
 目标：
 
-- 固化当前失败样本和基线结果
-
-输入：
-
-- [scifact_phase5_hybrid_vs_lexical.json](/D:/AI应用/langchain-agent/output/scifact_phase5_hybrid_vs_lexical.json)
-- [scifact_phase5_detailed_diff.json](/D:/AI应用/langchain-agent/output/scifact_phase5_detailed_diff.json)
-
-输出：
-
-- top1 掉分样本集
-- 结构性坏点结论
-
-禁止：
-
-- 先改参数再归因
-
-## Phase B. 分离 leaf recall 与 final-grain aggregation
-
-目标：
-
-- 让 dense/sparse 先各自聚合到最终粒度
-
-输出：
-
-- `dense_final_candidates`
-- `sparse_final_candidates`
-
-完成标准：
-
-- `semantic_lookup` 下，doc 级融合前不再直接使用 leaf rank
-- `page_grounded_lookup` / `table_lookup` 的 page/object 规则有独立测试
-
-禁止：
-
-- 仍在 leaf-level native fusion 后再 coalesce
-
-## Phase C. 改造 final-grain fusion
-
-目标：
-
-- 在最终粒度对象上重新定义 fusion
-
-输出：
-
-- `fused_final_candidates`
-- 完整 breakdown：`dense / sparse / fusion / final`
-
-完成标准：
-
-- 能明确解释某个 top1 是如何赢出来的
-
-禁止：
-
-- breakdown 继续伪装为“所有命中都来自 dense+sparse”
-
-## Phase D. 受控 top1 保护
-
-目标：
-
-- 只修少量“lexical 本来 top1 对，但 RRF 压平”的 query
-
-输出：
-
-- 通用 tie-break 规则
-
-完成标准：
-
-- `accuracy@1` 不再低于 `lexical fallback`
-
-禁止：
-
-- query 白名单
-- 词表硬编码刷分
-
-## Phase E. 验收与收口
-
-目标：
-
-- 证明 Phase 5 真正通过
-
-完成标准：
-
-- `hybrid accuracy@1 > lexical-only`
-- 连续复测稳定
-- rollback 路径仍可用
-
----
-
-## 8. 文件级实施清单
-
-## 8.1 [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
-
-当前问题：
-
-- `native hybrid` 发生在 leaf-level
-- `retrieval_modes` 过粗
-- `result_granularity` 仅在融合后声明，不在融合前生效
+- 让代码、索引、评测三者重新一致
 
 动作：
 
-1. 拆出 `dense leaf recall` 与 `sparse leaf recall`
-2. 新增 `final-grain aggregation` 层
-3. 让 `_coalesce_key()` 只服务于 final-grain aggregation，不再兼作事后补救
-4. 在 final-grain candidate 上重新定义 fusion
-5. 修正 `retrieval_modes` 为真实来源集合，而不是统一写死
-6. 明确 `score_breakdown` 的字段协议
+1. 明确当前正式代码版本
+2. 明确当前正式 benchmark root
+3. 为所有评测输出补 `chain_version / build_id / index_root / code_commit`
+4. 将旧 hybrid 产物标记为历史结果，不再当作当前基线
+5. 基于当前代码正式重建一次 benchmark 索引并输出 baseline
 
 完成标准：
 
-- `dense/sparse 先聚合，再融合`
-- `score_breakdown` 可解释
-- `top1` 掉分样本可被系统性缩减
+- 任意一份评测结果都能反查到代码版本与索引版本
 
-## 8.2 [lexical.py](/D:/AI应用/langchain-agent/backend/retrieval_core/lexical.py)
+禁止：
 
-当前问题：
+- 继续拿旧 `phase5` 结果代表当前代码
 
-- 仍承担 fallback 与供料双职责
+## Phase 1. 正式检索基线收口
+
+目标：
+
+- 锁定一个“结构契约正确、检索路径简单、可稳定重建”的 baseline
 
 动作：
 
-1. 保持 tokenization / sparse payload 供料能力
-2. 不在本轮继续扩展评分职责
-3. 为 top1 保护提供“exact match / query coverage”类弱信号时，只暴露通用特征，不直接排序
+1. 固定当前 baseline 为：
+   - same ingestion
+   - same chunking
+   - same three-layer nodes
+   - dense + lexical app fusion
+2. 检查 `retrieval_modes / score_breakdown / result_granularity` 的真实性
+3. 明确 parent/document 上下文在 baseline 中是：
+   - 不接
+   - 只回填
+   - 还是参与排序
+   三选一，并写死
+4. 完成 baseline 的 50-query 与 300-query 基线报告
 
 完成标准：
 
-- lexical 不再决定主融合，只提供 sparse 特征和 fallback
+- 当前 baseline 结果稳定，重复跑波动可接受
 
-## 8.3 [service.py](/D:/AI应用/langchain-agent/backend/retrieval/service.py)
+禁止：
 
-当前问题：
+- 在 baseline 阶段偷偷接 sparse/hybrid 新逻辑
 
-- 已有 `hybrid_native_hit_count`，但还缺少 final-grain 级观测
+## Phase 2. Sparse 正式迁移
+
+目标：
+
+- 让 sparse 成为正式候选路径，但还不切主
 
 动作：
 
-1. 增加 `result_granularity` 统计
-2. 增加 `dense_only / sparse_only / hybrid_shared` 统计
-3. shadow compare 里明确区分 native hybrid 与 fallback hybrid
+1. 用当前 `IndexableUnit` 契约正式生成 sparse 表达
+2. 保证 sparse 与 dense 使用同一份节点集
+3. 保留 lexical fallback，但显式标记为 degraded
+4. 新增 sparse-only 对照评测
 
 完成标准：
 
-- 服务层能直接看出一次查询到底走了什么融合路径
+- sparse 结果可独立评测、可独立重建、可独立回退
 
-## 8.4 [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py)
+禁止：
 
-当前问题：
+- sparse 刚接上就直接接管 hybrid 主链
 
-- 还没有直接输出 `hybrid top1` 为何输给 lexical
+## Phase 3. Hybrid 候选对照
+
+目标：
+
+- 先比较，再决定，不预设 native hybrid 一定正确
+
+候选方案：
+
+1. `dense + lexical` app fusion baseline
+2. `dense + qdrant sparse` app fusion
+3. `qdrant native hybrid`
 
 动作：
 
-1. 增加逐题 diff 输出
-2. 增加 `top1 loss bucket` 汇总
-3. 增加 `hybrid vs lexical` 最终粒度对照
+1. 三种方案共用：
+   - 同一 corpus
+   - 同一 chunking
+   - 同一 unit schema
+   - 同一 eval
+2. 输出统一对照报告：
+   - accuracy@1
+   - hit@3
+   - hit@5
+   - mrr@10
+   - latency
+   - 失败样本 bucket
+3. 仅在对照结果稳定后，才决定是否切主
 
 完成标准：
 
-- 每次回归后都能快速看到 top1 损失来自哪里
+- 胜出方案明确，且不是一次性偶然跑分
+
+禁止：
+
+- 方案尚未对照完成就切主链
+
+## Phase 4. Rerank 接入
+
+目标：
+
+- 让 rerank 只承担它该承担的职责
+
+动作：
+
+1. 只对有限候选集做 rerank
+2. 明确 rerank 前 top-k 与 rerank 后 top-n
+3. 输出 `rerank gain / rerank loss` 报告
+4. 检查 rerank 是否只是放大错误召回
+
+完成标准：
+
+- rerank 对稳定候选有净收益，且不依赖隐式补锅
+
+禁止：
+
+- 在一阶段检索不稳定时拿 rerank 刷分
+
+## Phase 5. Cutover 与运营化
+
+目标：
+
+- 真正进入产业可运维状态
+
+动作：
+
+1. 固定正式主链
+2. 保留显式 rollback
+3. 增加 freshness / rebuild / versioning 规则
+4. 增加 retrieval trace 与 audit 字段
+
+完成标准：
+
+- 正式主链、降级主链、benchmark 主链三者关系清晰
 
 ---
 
-## 9. 验证矩阵
+## 7. 文件级执行清单
 
-## 9.1 功能回归
+### 7.1 基线与版本一致性
 
-必须覆盖：
+涉及文件：
 
-- `semantic_lookup` 返回 `document/object`
-- `page_grounded_lookup` 返回 `page/object`
-- `table_lookup` 返回 `object/page/document`
-- `document_overview` 只返回 `document`
+- [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py)
+- [service.py](/D:/AI应用/langchain-agent/backend/retrieval/service.py)
+- [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
 
-## 9.2 breakdown 回归
+动作：
 
-必须覆盖：
+1. 为评测结果补链路版本字段
+2. 为索引元数据补 build/version 标识
+3. 统一服务层 compare 输出口径
 
-- `dense-only` 命中不应带伪 `sparse`
-- `sparse-only` 命中不应带伪 `dense`
-- native hybrid 命中应保留真实 breakdown
+执行顺序：
 
-## 9.3 指标回归
+1. 先改 [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py)
+   产出：
+   - `chain_version`
+   - `code_commit`
+   - `index_root`
+   - `build_id`
+2. 再改 [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
+   产出：
+   - collection metadata 内的 build/version 字段
+   - 重建后可追踪的 index identity
+3. 最后改 [service.py](/D:/AI应用/langchain-agent/backend/retrieval/service.py)
+   产出：
+   - shadow compare 与线上 compare 的统一字段口径
 
-快速集：
+本阶段验收：
 
-- 50-query SciFact
+- 同一份评测 JSON 能反查 commit
+- 同一份索引 metadata 能反查 build
+- service compare 输出与评测字段名称不冲突
 
-正式集：
+### 7.2 检索基线收口
 
-- 300-query SciFact test
+涉及文件：
 
-硬门槛：
+- [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
+- [retrieval_core_phase2_regression.py](/D:/AI应用/langchain-agent/backend/tests/retrieval_core_phase2_regression.py)
+- [retrieval_service_cutover_regression.py](/D:/AI应用/langchain-agent/backend/tests/retrieval_service_cutover_regression.py)
 
-- `hybrid accuracy@1 >= lexical accuracy@1`
-- `hybrid mrr@10 > lexical mrr@10`
-- 最好同时保持 `hit@3 / hit@5` 不回退
+动作：
 
-## 9.4 稳定性回归
+1. 锁定 baseline 检索行为
+2. 锁定 `retrieval_modes / breakdown / granularity`
+3. 停止漂移式修改
 
-要求：
+执行顺序：
 
-- 相同索引、相同配置下连续跑 3 次
-- `accuracy@1` 波动不得超过 `0.01`
+1. 先改 [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
+   只做：
+   - baseline 主链固定
+   - `retrieval_modes` 定义固定
+   - `score_breakdown` 字段固定
+   - `result_granularity` 字段固定
+2. 再改 [retrieval_core_phase2_regression.py](/D:/AI应用/langchain-agent/backend/tests/retrieval_core_phase2_regression.py)
+   只验证：
+   - baseline 行为
+   - 模式字段
+   - 粒度字段
+3. 最后改 [retrieval_service_cutover_regression.py](/D:/AI应用/langchain-agent/backend/tests/retrieval_service_cutover_regression.py)
+   只验证：
+   - service 输出字段
+   - shadow compare 统计
+
+本阶段验收：
+
+- baseline 查询重复执行行为不漂移
+- `retrieval_modes` 不再一会儿叫 `lexical` 一会儿叫 `sparse`
+- 粒度字段定义对所有 query mode 一致
+
+### 7.3 Sparse 迁移
+
+涉及文件：
+
+- [lexical.py](/D:/AI应用/langchain-agent/backend/retrieval_core/lexical.py)
+- [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
+
+动作：
+
+1. 把 sparse 供料层与 fallback 检索层分离
+2. 给 sparse-only 建独立评测口径
+
+执行顺序：
+
+1. 先改 [lexical.py](/D:/AI应用/langchain-agent/backend/retrieval_core/lexical.py)
+   拆成两类职责：
+   - sparse payload 供料
+   - lexical fallback 检索
+2. 再改 [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
+   接入：
+   - sparse-only 路径
+   - degraded fallback 标记
+3. 最后改 [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py)
+   输出：
+   - baseline
+   - sparse-only
+   - degraded fallback
+
+本阶段验收：
+
+- sparse-only 可以独立重建和独立评测
+- fallback 触发时有显式标记
+- 不再用 lexical fallback 冒充正式 sparse
+
+### 7.4 Hybrid 候选比较
+
+涉及文件：
+
+- [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
+- [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py)
+
+动作：
+
+1. 并行保留多种候选方案
+2. 统一输出对照结果
+3. 不在此阶段直接清旧主链
+
+执行顺序：
+
+1. 先改 [llamaindex_backend.py](/D:/AI应用/langchain-agent/backend/retrieval_core/llamaindex_backend.py)
+   增加显式策略开关：
+   - `baseline_dense_lexical`
+   - `dense_sparse_app_fusion`
+   - `qdrant_native_hybrid`
+2. 再改 [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py)
+   让同一批 query 共跑多种策略
+3. 最后输出对照报告
+   统一字段：
+   - metrics
+   - latency
+   - failure buckets
+   - chain version
+
+本阶段验收：
+
+- 三种策略共用同一份索引与 query 集
+- 对照报告能直观看出谁赢、赢在哪里、代价是什么
+- 在此之前不得切任何新主链
+
+### 7.5 Rerank 接入
+
+涉及文件：
+
+- [service.py](/D:/AI应用/langchain-agent/backend/retrieval/service.py)
+- [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py)
+- [retrieval_service_cutover_regression.py](/D:/AI应用/langchain-agent/backend/tests/retrieval_service_cutover_regression.py)
+
+动作：
+
+1. 固定 rerank 输入候选数
+2. 固定 rerank 输出截断数
+3. 输出 rerank 净收益与净损失报告
+
+执行顺序：
+
+1. 先在 [service.py](/D:/AI应用/langchain-agent/backend/retrieval/service.py) 锁候选规模
+2. 再在 [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py) 补 rerank 对照
+3. 最后在 [retrieval_service_cutover_regression.py](/D:/AI应用/langchain-agent/backend/tests/retrieval_service_cutover_regression.py) 固化服务行为
+
+本阶段验收：
+
+- rerank 不再隐式改变召回候选规模
+- rerank 收益和损失都可解释
+- rerank 关闭时 baseline 行为不变
+
+### 7.6 Cutover 与运维化
+
+涉及文件：
+
+- [service.py](/D:/AI应用/langchain-agent/backend/retrieval/service.py)
+- [config.py](/D:/AI应用/langchain-agent/backend/config.py)
+- [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py)
+
+动作：
+
+1. 明确正式策略名
+2. 明确 rollback 策略名
+3. 明确 benchmark 使用哪条正式链路
+
+执行顺序：
+
+1. 先在 [config.py](/D:/AI应用/langchain-agent/backend/config.py) 固化策略枚举
+2. 再在 [service.py](/D:/AI应用/langchain-agent/backend/retrieval/service.py) 固化 cutover 分支
+3. 最后在 [scifact_v2_eval.py](/D:/AI应用/langchain-agent/backend/tests/scifact_v2_eval.py) 保证 benchmark 与正式策略映射清晰
+
+本阶段验收：
+
+- `legacy_only / shadow_read / v2_primary` 之外的策略语义清楚
+- benchmark 不再绕开正式策略入口
+- rollback 可在不改代码的情况下切回
 
 ---
 
-## 10. cutover 与 rollback 规则
+## 8. 验证矩阵
 
-## 10.1 cutover
+### 8.1 基线一致性
 
-只有同时满足下面条件，才允许认为新 `Phase 5` 主链可以切为正式状态：
+- 代码、索引、评测产物是否同版本
+- benchmark 是否只反映当前代码
 
-- final-grain fusion 已替换 leaf-level native fusion 作为主路径
-- SciFact 300-query 上 `hybrid top1` 不再低于 `lexical fallback`
-- 相关回归全部通过
+### 8.2 结构契约
 
-## 10.2 rollback
+- `docs/44` 的分块与三层节点是否稳定
+- retrieval 是否没有重新发明切分逻辑
 
-若出现以下任一情况，必须立即回滚到当前可运行状态：
+### 8.3 检索对照
 
-- final-grain aggregation 让 `hit@5` 大幅下降
-- native hybrid 结果为空的比例异常升高
-- service 统计口径失真，无法继续诊断
+- baseline
+- sparse-only
+- hybrid candidate
+- rerank-on-top
 
-回滚方式：
+### 8.4 稳定性
 
-- 保留当前 `qdrant_native_rrf_with_lexical_fallback` 路径
-- 新实现以 feature flag 或明确分支方式接入，不直接覆盖旧逻辑
-
----
-
-## 11. 执行中的禁区
-
-1. 不允许直接把 lexical top1 当正式答案。
-2. 不允许只调 `prefetch_limit` 当作主修复方案。
-3. 不允许把 rerank 提前拿来补一阶段融合缺陷。
-4. 不允许 benchmark 特化 query 规则。
-5. 不允许 query 白名单或 claim 模板硬编码。
+- 同一版本连续跑 3 次
+- 指标波动和 latency 波动均需记录
 
 ---
 
-## 12. 完成判定
+## 9. Cutover 与 Rollback
 
-只有同时满足下面条件，才允许认为这次 `Phase 5` 修复完成：
+## 9.1 Cutover 原则
 
-- [ ] `dense/sparse` 已先在最终返回粒度上聚合，再融合
-- [ ] native hybrid 的 `retrieval_modes` 与 `score_breakdown` 已真实可解释
-- [ ] 300-query SciFact 上 `hybrid accuracy@1` 已稳定高于 `lexical fallback`
-- [ ] `mrr@10 / hit@3 / hit@5` 不发生明显回退
-- [ ] 相关 regression 全部通过
+只有同时满足下面条件，才允许切主链：
+
+1. 当前 baseline 已可稳定重建
+2. 新候选方案指标稳定优于 baseline
+3. 评测产物与代码版本完全一致
+4. 回归测试全部通过
+
+## 9.2 Rollback 原则
+
+出现以下任一情况，立即回退到 baseline：
+
+1. 代码状态与产物状态失配
+2. accuracy@1 提升不稳定
+3. rerank 仅靠补锅维持收益
+4. retrieval metadata 失真，无法诊断
+
+---
+
+## 10. 完成判定
+
+只有同时满足下面条件，才允许认为这轮检索重构真正完成：
+
+- [ ] `docs/44` 的边界已不再被检索方案越权修改
+- [ ] 当前正式 baseline 已完成锁定与重建
+- [ ] sparse 已成为正式候选能力
+- [ ] hybrid 已通过与 baseline 的正式对照
+- [ ] rerank 已建立在稳定候选之上
+- [ ] benchmark / code / index 三者版本一致
 - [ ] rollback 路径仍然存在
 
-只要其中任一项不满足，就说明 `Phase 5` 仍未完成，不能宣布“正式收口”。
+如果任一项未满足，就说明这轮检索重构仍未完成，不能宣布正式收口。

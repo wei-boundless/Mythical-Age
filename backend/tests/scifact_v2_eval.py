@@ -5,10 +5,11 @@ import hashlib
 import json
 import random
 import statistics
+import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -81,6 +82,152 @@ def _stable_digest(*parts: str) -> str:
     return digest.hexdigest()
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _git_output(*args: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+    except Exception:
+        return ""
+    return completed.stdout.strip()
+
+
+def _git_commit() -> str:
+    return _git_output("rev-parse", "HEAD") or "unknown"
+
+
+def _git_dirty_entries() -> list[dict[str, str]]:
+    try:
+        completed = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+        )
+    except Exception:
+        return []
+    entries: list[dict[str, str]] = []
+    for entry in completed.stdout.split(b"\x00"):
+        if not entry:
+            continue
+        line = entry.decode("utf-8", errors="replace")
+        if not line.strip():
+            continue
+        status = line[:2] if len(line) >= 2 else "??"
+        item = line[3:].strip() if len(line) >= 4 else line.strip()
+        if not item:
+            continue
+        entries.append(
+            {
+                "status": status,
+                "path": item.replace("\\", "/"),
+            }
+        )
+    return entries
+
+
+def _file_sha1(path: Path) -> str:
+    if not path.exists() or not path.is_file():
+        return ""
+    digest = hashlib.sha1()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _file_stat(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {"path": str(path), "exists": False}
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "exists": True,
+        "size_bytes": int(stat.st_size),
+        "modified_ns": int(stat.st_mtime_ns),
+    }
+
+
+def _chain_version(
+    runtime_descriptor: dict[str, object],
+    *,
+    use_rewrite: bool,
+    use_rerank: bool,
+) -> str:
+    base = str(runtime_descriptor.get("chain_version", "") or "").strip()
+    if not base:
+        dense_backend = str(runtime_descriptor.get("dense_backend", "unknown") or "unknown")
+        lexical_backend = str(runtime_descriptor.get("lexical_backend", "unknown") or "unknown")
+        fusion_backend = str(runtime_descriptor.get("fusion_backend", "unknown") or "unknown")
+        base = f"scifact_v2__dense_{dense_backend}__lexical_{lexical_backend}__fusion_{fusion_backend}"
+    rerank_mode = "rerank_on" if use_rerank else "rerank_off"
+    rewrite_mode = "rewrite_on" if use_rewrite else "rewrite_off"
+    return f"{base}__{rewrite_mode}__{rerank_mode}"
+
+
+def _code_lineage() -> dict[str, object]:
+    commit = _git_commit()
+    dirty_entries = _git_dirty_entries()
+    active_dirty_files = [
+        entry["path"]
+        for entry in dirty_entries
+        if "D" not in str(entry.get("status", "") or "")
+    ]
+    deleted_dirty_files = [
+        entry["path"]
+        for entry in dirty_entries
+        if "D" in str(entry.get("status", "") or "")
+    ]
+    tracked_files = [
+        BACKEND_DIR / "tests" / "scifact_v2_eval.py",
+        BACKEND_DIR / "retrieval_core" / "llamaindex_backend.py",
+        BACKEND_DIR / "retrieval" / "service.py",
+    ]
+    file_digests = {str(path.relative_to(PROJECT_ROOT)).replace("\\", "/"): _file_sha1(path) for path in tracked_files}
+    code_signature = _stable_digest(*(file_digests[key] for key in sorted(file_digests)))
+    return {
+        "code_commit": commit,
+        "code_commit_short": commit[:12] if commit != "unknown" else "unknown",
+        "working_tree_dirty": bool(dirty_entries),
+        "dirty_files": active_dirty_files,
+        "deleted_dirty_files": deleted_dirty_files,
+        "dirty_entries": dirty_entries,
+        "tracked_file_digests": file_digests,
+        "retrieval_code_signature": code_signature,
+    }
+
+
+def _index_lineage(backend: LlamaIndexRetrievalBackend, *, index_root: Path, build_payload: dict[str, object]) -> dict[str, object]:
+    meta_path = backend.layout.metadata_path("benchmark")
+    units_path = backend.layout.units_path("benchmark")
+    lexical_path = backend.layout.lexical_dir("benchmark") / "index.json"
+    meta_digest = _file_sha1(meta_path)
+    build_signature = _stable_digest(
+        str(index_root),
+        meta_digest,
+        str(build_payload.get("status", "")),
+        str(build_payload.get("dense_documents", "")),
+        str(build_payload.get("lexical_documents", "")),
+        str(build_payload.get("vector_backend", "")),
+    )
+    return {
+        "index_root": str(index_root),
+        "meta": {**_file_stat(meta_path), "sha1": meta_digest},
+        "units": _file_stat(units_path),
+        "lexical": _file_stat(lexical_path),
+        "build_signature": build_signature,
+    }
+
+
 def _build_units(corpus: pd.DataFrame) -> list[IndexableUnit]:
     units: list[IndexableUnit] = []
     builder = NormalizedDocumentBuilder()
@@ -151,6 +298,8 @@ def _payload_from_hits(hits: list[object]) -> list[dict[str, object]]:
             {
                 "text": str(getattr(hit, "text", "") or ""),
                 "score": float(getattr(hit, "score", 0.0) or 0.0),
+                "score_breakdown": dict(getattr(hit, "score_breakdown", {}) or {}),
+                "result_granularity": str((dict(getattr(hit, "metadata", {}) or {})).get("result_granularity", "") or "block"),
                 "metadata": {
                     **dict(getattr(hit, "metadata", {}) or {}),
                     "doc_id": str(getattr(hit, "doc_id", "") or ""),
@@ -223,7 +372,17 @@ def _evaluate_rankings(rankings: dict[str, list[dict[str, object]]], qrels: dict
     }
 
 
+def _granularity_counts(rankings: dict[str, list[dict[str, object]]]) -> dict[str, int]:
+    counts: dict[str, int] = {"document": 0, "page": 0, "block": 0, "object": 0}
+    for results in rankings.values():
+        for item in results:
+            granularity = str(item.get("result_granularity", "") or (item.get("metadata") or {}).get("result_granularity", "") or "block")
+            counts[granularity] = counts.get(granularity, 0) + 1
+    return counts
+
+
 def run_eval(config: EvalConfig, *, scifact_root: Path, index_root: Path) -> dict[str, object]:
+    started_at_utc = _utc_now_iso()
     corpus, queries, qrels_frame = _load_scifact(scifact_root, config.split)
     qrels = _group_qrels(qrels_frame)
     sampled_queries = _sample_queries(queries, qrels, max_queries=config.max_queries, seed=config.seed)
@@ -250,6 +409,21 @@ def run_eval(config: EvalConfig, *, scifact_root: Path, index_root: Path) -> dic
             f"Benchmark dense path is not healthy: {json.dumps(dense_health, ensure_ascii=False)}. "
             "Use --allow-degraded only for diagnostics."
         )
+    runtime_descriptor = backend.runtime_descriptor()
+    chain_version = _chain_version(
+        runtime_descriptor,
+        use_rewrite=config.use_rewrite,
+        use_rerank=config.use_rerank,
+    )
+    code_lineage = _code_lineage()
+    index_lineage = _index_lineage(backend, index_root=index_root, build_payload=build_payload)
+    build_id = "scifact-eval-" + _stable_digest(
+        started_at_utc,
+        chain_version,
+        str(code_lineage.get("code_commit", "")),
+        str(index_lineage.get("build_signature", "")),
+        json.dumps(asdict(config), ensure_ascii=False, sort_keys=True),
+    )[:12]
 
     rewriter = QueryRewriter()
     reranker = build_reranker(settings)
@@ -298,9 +472,17 @@ def run_eval(config: EvalConfig, *, scifact_root: Path, index_root: Path) -> dic
             )
 
     return {
+        "artifact_schema_version": "scifact_eval_v2",
+        "artifact_created_at_utc": started_at_utc,
+        "build_id": build_id,
+        "chain_version": chain_version,
+        "strategy_name": str(runtime_descriptor.get("strategy_name", "") or "baseline_dense_lexical"),
         "config": asdict(config),
         "scifact_root": str(scifact_root),
         "index_root": str(index_root),
+        "runtime_descriptor": runtime_descriptor,
+        "code_lineage": code_lineage,
+        "index_lineage": index_lineage,
         "build_seconds": round(build_seconds, 3),
         "index_payload": build_payload,
         "dense_health": dense_health,
@@ -308,6 +490,8 @@ def run_eval(config: EvalConfig, *, scifact_root: Path, index_root: Path) -> dic
         "rewrite_changed_queries": rewrite_changes,
         "base_retrieval": _evaluate_rankings(base_rankings, qrels, metric_top_k=config.metric_top_k),
         "current_chain": _evaluate_rankings(final_rankings, qrels, metric_top_k=config.metric_top_k),
+        "base_result_granularity": _granularity_counts(base_rankings),
+        "current_result_granularity": _granularity_counts(final_rankings),
         "latency": {
             "mean_retrieval_seconds": round(statistics.mean(retrieval_latencies), 4) if retrieval_latencies else 0.0,
             "mean_rerank_seconds": round(statistics.mean(rerank_latencies), 4) if rerank_latencies else 0.0,

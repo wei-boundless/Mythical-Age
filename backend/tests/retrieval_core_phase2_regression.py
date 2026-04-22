@@ -84,9 +84,13 @@ def test_llamaindex_backend_can_build_and_retrieve_dense_hits(tmp_path: Path) ->
     assert payload["vector_backend"] == "qdrant"
     assert payload["lexical_enabled"] is True
     assert payload["lexical_documents"] == 2
+    assert payload["strategy_name"] == "baseline_dense_lexical"
+    assert payload["chain_version"]
     assert hits
     assert {hit.doc_id for hit in hits} >= {"doc-1"}
     assert "dense" in hits[0].retrieval_modes
+    assert hits[0].metadata["result_granularity"] == "block"
+    assert hits[0].metadata["chain_version"] == payload["chain_version"]
 
 
 def test_llamaindex_backend_can_retrieve_lexical_hits(tmp_path: Path) -> None:
@@ -138,6 +142,7 @@ def test_llamaindex_backend_can_retrieve_lexical_hits(tmp_path: Path) -> None:
     assert hits
     assert hits[0].doc_id == "doc-2"
     assert "lexical" in hits[0].retrieval_modes
+    assert hits[0].metadata["result_granularity"] == "object"
 
 
 def test_llamaindex_backend_coalesces_same_page_hits(tmp_path: Path) -> None:
@@ -189,6 +194,7 @@ def test_llamaindex_backend_coalesces_same_page_hits(tmp_path: Path) -> None:
     assert len(hits) == 1
     assert hits[0].doc_id == "doc-1"
     assert hits[0].metadata.get("merged_hit_count") == 2
+    assert hits[0].metadata.get("result_granularity") == "document"
     assert "总体框架" in hits[0].text
     assert "风险分类" in hits[0].text
 

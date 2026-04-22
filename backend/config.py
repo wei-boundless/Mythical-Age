@@ -88,6 +88,9 @@ class Settings:
     rerank_api_key: str | None
     rerank_base_url: str | None
     rerank_top_n: int
+    rerank_candidate_pool: int
+    rerank_batch_size: int
+    rerank_max_length: int
     rerank_device: str | None
     mineru_api_enabled: bool
     mineru_api_mode: str
@@ -323,6 +326,39 @@ def _resolve_rerank_top_n() -> int:
     return value if value > 0 else 8
 
 
+def _resolve_rerank_candidate_pool() -> int:
+    raw = _first_env("RERANK_CANDIDATE_POOL")
+    if not raw:
+        return 20
+    try:
+        value = int(raw)
+    except ValueError:
+        return 20
+    return value if value > 0 else 20
+
+
+def _resolve_rerank_batch_size() -> int:
+    raw = _first_env("RERANK_BATCH_SIZE")
+    if not raw:
+        return 8
+    try:
+        value = int(raw)
+    except ValueError:
+        return 8
+    return value if value > 0 else 8
+
+
+def _resolve_rerank_max_length() -> int:
+    raw = _first_env("RERANK_MAX_LENGTH")
+    if not raw:
+        return 512
+    try:
+        value = int(raw)
+    except ValueError:
+        return 512
+    return value if value > 0 else 512
+
+
 def _resolve_rerank_device() -> str | None:
     value = _first_env("RERANK_DEVICE")
     return value or None
@@ -424,6 +460,9 @@ def get_settings() -> Settings:
         rerank_api_key=_resolve_rerank_api_key(),
         rerank_base_url=_resolve_rerank_base_url(),
         rerank_top_n=_resolve_rerank_top_n(),
+        rerank_candidate_pool=_resolve_rerank_candidate_pool(),
+        rerank_batch_size=_resolve_rerank_batch_size(),
+        rerank_max_length=_resolve_rerank_max_length(),
         rerank_device=_resolve_rerank_device(),
         mineru_api_enabled=_resolve_mineru_api_enabled(),
         mineru_api_mode=_resolve_mineru_api_mode(),

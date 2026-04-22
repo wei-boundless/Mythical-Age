@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -8,6 +9,9 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from config import Settings
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -27,6 +31,21 @@ class DictReranker(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
+class NoopReranker:
+    """Explicit no-op reranker used when rerank is disabled."""
+
+    def rerank_dict_results(
+        self,
+        *,
+        query: str,
+        results: list[dict[str, Any]],
+        text_key: str = "text",
+        metadata_key: str = "metadata",
+    ) -> list[dict[str, Any]]:
+        _ = query, text_key, metadata_key
+        return [dict(item) for item in results]
+
+
 class HeuristicReranker:
     """Low-cost lexical reranker for short factual queries.
 
@@ -44,19 +63,22 @@ class HeuristicReranker:
     ) -> list[dict[str, Any]]:
         rescored: list[dict[str, Any]] = []
         for rank, item in enumerate(results, start=1):
+            base_score = float(item.get("score", 0.0) or 0.0)
             score = self.score(
                 query=query,
                 text=str(item.get(text_key, "") or ""),
                 metadata=item.get(metadata_key, {}) or {},
                 source=str(item.get("source", "") or ""),
-                base_score=float(item.get("score", 0.0) or 0.0),
+                base_score=base_score,
                 rank=rank,
             )
             updated = dict(item)
-            updated["score"] = float(item.get("score", 0.0) or 0.0) + score.score
+            updated["retrieval_score"] = float(item.get("retrieval_score", base_score) or 0.0)
+            updated["score"] = base_score + score.score
             updated["rerank_backend"] = "heuristic"
             updated["rerank_score"] = score.score
             updated["rerank_reasons"] = score.reasons
+            updated["rerank_applied"] = True
             rescored.append(updated)
         return sorted(rescored, key=lambda row: float(row.get("score", 0.0)), reverse=True)
 
@@ -140,6 +162,8 @@ class CrossEncoderReranker:
         *,
         model_name: str,
         top_n: int = 8,
+        batch_size: int = 8,
+        max_length: int = 512,
         device: str | None = None,
     ) -> None:
         try:
@@ -152,9 +176,13 @@ class CrossEncoderReranker:
         kwargs: dict[str, Any] = {}
         if device:
             kwargs["device"] = device
+        if max_length > 0:
+            kwargs["max_length"] = max_length
         self._model = CrossEncoder(model_name, **kwargs)
         self.model_name = model_name
         self.top_n = max(top_n, 1)
+        self.batch_size = max(batch_size, 1)
+        self.max_length = max(max_length, 1)
 
     def rerank_dict_results(
         self,
@@ -173,26 +201,37 @@ class CrossEncoderReranker:
         if not pairs:
             return results
 
-        scores = self._model.predict(pairs)
+        scores = self._model.predict(
+            pairs,
+            batch_size=self.batch_size,
+            show_progress_bar=False,
+        )
         rescored: list[dict[str, Any]] = []
         for item, score in zip(head, scores, strict=False):
+            base_score = float(item.get("score", 0.0) or 0.0)
+            item["retrieval_score"] = float(item.get("retrieval_score", base_score) or 0.0)
             item["rerank_backend"] = "cross_encoder"
             item["rerank_model"] = self.model_name
             item["rerank_score"] = float(score)
             item["rerank_reasons"] = ["cross_encoder_score"]
+            item["score"] = float(score)
+            item["rerank_applied"] = True
             rescored.append(item)
 
         rescored.sort(
             key=lambda row: (
                 float(row.get("rerank_score", 0.0)),
-                float(row.get("score", 0.0)),
+                float(row.get("retrieval_score", 0.0)),
             ),
             reverse=True,
         )
 
         for item in tail:
+            base_score = float(item.get("score", 0.0) or 0.0)
+            item["retrieval_score"] = float(item.get("retrieval_score", base_score) or 0.0)
             item["rerank_backend"] = item.get("rerank_backend", "tail_passthrough")
             item["rerank_reasons"] = item.get("rerank_reasons", ["outside_rerank_top_n"])
+            item["rerank_applied"] = False
 
         return rescored + tail
 
@@ -250,23 +289,33 @@ class RemoteApiReranker:
                 continue
             seen.add(index)
             updated = dict(head[index])
+            base_score = float(updated.get("score", 0.0) or 0.0)
+            updated["retrieval_score"] = float(updated.get("retrieval_score", base_score) or 0.0)
             updated["rerank_backend"] = f"{self.provider}_api"
             updated["rerank_model"] = self.model_name
             updated["rerank_score"] = float(item.get("relevance_score", 0.0) or 0.0)
             updated["rerank_reasons"] = ["remote_api_score"]
+            updated["score"] = float(item.get("relevance_score", 0.0) or 0.0)
+            updated["rerank_applied"] = True
             rescored.append(updated)
 
         for index, original in enumerate(head):
             if index in seen:
                 continue
             updated = dict(original)
+            base_score = float(updated.get("score", 0.0) or 0.0)
+            updated["retrieval_score"] = float(updated.get("retrieval_score", base_score) or 0.0)
             updated["rerank_backend"] = updated.get("rerank_backend", "remote_api_tail_passthrough")
             updated["rerank_reasons"] = updated.get("rerank_reasons", ["missing_remote_rerank_score"])
+            updated["rerank_applied"] = False
             rescored.append(updated)
 
         for item in tail:
+            base_score = float(item.get("score", 0.0) or 0.0)
+            item["retrieval_score"] = float(item.get("retrieval_score", base_score) or 0.0)
             item["rerank_backend"] = item.get("rerank_backend", "tail_passthrough")
             item["rerank_reasons"] = item.get("rerank_reasons", ["outside_rerank_top_n"])
+            item["rerank_applied"] = False
 
         return rescored + tail
 
@@ -341,7 +390,7 @@ class RemoteApiReranker:
 
 def build_reranker(settings: Settings) -> DictReranker:
     if not settings.rerank_enabled:
-        return HeuristicReranker()
+        return NoopReranker()
 
     provider = (settings.rerank_provider or "heuristic").strip().lower()
     if provider == "heuristic":
@@ -350,14 +399,21 @@ def build_reranker(settings: Settings) -> DictReranker:
     if provider in {"cross_encoder", "sentence_transformers", "huggingface"}:
         model_name = settings.rerank_model
         if not model_name:
+            logger.warning("Cross-encoder rerank requested but RERANK_MODEL is empty; falling back to heuristic reranker.")
             return HeuristicReranker()
         try:
             return CrossEncoderReranker(
                 model_name=model_name,
                 top_n=settings.rerank_top_n,
+                batch_size=settings.rerank_batch_size,
+                max_length=settings.rerank_max_length,
                 device=settings.rerank_device,
             )
         except Exception:
+            logger.exception(
+                "Failed to initialize cross-encoder reranker model=%s; falling back to heuristic reranker.",
+                model_name,
+            )
             return HeuristicReranker()
 
     if provider in {"bailian", "dashscope", "qwen", "remote_api", "remote"}:
@@ -365,6 +421,9 @@ def build_reranker(settings: Settings) -> DictReranker:
         api_key = settings.rerank_api_key
         base_url = settings.rerank_base_url
         if not model_name or not api_key or not base_url:
+            logger.warning(
+                "Remote rerank requested but model/api_key/base_url is incomplete; falling back to heuristic reranker."
+            )
             return HeuristicReranker()
         try:
             return RemoteApiReranker(
@@ -375,6 +434,12 @@ def build_reranker(settings: Settings) -> DictReranker:
                 top_n=settings.rerank_top_n,
             )
         except Exception:
+            logger.exception(
+                "Failed to initialize remote reranker provider=%s model=%s; falling back to heuristic reranker.",
+                provider,
+                model_name,
+            )
             return HeuristicReranker()
 
+    logger.warning("Unknown rerank provider=%s; falling back to heuristic reranker.", provider)
     return HeuristicReranker()

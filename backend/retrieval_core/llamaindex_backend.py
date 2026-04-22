@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -39,9 +41,10 @@ class LlamaIndexRetrievalBackend:
     ) -> dict[str, Any]:
         self.ensure_layout(collections=(collection,))
         self._write_units(collection, units)
+        build_meta = self._new_build_meta(collection, units)
 
         lexical_units = self._lexical_candidate_units(units)
-        lexical_payload = self._build_collection_lexical(collection, lexical_units)
+        lexical_payload = self._build_collection_lexical(collection, lexical_units, build_meta=build_meta)
         dense_units = [unit for unit in units if unit.text.strip()]
 
         if not dense_units:
@@ -53,13 +56,19 @@ class LlamaIndexRetrievalBackend:
                     "vector_backend": self._dense_backend(),
                 },
                 lexical_payload,
+                build_meta=build_meta,
             )
             self._write_metadata(collection, payload)
             return payload
 
         if self._dense_backend() == "qdrant":
-            dense_payload = self._build_collection_qdrant(collection, dense_units, embed_model=embed_model)
-            payload = self._merge_collection_payload(dense_payload, lexical_payload)
+            dense_payload = self._build_collection_qdrant(
+                collection,
+                dense_units,
+                embed_model=embed_model,
+                build_meta=build_meta,
+            )
+            payload = self._merge_collection_payload(dense_payload, lexical_payload, build_meta=build_meta)
             self._write_metadata(collection, payload)
             return payload
 
@@ -78,6 +87,7 @@ class LlamaIndexRetrievalBackend:
                     "vector_backend": self._dense_backend(),
                 },
                 lexical_payload,
+                build_meta=build_meta,
             ),
         )
         LlamaSettings.embed_model = embed_model or build_embedding_model(self.settings)
@@ -90,7 +100,7 @@ class LlamaIndexRetrievalBackend:
             "parser_backends": sorted({str(doc.metadata.get("parser_backend", "") or "") for doc in documents}),
             "vector_backend": self._dense_backend(),
         }
-        payload = self._merge_collection_payload(dense_payload, lexical_payload)
+        payload = self._merge_collection_payload(dense_payload, lexical_payload, build_meta=build_meta)
         self._write_metadata(collection, payload)
         return payload
 
@@ -187,6 +197,7 @@ class LlamaIndexRetrievalBackend:
         units: list[IndexableUnit],
         *,
         embed_model: object | None = None,
+        build_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         from qdrant_client import models as qmodels
 
@@ -220,6 +231,7 @@ class LlamaIndexRetrievalBackend:
                     "vector_backend": "qdrant",
                     "qdrant_collection": collection_name,
                     "build_batch_size": batch_size,
+                    **dict(build_meta or {}),
                 },
             )
             for start in range(0, total_units, batch_size):
@@ -232,16 +244,18 @@ class LlamaIndexRetrievalBackend:
                         client.delete_collection(collection_name)
                     client.create_collection(
                         collection_name=collection_name,
-                        vectors_config=qmodels.VectorParams(
-                            size=len(batch_vectors[0]),
-                            distance=qmodels.Distance.COSINE,
-                        ),
+                        vectors_config={
+                            "dense": qmodels.VectorParams(
+                                size=len(batch_vectors[0]),
+                                distance=qmodels.Distance.COSINE,
+                            )
+                        },
                     )
                     created = True
                 points = [
                     qmodels.PointStruct(
                         id=start + index + 1,
-                        vector=vector,
+                        vector={"dense": vector},
                         payload=self._payload_from_unit(unit),
                     )
                     for index, (unit, vector) in enumerate(zip(batch_units, batch_vectors, strict=False))
@@ -258,6 +272,7 @@ class LlamaIndexRetrievalBackend:
                     "qdrant_collection": collection_name,
                     "build_batch_size": batch_size,
                     "parser_backends": parser_backends,
+                    **dict(build_meta or {}),
                 }
                 self._write_metadata(collection, progress_payload)
                 self._emit_build_progress(
@@ -300,6 +315,7 @@ class LlamaIndexRetrievalBackend:
             "build_batch_size": batch_size,
             "dense_status": status,
             "dense_verification": verification,
+            "dense_vector_name": "dense",
         }
 
     def _retrieve_dense_qdrant(
@@ -327,6 +343,7 @@ class LlamaIndexRetrievalBackend:
                 limit=request.top_k,
                 with_payload=True,
                 with_vectors=False,
+                using=self._qdrant_dense_vector_name(client, collection_name),
             )
         finally:
             close = getattr(client, "close", None)
@@ -353,16 +370,26 @@ class LlamaIndexRetrievalBackend:
                 quality_flags=tuple(payload.get("quality_flags", ()) or ()),
             )
             hits.append(
-                to_retrieval_hit(
-                    unit,
-                    score=float(getattr(item, "score", 0.0) or 0.0),
-                    retrieval_modes=("dense",),
-                    parser_backend=str(payload.get("parser_backend", "") or ""),
+                self._annotate_hit(
+                    to_retrieval_hit(
+                        unit,
+                        score=float(getattr(item, "score", 0.0) or 0.0),
+                        retrieval_modes=("dense",),
+                        parser_backend=str(payload.get("parser_backend", "") or ""),
+                    ),
+                    query_mode=request.query_mode,
+                    retrieval_stage="dense",
                 )
             )
         return hits
 
-    def _build_collection_lexical(self, collection: str, units: list[IndexableUnit]) -> dict[str, Any]:
+    def _build_collection_lexical(
+        self,
+        collection: str,
+        units: list[IndexableUnit],
+        *,
+        build_meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         lexical_dir = self.layout.lexical_dir(collection)
         self._reset_dir(lexical_dir)
         lexical_dir.mkdir(parents=True, exist_ok=True)
@@ -386,6 +413,7 @@ class LlamaIndexRetrievalBackend:
             "tokenizer": "mixed_word_cjk_bigram_v1",
             "k1": index_payload["k1"],
             "b": index_payload["b"],
+            **dict(build_meta or {}),
         }
         (lexical_dir / "meta.json").write_text(
             json.dumps(meta_payload, ensure_ascii=False, indent=2),
@@ -429,11 +457,15 @@ class LlamaIndexRetrievalBackend:
                 quality_flags=tuple(item.get("quality_flags", ()) or ()),
             )
             hits.append(
-                to_retrieval_hit(
-                    unit,
-                    score=float(score or 0.0),
-                    retrieval_modes=("lexical",),
-                    parser_backend=str(item.get("parser_backend", "") or ""),
+                self._annotate_hit(
+                    to_retrieval_hit(
+                        unit,
+                        score=float(score or 0.0),
+                        retrieval_modes=("lexical",),
+                        parser_backend=str(item.get("parser_backend", "") or ""),
+                    ),
+                    query_mode=request.query_mode,
+                    retrieval_stage="lexical",
                 )
             )
         return hits
@@ -448,10 +480,37 @@ class LlamaIndexRetrievalBackend:
 
     def _write_metadata(self, collection: str, payload: dict[str, Any]) -> None:
         self.layout.collection_dir(collection).mkdir(parents=True, exist_ok=True)
+        enriched = dict(payload)
+        enriched["metadata_schema_version"] = "retrieval_v2_meta_v1"
+        enriched["layout_root"] = str(self.layout.root)
+        enriched["collection_dir"] = str(self.layout.collection_dir(collection))
+        enriched["metadata_path"] = str(self.layout.metadata_path(collection))
+        enriched["written_at_utc"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self.layout.metadata_path(collection).write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
+            json.dumps(enriched, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    def runtime_descriptor(self) -> dict[str, Any]:
+        return {
+            "retrieval_backend": "llamaindex_v2",
+            "dense_backend": self._dense_backend(),
+            "sparse_backend": "none",
+            "lexical_backend": "application_bm25",
+            "fusion_backend": "application_rrf_like",
+            "coalesce_backend": "application_level",
+            "strategy_name": "baseline_dense_lexical",
+            "chain_version": self.baseline_chain_version(),
+            "primary_chain": [
+                "dense_retrieval",
+                "application_lexical_retrieval",
+                "application_fusion",
+                "coalesce",
+            ],
+        }
+
+    def baseline_chain_version(self) -> str:
+        return "baseline_dense_lexical__qdrant_dense__app_bm25__app_fusion__coalesce_v1"
 
     def _write_units(self, collection: str, units: list[IndexableUnit]) -> None:
         payload = [
@@ -564,6 +623,7 @@ class LlamaIndexRetrievalBackend:
                 limit=1,
                 with_payload=False,
                 with_vectors=False,
+                using=self._qdrant_dense_vector_name(client, collection_name),
             )
             payload["query_ok"] = bool(getattr(result, "points", []) or [])
             payload["status"] = "ready" if payload["query_ok"] else "invalid"
@@ -584,6 +644,21 @@ class LlamaIndexRetrievalBackend:
             text = str(unit.text or "").strip()
             if text:
                 return text[:512]
+        return None
+
+    def _qdrant_dense_vector_name(self, client: Any, collection_name: str) -> str | None:
+        try:
+            info = client.get_collection(collection_name)
+        except Exception:
+            return None
+        params = getattr(getattr(info, "config", None), "params", None)
+        vectors = getattr(params, "vectors", None)
+        if isinstance(vectors, dict):
+            if "dense" in vectors:
+                return "dense"
+            keys = [str(key) for key in vectors.keys() if str(key).strip()]
+            if len(keys) == 1:
+                return keys[0]
         return None
 
     def _embed_texts(self, embed_model: object, texts: list[str]) -> list[list[float]]:
@@ -655,6 +730,8 @@ class LlamaIndexRetrievalBackend:
         self,
         dense_payload: dict[str, Any],
         lexical_payload: dict[str, Any],
+        *,
+        build_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload = dict(dense_payload)
         lexical_documents = int(lexical_payload.get("lexical_documents", 0) or 0)
@@ -662,6 +739,11 @@ class LlamaIndexRetrievalBackend:
         payload["lexical_documents"] = lexical_documents
         if lexical_payload.get("status"):
             payload["lexical_status"] = str(lexical_payload["status"])
+        payload["strategy_name"] = "baseline_dense_lexical"
+        payload["chain_version"] = self.baseline_chain_version()
+        payload["runtime_descriptor"] = self.runtime_descriptor()
+        if build_meta:
+            payload.update(dict(build_meta))
         return payload
 
     def _fuse_hits(
@@ -699,12 +781,23 @@ class LlamaIndexRetrievalBackend:
                 entry["breakdown"][mode] = float(getattr(hit, "score", 0.0) or 0.0)
                 if mode not in entry["modes"]:
                     entry["modes"].append(mode)
+                if len(entry["modes"]) > 1 and "fusion" not in entry["modes"]:
+                    entry["modes"].append("fusion")
 
         fused_hits: list[RetrievalHit] = []
         for entry in merged.values():
             base = entry["primary"]
             breakdown = dict(entry["breakdown"])
             breakdown["fusion"] = float(entry["score"])
+            breakdown["final"] = float(entry["score"])
+            metadata = dict(getattr(base, "metadata", {}) or {})
+            metadata["retrieval_stage"] = "fused"
+            metadata["result_granularity"] = self._result_granularity(
+                object_ref_id=getattr(base, "object_ref_id", None),
+                page=getattr(base, "page", None),
+                query_mode=request.query_mode,
+            )
+            metadata["chain_version"] = self.baseline_chain_version()
             fused_hits.append(
                 RetrievalHit(
                     text=str(getattr(base, "text", "")),
@@ -712,7 +805,7 @@ class LlamaIndexRetrievalBackend:
                     modality=str(getattr(base, "modality", "text")),
                     score=float(entry["score"]),
                     page=getattr(base, "page", None),
-                    metadata=dict(getattr(base, "metadata", {}) or {}),
+                    metadata=metadata,
                     hit_id=getattr(base, "hit_id", None),
                     doc_id=getattr(base, "doc_id", None),
                     block_id=getattr(base, "block_id", None),
@@ -772,6 +865,13 @@ class LlamaIndexRetrievalBackend:
                 for item in bucket
                 if str(item.block_id or "").strip()
             ]
+            merged_metadata["retrieval_stage"] = "coalesced"
+            merged_metadata["result_granularity"] = self._result_granularity(
+                object_ref_id=primary.object_ref_id,
+                page=primary.page,
+                query_mode=request.query_mode,
+            )
+            merged_metadata["chain_version"] = self.baseline_chain_version()
             merged_hits.append(
                 RetrievalHit(
                     text=merged_text,
@@ -864,7 +964,65 @@ class LlamaIndexRetrievalBackend:
             for key, value in dict(hit.score_breakdown).items():
                 merged[key] = max(float(merged.get(key, 0.0)), float(value or 0.0))
         merged["merged_hit_count"] = float(len(hits))
+        merged["final"] = max(float(hit.score or 0.0) for hit in hits) if hits else 0.0
         return merged
+
+    def _annotate_hit(
+        self,
+        hit: RetrievalHit,
+        *,
+        query_mode: str,
+        retrieval_stage: str,
+    ) -> RetrievalHit:
+        metadata = dict(hit.metadata)
+        metadata["result_granularity"] = self._result_granularity(
+            object_ref_id=hit.object_ref_id,
+            page=hit.page,
+            query_mode=query_mode,
+        )
+        metadata["retrieval_stage"] = retrieval_stage
+        metadata["chain_version"] = self.baseline_chain_version()
+        return RetrievalHit(
+            text=hit.text,
+            source=hit.source,
+            modality=hit.modality,
+            score=hit.score,
+            page=hit.page,
+            metadata=metadata,
+            hit_id=hit.hit_id,
+            doc_id=hit.doc_id,
+            block_id=hit.block_id,
+            object_ref_id=hit.object_ref_id,
+            block_type=hit.block_type,
+            section_path=hit.section_path,
+            score_breakdown=dict(hit.score_breakdown),
+            retrieval_modes=tuple(hit.retrieval_modes),
+            parser_backend=hit.parser_backend,
+            quality_flags=hit.quality_flags,
+        )
+
+    def _result_granularity(self, *, object_ref_id: object | None, page: object | None, query_mode: str) -> str:
+        if str(object_ref_id or "").strip():
+            return "object"
+        if str(query_mode or "") == "document_overview":
+            return "document"
+        if page not in (None, "", 0):
+            return "page"
+        return "block"
+
+    def _new_build_meta(self, collection: str, units: list[IndexableUnit]) -> dict[str, Any]:
+        started = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        digest = hashlib.sha1()
+        digest.update(collection.encode("utf-8", errors="ignore"))
+        digest.update(str(len(units)).encode("utf-8"))
+        digest.update(started.encode("utf-8"))
+        for unit in units[:32]:
+            digest.update(str(unit.unit_id).encode("utf-8", errors="ignore"))
+            digest.update(str(unit.doc_id).encode("utf-8", errors="ignore"))
+        return {
+            "build_id": f"{collection}-{digest.hexdigest()[:12]}",
+            "build_started_at_utc": started,
+        }
 
     def _payload_to_unit_payload(self, value: object) -> dict[str, Any]:
         if isinstance(value, dict):

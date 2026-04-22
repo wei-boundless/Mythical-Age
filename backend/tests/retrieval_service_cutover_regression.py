@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
@@ -63,16 +64,27 @@ class _DummyBackend:
             modality = "text"
             page = None
             score = 0.9
-            metadata = {"collection": "knowledge" if "durable_memory" not in collections else "durable_memory"}
+            metadata = {
+                "collection": "knowledge" if "durable_memory" not in collections else "durable_memory",
+                "result_granularity": "block",
+                "chain_version": "baseline_dense_lexical__qdrant_dense__app_bm25__app_fusion__coalesce_v1",
+            }
             doc_id = "doc-1" if "durable_memory" not in collections else "doc-memory"
             block_id = "block-1" if "durable_memory" not in collections else "block-memory"
             object_ref_id = None
             block_type = "paragraph"
             section_path = ()
-            retrieval_modes = ("dense",) if "durable_memory" not in collections else ("dense", "lexical")
+            retrieval_modes = ("dense",) if "durable_memory" not in collections else ("dense", "lexical", "fusion")
+            score_breakdown = {"final": 0.9}
             parser_backend = "docling"
             quality_flags = ()
         return [Hit()]
+
+    def runtime_descriptor(self):
+        return {
+            "strategy_name": "baseline_dense_lexical",
+            "chain_version": "baseline_dense_lexical__qdrant_dense__app_bm25__app_fusion__coalesce_v1",
+        }
 
 
 def test_retrieval_service_defaults_to_legacy_only(tmp_path: Path, monkeypatch) -> None:
@@ -110,6 +122,8 @@ def test_retrieval_service_shadow_read_keeps_legacy_and_records_compare(tmp_path
     assert compare["v2_hit_count"] == 1
     assert compare["retrieval_backend"] == "llamaindex_v2"
     assert compare["dense_hit_count"] == 1
+    assert compare["compare_schema_version"] == "retrieval_compare_v2"
+    assert compare["chain_version"]
     assert compare["legacy_latency_ms"] is not None
     assert compare["v2_latency_ms"] is not None
 
@@ -118,6 +132,7 @@ def test_retrieval_service_v2_primary_returns_v2_payload(tmp_path: Path, monkeyp
     service = RetrievalService(tmp_path)
     service.router = _DummyRouter()
     service.v2_bootstrapper.backend = _DummyBackend()
+    service._settings = SimpleNamespace(rerank_enabled=True, rerank_top_n=8, rerank_candidate_pool=20)
     monkeypatch.setattr("retrieval.service.runtime_config.get_retrieval_cutover_mode", lambda: "v2_primary")
     monkeypatch.setattr("retrieval.service.runtime_config.get_retrieval_shadow_compare", lambda: False)
 
@@ -125,6 +140,12 @@ def test_retrieval_service_v2_primary_returns_v2_payload(tmp_path: Path, monkeyp
 
     assert payload[0]["text"] == "v2 answer"
     assert payload[0]["metadata"]["doc_id"] == "doc-1"
+    assert payload[0]["result_granularity"] == "block"
+    assert payload[0]["chain_version"]
+    assert payload[0]["score_breakdown"]
+    assert payload[0]["candidate_rank"] == 1
+    assert payload[0]["rerank_rank"] == 1
+    assert payload[0]["retrieval_score"] == 0.9
     assert payload[0]["rerank_backend"] == "dummy"
     assert payload[0]["rerank_query"] == "q"
 
@@ -139,3 +160,17 @@ def test_retrieval_service_memory_queries_use_v2_backend(tmp_path: Path) -> None
     assert payload[0]["collection"] == "durable_memory"
     assert payload[0]["retrieval_backend"] == "llamaindex_v2"
     assert payload[0]["metadata"]["doc_id"] == "doc-memory"
+
+
+def test_v2_candidate_pool_expands_when_rerank_enabled(tmp_path: Path) -> None:
+    service = RetrievalService(tmp_path)
+    service._settings = SimpleNamespace(rerank_enabled=True, rerank_top_n=12, rerank_candidate_pool=20)
+
+    assert service._v2_candidate_top_k(3) == 20
+
+
+def test_v2_candidate_pool_stays_near_request_when_rerank_disabled(tmp_path: Path) -> None:
+    service = RetrievalService(tmp_path)
+    service._settings = SimpleNamespace(rerank_enabled=False, rerank_top_n=12, rerank_candidate_pool=20)
+
+    assert service._v2_candidate_top_k(3) == 8

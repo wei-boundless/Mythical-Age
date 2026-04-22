@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from RAG.reranker import RemoteApiReranker, build_reranker
+from RAG.reranker import NoopReranker, RemoteApiReranker, build_reranker
 
 
 class FakeResponse:
@@ -89,12 +89,26 @@ def main() -> None:
         assert ranked[3]["rerank_backend"] == "tail_passthrough"
 
         settings = SimpleNamespace(
+            rerank_enabled=False,
+            rerank_provider="heuristic",
+            rerank_model=None,
+            rerank_api_key=None,
+            rerank_base_url=None,
+            rerank_top_n=8,
+            rerank_candidate_pool=20,
+            rerank_device=None,
+        )
+        disabled = build_reranker(settings)
+        assert isinstance(disabled, NoopReranker)
+
+        settings = SimpleNamespace(
             rerank_enabled=True,
             rerank_provider="bailian",
             rerank_model="qwen3-rerank",
             rerank_api_key="sk-test",
             rerank_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
             rerank_top_n=8,
+            rerank_candidate_pool=20,
             rerank_device=None,
         )
         built = build_reranker(settings)

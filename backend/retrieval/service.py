@@ -192,6 +192,7 @@ class RetrievalService:
         from retrieval_core import RetrievalRequest
 
         candidate_top_k = self._v2_candidate_top_k(top_k)
+        runtime_descriptor = self._v2_runtime_descriptor()
         hits = self.v2_bootstrapper.backend.retrieve(
             RetrievalRequest(
                 query=str(plan.rewritten_query or plan.query),
@@ -201,7 +202,9 @@ class RetrievalService:
             )
         )
         payload: list[dict[str, Any]] = []
-        for hit in hits[:candidate_top_k]:
+        for candidate_rank, hit in enumerate(hits[:candidate_top_k], start=1):
+            score_breakdown = dict(getattr(hit, "score_breakdown", {}) or {})
+            score_breakdown.setdefault("retrieval_score", float(hit.score or 0.0))
             payload.append(
                 {
                     "text": hit.text,
@@ -209,12 +212,17 @@ class RetrievalService:
                     "modality": hit.modality,
                     "page": hit.page,
                     "score": hit.score,
+                    "retrieval_score": hit.score,
+                    "candidate_rank": candidate_rank,
                     "collection": self._collection_from_hit(hit, plan),
                     "reason": str(plan.reason or ""),
                     "rewritten_query": str(plan.rewritten_query or plan.query),
                     "rewrite_keywords": list(getattr(plan.rewrite, "keywords", []) or []),
                     "rewrite_rules": list(getattr(plan.rewrite, "applied_rules", []) or []),
                     "retrieval_backend": "llamaindex_v2",
+                    "result_granularity": str(dict(hit.metadata).get("result_granularity", "") or "block"),
+                    "score_breakdown": score_breakdown,
+                    "chain_version": str(runtime_descriptor.get("chain_version", "") or ""),
                     "metadata": {
                         **dict(hit.metadata),
                         "doc_id": hit.doc_id,
@@ -229,7 +237,12 @@ class RetrievalService:
                 }
             )
         reranked = self._rerank_v2_payload(query=str(plan.query or plan.rewrite.original_query), payload=payload)
-        return reranked[:top_k]
+        finalized: list[dict[str, Any]] = []
+        for rerank_rank, item in enumerate(reranked, start=1):
+            updated = dict(item)
+            updated["rerank_rank"] = rerank_rank
+            finalized.append(updated)
+        return finalized[:top_k]
 
     def _rerank_v2_payload(self, *, query: str, payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not payload:
@@ -246,8 +259,12 @@ class RetrievalService:
         return [dict(item) for item in ranked]
 
     def _v2_candidate_top_k(self, top_k: int) -> int:
-        rerank_top_n = int(getattr(self._settings, "rerank_top_n", 8) or 8)
-        return max(int(top_k or 1), rerank_top_n, 8)
+        requested = max(int(top_k or 1), 1)
+        if not bool(getattr(self._settings, "rerank_enabled", False)):
+            return max(requested, 8)
+        rerank_top_n = max(int(getattr(self._settings, "rerank_top_n", requested) or requested), 1)
+        rerank_candidate_pool = max(int(getattr(self._settings, "rerank_candidate_pool", 20) or 20), 1)
+        return max(requested, rerank_top_n, rerank_candidate_pool)
 
     def _record_shadow_compare(
         self,
@@ -261,6 +278,7 @@ class RetrievalService:
     ) -> None:
         mode_counts = self._payload_mode_counts(v2_payload)
         compare = {
+            "compare_schema_version": "retrieval_compare_v2",
             "query": query,
             "query_mode": self._query_mode_from_plan(plan),
             "collections": list(plan.selected_collections),
@@ -274,6 +292,9 @@ class RetrievalService:
             "dense_hit_count": mode_counts["dense"],
             "lexical_hit_count": mode_counts["lexical"],
             "fusion_hit_count": mode_counts["fusion"],
+            "rerank_hit_count": sum(1 for item in v2_payload if bool(item.get("rerank_applied"))),
+            "result_granularity_counts": self._payload_granularity_counts(v2_payload),
+            "chain_version": str(self._v2_runtime_descriptor().get("chain_version", "") or ""),
         }
         self._last_shadow_compare = compare
         logger.info("retrieval shadow compare: %s", compare)
@@ -305,6 +326,21 @@ class RetrievalService:
                 counts["dense"] += 1
             if "lexical" in modes:
                 counts["lexical"] += 1
-            if len(modes) > 1:
+            if "fusion" in modes or len(modes) > 1:
                 counts["fusion"] += 1
         return counts
+
+    def _payload_granularity_counts(self, payload: list[dict[str, Any]]) -> dict[str, int]:
+        counts = {"document": 0, "page": 0, "block": 0, "object": 0}
+        for item in payload:
+            granularity = str(item.get("result_granularity", "") or dict(item.get("metadata", {}) or {}).get("result_granularity", "") or "block")
+            if granularity not in counts:
+                counts[granularity] = 0
+            counts[granularity] += 1
+        return counts
+
+    def _v2_runtime_descriptor(self) -> dict[str, Any]:
+        descriptor = getattr(self.v2_bootstrapper.backend, "runtime_descriptor", None)
+        if callable(descriptor):
+            return dict(descriptor())
+        return {"chain_version": "", "strategy_name": ""}

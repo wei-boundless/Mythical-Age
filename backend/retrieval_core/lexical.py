@@ -5,7 +5,7 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Sequence
 
 
 def normalize_text(text: str) -> str:
@@ -248,110 +248,3 @@ def required_bm25_term_matches(query: str) -> int:
     if unique_terms <= 5:
         return 2
     return max(2, math.ceil(unique_terms * 0.35))
-
-
-def reciprocal_rank_fusion(rank: int, *, weight: float = 1.0, k: float = 50.0) -> float:
-    return weight / (rank + k)
-
-
-def merge_scores(*parts: float) -> float:
-    return sum(parts)
-
-
-def normalize_dense_score(score: float) -> float:
-    if score < 0:
-        return 0.0
-    if score > 1:
-        return 1.0
-    return score
-
-
-def normalize_keyword_score(score: float, *, ceiling: float | None = None) -> float:
-    if score <= 0:
-        return 0.0
-    if ceiling is not None and ceiling > 0:
-        return min(score / ceiling, 1.0)
-    return score / (score + 1.0)
-
-
-def hybrid_fuse_payload(
-    *,
-    query: str,
-    dense_payload: list[dict[str, Any]],
-    docs: list[Any],
-    top_k: int,
-    bm25_index: BM25Index | None = None,
-) -> list[dict[str, Any]]:
-    fused: dict[str, dict[str, Any]] = {}
-    for rank, item in enumerate(dense_payload, start=1):
-        metadata = dict(item.get("metadata") or {})
-        key = str(metadata.get("doc_id", "")) or f"dense::{rank}"
-        fused[key] = {
-            **item,
-            "score": merge_scores(
-                reciprocal_rank_fusion(rank),
-                normalize_dense_score(float(item.get("score", 0.0) or 0.0)),
-            ),
-            "hybrid_reasons": ["dense"],
-        }
-
-    active_bm25 = bm25_index or BM25Index.from_texts(
-        [
-            build_searchable_text(
-                str(getattr(doc, "text", "") or ""),
-                source=str(getattr(doc, "metadata", {}).get("source", "") or ""),
-                metadata=dict(getattr(doc, "metadata", {}) or {}),
-            )
-            for doc in docs
-        ]
-    )
-
-    lexical_rows: list[dict[str, Any]] = []
-    min_term_matches = required_bm25_term_matches(query)
-    for match in active_bm25.search(query, top_k=top_k * 2):
-        if match.matched_term_count < min_term_matches:
-            continue
-        doc = docs[match.index]
-        metadata = dict(getattr(doc, "metadata", {}) or {})
-        lexical_rows.append(
-            {
-                "text": str(getattr(doc, "text", "") or ""),
-                "source": str(metadata.get("source", "") or ""),
-                "metadata": metadata,
-                "keyword_score": float(match.score),
-                "hybrid_reasons": [
-                    "bm25",
-                    f"matched_terms:{len(match.matched_terms)}",
-                    *[f"term:{term}" for term in match.matched_terms[:3]],
-                    "keyword",
-                ],
-            }
-        )
-        if len(lexical_rows) >= top_k:
-            break
-
-    best_keyword_score = max(float(row["keyword_score"]) for row in lexical_rows) if lexical_rows else 0.0
-    for rank, item in enumerate(lexical_rows[:top_k], start=1):
-        metadata = dict(item.get("metadata") or {})
-        key = str(metadata.get("doc_id", "")) or f"keyword::{rank}"
-        lexical_score = merge_scores(
-            reciprocal_rank_fusion(rank),
-            normalize_keyword_score(
-                float(item["keyword_score"]),
-                ceiling=best_keyword_score,
-            ),
-        )
-        if key in fused:
-            fused[key]["score"] = float(fused[key]["score"]) + lexical_score
-            fused[key]["hybrid_reasons"] = list(
-                dict.fromkeys(list(fused[key].get("hybrid_reasons", [])) + list(item["hybrid_reasons"]))
-            )
-        else:
-            fused[key] = {
-                "text": item["text"],
-                "source": item["source"],
-                "metadata": metadata,
-                "score": lexical_score,
-                "hybrid_reasons": item["hybrid_reasons"],
-            }
-    return sorted(fused.values(), key=lambda row: float(row.get("score", 0.0)), reverse=True)[:top_k]

@@ -20,7 +20,7 @@ class CollectionHandle:
         self.name = name
         self.config = config
 
-    def retrieve_hybrid(self, query: str, top_k: int = 5, dense_top_k: int | None = None) -> list[RetrievalHit]:
+    def retrieve(self, query: str, top_k: int = 5, dense_top_k: int | None = None) -> list[RetrievalHit]:
         limit = max(int(top_k or 1), int(dense_top_k or 0))
         return self._registry.retrieve_collection(
             self.name,

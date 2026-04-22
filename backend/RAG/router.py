@@ -29,8 +29,17 @@ class RAGQueryRouter:
         self.ocr_language = ocr_language
         self.collection_configs = build_default_collections(base_dir)
         self.rewriter = QueryRewriter()
+        self._settings: Any | None = None
         self._registry: RAGIndexRegistry | Any | None = None
         self._reranker: DictReranker | Any | None = None
+
+    @property
+    def settings(self) -> Any:
+        if self._settings is None:
+            from config import get_settings
+
+            self._settings = get_settings()
+        return self._settings
 
     @property
     def registry(self) -> Any:
@@ -98,7 +107,7 @@ class RAGQueryRouter:
 
         with ThreadPoolExecutor(max_workers=max(1, len(plan.selected_collections))) as pool:
             future_map = {
-                pool.submit(self.registry.get(name).retrieve_hybrid, plan.rewritten_query, top_k): name
+                pool.submit(self.registry.get(name).retrieve, plan.rewritten_query, top_k): name
                 for name in plan.selected_collections
             }
             for future, name in future_map.items():
@@ -108,8 +117,9 @@ class RAGQueryRouter:
                     results_by_collection[name] = []
 
         fused = self._fuse(plan.selected_collections, results_by_collection)
+        candidate_top_k = self._candidate_top_k(top_k)
         payload: list[dict[str, Any]] = []
-        for item in fused[:top_k]:
+        for candidate_rank, item in enumerate(fused[:candidate_top_k], start=1):
             hit = item["hit"]
             payload.append(
                 {
@@ -118,6 +128,8 @@ class RAGQueryRouter:
                     "modality": hit.modality,
                     "page": hit.page,
                     "score": item["score"],
+                    "retrieval_score": item["score"],
+                    "candidate_rank": candidate_rank,
                     "collection": item["collection"],
                     "reason": plan.reason,
                     "rewritten_query": plan.rewritten_query,
@@ -137,10 +149,19 @@ class RAGQueryRouter:
                     },
                 }
             )
-        return self.reranker.rerank_dict_results(
+        ranked = self.reranker.rerank_dict_results(
             query=plan.rewrite.original_query,
             results=payload,
-        )[:top_k]
+        )
+        return ranked[:top_k]
+
+    def _candidate_top_k(self, top_k: int) -> int:
+        requested = max(int(top_k or 1), 1)
+        if not bool(getattr(self.settings, "rerank_enabled", False)):
+            return requested
+        rerank_top_n = max(int(getattr(self.settings, "rerank_top_n", requested) or requested), 1)
+        rerank_candidate_pool = max(int(getattr(self.settings, "rerank_candidate_pool", 20) or 20), 1)
+        return max(requested, rerank_top_n, rerank_candidate_pool)
 
     def _fuse(
         self,
