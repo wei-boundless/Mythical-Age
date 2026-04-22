@@ -1,0 +1,11 @@
+{
+  "doc_id": "aeae3d08523c4e4acda5f98a6bba1f398d373313",
+  "source_path": "knowledge/AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf",
+  "version_digest": "c8c8fc28573c5eaf7a44c3a7aefa129de6d7f040",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 141
+}

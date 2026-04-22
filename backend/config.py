@@ -68,11 +68,20 @@ class Settings:
     embedding_base_url: str
     embedding_dimensions: int | None
     vector_store_backend: str
+    document_conversion_backend: str
+    retrieval_core_backend: str
     faiss_metric: str
     faiss_index_type: str
     faiss_hnsw_m: int
     faiss_hnsw_ef_construction: int
     faiss_hnsw_ef_search: int
+    qdrant_url: str | None
+    qdrant_api_key: str | None
+    qdrant_collection_prefix: str
+    indexes_v2_root: Path
+    document_cache_v2_root: Path
+    docling_enabled: bool
+    docling_prefer_ocr: bool
     rerank_enabled: bool
     rerank_provider: str
     rerank_model: str | None
@@ -183,10 +192,24 @@ def _resolve_embedding_dimensions() -> int | None:
 
 
 def _resolve_vector_store_backend() -> str:
-    value = (_first_env("VECTOR_STORE_BACKEND") or "llamaindex").strip().lower()
-    if value in {"faiss", "llamaindex"}:
+    value = (_first_env("VECTOR_STORE_BACKEND") or "qdrant").strip().lower()
+    if value in {"faiss", "llamaindex", "qdrant"}:
         return value
-    return "llamaindex"
+    return "qdrant"
+
+
+def _resolve_document_conversion_backend() -> str:
+    value = (_first_env("DOCUMENT_CONVERSION_BACKEND") or "docling").strip().lower()
+    if value in {"docling", "legacy"}:
+        return value
+    return "docling"
+
+
+def _resolve_retrieval_core_backend() -> str:
+    value = (_first_env("RETRIEVAL_CORE_BACKEND") or "llamaindex_v2").strip().lower()
+    if value in {"legacy", "llamaindex_v2"}:
+        return value
+    return "llamaindex_v2"
 
 
 def _resolve_faiss_metric() -> str:
@@ -201,6 +224,21 @@ def _resolve_faiss_index_type() -> str:
     if value in {"flat", "hnsw"}:
         return value
     return "flat"
+
+
+def _resolve_qdrant_url() -> str | None:
+    value = _first_env("QDRANT_URL", "QDRANT_HOST")
+    return value or None
+
+
+def _resolve_qdrant_api_key() -> str | None:
+    value = _first_env("QDRANT_API_KEY")
+    return value or None
+
+
+def _resolve_qdrant_collection_prefix() -> str:
+    value = (_first_env("QDRANT_COLLECTION_PREFIX") or "agent").strip()
+    return value or "agent"
 
 
 def _resolve_positive_int(name: str, default: int) -> int:
@@ -245,6 +283,14 @@ def _resolve_bool(value: str | None, *, default: bool) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _resolve_docling_enabled() -> bool:
+    return _resolve_bool(os.getenv("DOCLING_ENABLED"), default=True)
+
+
+def _resolve_docling_prefer_ocr() -> bool:
+    return _resolve_bool(os.getenv("DOCLING_PREFER_OCR"), default=False)
 
 
 def _resolve_rerank_provider() -> str:
@@ -358,11 +404,20 @@ def get_settings() -> Settings:
         embedding_base_url=_resolve_embedding_base_url(embedding_provider),
         embedding_dimensions=_resolve_embedding_dimensions(),
         vector_store_backend=_resolve_vector_store_backend(),
+        document_conversion_backend=_resolve_document_conversion_backend(),
+        retrieval_core_backend=_resolve_retrieval_core_backend(),
         faiss_metric=_resolve_faiss_metric(),
         faiss_index_type=_resolve_faiss_index_type(),
         faiss_hnsw_m=_resolve_positive_int("FAISS_HNSW_M", 32),
         faiss_hnsw_ef_construction=_resolve_positive_int("FAISS_HNSW_EF_CONSTRUCTION", 40),
         faiss_hnsw_ef_search=_resolve_positive_int("FAISS_HNSW_EF_SEARCH", 64),
+        qdrant_url=_resolve_qdrant_url(),
+        qdrant_api_key=_resolve_qdrant_api_key(),
+        qdrant_collection_prefix=_resolve_qdrant_collection_prefix(),
+        indexes_v2_root=backend_dir / "storage" / "indexes_v2",
+        document_cache_v2_root=backend_dir / "storage" / "document_cache_v2",
+        docling_enabled=_resolve_docling_enabled(),
+        docling_prefer_ocr=_resolve_docling_prefer_ocr(),
         rerank_enabled=_resolve_bool(os.getenv("RERANK_ENABLED"), default=False),
         rerank_provider=_resolve_rerank_provider(),
         rerank_model=_resolve_rerank_model(),
@@ -383,7 +438,12 @@ class RuntimeConfigManager:
     def __init__(self, config_path: Path) -> None:
         self._config_path = config_path
         self._lock = threading.Lock()
-        self._default_config = {"rag_mode": False, "permission_mode": "default"}
+        self._default_config = {
+            "rag_mode": False,
+            "permission_mode": "default",
+            "retrieval_shadow_compare": False,
+            "retrieval_cutover_mode": "v2_primary",
+        }
 
     def load(self) -> dict[str, Any]:
         with self._lock:
@@ -416,6 +476,24 @@ class RuntimeConfigManager:
     def set_permission_mode(self, mode: str) -> dict[str, Any]:
         normalized = (mode or "default").strip() or "default"
         return self.save({"permission_mode": normalized})
+
+    def get_retrieval_shadow_compare(self) -> bool:
+        return bool(self.load().get("retrieval_shadow_compare", False))
+
+    def set_retrieval_shadow_compare(self, enabled: bool) -> dict[str, Any]:
+        return self.save({"retrieval_shadow_compare": bool(enabled)})
+
+    def get_retrieval_cutover_mode(self) -> str:
+        value = str(self.load().get("retrieval_cutover_mode", "v2_primary") or "v2_primary").strip().lower()
+        if value in {"legacy_only", "shadow_read", "v2_primary"}:
+            return value
+        return "v2_primary"
+
+    def set_retrieval_cutover_mode(self, mode: str) -> dict[str, Any]:
+        normalized = str(mode or "v2_primary").strip().lower() or "v2_primary"
+        if normalized not in {"legacy_only", "shadow_read", "v2_primary"}:
+            normalized = "v2_primary"
+        return self.save({"retrieval_cutover_mode": normalized})
 
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")

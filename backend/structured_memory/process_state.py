@@ -42,6 +42,9 @@ class TaskState:
 class ContextSlots:
     active_pdf: str = ""
     active_dataset: str = ""
+    active_binding_kind: str = ""
+    active_binding_identity: str = ""
+    active_binding_owner_task_id: str = ""
     active_entity: str = ""
     active_rule: str = ""
 
@@ -142,6 +145,11 @@ class ProcessState:
             ContextSlots(
                 active_pdf=str(getattr(slots_payload, "get", lambda *_: "")("active_pdf", "")),
                 active_dataset=str(getattr(slots_payload, "get", lambda *_: "")("active_dataset", "")),
+                active_binding_kind=str(getattr(slots_payload, "get", lambda *_: "")("active_binding_kind", "")),
+                active_binding_identity=str(getattr(slots_payload, "get", lambda *_: "")("active_binding_identity", "")),
+                active_binding_owner_task_id=str(
+                    getattr(slots_payload, "get", lambda *_: "")("active_binding_owner_task_id", "")
+                ),
                 active_entity=str(getattr(slots_payload, "get", lambda *_: "")("active_entity", "")),
                 active_rule=str(getattr(slots_payload, "get", lambda *_: "")("active_rule", "")),
             )

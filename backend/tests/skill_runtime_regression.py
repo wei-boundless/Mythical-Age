@@ -39,6 +39,7 @@ def main() -> None:
     assert weather.route == "tool"
     assert weather.skill_name == "get-weather"
     assert weather.tool_name == "get_weather"
+    assert weather.target_object is None
     assert weather.candidate_tools == ["get_weather"]
 
     structured = analyze_query_understanding(
@@ -59,10 +60,9 @@ def main() -> None:
     assert shortage.route == "tool"
     assert shortage.skill_name == "structured-data-analysis"
     assert shortage.tool_name == "structured_data_analysis"
-    assert shortage.task_kind == "dataset_filter"
-    assert shortage.target_object == "inventory"
-    assert shortage.tool_input.get("analysis_type") == "inventory_shortage"
-    assert shortage.tool_input.get("semantic_hints", {}).get("state_kind") == "shortage"
+    assert shortage.task_kind == "dataset_query"
+    assert shortage.target_object is None
+    assert shortage.tool_input == {"query": "从我的数据库中，查询有哪些货物缺货"}
 
     abundance = analyze_query_understanding(
         "我不是要知道缺货情况，我要你分析哪些地方货物最充足",
@@ -72,11 +72,9 @@ def main() -> None:
     assert abundance.route == "tool"
     assert abundance.skill_name == "structured-data-analysis"
     assert abundance.tool_name == "structured_data_analysis"
-    assert abundance.task_kind == "dataset_top_n"
-    assert abundance.target_object == "inventory"
-    assert abundance.tool_input.get("analysis_type") == "top_n"
-    assert abundance.tool_input.get("semantic_hints", {}).get("state_kind") == "abundance"
-    assert abundance.tool_input.get("semantic_hints", {}).get("group_hint") == "warehouse"
+    assert abundance.task_kind == "dataset_query"
+    assert abundance.target_object is None
+    assert abundance.tool_input == {"query": "我不是要知道缺货情况，我要你分析哪些地方货物最充足"}
 
     shortage_places = analyze_query_understanding(
         "哪些地方货物不够",
@@ -86,11 +84,9 @@ def main() -> None:
     assert shortage_places.route == "tool"
     assert shortage_places.skill_name == "structured-data-analysis"
     assert shortage_places.tool_name == "structured_data_analysis"
-    assert shortage_places.task_kind == "dataset_top_n"
-    assert shortage_places.target_object == "inventory"
-    assert shortage_places.tool_input.get("analysis_type") == "top_n"
-    assert shortage_places.tool_input.get("semantic_hints", {}).get("state_kind") == "shortage"
-    assert shortage_places.tool_input.get("semantic_hints", {}).get("metric_hint") == "shortage_qty"
+    assert shortage_places.task_kind == "dataset_query"
+    assert shortage_places.target_object is None
+    assert shortage_places.tool_input == {"query": "哪些地方货物不够"}
 
     non_shortage_places = analyze_query_understanding(
         "哪些地方不缺货",
@@ -100,10 +96,9 @@ def main() -> None:
     assert non_shortage_places.route == "tool"
     assert non_shortage_places.skill_name == "structured-data-analysis"
     assert non_shortage_places.tool_name == "structured_data_analysis"
-    assert non_shortage_places.task_kind == "dataset_top_n"
-    assert non_shortage_places.target_object == "inventory"
-    assert non_shortage_places.tool_input.get("analysis_type") == "top_n"
-    assert non_shortage_places.tool_input.get("semantic_hints", {}).get("state_kind") == "non_shortage"
+    assert non_shortage_places.task_kind == "dataset_query"
+    assert non_shortage_places.target_object is None
+    assert non_shortage_places.tool_input == {"query": "哪些地方不缺货"}
 
     pdf = analyze_query_understanding(
         "2025年AI治理报告的第三页讲得什么",
@@ -113,6 +108,7 @@ def main() -> None:
     assert pdf.route == "tool"
     assert pdf.skill_name == "pdf-analysis"
     assert pdf.tool_name == "pdf_analysis"
+    assert pdf.target_object is None
     assert pdf.tool_input.get("mode") == "page_read"
 
     faq = analyze_query_understanding(
@@ -123,6 +119,7 @@ def main() -> None:
     assert faq.route == "rag"
     assert faq.skill_name == "rag-skill"
     assert faq.task_kind == "faq_explanation"
+    assert faq.target_object is None
     assert faq.tool_name is None
     assert faq.candidate_tools == ["search_knowledge"]
 
@@ -133,6 +130,7 @@ def main() -> None:
     )
     assert rag.route == "rag"
     assert rag.skill_name == "rag-skill"
+    assert rag.target_object is None
     assert rag.tool_name is None
 
     web = analyze_query_understanding(
@@ -142,6 +140,7 @@ def main() -> None:
     )
     assert web.route == "tool"
     assert web.skill_name == "web-search"
+    assert web.target_object is None
     assert web.tool_name == "web_search"
 
     gold = analyze_query_understanding(
@@ -152,6 +151,7 @@ def main() -> None:
     assert gold.route == "tool"
     assert gold.skill_name == "gold-price"
     assert gold.tool_name == "get_gold_price"
+    assert gold.target_object is None
     assert gold.candidate_tools == ["get_gold_price"]
 
     print("ALL PASSED (skill runtime)")

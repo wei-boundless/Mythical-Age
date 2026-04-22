@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from llama_index.core.base.embeddings.base import BaseEmbedding
 
 from .models import RetrievalHit
 
@@ -122,7 +121,7 @@ class FaissIndexStore:
             faiss.normalize_L2(matrix)
         return matrix
 
-    def build(self, nodes: list[Any], embed_model: BaseEmbedding) -> int:
+    def build(self, nodes: list[Any], embed_model: Any) -> int:
         if faiss is None:
             raise RuntimeError("FAISS is not installed")
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -188,7 +187,7 @@ class FaissIndexStore:
         self._index = faiss.deserialize_index(index_buffer)
         self._configure_search_params()
 
-    def search(self, query: str, top_k: int, embed_model: BaseEmbedding) -> list[RetrievalHit]:
+    def search(self, query: str, top_k: int, embed_model: Any) -> list[RetrievalHit]:
         if faiss is None:
             return []
         if not self.is_loaded() and self.exists():

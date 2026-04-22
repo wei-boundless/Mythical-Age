@@ -30,11 +30,13 @@ class StructuredBindingResolver:
             if resolved is not None:
                 return StructuredDatasetBinding(
                     dataset_path=StructuredDataCatalog.relative_path(self.base_dir, resolved),
-                    target_object=str(getattr(understanding, "target_object", "") or ""),
+                    target_object=StructuredDataCatalog.target_object_for_path(resolved),
                     source="prebound_tool_input",
                     confidence=float(getattr(understanding, "confidence", 0.0) or 0.0),
+                    binding_identity=StructuredDataCatalog.relative_path(self.base_dir, resolved).replace("\\", "/").lower(),
                     explicit_switch=self._looks_explicit_switch(message),
                 )
+            return None
 
         explicit_match = self._extract_explicit_dataset_path(message)
         if explicit_match:
@@ -42,37 +44,31 @@ class StructuredBindingResolver:
             if resolved is not None:
                 return StructuredDatasetBinding(
                     dataset_path=StructuredDataCatalog.relative_path(self.base_dir, resolved),
-                    target_object=str(getattr(understanding, "target_object", "") or ""),
+                    target_object=StructuredDataCatalog.target_object_for_path(resolved),
                     source="explicit_path",
                     confidence=float(getattr(understanding, "confidence", 0.0) or 0.0),
+                    binding_identity=StructuredDataCatalog.relative_path(self.base_dir, resolved).replace("\\", "/").lower(),
                     explicit_switch=True,
                 )
-
-        target_object = str(getattr(understanding, "target_object", "") or "").strip()
-        if target_object:
-            try:
-                resolved = StructuredDataCatalog.resolve_dataset_path(self.base_dir, "", message)
-            except ValueError:
-                resolved = None
-            if resolved is not None:
-                return StructuredDatasetBinding(
-                    dataset_path=StructuredDataCatalog.relative_path(self.base_dir, resolved),
-                    target_object=target_object,
-                    source="semantic_default",
-                    confidence=float(getattr(understanding, "confidence", 0.0) or 0.0),
-                    explicit_switch=self._looks_explicit_switch(message),
-                )
-
-        resolved = StructuredDataCatalog.resolve_dataset_path_from_history(self.base_dir, history)
-        if resolved is None:
             return None
-        return StructuredDatasetBinding(
-            dataset_path=StructuredDataCatalog.relative_path(self.base_dir, resolved),
-            target_object=target_object,
-            source="history_fallback",
-            confidence=0.55,
-            explicit_switch=False,
-        )
+
+        if self._looks_like_generic_followup(message):
+            return None
+
+        try:
+            resolved = StructuredDataCatalog.resolve_dataset_path(self.base_dir, "", message)
+        except ValueError:
+            resolved = None
+        if resolved is not None:
+            return StructuredDatasetBinding(
+                dataset_path=StructuredDataCatalog.relative_path(self.base_dir, resolved),
+                target_object=StructuredDataCatalog.target_object_for_path(resolved),
+                source="catalog_default",
+                confidence=float(getattr(understanding, "confidence", 0.0) or 0.0),
+                binding_identity=StructuredDataCatalog.relative_path(self.base_dir, resolved).replace("\\", "/").lower(),
+                explicit_switch=self._looks_explicit_switch(message),
+            )
+        return None
 
     def _looks_structured(self, understanding: Any) -> bool:
         tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
@@ -99,12 +95,65 @@ class StructuredBindingResolver:
         if matched is not None:
             return matched
         try:
-            return StructuredDataCatalog.resolve_dataset_path(self.base_dir, normalized, normalized)
+            resolved = StructuredDataCatalog.resolve_dataset_path(self.base_dir, normalized, normalized)
         except ValueError:
             return None
+        if not resolved.exists() or not resolved.is_file():
+            return None
+        return resolved
 
     def _looks_explicit_switch(self, message: str) -> bool:
         lowered = (message or "").lower()
         if any(ext in lowered for ext in (".xlsx", ".csv", ".xls", ".json", ".parquet")):
             return True
         return any(marker in message for marker in ("切到", "换成", "回到", "再切回"))
+
+    def _looks_like_generic_followup(self, message: str) -> bool:
+        normalized = (message or "").strip().lower()
+        if not normalized:
+            return False
+        starter_markers = ("再", "继续", "然后", "接着", "那", "回到刚才", "刚才那个")
+        continuation_markers = ("展开一下", "展开", "看一下", "看下", "列一下", "整理一下")
+        grouping_markers = ("按仓库", "按地区", "按部门", "按品类")
+        domain_markers = (
+            "缺货",
+            "库存",
+            "商品",
+            "员工",
+            "薪水",
+            "工资",
+            "订单",
+            "客户",
+            "销售",
+            "总数",
+            "多少",
+            "均值",
+            "平均",
+            "统计",
+            "汇总",
+            "筛选",
+            "排序",
+            "top",
+            "前",
+        )
+        generic_reference_markers = (
+            "这个表",
+            "这张表",
+            "那个表",
+            "那张表",
+            "这份表格",
+            "这个数据表",
+            "刚才那个表",
+            "刚才的数据表",
+            "刚才",
+            "前面那个表",
+        )
+        if any(marker in message for marker in generic_reference_markers):
+            return True
+        if normalized.startswith(starter_markers):
+            return True
+        return (
+            any(marker in message for marker in grouping_markers)
+            and any(marker in message for marker in continuation_markers)
+            and not any(marker in message for marker in domain_markers)
+        )

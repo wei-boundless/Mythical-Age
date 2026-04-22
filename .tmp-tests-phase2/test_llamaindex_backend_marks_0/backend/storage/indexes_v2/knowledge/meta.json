@@ -1,0 +1,26 @@
+{
+  "collection": "knowledge",
+  "status": "invalid",
+  "dense_documents": 1,
+  "dense_documents_indexed": 1,
+  "parser_backends": [
+    "test"
+  ],
+  "vector_backend": "qdrant",
+  "qdrant_collection": "agent__knowledge",
+  "build_batch_size": 128,
+  "dense_status": "invalid",
+  "dense_verification": {
+    "collection": "knowledge",
+    "collection_name": "agent__knowledge",
+    "vector_backend": "qdrant",
+    "available": false,
+    "query_ok": false,
+    "points_count": 0,
+    "status": "invalid",
+    "error": "collection_missing"
+  },
+  "lexical_enabled": true,
+  "lexical_documents": 1,
+  "lexical_status": "ready"
+}

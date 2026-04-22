@@ -2,28 +2,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from llama_index.core.base.embeddings.base import BaseEmbedding
-from llama_index.core.bridge.pydantic import Field, PrivateAttr
-from openai import AsyncOpenAI, OpenAI
+import httpx
 
 from config import Settings, get_settings
 
 
-class CompatibleOpenAIEmbedding(BaseEmbedding):
-    """OpenAI-compatible embedding adapter for providers like Bailian.
+class CompatibleOpenAIEmbedding:
+    """Lightweight OpenAI-compatible embedding client.
 
-    LlamaIndex's built-in OpenAIEmbedding validates model names against the
-    official OpenAI enum, which breaks OpenAI-compatible providers that expose
-    custom model ids such as Bailian's ``text-embedding-v3``.
+    The retrieval stack only needs a small duck-typed surface:
+    - get_query_embedding
+    - get_text_embedding
+    - get_text_embedding_batch
+
+    Avoid inheriting from llama-index embedding classes here because importing
+    those classes pulls in a large transitive dependency graph and stalls
+    indexing before any real embedding work starts.
     """
-
-    model_name: str = Field(description="Embedding model name.")
-    api_key: str = Field(description="API key.", exclude=True, repr=False)
-    api_base: str = Field(description="OpenAI-compatible API base URL.")
-    dimensions: int | None = Field(default=None, description="Optional embedding dimensions.")
-
-    _client: OpenAI = PrivateAttr()
-    _aclient: AsyncOpenAI = PrivateAttr()
 
     def __init__(
         self,
@@ -32,35 +27,50 @@ class CompatibleOpenAIEmbedding(BaseEmbedding):
         api_key: str,
         api_base: str,
         dimensions: int | None = None,
-        embed_batch_size: int = 10,
-        **kwargs: Any,
+        embed_batch_size: int = 64,
+        timeout_seconds: float = 120.0,
     ) -> None:
-        super().__init__(
-            model_name=model_name,
-            api_key=api_key,
-            api_base=api_base.rstrip("/"),
-            dimensions=dimensions,
-            embed_batch_size=embed_batch_size,
-            **kwargs,
+        self.model_name = str(model_name)
+        self.api_key = str(api_key)
+        self.api_base = str(api_base).rstrip("/")
+        self.dimensions = dimensions
+        self.embed_batch_size = max(int(embed_batch_size or 1), 1)
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        self._client = httpx.Client(
+            base_url=self.api_base,
+            headers=headers,
+            timeout=timeout_seconds,
         )
-        self._client = OpenAI(api_key=self.api_key, base_url=self.api_base)
-        self._aclient = AsyncOpenAI(api_key=self.api_key, base_url=self.api_base)
+        self._aclient = httpx.AsyncClient(
+            base_url=self.api_base,
+            headers=headers,
+            timeout=timeout_seconds,
+        )
 
     @staticmethod
     def _normalize_text(text: str) -> str:
         return text.replace("\n", " ").strip()
+
+    def _request_payload(self, batch: list[str]) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "input": batch,
+        }
+        if self.dimensions is not None:
+            payload["dimensions"] = self.dimensions
+        return payload
 
     def _create_embeddings(self, texts: list[str]) -> list[list[float]]:
         payload = [self._normalize_text(text) for text in texts]
         embeddings: list[list[float]] = []
         for start in range(0, len(payload), self.embed_batch_size):
             batch = payload[start : start + self.embed_batch_size]
-            response = self._client.embeddings.create(
-                model=self.model_name,
-                input=batch,
-                dimensions=self.dimensions,
-            )
-            embeddings.extend([list(item.embedding) for item in response.data])
+            response = self._client.post("/embeddings", json=self._request_payload(batch))
+            response.raise_for_status()
+            data = response.json().get("data", []) or []
+            embeddings.extend([list(item.get("embedding", []) or []) for item in data])
         return embeddings
 
     async def _acreate_embeddings(self, texts: list[str]) -> list[list[float]]:
@@ -68,34 +78,56 @@ class CompatibleOpenAIEmbedding(BaseEmbedding):
         embeddings: list[list[float]] = []
         for start in range(0, len(payload), self.embed_batch_size):
             batch = payload[start : start + self.embed_batch_size]
-            response = await self._aclient.embeddings.create(
-                model=self.model_name,
-                input=batch,
-                dimensions=self.dimensions,
-            )
-            embeddings.extend([list(item.embedding) for item in response.data])
+            response = await self._aclient.post("/embeddings", json=self._request_payload(batch))
+            response.raise_for_status()
+            data = response.json().get("data", []) or []
+            embeddings.extend([list(item.get("embedding", []) or []) for item in data])
         return embeddings
 
-    def _get_query_embedding(self, query: str) -> list[float]:
+    def get_query_embedding(self, query: str) -> list[float]:
         return self._create_embeddings([query])[0]
 
-    async def _aget_query_embedding(self, query: str) -> list[float]:
+    async def aget_query_embedding(self, query: str) -> list[float]:
         return (await self._acreate_embeddings([query]))[0]
 
-    def _get_text_embedding(self, text: str) -> list[float]:
+    def get_text_embedding(self, text: str) -> list[float]:
         return self._create_embeddings([text])[0]
 
-    async def _aget_text_embedding(self, text: str) -> list[float]:
+    async def aget_text_embedding(self, text: str) -> list[float]:
         return (await self._acreate_embeddings([text]))[0]
 
-    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+    def get_text_embedding_batch(self, texts: list[str], show_progress: bool | None = None) -> list[list[float]]:
+        _ = show_progress
         return self._create_embeddings(texts)
 
-    async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+    async def aget_text_embedding_batch(
+        self,
+        texts: list[str],
+        show_progress: bool | None = None,
+    ) -> list[list[float]]:
+        _ = show_progress
         return await self._acreate_embeddings(texts)
 
+    def _get_query_embedding(self, query: str) -> list[float]:
+        return self.get_query_embedding(query)
 
-def build_embedding_model(settings: Settings | None = None) -> BaseEmbedding:
+    async def _aget_query_embedding(self, query: str) -> list[float]:
+        return await self.aget_query_embedding(query)
+
+    def _get_text_embedding(self, text: str) -> list[float]:
+        return self.get_text_embedding(text)
+
+    async def _aget_text_embedding(self, text: str) -> list[float]:
+        return await self.aget_text_embedding(text)
+
+    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        return self.get_text_embedding_batch(texts)
+
+    async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        return await self.aget_text_embedding_batch(texts)
+
+
+def build_embedding_model(settings: Settings | None = None) -> CompatibleOpenAIEmbedding:
     settings = settings or get_settings()
     if not settings.embedding_api_key:
         raise ValueError("Missing embedding API key.")
@@ -104,4 +136,5 @@ def build_embedding_model(settings: Settings | None = None) -> BaseEmbedding:
         api_key=settings.embedding_api_key,
         api_base=settings.embedding_base_url,
         dimensions=settings.embedding_dimensions,
+        embed_batch_size=64,
     )

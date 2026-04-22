@@ -35,37 +35,20 @@ def main() -> None:
         should_skip_rag=False,
     )
     continuation_resolver = QueryContinuationResolver(base_dir=ROOT)
-    with patch(
-        "query.continuation_resolver.PdfAnalysisCatalog.resolve_pdf_path_from_history",
-        return_value=ROOT / "knowledge" / "reports" / "AI治理报告.pdf",
-    ), patch(
-        "query.continuation_resolver.PdfAnalysisCatalog.relative_path",
-        side_effect=lambda root_dir, path: str(path.relative_to(root_dir)).replace("\\", "/"),
-    ):
-        promoted = continuation_resolver.promote_pdf_query("第三页讲了什么？", history, original)
+    promoted = continuation_resolver.promote_pdf_query("第三页讲了什么？", history, original)
 
-    assert promoted.route == "tool"
-    assert promoted.intent == "pdf_page_followup_query"
-    assert promoted.modality == "pdf"
-    assert promoted.tool_name == "pdf_analysis"
-    assert promoted.tool_input["mode"] == "page_read"
-    assert promoted.tool_input["path"].endswith("AI治理报告.pdf")
-    assert promoted.should_skip_rag is True
+    assert promoted.route == "rag"
+    assert promoted.tool_name is None
+    assert promoted.tool_input == {}
+    assert promoted.should_skip_rag is False
 
-    with patch(
-        "query.tool_input_resolver.PdfAnalysisCatalog.resolve_pdf_path_from_history",
-        return_value=ROOT / "knowledge" / "reports" / "AI治理报告.pdf",
-    ), patch(
-        "query.tool_input_resolver.PdfAnalysisCatalog.relative_path",
-        side_effect=lambda root_dir, path: str(path.relative_to(root_dir)).replace("\\", "/"),
-    ):
-        plan = planner.build_plan(
-            session_id="pdf-followup-regression",
-            message="第三页讲了什么？",
-            history=history,
-        )
+    plan = planner.build_plan(
+        session_id="pdf-followup-regression",
+        message="第三页讲了什么？",
+        history=history,
+    )
     execution = plan.iter_executions()[0]
-    assert execution.tool_input["path"].endswith("AI治理报告.pdf")
+    assert "path" not in execution.tool_input
 
     resolver = ToolInputResolver(base_dir=ROOT)
     explicit_message = "现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。"
@@ -84,6 +67,22 @@ def main() -> None:
     ):
         explicit_tool_input = resolver.resolve(plan=explicit_plan, history=history)
     assert explicit_tool_input["path"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+
+    non_explicit_plan = SimpleNamespace(
+        message="请继续解读第三页。",
+        query_understanding=QueryUnderstanding(
+            route="tool",
+            tool_name="pdf_analysis",
+            tool_input={"query": "请继续解读第三页。", "mode": "page_read"},
+        ),
+        structured_binding=None,
+    )
+    with patch(
+        "query.tool_input_resolver.PdfAnalysisCatalog.resolve_pdf_path_from_history",
+        return_value=ROOT / "knowledge" / "reports" / "AI治理报告.pdf",
+    ):
+        non_explicit_tool_input = resolver.resolve(plan=non_explicit_plan, history=history)
+    assert "path" not in non_explicit_tool_input
 
     print("ALL PASSED (pdf follow-up history regression)")
 

@@ -241,6 +241,19 @@ class StructuredDataCatalog:
         raise ValueError("未能根据问题自动判断数据文件，请显式提供 path。")
 
     @classmethod
+    def target_object_for_path(cls, path: str | Path) -> str:
+        normalized = str(path or "").replace("\\", "/").lower()
+        if normalized.endswith("/inventory.xlsx"):
+            return "inventory"
+        if normalized.endswith("/employees.xlsx"):
+            return "employee"
+        if normalized.endswith("/sales_orders.xlsx"):
+            return "sales"
+        if normalized.endswith("/customers.xlsx"):
+            return "customer"
+        return ""
+
+    @classmethod
     def display_label(cls, column: str) -> str:
         if column == "shortage_qty":
             return "缺口"

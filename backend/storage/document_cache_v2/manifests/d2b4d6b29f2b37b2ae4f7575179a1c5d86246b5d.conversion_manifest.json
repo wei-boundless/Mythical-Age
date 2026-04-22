@@ -1,0 +1,10 @@
+{
+  "doc_id": "d2b4d6b29f2b37b2ae4f7575179a1c5d86246b5d",
+  "source_path": "knowledge/E-commerce Data/faq.json",
+  "version_digest": "588ab10a3165ab072c452f4addd0f978ac366125",
+  "parser_backend": "legacy_fallback",
+  "quality_flags": [
+    "fallback_parser"
+  ],
+  "block_count": 1
+}

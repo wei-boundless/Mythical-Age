@@ -36,15 +36,61 @@ def main() -> None:
     assert explicit_execution.structured_binding is not None
     assert explicit_execution.structured_binding.dataset_path.endswith("employees.xlsx")
 
-    followup_plan = planner.build_plan(
+    weak_followup_plan = planner.build_plan(
+        session_id="structured-followup-regression",
+        message="把那个表按仓库展开一下",
+        history=history,
+    )
+    weak_followup_execution = weak_followup_plan.iter_executions()[0]
+    assert weak_followup_execution.structured_binding is None
+    assert not weak_followup_execution.tool_input.get("path", "")
+
+    generic_followup_plan = planner.build_plan(
+        session_id="structured-followup-regression",
+        message="按仓库展开一下",
+        history=history,
+    )
+    generic_followup_execution = generic_followup_plan.iter_executions()[0]
+    assert generic_followup_execution.structured_binding is None
+    assert not generic_followup_execution.tool_input.get("path", "")
+
+    fresh_grouped_plan = planner.build_plan(
+        session_id="structured-followup-regression",
+        message="按仓库统计哪些商品缺货",
+        history=history,
+    )
+    fresh_grouped_execution = fresh_grouped_plan.iter_executions()[0]
+    assert fresh_grouped_execution.structured_binding is not None
+    assert fresh_grouped_execution.tool_input.get("path", "").endswith("inventory.xlsx")
+
+    explicit_followup_plan = planner.build_plan(
+        session_id="structured-followup-regression",
+        message="把 knowledge/E-commerce Data/inventory.xlsx 按仓库展开一下",
+        history=history,
+    )
+    explicit_followup_execution = explicit_followup_plan.iter_executions()[0]
+    assert explicit_followup_execution.tool_input.get("path", "").endswith("inventory.xlsx")
+    assert explicit_followup_execution.structured_binding is not None
+    assert explicit_followup_execution.structured_binding.dataset_path.endswith("inventory.xlsx")
+
+    unresolved_explicit_plan = planner.build_plan(
+        session_id="structured-followup-regression",
+        message="把 knowledge/E-commerce Data/missing.xlsx 按仓库展开一下",
+        history=history,
+    )
+    unresolved_explicit_execution = unresolved_explicit_plan.iter_executions()[0]
+    assert unresolved_explicit_execution.structured_binding is None
+    assert unresolved_explicit_execution.tool_input.get("path", "").endswith("missing.xlsx")
+    assert not unresolved_explicit_execution.tool_input.get("path", "").endswith("inventory.xlsx")
+
+    weak_followup_plan = planner.build_plan(
         session_id="structured-followup-regression",
         message="谁最高",
         history=history,
     )
-    followup_execution = followup_plan.iter_executions()[0]
-    assert followup_execution.tool_input.get("path", "").endswith("inventory.xlsx")
-    assert followup_execution.structured_binding is not None
-    assert followup_execution.structured_binding.dataset_path.endswith("inventory.xlsx")
+    weak_followup_execution = weak_followup_plan.iter_executions()[0]
+    assert weak_followup_execution.structured_binding is None
+    assert not weak_followup_execution.tool_input.get("path", "")
 
     print("ALL PASSED (structured follow-up history regression)")
 

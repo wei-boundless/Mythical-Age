@@ -1,0 +1,11 @@
+{
+  "doc_id": "8322df7c7f76a7238b45a95da36cfb6f895ba465",
+  "source_path": "knowledge/E-commerce Data/employees.xlsx",
+  "version_digest": "e261caca20c378a68f0dce9e73f1b97ad9de114a",
+  "parser_backend": "legacy_fallback",
+  "quality_flags": [
+    "table_dense",
+    "fallback_parser"
+  ],
+  "block_count": 10
+}

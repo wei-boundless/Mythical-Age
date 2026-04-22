@@ -181,39 +181,6 @@ class TurnUnderstandingAnalyzer:
                 source_excerpt = last_user_turn.excerpt
 
         understanding = self._understanding_for_text(source_excerpt)
-        last_user_turn = next((turn for turn in reversed(turn_trace) if turn.role == "user"), None)
-        should_inherit_previous_flow = (
-            last_user_turn is not None
-            and last_user_turn.turn_type
-            in {"followup_request", "correction_feedback", "meta_dialogue", "constraint_or_preference"}
-        )
-        if (
-            understanding.confidence < 0.55
-            and not task_switch
-            and should_inherit_previous_flow
-            and previous_state.flow_state.flow_type != "general_problem_solving_flow"
-        ):
-            inherited_flow = previous_state.flow_state.flow_type
-            inherited_target_object = understanding.target_object
-            if inherited_target_object is None and inherited_flow not in {
-                "general_problem_solving_flow",
-                "external_lookup_flow",
-            }:
-                inherited_target_object = previous_state.context_slots.active_entity or None
-            understanding = TaskUnderstanding(
-                intent=understanding.intent,
-                source_kind=understanding.source_kind,
-                task_kind=understanding.task_kind,
-                target_object=inherited_target_object,
-                modality=understanding.modality,
-                route_hint=understanding.route_hint,
-                preferred_skill=understanding.preferred_skill,
-                candidate_tools=list(understanding.candidate_tools),
-                parameters=dict(understanding.parameters),
-                should_skip_rag=understanding.should_skip_rag,
-                confidence=max(understanding.confidence, 0.6),
-                reasons=list(understanding.reasons) + [f"inherited_flow:{inherited_flow}"],
-            )
         return ActiveUnderstanding(understanding=understanding, source_excerpt=source_excerpt)
 
     def _clean_messages(self, messages: list[Message]) -> list[Message]:
@@ -267,7 +234,7 @@ class TurnUnderstandingAnalyzer:
                         excerpt=self._shorten(message.content, 180),
                         intent=task.intent,
                         modality=task.modality,
-                        target_object=task.target_object or "",
+                        target_object="",
                         flow_hint=self._flow_hint_from_understanding(message.content, task),
                         constraints=self._extract_inline_constraints(message.content),
                     )
@@ -335,38 +302,7 @@ class TurnUnderstandingAnalyzer:
         return active_goal, active_goal_turn_type
 
     def _understanding_for_text(self, text: str) -> TaskUnderstanding:
-        understanding = analyze_task_understanding(text)
-        if understanding.confidence >= 0.6:
-            return understanding
-
-        lowered = normalize_storage_text(text).lower()
-        if self._looks_like_coding_request(text):
-            return TaskUnderstanding(
-                intent="coding_change_query",
-                source_kind="workspace",
-                task_kind="code_change",
-                target_object=self._infer_code_target(text),
-                modality="code",
-                route_hint="tool",
-                candidate_tools=["workspace_search"],
-                should_skip_rag=True,
-                confidence=0.9,
-                reasons=["coding_markers"],
-            )
-        if self._looks_like_architecture_request(text):
-            return TaskUnderstanding(
-                intent="architecture_design_query",
-                source_kind="workspace",
-                task_kind="architecture_design",
-                target_object=self._infer_architecture_target(lowered),
-                modality="code",
-                route_hint="tool",
-                candidate_tools=["workspace_search"],
-                should_skip_rag=True,
-                confidence=0.88,
-                reasons=["architecture_markers"],
-            )
-        return understanding
+        return analyze_task_understanding(text)
 
     def _flow_hint_from_understanding(self, content: str, understanding: TaskUnderstanding) -> str:
         if understanding.modality == "pdf":
@@ -375,10 +311,6 @@ class TurnUnderstandingAnalyzer:
             return "structured_data_flow"
         if understanding.modality in {"realtime", "web"}:
             return "external_lookup_flow"
-        if self._looks_like_coding_request(content):
-            return "coding_change_flow"
-        if self._looks_like_architecture_request(content):
-            return "architecture_design_flow"
         if understanding.route_hint == "rag":
             return "knowledge_lookup_flow"
         return "general_problem_solving_flow"

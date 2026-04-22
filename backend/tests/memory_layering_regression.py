@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import shutil
 import sys
-import tempfile
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -9,8 +11,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from RAG.collections import build_default_collections
-from retrieval.memory_index import memory_indexer
 from memory import MemoryFacade
+from retrieval.service import RetrievalService
 from structured_memory import MemoryManager, MemoryNote
 
 
@@ -19,9 +21,18 @@ def _assert(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+@contextmanager
+def _workspace_tmp_dir(prefix: str):
+    root = BACKEND_DIR.parent / ".tmp-tests" / f"{prefix}-{uuid.uuid4().hex[:8]}"
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        yield root
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_memory_collections_keep_session_and_durable_layers_separate() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
+    with _workspace_tmp_dir("memory-collections") as root:
         collections = build_default_collections(root)
 
         durable = collections["durable_memory"]
@@ -45,9 +56,8 @@ def test_memory_collections_keep_session_and_durable_layers_separate() -> None:
         )
 
 
-def test_memory_indexer_repairs_manifest_and_excludes_session_sources() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
+def test_memory_audit_repairs_manifest_and_excludes_session_sources() -> None:
+    with _workspace_tmp_dir("memory-audit") as root:
         manager = MemoryManager(root / "durable_memory")
         manager.save_note(
             MemoryNote(
@@ -82,27 +92,26 @@ def test_memory_indexer_repairs_manifest_and_excludes_session_sources() -> None:
             "repaired durable index should only contain canonical note files",
         )
 
-        memory_indexer.configure(root)
-        index_audit = memory_indexer.audit_sources()
-        indexed_sources = set(index_audit["indexed_sources"])
+        service = RetrievalService(root)
+        index_audit = service.audit_memory_sources()
+        indexed_sources = set(index_audit["durable_memory"]["indexed_sources"])
 
         _assert(
             "durable_memory/notes/keep-note.md" in indexed_sources,
-            "memory indexer should still index canonical durable note files",
+            "memory audit should still expose canonical durable note files",
         )
         _assert(
             "durable_memory/index/MEMORY.md" in indexed_sources,
-            "memory indexer should include the repaired durable manifest",
+            "memory audit should include the repaired durable manifest",
         )
         _assert(
             all(not source.startswith("session-memory/") for source in indexed_sources),
-            "session-memory summaries should not leak into durable indexing",
+            "session-memory summaries should not leak into durable memory audit sources",
         )
 
 
 def test_runtime_durable_reads_auto_govern_old_instruction_wrapped_notes() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
+    with _workspace_tmp_dir("memory-runtime") as root:
         facade = MemoryFacade(root)
         facade.memory_manager.save_note(
             MemoryNote(
@@ -150,7 +159,7 @@ def test_runtime_durable_reads_auto_govern_old_instruction_wrapped_notes() -> No
 def main() -> None:
     tests = [
         test_memory_collections_keep_session_and_durable_layers_separate,
-        test_memory_indexer_repairs_manifest_and_excludes_session_sources,
+        test_memory_audit_repairs_manifest_and_excludes_session_sources,
         test_runtime_durable_reads_auto_govern_old_instruction_wrapped_notes,
     ]
     for test in tests:

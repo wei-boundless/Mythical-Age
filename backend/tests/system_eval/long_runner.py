@@ -47,6 +47,12 @@ class TurnResult:
     followup_task_id: str = ""
     followup_task_ids: list[str] = field(default_factory=list)
     used_task_summary_refs: list[str] = field(default_factory=list)
+    answer_channel: str = ""
+    answer_source: str = ""
+    answer_fallback_reason: str = ""
+    answer_leak_flags: list[str] = field(default_factory=list)
+    persisted_assistant_text: str = ""
+    persisted_matches_done: bool = False
     active_pdf: str = ""
     active_dataset: str = ""
     session_model_preview: str = ""
@@ -115,6 +121,15 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
         if check == "response.nonempty":
             if not turn.response_text.strip():
                 failures.append(check)
+            continue
+        if check.startswith("response.not_contains_any="):
+            variants = [item.strip() for item in check.split("=", 1)[1].split("|") if item.strip()]
+            if any(item in turn.response_text for item in variants):
+                failures.append(f"{check} (actual={turn.response_text[:160]})")
+            continue
+        if check == "response.no_leak_flags":
+            if turn.answer_leak_flags:
+                failures.append(f"{check} (actual={turn.answer_leak_flags})")
             continue
         if check.startswith("response.contains_any="):
             variants = [item.strip() for item in check.split("=", 1)[1].split("|") if item.strip()]
@@ -312,6 +327,12 @@ def _execute_user_turn(
         (dict(item.get("data") or {}) for item in reversed(events) if item.get("event") == "done"),
         {},
     )
+    stored_messages = runtime.session_manager.load_session(session_id)
+    persisted_assistant_text = ""
+    for stored in reversed(stored_messages):
+        if str(stored.get("role", "") or "") == "assistant":
+            persisted_assistant_text = str(stored.get("content", "") or "")
+            break
     main_context = dict(done_payload.get("main_context") or {})
     task_summary_refs = list(done_payload.get("task_summary_refs") or [])
     active_work_item = str(main_context.get("active_work_item", "") or "")
@@ -355,6 +376,12 @@ def _execute_user_turn(
             for item in task_summary_refs
             if str(dict(item or {}).get("task_id", "") or "").strip()
         ],
+        answer_channel=str(done_payload.get("answer_channel", "") or ""),
+        answer_source=str(done_payload.get("answer_source", "") or ""),
+        answer_fallback_reason=str(done_payload.get("answer_fallback_reason", "") or ""),
+        answer_leak_flags=[str(item) for item in list(done_payload.get("answer_leak_flags", []) or []) if str(item).strip()],
+        persisted_assistant_text=persisted_assistant_text[:400],
+        persisted_matches_done=(persisted_assistant_text.strip() == response_text.strip()),
         active_pdf=str(active_constraints.get("active_pdf", "") or ""),
         active_dataset=str(active_constraints.get("active_dataset", "") or ""),
         session_model_preview=model_preview[:300],

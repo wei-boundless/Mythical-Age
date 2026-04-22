@@ -1,0 +1,11 @@
+{
+  "doc_id": "c05ae671b8bc45d9b0ee3b1f5e33eeea5aaf2e2b",
+  "source_path": "knowledge/Financial Report Data/航天动力 2025 Q3.pdf",
+  "version_digest": "e2c5df057167bdcd7dea85ed4154ea2f71252f72",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 63
+}

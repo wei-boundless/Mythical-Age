@@ -1,0 +1,10 @@
+{
+  "doc_id": "cdaee17392e413dcdac88b704e90fc882978f210",
+  "source_path": "knowledge/sample.md",
+  "version_digest": "69a11dcfac4b841be34aa4e3472e64fc551bad89",
+  "parser_backend": "legacy_fallback",
+  "quality_flags": [
+    "fallback_parser"
+  ],
+  "block_count": 1
+}

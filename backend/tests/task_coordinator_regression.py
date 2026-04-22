@@ -59,6 +59,7 @@ def test_task_coordinator_records_query_subtasks() -> None:
     assert records[0].context_ref is not None
     assert records[0].context_ref.parent_query_id
     assert records[0].context_ref.bindings.active_dataset.endswith("inventory.xlsx")
+    assert records[0].context_ref.bindings.active_binding_identity.endswith("inventory.xlsx")
     assert records[0].context_ref.bindings.source_kind == "dataset"
     assert records[0].summary is not None
     assert records[0].summary.response == "answer for a"
@@ -97,6 +98,7 @@ def test_task_coordinator_records_tool_tasks() -> None:
     assert task.summary is not None
     assert task.context_ref is not None
     assert task.context_ref.bindings.active_pdf.endswith("report.pdf")
+    assert task.context_ref.bindings.active_binding_identity.endswith("report.pdf")
     assert task.context_ref.status == "completed"
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,7 +44,7 @@ def main() -> None:
     assert structured_plan.subqueries == ["切到 knowledge/E-commerce Data/inventory.xlsx，哪些仓库缺货？"]
     assert structured_plan.iter_executions()[0].structured_binding is not None
     assert structured_plan.iter_executions()[0].structured_binding.dataset_path.endswith("inventory.xlsx")
-    assert structured_plan.iter_executions()[0].structured_binding.source == "explicit_path"
+    assert structured_plan.iter_executions()[0].structured_binding.source == "prebound_tool_input"
     assert structured_plan.iter_executions()[0].structured_binding.explicit_switch is True
 
     compound_plan = planner.build_plan(
@@ -101,22 +100,15 @@ def main() -> None:
         {"role": "user", "content": "请帮我详细解读 AI治理报告.pdf"},
         {"role": "assistant", "content": "已分析文件：knowledge/reports/AI治理报告.pdf"},
     ]
-    with patch(
-        "query.continuation_resolver.PdfAnalysisCatalog.resolve_pdf_path_from_history",
-        return_value=ROOT / "knowledge" / "reports" / "AI治理报告.pdf",
-    ), patch(
-        "query.continuation_resolver.PdfAnalysisCatalog.relative_path",
-        side_effect=lambda root_dir, path: str(path.relative_to(root_dir)).replace("\\", "/"),
-    ):
-        followup_plan = planner.build_plan(
-            session_id="planner-regression",
-            message="回到刚才 PDF，第二部分的结论是什么？",
-            history=history,
-        )
+    followup_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="回到刚才 PDF，第二部分的结论是什么？",
+        history=history,
+    )
     assert followup_plan.query_understanding.route == "tool"
     assert followup_plan.query_understanding.tool_name == "pdf_analysis"
-    assert followup_plan.query_understanding.tool_input["mode"] == "browse"
-    assert followup_plan.iter_executions()[0].tool_input["mode"] == "browse"
+    assert "path" not in followup_plan.query_understanding.tool_input
+    assert "path" not in followup_plan.iter_executions()[0].tool_input
     assert followup_plan.subqueries == ["回到刚才 PDF，第二部分的结论是什么？"]
 
     structured_followup_history = [
@@ -134,15 +126,21 @@ def main() -> None:
         structured_followup_history,
         QueryUnderstanding(),
     )
-    assert structured_followup_plan.query_understanding.route == "tool"
-    assert structured_followup_plan.query_understanding.tool_name == "structured_data_analysis"
-    assert "path" not in promoted_structured.tool_input
-    assert structured_followup_plan.iter_executions()[0].tool_input["path"].endswith("inventory.xlsx")
-    assert structured_followup_plan.iter_executions()[0].structured_binding is not None
-    assert structured_followup_plan.iter_executions()[0].structured_binding.source in {
-        "semantic_default",
-        "history_fallback",
-    }
+    assert structured_followup_plan.query_understanding.tool_name != "structured_data_analysis"
+    assert promoted_structured.route != "tool"
+    structured_followup_execution = structured_followup_plan.iter_executions()[0]
+    assert structured_followup_execution.structured_binding is None
+    assert not structured_followup_execution.tool_input.get("path", "")
+
+    non_structured_followup_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="把刚才那三类风险压成适合管理层汇报的三条。",
+        history=structured_followup_history,
+    )
+    assert non_structured_followup_plan.query_understanding.tool_name != "structured_data_analysis"
+    non_structured_execution = non_structured_followup_plan.iter_executions()[0]
+    assert non_structured_execution.structured_binding is None
+    assert not non_structured_execution.tool_input.get("path", "")
 
     summary_history = [
         {"role": "user", "content": "请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，先给我全文总览。"},

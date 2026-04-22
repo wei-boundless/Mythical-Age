@@ -9,6 +9,8 @@ class AnswerSegment(BaseModel):
     title: str
     body: str
     response_style: str = ""
+    answer_source: str = ""
+    answer_ref: str = ""
 
 
 class StyleConstraints(BaseModel):
@@ -21,3 +23,4 @@ class AnswerAssemblyPlan(BaseModel):
     segments: list[AnswerSegment] = Field(default_factory=list)
     style_constraints: StyleConstraints = Field(default_factory=StyleConstraints)
     dedupe_targets: list[str] = Field(default_factory=list)
+    source_refs: list[str] = Field(default_factory=list)

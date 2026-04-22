@@ -1,0 +1,11 @@
+{
+  "doc_id": "00fb967a98cbd6443674f70bb8cde7f3029ab978",
+  "source_path": "knowledge/AI Knowledge/2026年快消行业AI营销增长白皮书.pdf",
+  "version_digest": "64ff0e9af5aba2eaf29c37a3e1acc5b54e532c4d",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 548
+}

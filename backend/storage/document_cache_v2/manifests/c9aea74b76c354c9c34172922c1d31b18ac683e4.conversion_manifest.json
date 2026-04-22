@@ -1,0 +1,10 @@
+{
+  "doc_id": "c9aea74b76c354c9c34172922c1d31b18ac683e4",
+  "source_path": "knowledge/Financial Report Data/航天动力_2025_Q3.txt",
+  "version_digest": "f9f167fb1465b1e386937710df6297ebfea4c4ed",
+  "parser_backend": "legacy_fallback",
+  "quality_flags": [
+    "fallback_parser"
+  ],
+  "block_count": 1
+}

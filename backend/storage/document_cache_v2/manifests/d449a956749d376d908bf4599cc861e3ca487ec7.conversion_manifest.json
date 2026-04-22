@@ -1,0 +1,11 @@
+{
+  "doc_id": "d449a956749d376d908bf4599cc861e3ca487ec7",
+  "source_path": "knowledge/AI Knowledge/2025年度重庆市人工智能应用场景典型案例集（压缩版）.pdf",
+  "version_digest": "79948b31ef513550d55ca811586f2130bbedeb64",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 820
+}

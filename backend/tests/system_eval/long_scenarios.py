@@ -34,12 +34,15 @@ def user(
     force_memory_sync: bool = True,
 ) -> LongScenarioTurn:
     params = {"durable": True} if durable else {}
+    normalized_checks = list(checks)
+    if "response.nonempty" in normalized_checks:
+        normalized_checks.append("response.not_contains_any=我来检索|search_knowledge|<tool_call|</think>")
     return LongScenarioTurn(
         session=session,
         speaker="user",
         content=content,
         params=params,
-        checks=checks,
+        checks=tuple(normalized_checks),
         force_memory_sync=force_memory_sync,
     )
 

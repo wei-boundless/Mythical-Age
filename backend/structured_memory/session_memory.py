@@ -235,7 +235,7 @@ class SessionMemoryManager:
         flow_id = (
             previous_state.flow_state.flow_id
             if not task_switch and previous_state.flow_state.flow_type == flow_type
-            else f"{flow_type}:{turn_analyzer._slugify(understanding.target_object or active_goal or 'active')}"
+            else f"{flow_type}:{turn_analyzer._slugify(active_goal or 'active')}"
         )
         flow_state = FlowState(
             flow_id=flow_id,
@@ -245,6 +245,7 @@ class SessionMemoryManager:
         )
 
         context_slots = self._build_projection_context_slots(
+            main_context=main_context,
             active_goal=active_goal,
             active_constraints=active_constraints,
             normalized_task_summaries=normalized_task_summaries,
@@ -353,6 +354,7 @@ class SessionMemoryManager:
                 continue
             normalized.append(
                 {
+                    "task_id": self._coerce_text(self._read_value(item, "task_id")),
                     "query": query,
                     "summary": summary,
                     "key_points": key_points,
@@ -401,7 +403,7 @@ class SessionMemoryManager:
                 excerpt=self._shorten(active_goal, 180),
                 intent=active_work_item or understanding.intent,
                 modality=understanding.modality,
-                target_object=understanding.target_object or "",
+                target_object="",
                 flow_hint=flow_hint,
                 constraints=list(constraint_items[:3]),
             )
@@ -414,7 +416,7 @@ class SessionMemoryManager:
                     excerpt=self._shorten(correction, 180),
                     intent="correction_feedback",
                     modality=understanding.modality,
-                    target_object=understanding.target_object or "",
+                    target_object="",
                     flow_hint=flow_hint,
                     constraints=[],
                 )
@@ -430,7 +432,7 @@ class SessionMemoryManager:
                     excerpt=self._shorten(summary_text, 180),
                     intent="result_delivery",
                     modality=understanding.modality,
-                    target_object=understanding.target_object or "",
+                    target_object="",
                     flow_hint="assistant_support",
                     constraints=[],
                 )
@@ -440,6 +442,7 @@ class SessionMemoryManager:
     def _build_projection_context_slots(
         self,
         *,
+        main_context: Any,
         active_goal: str,
         active_constraints: dict[str, Any],
         normalized_task_summaries: list[dict[str, str | list[str]]],
@@ -453,14 +456,27 @@ class SessionMemoryManager:
             active_pdf = self._extract_projection_binding_from_summaries(normalized_task_summaries, "pdf")
         if not active_dataset:
             active_dataset = self._extract_projection_binding_from_summaries(normalized_task_summaries, "dataset")
-        if not active_pdf and not task_switch:
-            active_pdf = previous_state.context_slots.active_pdf
-        if not active_dataset and not task_switch:
-            active_dataset = previous_state.context_slots.active_dataset
+        active_binding_identity = self._coerce_text(self._read_value(main_context, "active_binding_identity"))
+        if not active_binding_identity:
+            active_binding_identity = self._coerce_text(active_constraints.get("active_binding_identity"))
+        if not active_binding_identity:
+            active_binding_identity = self._binding_identity_from_slot_values(active_pdf=active_pdf, active_dataset=active_dataset)
+        active_binding_kind = self._coerce_text(self._read_value(main_context, "followup_binding_key"))
+        if not active_binding_kind:
+            active_binding_kind = "active_pdf" if active_pdf else "active_dataset" if active_dataset else ""
+        active_binding_owner_task_id = self._projection_binding_owner_task_id(
+            main_context=main_context,
+            normalized_task_summaries=normalized_task_summaries,
+            active_binding_kind=active_binding_kind,
+        )
         source_kind = self._coerce_text(active_constraints.get("source_kind"))
         active_entity = ""
         lowered_goal = active_goal.lower()
-        if "session memory" in lowered_goal:
+        if active_pdf:
+            active_entity = "pdf_document"
+        elif active_dataset:
+            active_entity = "dataset"
+        elif "session memory" in lowered_goal:
             active_entity = "session_memory"
         elif "memory bridge" in lowered_goal:
             active_entity = "memory_bridge"
@@ -470,21 +486,43 @@ class SessionMemoryManager:
             active_entity = "pdf_document"
         elif source_kind == "dataset":
             active_entity = "dataset"
-        elif not task_switch:
+        elif not task_switch and self._can_carry_forward_active_entity(previous_state.context_slots.active_entity):
             active_entity = previous_state.context_slots.active_entity
         if flow_type == "external_lookup_flow":
             active_pdf = ""
             active_dataset = ""
+            active_binding_kind = ""
+            active_binding_identity = ""
+            active_binding_owner_task_id = ""
         if flow_type == "pdf_analysis_flow":
             active_dataset = ""
+            if active_binding_kind == "active_dataset":
+                active_binding_kind = ""
+                active_binding_identity = self._binding_identity_from_slot_values(active_pdf=active_pdf, active_dataset="")
+                active_binding_owner_task_id = ""
         if flow_type == "structured_data_flow":
             active_pdf = ""
+            if active_binding_kind == "active_pdf":
+                active_binding_kind = ""
+                active_binding_identity = self._binding_identity_from_slot_values(active_pdf="", active_dataset=active_dataset)
+                active_binding_owner_task_id = ""
+        if not active_pdf and not active_dataset:
+            active_binding_kind = ""
+            active_binding_identity = ""
+            active_binding_owner_task_id = ""
         return ContextSlots(
             active_pdf=active_pdf,
             active_dataset=active_dataset,
+            active_binding_kind=active_binding_kind,
+            active_binding_identity=active_binding_identity,
+            active_binding_owner_task_id=active_binding_owner_task_id,
             active_entity=active_entity,
             active_rule="",
         )
+
+    def _can_carry_forward_active_entity(self, active_entity: str) -> bool:
+        entity = self._coerce_text(active_entity)
+        return bool(entity) and entity not in {"pdf_document", "dataset"}
 
     def _extract_projection_binding_from_summaries(
         self,
@@ -500,6 +538,44 @@ class SessionMemoryManager:
                 text = self._coerce_text(item)
                 if text.startswith(prefix):
                     return text[len(prefix):].strip()
+        return ""
+
+    def _projection_binding_owner_task_id(
+        self,
+        *,
+        main_context: Any,
+        normalized_task_summaries: list[dict[str, str | list[str]]],
+        active_binding_kind: str,
+    ) -> str:
+        explicit_owner = self._coerce_text(self._read_value(main_context, "followup_binding_owner_task_id"))
+        if explicit_owner:
+            return explicit_owner
+        target_task_id = self._coerce_text(self._read_value(main_context, "followup_target_task_id"))
+        if target_task_id:
+            return target_task_id
+        expected_prefix = "pdf=" if active_binding_kind == "active_pdf" else "dataset=" if active_binding_kind == "active_dataset" else ""
+        for summary in reversed(normalized_task_summaries):
+            task_id = self._coerce_text(summary.get("task_id"))
+            key_points = summary.get("key_points", [])
+            if task_id and expected_prefix and isinstance(key_points, list):
+                if any(self._coerce_text(item).startswith(expected_prefix) for item in key_points):
+                    return task_id
+        for summary in reversed(normalized_task_summaries):
+            task_id = self._coerce_text(summary.get("task_id"))
+            if task_id:
+                return task_id
+        return ""
+
+    def _binding_identity_from_slot_values(
+        self,
+        *,
+        active_pdf: str,
+        active_dataset: str,
+    ) -> str:
+        if active_pdf:
+            return active_pdf.replace("\\", "/").strip().lower()
+        if active_dataset:
+            return active_dataset.replace("\\", "/").strip().lower()
         return ""
 
     def _build_projection_current_task_state(

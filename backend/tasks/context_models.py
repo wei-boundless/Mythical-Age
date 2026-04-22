@@ -8,6 +8,7 @@ from time import time
 class TaskBindings:
     active_pdf: str = ""
     active_dataset: str = ""
+    active_binding_identity: str = ""
     active_entity: str = ""
     active_location: str = ""
     source_kind: str = ""

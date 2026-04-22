@@ -1,0 +1,11 @@
+{
+  "doc_id": "fedfe13e2238de9d9ca9a6d065dbe86930fd2a6e",
+  "source_path": "knowledge/Financial Report Data/三一重工 2025 Q3.pdf",
+  "version_digest": "da509349202e5384760d2dea400781827d4fb440",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 77
+}

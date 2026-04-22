@@ -1,0 +1,30 @@
+{
+  "doc_id": "c5e2a7bd64d29f3b49a9c79c5eca995e4ea06149",
+  "collection": "knowledge",
+  "source_path": "knowledge/Safety Knowledge/data_structure.md",
+  "source_type": "md",
+  "version_digest": "becb28e1ba233d4ac256e94a6bc0ce9b81269ca9",
+  "parser_backend": "legacy_fallback",
+  "title": "data_structure",
+  "language": null,
+  "page_count": 0,
+  "quality_flags": [
+    "fallback_parser"
+  ],
+  "blocks": [
+    {
+      "block_id": "becb28e1ba233d4ac256e94a6bc0ce9b81269ca9:0",
+      "block_type": "paragraph",
+      "text": "# 领域目录索引：Safety Knowledge\n\n本目录聚焦于 Web 安全相关知识，目前包含以下文件：\n\n- XSS.md\n\n- 用途：介绍跨站脚本攻击（XSS）的原理、类型、常见利用方式以及防御策略。\n\n- CSRF.txt\n\n- 用途：说明跨站请求伪造（CSRF）的攻击方式、典型案例和常见防护手段。\n\n- cors.md\n\n- 用途：描述浏览器跨域资源共享（CORS）机制、配置方式以及相关安全注意事项。\n\n后续如果新增其他安全主题（如 SQL 注入、SSRF 等），可在本目录继续添加文件并在此处补充说明。",
+      "modality": "text",
+      "page": null,
+      "section_path": [],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "parser": "native_multimodal"
+      }
+    }
+  ],
+  "metadata": {}
+}

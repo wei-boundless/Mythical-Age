@@ -1,0 +1,11 @@
+{
+  "doc_id": "2362d03be39af6739d82b611ccb73c8ef66115cb",
+  "source_path": "knowledge/AI Knowledge/清华大学：职业教育人工智能应用发展报告（2024-2025）.pdf",
+  "version_digest": "44d93589e71c4a5b6bc00d66de498d62678254b2",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 1491
+}

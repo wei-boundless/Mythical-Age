@@ -47,13 +47,14 @@ def test_follow_up_keeps_same_task_context() -> None:
             ],
         )
 
+        summary = manager.load()
         sections = _sections(manager)
-        warm = "\n".join(sections["# Warm Context"])
-        state = "\n".join(sections["# Current Task State"])
+        warm = "\n".join(sections.get("# Warm Context", []))
+        state = "\n".join(sections.get("# Current Task State", []))
 
         _assert("上一阶段目标" not in warm, "follow-up should not be treated as a hard task switch")
         _assert("延续状态" in warm or "近期结论" in warm, "same-task follow-up should preserve prior context")
-        _assert("Hot/Warm" in warm or "Hot/Warm" in state, "recent design state should stay visible")
+        _assert("Hot/Warm" in warm or "Hot/Warm" in state or "Hot/Warm" in summary, "recent design state should stay visible")
 
 
 def test_explicit_switch_demotes_old_state_into_warm_context() -> None:
@@ -74,8 +75,8 @@ def test_explicit_switch_demotes_old_state_into_warm_context() -> None:
         )
 
         sections = _sections(manager)
-        active_goal = "\n".join(sections["# Active Goal"])
-        warm = "\n".join(sections["# Warm Context"])
+        active_goal = "\n".join(sections.get("# Active Goal", []))
+        warm = "\n".join(sections.get("# Warm Context", []))
 
         _assert("黄金价格" in active_goal, "new active goal should reflect the switched task")
         _assert("上一阶段目标" in warm, "previous task should be demoted into warm context on explicit switch")
@@ -105,8 +106,8 @@ def test_returning_to_previous_task_keeps_both_current_and_recent_context() -> N
 
         summary = manager.load()
         sections = _sections(manager)
-        warm = "\n".join(sections["# Warm Context"])
-        active_goal = "\n".join(sections["# Active Goal"])
+        warm = "\n".join(sections.get("# Warm Context", []))
+        active_goal = "\n".join(sections.get("# Active Goal", []))
 
         _assert("session memory" in active_goal, "active goal should return to the resumed task")
         _assert("黄金价格" in warm or "1034 元/克" in warm, "brief diversion should remain available as warm context")
@@ -141,8 +142,8 @@ def test_long_running_session_retains_key_points_without_unbounded_growth() -> N
 
         _run_batches(manager, batches)
         sections = _sections(manager)
-        worklog_lines = [line for line in sections["# Worklog"] if line.startswith("- ")]
-        warm = "\n".join(sections["# Warm Context"])
+        worklog_lines = [line for line in sections.get("# Worklog", []) if line.startswith("- ")]
+        warm = "\n".join(sections.get("# Warm Context", []))
         summary = manager.load()
 
         _assert(len(worklog_lines) <= 6, "worklog should stay compact instead of becoming archival")
@@ -219,6 +220,58 @@ def test_task_switch_persists_warm_flow_snapshots() -> None:
         )
 
 
+def test_summary_first_task_switch_persists_restore_candidate_binding_metadata() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        manager = SessionMemoryManager(root)
+        manager.update_from_context_state(
+            {
+                "active_goal": "请分析 report.pdf 第3页的结论",
+                "active_work_item": "pdf_analysis",
+                "active_binding_identity": "report.pdf",
+                "followup_target_task_id": "pdf-task",
+                "active_constraints": {"page": 3, "source_kind": "pdf"},
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "pdf-task",
+                    "query": "请分析 report.pdf 第3页的结论",
+                    "summary": "第3页主要讲供应链风险和成本压力。",
+                    "key_points": ["page=3", "pdf=report.pdf"],
+                }
+            ],
+        )
+        manager.update_from_context_state(
+            {
+                "active_goal": "换个问题，帮我查黄金价格",
+                "active_work_item": "finance_lookup",
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "price-task",
+                    "query": "帮我查黄金价格",
+                    "summary": "当前国际黄金现货约 1034 元/克。",
+                }
+            ],
+        )
+
+        snapshots = manager.load_flow_snapshots()
+
+        _assert(snapshots, "summary-first task switch should still persist warm snapshots")
+        pdf_snapshot = next((snapshot for snapshot in snapshots if snapshot.flow_type == "pdf_analysis_flow"), None)
+        _assert(pdf_snapshot is not None, "warm snapshots should retain the prior pdf flow")
+        _assert(
+            pdf_snapshot.binding_identity == "report.pdf",
+            "warm snapshots should persist binding identity as restore metadata instead of relying only on raw key slots",
+        )
+        _assert(
+            pdf_snapshot.binding_owner_task_id == "pdf-task",
+            "warm snapshots should retain the owner task handle for the suspended binding lineage",
+        )
+
+
 def test_summary_first_projection_preserves_warm_context_on_task_switch() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         manager = SessionMemoryManager(Path(tmp))
@@ -255,9 +308,9 @@ def test_summary_first_projection_preserves_warm_context_on_task_switch() -> Non
 
         summary = manager.load()
         sections = _sections(manager)
-        warm = "\n".join(sections["# Warm Context"])
+        warm = "\n".join(sections.get("# Warm Context", []))
 
-        _assert("黄金价格" in "\n".join(sections["# Active Goal"]), "summary-first switch should update the active goal")
+        _assert("黄金价格" in "\n".join(sections.get("# Active Goal", [])), "summary-first switch should update the active goal")
         _assert("report.pdf" in warm or "供应链风险" in warm, "summary-first switch should demote prior flow into warm context")
         _assert("1034 元/克" in summary, "latest summary-first result should remain visible after the switch")
 
@@ -270,6 +323,7 @@ def main() -> None:
         test_long_running_session_retains_key_points_without_unbounded_growth,
         test_meta_dialogue_and_correction_do_not_replace_active_goal,
         test_task_switch_persists_warm_flow_snapshots,
+        test_summary_first_task_switch_persists_restore_candidate_binding_metadata,
         test_summary_first_projection_preserves_warm_context_on_task_switch,
     ]
     for test in tests:

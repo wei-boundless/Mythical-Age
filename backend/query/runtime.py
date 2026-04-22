@@ -13,6 +13,7 @@ from query.binding_models import StructuredDatasetBinding
 from query.context_models import MainContextState, TaskSummaryRef
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryContext, QueryExecutionPlan, QueryPlan, QueryRequest
+from query.output_classifier import build_output_decision, classify_output_candidate
 from query.output_boundary import AssistantOutputBoundary, contains_internal_protocol, sanitize_visible_assistant_content
 from query.prompt_builder import build_system_prompt
 from query.planner import QueryPlanner
@@ -209,7 +210,10 @@ class QueryRuntime:
                             main_context_payload=event.get("main_context"),
                             task_summary_payloads=event.get("task_summary_refs"),
                         )
-                        assistant_messages = self._build_assistant_messages(segments)
+                        assistant_messages = self._build_assistant_messages(
+                            segments,
+                            canonical_content=str(event.get("content", "") or ""),
+                        )
                         if assistant_messages:
                             self.session_manager.append_messages(request.session_id, assistant_messages)
                             assistant_persisted = True
@@ -269,12 +273,38 @@ class QueryRuntime:
             trace.annotate(
                 {
                     "app.followup_mode": followup_resolution.mode,
+                    "app.followup_source": followup_resolution.resolution_source,
                     "app.followup_task_id": (
-                        followup_resolution.binding_owner_task_id or followup_resolution.task_id
+                        self._resolved_binding_owner_task_id(followup_resolution)
+                        or self._resolved_task_id(followup_resolution)
                     ),
-                    "app.followup_task_ids": ",".join(followup_resolution.task_ids),
+                    "app.followup_task_ids": ",".join(self._resolved_task_ids(followup_resolution)),
                 }
             )
+        if followup_resolution.requires_clarification:
+            main_context = MainContextState(
+                active_goal=message.strip(),
+                active_work_item="clarify_followup_owner",
+                active_binding_identity=self._resolved_binding_identity(followup_resolution),
+                followup_mode=followup_resolution.mode,
+                followup_resolution_source=followup_resolution.resolution_source,
+                followup_target_task_ids=self._resolved_task_ids(followup_resolution),
+                followup_binding_identity=self._resolved_binding_identity(followup_resolution),
+                latest_correction=self._extract_latest_correction(message),
+                next_step="clarify_followup_owner",
+            )
+            yield {
+                "type": "done",
+                "content": followup_resolution.clarification_prompt or "请明确你要继续的是哪一个对象。",
+                "main_context": main_context.to_dict(),
+                "task_summary_refs": [],
+                "followup_mode": followup_resolution.mode,
+                "answer_channel": "fallback_answer",
+                "answer_source": "clarification_prompt",
+                "answer_fallback_reason": "followup_requires_clarification",
+                "answer_leak_flags": [],
+            }
+            return
         if self._should_answer_from_followup(
             message=message,
             followup_resolution=followup_resolution,
@@ -299,6 +329,10 @@ class QueryRuntime:
                 "main_context": main_context.to_dict(),
                 "task_summary_refs": [item.to_dict() for item in task_summary_refs],
                 "followup_mode": followup_resolution.mode,
+                "answer_channel": "answer_candidate",
+                "answer_source": "answer_assembler",
+                "answer_fallback_reason": "",
+                "answer_leak_flags": [],
             }
             return
         if followup_resolution.mode == "binding_ref" and self._binding_owner_task(session_id, followup_resolution) is not None:
@@ -347,6 +381,10 @@ class QueryRuntime:
                 "content": self._assemble_subtask_results(subtask_results, main_context=main_context),
                 "main_context": main_context.to_dict(),
                 "task_summary_refs": [item.to_dict() for item in task_summary_refs],
+                "answer_channel": "answer_candidate",
+                "answer_source": "answer_assembler",
+                "answer_fallback_reason": "",
+                "answer_leak_flags": [],
             }
             return
 
@@ -582,12 +620,20 @@ class QueryRuntime:
                     stream_context.__exit__(None, None, None)
 
             output_boundary.finalize_segment(fallback_content=last_ai_message)
-            output_response = output_boundary.build_response()
-            final_content = output_response.visible_text.strip() or last_ai_message.strip()
+            output_response = output_boundary.build_response(
+                route=str(execution.query_understanding.route or ""),
+                user_message=execution.message,
+                tool_name=str(execution.query_understanding.tool_name or ""),
+                retrieval_results=context.retrieval_results,
+            )
+            final_content = output_response.canonical_answer.strip()
             if trace is not None:
                 trace.annotate(
                     {
                         "app.answer_chars": len(final_content),
+                        "app.answer_channel": output_response.selected_channel,
+                        "app.answer_source": output_response.selected_source,
+                        "app.answer_fallback_reason": output_response.fallback_reason,
                         "app.output_leak_flags": ",".join(output_response.leak_flags),
                     }
                 )
@@ -600,6 +646,10 @@ class QueryRuntime:
                 "content": final_content,
                 "main_context": context.main_context.to_dict(),
                 "task_summary_refs": [item.to_dict() for item in task_summary_refs],
+                "answer_channel": output_response.selected_channel,
+                "answer_source": output_response.selected_source,
+                "answer_fallback_reason": output_response.fallback_reason,
+                "answer_leak_flags": list(output_response.leak_flags),
             }
         finally:
             if execution_stage is not None:
@@ -698,6 +748,7 @@ class QueryRuntime:
         return MainContextState(
             active_goal=execution.message.strip(),
             active_work_item=intent or task_kind or route or "query",
+            active_binding_identity=self._binding_identity_from_constraints(constraints),
             active_constraints=constraints,
             latest_correction=self._extract_latest_correction(execution.message),
             next_step="answer_current_request",
@@ -739,11 +790,42 @@ class QueryRuntime:
         return MainContextState(
             active_goal=message.strip(),
             active_work_item="compound_query",
+            active_binding_identity=self._binding_identity_from_constraints(
+                self._merge_constraints_from_results(constraints, results)
+            ),
             followup_target_task_id=followup_target_task_id or None,
             followup_target_task_ids=[task_ref.task_id for task_ref in task_refs if task_ref.task_id],
             active_constraints=self._merge_constraints_from_results(constraints, results),
             latest_correction=self._extract_latest_correction(message),
             next_step="follow_up_or_refine_subtask_results",
+        )
+
+    def _build_direct_tool_main_context(
+        self,
+        message: str,
+        *,
+        task,
+    ) -> MainContextState:
+        constraints = self._extract_active_constraints(message)
+        result_payload = {
+            "task_id": task.task_id,
+            "query": task.query,
+            "summary": task.summary.to_dict() if task.summary is not None else None,
+            "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
+        }
+        return MainContextState(
+            active_goal=message.strip(),
+            active_work_item="direct_tool_execution",
+            active_binding_identity=self._binding_identity_from_constraints(
+                self._merge_constraints_from_results(constraints, [result_payload])
+            ),
+            followup_mode="task_ref",
+            followup_resolution_source="task_record",
+            followup_target_task_id=task.task_id,
+            followup_target_task_ids=[task.task_id],
+            active_constraints=self._merge_constraints_from_results(constraints, [result_payload]),
+            latest_correction=self._extract_latest_correction(message),
+            next_step="follow_up_or_refine_direct_tool_result",
         )
 
     def _build_followup_main_context(
@@ -760,19 +842,31 @@ class QueryRuntime:
             if latest.response_style:
                 constraints = dict(constraints)
                 constraints.setdefault("response_style", latest.response_style)
-        target_task_ids = [task_id for task_id in followup_resolution.task_ids if task_id]
-        target_task_id = followup_resolution.task_id or (target_task_ids[0] if target_task_ids else "")
+        target_task_ids = self._resolved_task_ids(followup_resolution)
+        target_task_id = self._resolved_task_id(followup_resolution) or (target_task_ids[0] if target_task_ids else "")
         work_item = "followup_task_result_assembly"
         if followup_resolution.mode == "compound_subset":
             work_item = "followup_task_subset_assembly"
         elif followup_resolution.mode == "binding_ref":
             work_item = "followup_task_binding_execution"
+        merged_constraints = self._merge_constraints_from_results(constraints, results)
+        active_binding_identity = self._resolved_binding_identity(followup_resolution)
+        if not active_binding_identity:
+            active_binding_identity = self._binding_identity_from_constraints(merged_constraints)
         return MainContextState(
             active_goal=message.strip(),
             active_work_item=work_item,
+            active_binding_identity=active_binding_identity,
+            followup_mode=str(followup_resolution.mode or ""),
+            followup_resolution_source=str(getattr(followup_resolution, "resolution_source", "") or ""),
             followup_target_task_id=target_task_id or None,
             followup_target_task_ids=target_task_ids,
-            active_constraints=self._merge_constraints_from_results(constraints, results),
+            followup_binding_key=self._resolved_binding_kind(followup_resolution),
+            followup_binding_identity=self._resolved_binding_identity(followup_resolution),
+            followup_binding_owner_task_id=(
+                self._resolved_binding_owner_task_id(followup_resolution) or None
+            ),
+            active_constraints=merged_constraints,
             latest_correction=self._extract_latest_correction(message),
             next_step="answer_selected_task_results",
         )
@@ -799,6 +893,21 @@ class QueryRuntime:
                 )
             )
         return task_refs
+
+    def _task_summary_ref_from_task(self, task) -> TaskSummaryRef | None:
+        if task is None or task.summary is None:
+            return None
+        task_kind = ""
+        if task.context_ref is not None:
+            task_kind = str(task.context_ref.task_kind or "")
+        return TaskSummaryRef(
+            task_id=str(task.task_id or ""),
+            query=str(task.query or ""),
+            summary=str(task.summary.response or ""),
+            task_kind=task_kind,
+            response_style=str(task.summary.response_style or ""),
+            key_points=list(task.summary.key_points or []),
+        )
 
     def _build_single_execution_task_summaries(
         self,
@@ -852,10 +961,19 @@ class QueryRuntime:
             if not isinstance(context_ref_payload, dict):
                 continue
             bindings = dict(context_ref_payload.get("bindings") or {})
+            binding_identity = str(bindings.get("active_binding_identity", "") or "").strip()
             if bindings.get("active_pdf") and not merged.get("active_pdf"):
                 merged["active_pdf"] = str(bindings["active_pdf"])
+                merged.setdefault(
+                    "active_binding_identity",
+                    binding_identity or str(bindings["active_pdf"]).replace("\\", "/").strip().lower(),
+                )
             if bindings.get("active_dataset") and not merged.get("active_dataset"):
                 merged["active_dataset"] = str(bindings["active_dataset"])
+                merged.setdefault(
+                    "active_binding_identity",
+                    binding_identity or str(bindings["active_dataset"]).replace("\\", "/").strip().lower(),
+                )
             if bindings.get("active_location") and not merged.get("active_location"):
                 merged["active_location"] = str(bindings["active_location"])
             if bindings.get("source_kind") and not merged.get("source_kind"):
@@ -894,6 +1012,7 @@ class QueryRuntime:
         pdf_path = str(tool_input.get("path", "") or "").strip()
         if pdf_path and str(getattr(execution.query_understanding, "tool_name", "") or "") == "pdf_analysis":
             merged["active_pdf"] = pdf_path
+            merged["active_binding_identity"] = pdf_path.replace("\\", "/").strip().lower()
             merged.setdefault("source_kind", "pdf")
         binding = getattr(execution, "structured_binding", None)
         if binding is None:
@@ -901,8 +1020,23 @@ class QueryRuntime:
         dataset_path = str(getattr(binding, "dataset_path", "") or "").strip()
         if dataset_path:
             merged["active_dataset"] = dataset_path
+            merged["active_binding_identity"] = str(
+                getattr(binding, "binding_identity", "") or dataset_path.replace("\\", "/").strip().lower()
+            )
             merged.setdefault("source_kind", "dataset")
         return merged
+
+    def _binding_identity_from_constraints(self, constraints: dict[str, Any]) -> str:
+        explicit = str(constraints.get("active_binding_identity", "") or "").strip()
+        if explicit:
+            return explicit
+        active_pdf = str(constraints.get("active_pdf", "") or "").strip()
+        if active_pdf:
+            return active_pdf.replace("\\", "/").lower()
+        active_dataset = str(constraints.get("active_dataset", "") or "").strip()
+        if active_dataset:
+            return active_dataset.replace("\\", "/").lower()
+        return ""
 
     def _extract_active_constraints(self, message: str) -> dict[str, Any]:
         lowered = message.lower()
@@ -955,9 +1089,9 @@ class QueryRuntime:
     ) -> list[dict[str, object]]:
         if followup_resolution.mode not in {"task_ref", "compound_subset"}:
             return []
-        task_ids = [task_id for task_id in followup_resolution.task_ids if task_id]
-        if not task_ids and followup_resolution.task_id:
-            task_ids = [followup_resolution.task_id]
+        task_ids = self._resolved_task_ids(followup_resolution)
+        if not task_ids and self._resolved_task_id(followup_resolution):
+            task_ids = [self._resolved_task_id(followup_resolution)]
         return self._followup_results_from_task_ids(session_id, task_ids)
 
     def _followup_results_from_task_ids(
@@ -989,8 +1123,8 @@ class QueryRuntime:
 
     def _binding_owner_task(self, session_id: str, followup_resolution) -> Any | None:
         owner_task_id = str(
-            getattr(followup_resolution, "binding_owner_task_id", "")
-            or getattr(followup_resolution, "task_id", "")
+            self._resolved_binding_owner_task_id(followup_resolution)
+            or self._resolved_task_id(followup_resolution)
             or ""
         ).strip()
         if not owner_task_id:
@@ -1039,6 +1173,9 @@ class QueryRuntime:
                 target_object=bindings.active_entity,
                 source="binding_owner",
                 confidence=1.0,
+                binding_identity=str(
+                    bindings.active_binding_identity or str(bindings.active_dataset or "").replace("\\", "/").strip().lower()
+                ),
                 derived_from_task_id=owner_task.task_id,
             )
             query_understanding = QueryUnderstanding(
@@ -1129,8 +1266,10 @@ class QueryRuntime:
             if followup_results:
                 synthetic_resolution = followup_resolution.model_copy(
                     update={
-                        "task_id": task_ids[-1] if task_ids else followup_resolution.task_id,
-                        "task_ids": task_ids or list(followup_resolution.task_ids),
+                        "task_id": task_ids[-1] if task_ids else self._resolved_task_id(followup_resolution),
+                        "resolved_task_id": task_ids[-1] if task_ids else self._resolved_task_id(followup_resolution),
+                        "task_ids": task_ids or self._resolved_task_ids(followup_resolution),
+                        "resolved_task_ids": task_ids or self._resolved_task_ids(followup_resolution),
                     }
                 )
                 main_context = self._build_followup_main_context(
@@ -1145,6 +1284,42 @@ class QueryRuntime:
                 )
             event["followup_mode"] = followup_resolution.mode
             yield event
+
+    def _resolved_task_id(self, followup_resolution) -> str:
+        return str(
+            getattr(followup_resolution, "resolved_task_id", "")
+            or getattr(followup_resolution, "task_id", "")
+            or ""
+        ).strip()
+
+    def _resolved_task_ids(self, followup_resolution) -> list[str]:
+        task_ids = list(getattr(followup_resolution, "resolved_task_ids", []) or [])
+        if not task_ids:
+            task_ids = list(getattr(followup_resolution, "task_ids", []) or [])
+        return [str(task_id or "").strip() for task_id in task_ids if str(task_id or "").strip()]
+
+    def _resolved_binding_kind(self, followup_resolution) -> str:
+        return str(
+            getattr(followup_resolution, "resolved_binding_kind", "")
+            or getattr(followup_resolution, "binding_kind", "")
+            or getattr(followup_resolution, "binding_key", "")
+            or ""
+        ).strip()
+
+    def _resolved_binding_identity(self, followup_resolution) -> str:
+        return str(
+            getattr(followup_resolution, "resolved_binding_identity", "")
+            or getattr(followup_resolution, "binding_identity", "")
+            or getattr(followup_resolution, "resolved_binding_ref", "")
+            or ""
+        ).strip()
+
+    def _resolved_binding_owner_task_id(self, followup_resolution) -> str:
+        return str(
+            getattr(followup_resolution, "resolved_binding_owner_task_id", "")
+            or getattr(followup_resolution, "binding_owner_task_id", "")
+            or ""
+        ).strip()
 
     def _extract_latest_correction(self, message: str) -> str:
         correction_markers = ("不对", "改成", "纠正", "不是", "更正")
@@ -1209,12 +1384,23 @@ class QueryRuntime:
             yield {
                 "type": "done",
                 "content": f"无法调用工具 {tool_name}：{decision.reason}",
+                "answer_channel": "fallback_answer",
+                "answer_source": "permission_guard",
+                "answer_fallback_reason": "tool_permission_denied",
+                "answer_leak_flags": [],
             }
             return
 
         tool = self.tool_runtime.get_instance(tool_name)
         if tool is None:
-            yield {"type": "done", "content": f"工具 {tool_name} 当前不可用。"}
+            yield {
+                "type": "done",
+                "content": f"工具 {tool_name} 当前不可用。",
+                "answer_channel": "fallback_answer",
+                "answer_source": "tool_runtime",
+                "answer_fallback_reason": "tool_unavailable",
+                "answer_leak_flags": [],
+            }
             return
 
         if trace is not None:
@@ -1271,36 +1457,96 @@ class QueryRuntime:
                 page=active_constraints.get("page"),
                 response_style=str(active_constraints.get("response_style", "") or ""),
             ),
-            render_content=self._normalize_direct_tool_output,
+            render_content=lambda output: self._normalize_direct_tool_output(
+                output,
+                tool_name=tool_name,
+                query=execution.message,
+                route=str(execution.query_understanding.route or "tool"),
+            ),
         )
         tool_content = task.result
+        tool_decision = self._build_direct_tool_output_decision(
+            tool_content,
+            tool_name=tool_name,
+            query=execution.message,
+            route=str(execution.query_understanding.route or "tool"),
+        )
         binding_payload = (
             execution.structured_binding.to_dict()
             if getattr(execution, "structured_binding", None) is not None
             else None
         )
+        task_summary_ref = self._task_summary_ref_from_task(task)
         yield {"type": "tool_end", "tool": tool_name, "output": tool_content, "structured_binding": binding_payload}
         yield {
             "type": "done",
             "content": tool_content or f"{tool_name} 已执行，但未返回可展示结果。",
+            "task_id": task.task_id,
+            "summary": task.summary.to_dict() if task.summary is not None else None,
+            "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
+            "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
+            "main_context": self._build_direct_tool_main_context(execution.message, task=task).to_dict(),
             "structured_binding": binding_payload,
+            "answer_channel": tool_decision.selected_channel,
+            "answer_source": tool_decision.selected_source,
+            "answer_fallback_reason": tool_decision.fallback_reason,
+            "answer_leak_flags": list(tool_decision.leak_flags),
             "task_summary_refs": (
-                [
-                    TaskSummaryRef(
-                        task_id=task.task_id,
-                        query=task.query,
-                        summary=task.summary.response,
-                        task_kind=task.context_ref.task_kind if task.context_ref is not None else "",
-                        response_style=task.summary.response_style if task.summary is not None else "",
-                        key_points=list(task.summary.key_points if task.summary is not None else []),
-                    ).to_dict()
-                ]
-                if task.summary is not None
+                [task_summary_ref.to_dict()]
+                if task_summary_ref is not None
                 else []
             ),
         }
 
-    def _normalize_direct_tool_output(self, output: Any) -> str:
+    def _normalize_direct_tool_output(
+        self,
+        output: Any,
+        *,
+        tool_name: str = "",
+        query: str = "",
+        route: str = "tool",
+    ) -> str:
+        decision = self._build_direct_tool_output_decision(
+            output,
+            tool_name=tool_name,
+            query=query,
+            route=route,
+        )
+        return decision.canonical_answer.strip()
+
+    def _build_direct_tool_output_decision(
+        self,
+        output: Any,
+        *,
+        tool_name: str = "",
+        query: str = "",
+        route: str = "tool",
+    ):
+        normalized_text, allow_unlabeled_answer = self._prepare_direct_tool_output_candidate(output)
+        candidate = classify_output_candidate(
+            text=normalized_text,
+            route=route,
+            source=f"direct_tool.{tool_name or 'tool'}",
+            tool_name=tool_name,
+            allow_unlabeled_answer=allow_unlabeled_answer,
+        )
+        return build_output_decision(
+            candidates=[candidate] if candidate is not None else [],
+            route=route,
+            user_message=query,
+            tool_name=tool_name,
+            retrieval_results=None,
+        )
+
+    def _prepare_direct_tool_output_candidate(self, output: Any) -> tuple[str, bool]:
+        if isinstance(output, dict):
+            for key in ("answer", "summary", "result", "output", "text", "content"):
+                value = output.get(key)
+                if isinstance(value, str) and value.strip():
+                    return sanitize_visible_assistant_content(value).strip(), True
+        return self._stringify_tool_output(output), False
+
+    def _stringify_tool_output(self, output: Any) -> str:
         if isinstance(output, str):
             return sanitize_visible_assistant_content(output).strip()
         if isinstance(output, dict):
@@ -1399,7 +1645,33 @@ class QueryRuntime:
             finalized.append(candidate)
         return finalized
 
-    def _build_assistant_messages(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _build_assistant_messages(
+        self,
+        segments: list[dict[str, Any]],
+        *,
+        canonical_content: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if canonical_content is not None:
+            filtered_tool_calls = [
+                sanitized
+                for segment in segments
+                for tool_call in (segment.get("tool_calls") or [])
+                for sanitized in [self._sanitize_tool_call(tool_call)]
+                if sanitized is not None
+            ]
+            content = sanitize_visible_assistant_content(canonical_content)
+            if self._looks_like_skill_document(content) and not filtered_tool_calls:
+                return []
+            if not content.strip() and not filtered_tool_calls:
+                return []
+            return [
+                {
+                    "role": "assistant",
+                    "content": content,
+                    "tool_calls": filtered_tool_calls or None,
+                }
+            ]
+
         persisted: list[dict[str, Any]] = []
         for segment in segments:
             filtered_tool_calls = [

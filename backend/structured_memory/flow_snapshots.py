@@ -16,6 +16,9 @@ class FlowSnapshot:
     flow_type: str
     status: str = "suspended"
     goal: str = ""
+    binding_kind: str = ""
+    binding_identity: str = ""
+    binding_owner_task_id: str = ""
     key_slots: dict[str, str] = field(default_factory=dict)
     recent_results: list[str] = field(default_factory=list)
     resume_hints: list[str] = field(default_factory=list)
@@ -33,6 +36,9 @@ class FlowSnapshot:
             flow_type=str(payload.get("flow_type", "") or ""),
             status=str(payload.get("status", "suspended") or "suspended"),
             goal=str(payload.get("goal", "") or ""),
+            binding_kind=str(payload.get("binding_kind", "") or ""),
+            binding_identity=str(payload.get("binding_identity", "") or ""),
+            binding_owner_task_id=str(payload.get("binding_owner_task_id", "") or ""),
             key_slots={
                 str(key): str(value)
                 for key, value in dict(key_slots_payload or {}).items()
@@ -135,12 +141,18 @@ class FlowSnapshotManager:
             if normalize_storage_text(value).strip()
         }
         resume_hints = list(state.next_step[:1]) or list(state.warm_context[:2])
+        binding_kind = str(state.context_slots.active_binding_kind or "").strip()
+        binding_identity = str(state.context_slots.active_binding_identity or "").strip()
+        binding_owner_task_id = str(state.context_slots.active_binding_owner_task_id or "").strip()
         return FlowSnapshot(
             snapshot_id=f"snap:{state.flow_state.flow_id}:{utc_now_iso()}",
             flow_id=state.flow_state.flow_id,
             flow_type=state.flow_state.flow_type,
             status="suspended",
             goal=state.active_goal,
+            binding_kind=binding_kind,
+            binding_identity=binding_identity,
+            binding_owner_task_id=binding_owner_task_id,
             key_slots=key_slots,
             recent_results=list(state.key_results[:2]),
             resume_hints=[
@@ -150,4 +162,3 @@ class FlowSnapshotManager:
             ][:2],
             updated_at=utc_now_iso(),
         )
-

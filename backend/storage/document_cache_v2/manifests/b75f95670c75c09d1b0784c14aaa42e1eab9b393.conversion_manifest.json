@@ -1,0 +1,11 @@
+{
+  "doc_id": "b75f95670c75c09d1b0784c14aaa42e1eab9b393",
+  "source_path": "knowledge/AI Knowledge/AI眼镜关键技术与产业生态研究报告（2025年）.pdf",
+  "version_digest": "6c5bd05098ca2349fe708c28d27457017f534e37",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 227
+}

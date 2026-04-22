@@ -1,0 +1,11 @@
+{
+  "doc_id": "5ad779653fd3aaa40a8623e57ca32616cc0be144",
+  "source_path": "knowledge/E-commerce Data/sales_orders.xlsx",
+  "version_digest": "9e8398c56f8579aaab6824efc1d6477293bd12d0",
+  "parser_backend": "legacy_fallback",
+  "quality_flags": [
+    "table_dense",
+    "fallback_parser"
+  ],
+  "block_count": 10
+}

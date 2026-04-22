@@ -119,6 +119,13 @@ class TaskCoordinator:
         lowered = query.lower()
         pdf_match = re.search(r"([^\s,，。；;:：]+\.pdf)", query, flags=re.IGNORECASE)
         dataset_match = re.search(r"([^\s,，。；;:：]+?\.(?:xlsx|csv|xls))", query, flags=re.IGNORECASE)
+        active_pdf = pdf_match.group(1) if pdf_match else ""
+        active_dataset = dataset_match.group(1) if dataset_match else ""
+        active_binding_identity = ""
+        if active_pdf:
+            active_binding_identity = active_pdf.replace("\\", "/").strip().lower()
+        elif active_dataset:
+            active_binding_identity = active_dataset.replace("\\", "/").strip().lower()
         location = ""
         for candidate in ("北京", "上海", "深圳", "广州", "杭州", "武汉", "成都"):
             if candidate in query:
@@ -134,8 +141,9 @@ class TaskCoordinator:
         elif "黄金" in query:
             source_kind = "finance"
         return TaskBindings(
-            active_pdf=pdf_match.group(1) if pdf_match else ("PDF" if "pdf" in lowered else ""),
-            active_dataset=dataset_match.group(1) if dataset_match else "",
+            active_pdf=active_pdf,
+            active_dataset=active_dataset,
+            active_binding_identity=active_binding_identity,
             active_entity="黄金" if "黄金" in query else "",
             active_location=location,
             source_kind=source_kind,
@@ -250,6 +258,7 @@ class TaskCoordinator:
             pdf_path = str(payload.get("path", "") or "").strip()
             if pdf_path:
                 context_ref.bindings.active_pdf = pdf_path
+                context_ref.bindings.active_binding_identity = pdf_path.replace("\\", "/").strip().lower()
                 context_ref.bindings.source_kind = "pdf"
                 if not context_ref.task_kind:
                     context_ref.task_kind = "pdf"
@@ -260,6 +269,7 @@ class TaskCoordinator:
                 task.metadata["structured_binding"] = structured_binding.to_dict()
             if dataset_path:
                 context_ref.bindings.active_dataset = dataset_path
+                context_ref.bindings.active_binding_identity = dataset_path.replace("\\", "/").strip().lower()
                 context_ref.bindings.source_kind = "dataset"
                 if not context_ref.task_kind:
                     context_ref.task_kind = "structured_data"
@@ -318,6 +328,12 @@ class TaskCoordinator:
                 if task.context_ref is not None:
                     if structured_binding.dataset_path:
                         task.context_ref.bindings.active_dataset = structured_binding.dataset_path
+                        task.context_ref.bindings.active_binding_identity = (
+                            str(structured_binding.binding_identity or structured_binding.dataset_path)
+                            .replace("\\", "/")
+                            .strip()
+                            .lower()
+                        )
                     if structured_binding.target_object:
                         task.context_ref.bindings.active_entity = structured_binding.target_object
                     if task.context_ref.bindings.active_dataset:

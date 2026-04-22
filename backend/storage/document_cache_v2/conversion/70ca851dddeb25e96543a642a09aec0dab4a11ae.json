@@ -1,0 +1,7175 @@
+{
+  "doc_id": "70ca851dddeb25e96543a642a09aec0dab4a11ae",
+  "collection": "knowledge",
+  "source_path": "knowledge/AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf",
+  "source_type": "pdf",
+  "version_digest": "bda197a9a3a8370016e7bc03cf180c56bdc38d58",
+  "parser_backend": "mineru_pdf",
+  "title": "2025年第五范式-人工智能驱动的科技创新报告",
+  "language": null,
+  "page_count": 68,
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "blocks": [
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:0",
+      "block_type": "paragraph",
+      "text": "第五范式人工智能驱动的科技创新",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:1",
+      "block_type": "paragraph",
+      "text": "汇报人：朱鹏飞",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:2",
+      "block_type": "paragraph",
+      "text": "汇报提纲",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:3",
+      "block_type": "paragraph",
+      "text": "AI驱动的第五科研范式",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:4",
+      "block_type": "paragraph",
+      "text": "二 百花齐放的大模型时代",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:5",
+      "block_type": "paragraph",
+      "text": "大模型辅助的科学假设生成",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:6",
+      "block_type": "paragraph",
+      "text": "四",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:7",
+      "block_type": "paragraph",
+      "text": "大模型辅助的论文与项目",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:8",
+      "block_type": "paragraph",
+      "text": "五",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:9",
+      "block_type": "paragraph",
+      "text": "未来科研范式展望",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:10",
+      "block_type": "paragraph",
+      "text": "汇报提纲",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:11",
+      "block_type": "paragraph",
+      "text": "AI驱动的第五科研范式",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:12",
+      "block_type": "paragraph",
+      "text": "二 百花齐放的大模型时代",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:13",
+      "block_type": "paragraph",
+      "text": "大模型辅助的科学假设生成",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:14",
+      "block_type": "paragraph",
+      "text": "四",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:15",
+      "block_type": "paragraph",
+      "text": "大模型辅助的论文与项目",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:16",
+      "block_type": "paragraph",
+      "text": "五",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:17",
+      "block_type": "paragraph",
+      "text": "未来科研范式展望",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:18",
+      "block_type": "paragraph",
+      "text": "1.1 第五范式—科学范式变迁",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:19",
+      "block_type": "paragraph",
+      "text": "1.1 第五范式—AI驱动的科学研究新范式",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:20",
+      "block_type": "paragraph",
+      "text": "新科研范式以数据智能为核心，通过人机协同和自主发现实现研究效率的指数级提升",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:21",
+      "block_type": "paragraph",
+      "text": "1.1 第五范式—AI驱动的科学研究新范式",
+      "modality": "text",
+      "page": 6,
+      "section_path": [],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:22",
+      "block_type": "paragraph",
+      "text": "AI驱动的科学研究新范式将带来革命性改变",
+      "modality": "text",
+      "page": 6,
+      "section_path": [],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:23",
+      "block_type": "paragraph",
+      "text": "智能化科研将推动“科学-技术-工程”全链条融合形成“人机共智” 的新生态，其成功取决于模型创新、跨学科协作与全球化竞争策略",
+      "modality": "text",
+      "page": 6,
+      "section_path": [],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:24",
+      "block_type": "paragraph",
+      "text": "1.2 典型案例—AI加速芯片设计",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:25",
+      "block_type": "paragraph",
+      "text": "启蒙1号全自动AI芯片设计",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:26",
+      "block_type": "paragraph",
+      "text": "2022年5月，全球首款全自动生成的32位RISC-V CPU“启蒙1号”由中国科学院计算技术研究所利用AI技术成功设计。AI的利用，将生产周期从数月降至5小时生成400万逻辑门，效率提升至1/1000，标志着芯片设计进入智能化时代",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 26,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:27",
+      "block_type": "paragraph",
+      "text": "领域跃升可视化",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 27,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:28",
+      "block_type": "paragraph",
+      "text": "核心论文",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 28,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:29",
+      "block_type": "paragraph",
+      "text": "传统方法 Standard Cell Design",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 29,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:30",
+      "block_type": "paragraph",
+      "text": "AI生成 Force-directed method based on ML",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 30,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:31",
+      "block_type": "paragraph",
+      "text": "From: DATE; ACM Computing Surveys",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 31,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:32",
+      "block_type": "paragraph",
+      "text": "DeepTH:Chip Placement with Deep Reinforcement Learning Using a Three-HeadPolicy Network",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 32,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:33",
+      "block_type": "paragraph",
+      "text": "Publisher:IEEE PDF",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 33,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:34",
+      "block_type": "paragraph",
+      "text": "VLSIcell placement techniques",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 34,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:35",
+      "block_type": "paragraph",
+      "text": "Abstract",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 35,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:36",
+      "block_type": "paragraph",
+      "text": "generatesuperior chip tloorplans.Graph neural network is initiall adopted toextract the teatures trom nodes and netsofchips forestimating thepolicyand vaue.Toeficientlyimprove thequalityoffloorplansareconstruction head isemployed intheRLnetwork torecoverthevisualrepresentationofthecurentplacement,byenriching the extracted features of placement embedding.Besides,thereconstruction eror is used as a bonus during training to encourage exploration while allviating the sparse reward problem.Furthermore, the expert knowledge of floorplanning preference is embedded into the decision process to narrow down the potential action space. Experiment results on the ISPD 2005 benchmark have shownthat our method achieves 19.02% HPWLimprovement thantheanalyticplacer DREAMPlace and 19.89% improvement atleast than the state-of-the-art RLalgorithms",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 36,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:37",
+      "block_type": "paragraph",
+      "text": "AI+芯片设计预示着创新加速和智能优化新时代的到来，显著提升设计效率和创新能力",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 37,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:38",
+      "block_type": "paragraph",
+      "text": "生产速度 5小时/400万逻辑门 生产效率 1000倍",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 38,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:39",
+      "block_type": "paragraph",
+      "text": "1.2 典型案例—AI重塑生物医学研究",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 39,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:40",
+      "block_type": "paragraph",
+      "text": "AlphaFold2蛋白质三维结构预测",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 40,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:41",
+      "block_type": "paragraph",
+      "text": "AlphaFold2是由DeepMind开发的人工智能系统，通过深度学习技术实现了蛋白质三维结构的高精度预测。截至2024年，该系统已预测超过100万个物种的2.14亿个蛋白质结构，几乎覆盖地球所有已知蛋白质",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 41,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:42",
+      "block_type": "paragraph",
+      "text": "核心论文",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 42,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:43",
+      "block_type": "paragraph",
+      "text": "AI+结构生物学预示着生物医学研究的高效化、精准化和自动化新时代的到来",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 43,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:44",
+      "block_type": "paragraph",
+      "text": "1.2 典型案例—AI驱动分子模拟领域",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 44,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:45",
+      "block_type": "paragraph",
+      "text": "深度势能分子动力学模拟",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 45,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:46",
+      "block_type": "paragraph",
+      "text": "DeePMD(深度势能)方法由中美团队合作开发，结合第一性原理与深度学习，将分子动力学模拟规模从百万级原子扩展至170亿原子，计算效率提升超1000倍。该成果在2020年获“戈登·贝尔奖”，2022年进一步优化后实现单日模拟11.2纳秒物理过程",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 46,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:47",
+      "block_type": "paragraph",
+      "text": "领域跃升可视化",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 47,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:48",
+      "block_type": "paragraph",
+      "text": "核心论文",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 48,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:49",
+      "block_type": "paragraph",
+      "text": "传统方法AMBER & CHARMM",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 49,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:50",
+      "block_type": "paragraph",
+      "text": "AI模拟(MPNNs) Based on ML",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 50,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:51",
+      "block_type": "paragraph",
+      "text": "From: Nature communications; Computer Physics Communications",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 51,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:52",
+      "block_type": "paragraph",
+      "text": "DeePMD-kit:Adeep learning package for many-bodypotentialenergyrepresentation and moleculardynamics☆",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 52,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:53",
+      "block_type": "paragraph",
+      "text": "Learning local equivariant representationsfor largescale atomistic dynamics",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 53,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:54",
+      "block_type": "paragraph",
+      "text": "模拟精度 0.1-0.3A 模拟速度 小时 模拟范围 亿量级",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 54,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:55",
+      "block_type": "paragraph",
+      "text": "Preg:AlbertMuselian,SimonBatzner,Anders Johansson,LixinSunCameronJ.Owen,Mordechai Kornbluth Nature Communications14,Article number:579 (2023)|Cite thisarticle",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 55,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:56",
+      "block_type": "paragraph",
+      "text": "39k Accesses|20 Altmetric|Metrics",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 56,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:57",
+      "block_type": "paragraph",
+      "text": "AI+分子动力学模拟为大规模分子系统的研究、复杂反应机制的解析以及新材料与药物的发现开辟了新路径",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 57,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:58",
+      "block_type": "paragraph",
+      "text": "1.2 典型案例—AI驱动材料科学与工程研究",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 58,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:59",
+      "block_type": "paragraph",
+      "text": "发现高能钠离子电池成分，机器学习简化最佳材料搜索过程",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 59,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:60",
+      "block_type": "paragraph",
+      "text": "里耶卡大学的研究团队开发了一种基于 RNN 的方法，使用不规则采样的不等长特征来评估未分类肽的 SA 潜力。日本东京理科大学 (TUS) 和名古屋工业大学的研究团队，利用机器学习来简化搜索最佳材料的过程。研究人员使用由实验数据训练的机器学习优化了高能钠离子电池过渡金属层状氧化物的成分。",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 60,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:61",
+      "block_type": "paragraph",
+      "text": "领域跃升可视化",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 61,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:62",
+      "block_type": "paragraph",
+      "text": "核心论文",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 62,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:63",
+      "block_type": "paragraph",
+      "text": "AI (ML）为肽设计提供高效的运算与数据处理，激活肽自组装预测潜力",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 63,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:64",
+      "block_type": "paragraph",
+      "text": "AI 简化钠离子电池最佳材料搜索过程",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 64,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:65",
+      "block_type": "paragraph",
+      "text": "From: Nature Machine Intelligence; Journal of Materials Chemistry A",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 65,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:66",
+      "block_type": "paragraph",
+      "text": "Reshapingthediscovery ofself-assemblingpeptides withgenerative Alguidedbyhybriddeeplearning",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 66,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:67",
+      "block_type": "paragraph",
+      "text": "AI+材料科学预示着领域走向智能化、高效化方向发展",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 67,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:68",
+      "block_type": "paragraph",
+      "text": "1.2 典型案例—AI驱动有机半导体与柔性电子材料设计",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 68,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:69",
+      "block_type": "paragraph",
+      "text": "有机半导体逆向设计、柔性电子材料",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 69,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:70",
+      "block_type": "paragraph",
+      "text": "德国赫姆霍兹研究所与厦门大学合作，开发了闭环自动化工作流程，实现了有机半导体的逆向设计，光电转换效率提高至26.2%。天津大学胡文平教授与斯坦福大学鲍哲南教授合作，通过在PEDOT:PSS材料中引入拓扑交联网络，显著提升了其力学和电学性能，获得了最佳导电性的柔性电极。",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 70,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:71",
+      "block_type": "paragraph",
+      "text": "领域跃升可视化",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 71,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:72",
+      "block_type": "paragraph",
+      "text": "核心论文",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 72,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:73",
+      "block_type": "paragraph",
+      "text": "AI-柔性电子材料Standard Cell Design",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 73,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:74",
+      "block_type": "paragraph",
+      "text": "AI-有机半导体 Force-directed method based on ML",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 74,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:75",
+      "block_type": "paragraph",
+      "text": "From: Science",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 75,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:76",
+      "block_type": "paragraph",
+      "text": "Topological supramolecularnetworkenabled high-conductivity,stretchableorganicbioelectronics",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 76,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:77",
+      "block_type": "paragraph",
+      "text": "AI+柔性电子和有机半导体的设计极大加速了新型材料的发现进程",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 77,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:78",
+      "block_type": "paragraph",
+      "text": "1.2 典型案例—AI驱动化学工程与催化科学研究",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 78,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:79",
+      "block_type": "paragraph",
+      "text": "低成本、 高效的催化剂高通量筛选",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 79,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:80",
+      "block_type": "paragraph",
+      "text": "1. 天津大学巩金龙教授团队开发了一种通用且可解释的描述符模型 ARSC，用于统一多种电催化反应的活性和选择性预测, 研究人员可以快速找到各种产品的最佳催化剂，而无需进行 50,000 多次密度泛函理论计算。2. 中国科学院和北京师范大学的研究团队利用 240 个数据集并采用化学和几何描述符并建立随机森林分类模型，来预测酰胺酶对新底物的对映选择性。",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 80,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:81",
+      "block_type": "paragraph",
+      "text": "领域跃升可视化",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 81,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:82",
+      "block_type": "paragraph",
+      "text": "核心论文",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 82,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:83",
+      "block_type": "paragraph",
+      "text": "AI生成 Force-directed method based on ML",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 83,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:84",
+      "block_type": "paragraph",
+      "text": "From: nature communications",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 84,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:85",
+      "block_type": "paragraph",
+      "text": "naturecommunications",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 85,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:86",
+      "block_type": "paragraph",
+      "text": "Explore content vAbout the joural Publish with usv",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 86,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:87",
+      "block_type": "paragraph",
+      "text": "AI+化学工程与催化科学实现革命性降本增效",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 87,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:88",
+      "block_type": "paragraph",
+      "text": "汇报提纲",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 88,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:89",
+      "block_type": "paragraph",
+      "text": "AI驱动的第五科研范式",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 89,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:90",
+      "block_type": "paragraph",
+      "text": "二 百花齐放的大模型时代",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 90,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:91",
+      "block_type": "paragraph",
+      "text": "大模型辅助的科学假设生成",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 91,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:92",
+      "block_type": "paragraph",
+      "text": "大模型辅助的论文与项目",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 92,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:93",
+      "block_type": "paragraph",
+      "text": "五",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 93,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:94",
+      "block_type": "paragraph",
+      "text": "未来科研范式展望",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 94,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:95",
+      "block_type": "paragraph",
+      "text": "2.1 三起两落：人工智能发展史",
+      "modality": "text",
+      "page": 14,
+      "section_path": [],
+      "reading_order": 95,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:96",
+      "block_type": "paragraph",
+      "text": "人工智能经历了半个多世纪的发展历程，涌现出了众多影响深远的技术、产品",
+      "modality": "text",
+      "page": 14,
+      "section_path": [],
+      "reading_order": 96,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:97",
+      "block_type": "paragraph",
+      "text": "2.1 大模型发展历程",
+      "modality": "text",
+      "page": 15,
+      "section_path": [],
+      "reading_order": 97,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:98",
+      "block_type": "paragraph",
+      "text": "2.1 大模型发展历程",
+      "modality": "text",
+      "page": 16,
+      "section_path": [],
+      "reading_order": 98,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:99",
+      "block_type": "paragraph",
+      "text": "大语言模型是人工智能发展的一个重要趋势，引领AI技术进入一个新阶段",
+      "modality": "text",
+      "page": 16,
+      "section_path": [],
+      "reading_order": 99,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:100",
+      "block_type": "paragraph",
+      "text": "2.1 大模型发展历程",
+      "modality": "text",
+      "page": 17,
+      "section_path": [],
+      "reading_order": 100,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:101",
+      "block_type": "paragraph",
+      "text": "大语言模型取得成功，扩展到多模态水到渠成",
+      "modality": "text",
+      "page": 17,
+      "section_path": [],
+      "reading_order": 101,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:102",
+      "block_type": "paragraph",
+      "text": "大语言模型与多模态结合后增强了对世界的理解，提供更加丰富和自然的交互体验",
+      "modality": "text",
+      "page": 17,
+      "section_path": [],
+      "reading_order": 102,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:103",
+      "block_type": "paragraph",
+      "text": "2.1 主流大模型",
+      "modality": "text",
+      "page": 18,
+      "section_path": [],
+      "reading_order": 103,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:104",
+      "block_type": "paragraph",
+      "text": "国内外的大模型已经在多个领域取得了显著的进展，推动了人工智能技术的发展和应用",
+      "modality": "text",
+      "page": 18,
+      "section_path": [],
+      "reading_order": 104,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:105",
+      "block_type": "paragraph",
+      "text": "2.1 DeepSeek系列大模型",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 105,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:106",
+      "block_type": "paragraph",
+      "text": "深度求索科技公司开源了一系列针对自然语言处理、文本生成、信息检索等多任务的预训练模型",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 106,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:107",
+      "block_type": "paragraph",
+      "text": "DeepSeekLLM",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 107,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:108",
+      "block_type": "paragraph",
+      "text": "DeepSeek-VL",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 108,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:109",
+      "block_type": "paragraph",
+      "text": "DeepSeek-V3",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 109,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:110",
+      "block_type": "paragraph",
+      "text": "DeepSeek LLM 67B Base 在推理、代码、数学和中文理解等多个领域超越了 Llama270B Base。",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 110,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:111",
+      "block_type": "paragraph",
+      "text": "DeepSeek-VL具备通用的多模态理解能力，能够处理包括逻辑图表、网页、公式识别、科学文献、自然图像以及复杂场景中的具身智能等多种任务在多样化、高质量语料库上进行了预训练，并通过监督微调和强化学习进一步提升性能。旨在实现高效推理和低成本训练。",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 111,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:112",
+      "block_type": "paragraph",
+      "text": "DeepSeek-R1为开源推理模型，通过多阶段训练和冷启动数据优化、全场景强化学习进一步对齐人类偏好。",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 112,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:113",
+      "block_type": "paragraph",
+      "text": "DeepSeek R1打破了美国第一梯队企业以闭源形成的技术护城河，进一步动摇了美国的“AI Dominance”",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 113,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:114",
+      "block_type": "paragraph",
+      "text": "2.1 大模型的能力",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 114,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:115",
+      "block_type": "paragraph",
+      "text": "大模型所具备的基础能力",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 115,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:116",
+      "block_type": "paragraph",
+      "text": "语言理解与生成",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 116,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:117",
+      "block_type": "paragraph",
+      "text": "文献快速阅读逻辑推理与交互",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 117,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:118",
+      "block_type": "paragraph",
+      "text": "知识存储与检索",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 118,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:119",
+      "block_type": "paragraph",
+      "text": "视觉与多模态",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 119,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:120",
+      "block_type": "paragraph",
+      "text": "l 语义解读精准对话生成流畅信息提炼高效",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 120,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:121",
+      "block_type": "paragraph",
+      "text": "深度语义归纳推理知识网络演绎推断热点方思维链",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 121,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:122",
+      "block_type": "paragraph",
+      "text": "知识高效检索智能精准问答在线网络搜索",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 122,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:123",
+      "block_type": "paragraph",
+      "text": "$\\bullet$ 图像精准解析$\\bullet$ 语音智能交互$\\bullet$ 多模态融合生成",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 123,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:124",
+      "block_type": "paragraph",
+      "text": "这些能力及其组合让大模型在多个任务中展现出强大的泛化能力",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 124,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:125",
+      "block_type": "paragraph",
+      "text": "2.1 大模型的不足",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 125,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:126",
+      "block_type": "paragraph",
+      "text": "大模型的局限性与伦理问题",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 126,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:127",
+      "block_type": "paragraph",
+      "text": "幻觉现象",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 127,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:128",
+      "block_type": "paragraph",
+      "text": "可解释性差",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 128,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:129",
+      "block_type": "paragraph",
+      "text": "高级推理能力弱",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 129,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:130",
+      "block_type": "paragraph",
+      "text": "伦理问题",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 130,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:131",
+      "block_type": "paragraph",
+      "text": "输入冲突的幻觉 语境冲突的幻觉 事实冲突的幻觉",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 131,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:132",
+      "block_type": "paragraph",
+      "text": "基于数据的可解释性基于模型的可解释性基于结果的可解释性",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 132,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:133",
+      "block_type": "paragraph",
+      "text": "本质是模式匹配缺乏因果关系理解依赖于输入提示",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 133,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:134",
+      "block_type": "paragraph",
+      "text": "具有特定偏见的言论泄露相关人的隐私回复不安全可靠",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 134,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:135",
+      "block_type": "paragraph",
+      "text": "面对大模型的幻觉、不透明、逻辑推理不足及伦理风险，需要携手共同构建安全、透明、负责任的AI未来",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 135,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:136",
+      "block_type": "paragraph",
+      "text": "2.2 智能体",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 136,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:137",
+      "block_type": "paragraph",
+      "text": "自主执行任务的AI实体",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 137,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:138",
+      "block_type": "paragraph",
+      "text": "是否具备实体交互能力",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 138,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:139",
+      "block_type": "paragraph",
+      "text": "智能体核心能力",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 139,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:140",
+      "block_type": "paragraph",
+      "text": "软件智能体",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 140,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:141",
+      "block_type": "paragraph",
+      "text": "crewai",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 141,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:142",
+      "block_type": "paragraph",
+      "text": "对复杂需求进行多级拆解，生成可执行原子任务链",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 142,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:143",
+      "block_type": "paragraph",
+      "text": "任务泛化能力",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 143,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:144",
+      "block_type": "paragraph",
+      "text": "垂直领域智能体 通用任务智能体",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 144,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:145",
+      "block_type": "paragraph",
+      "text": "Luminance Legal-GradeMAI",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 145,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:146",
+      "block_type": "paragraph",
+      "text": "Leave it to Manus",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 146,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:147",
+      "block_type": "paragraph",
+      "text": "Lumiance 条款审计",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 147,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:148",
+      "block_type": "paragraph",
+      "text": "长期记忆层 短期记忆层 实时上下文层",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 148,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:149",
+      "block_type": "paragraph",
+      "text": "在当今人工智能领域，智能体框架已经成为开发高效、灵活和可扩展应用的关键工具",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 149,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:150",
+      "block_type": "paragraph",
+      "text": "2.2 大模型&智能体",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 150,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:151",
+      "block_type": "paragraph",
+      "text": "大模型与智能体关系",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 151,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:152",
+      "block_type": "paragraph",
+      "text": "大模型作为“大脑”",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 152,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:153",
+      "block_type": "paragraph",
+      "text": "多智能体角色分工",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 153,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:154",
+      "block_type": "paragraph",
+      "text": "大模型提供语义理解与任务规划能力，驱动智能体完成感知、推理、工具调用到执行的闭环链路",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 154,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:155",
+      "block_type": "paragraph",
+      "text": "2.2 具身智能&智能体",
+      "modality": "text",
+      "page": 24,
+      "section_path": [],
+      "reading_order": 155,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:156",
+      "block_type": "paragraph",
+      "text": "具身系统与智能体结合实现“感知→决策→行动”的闭环，推动AI从数字世界走向物理世界",
+      "modality": "text",
+      "page": 24,
+      "section_path": [],
+      "reading_order": 156,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:157",
+      "block_type": "paragraph",
+      "text": "2.2 多智能体协作",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 157,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:158",
+      "block_type": "paragraph",
+      "text": "无人集群之间互补增效，实现整体集群的协同优化与智能增强",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 158,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:159",
+      "block_type": "paragraph",
+      "text": "2.2 智能体构建流程",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 159,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:160",
+      "block_type": "paragraph",
+      "text": "不要从零造轮子，优先复用开源框架核心模块",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 160,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:161",
+      "block_type": "paragraph",
+      "text": "2.2 智能体实例",
+      "modality": "text",
+      "page": 27,
+      "section_path": [],
+      "reading_order": 161,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:162",
+      "block_type": "paragraph",
+      "text": "全球首款通用型AI Agent",
+      "modality": "text",
+      "page": 27,
+      "section_path": [],
+      "reading_order": 162,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:163",
+      "block_type": "paragraph",
+      "text": "Manus 的产品名，意思为“手”，来自拉丁文 \"mens et manus\" 知行合一。为 LLM 做一双能巧妙调用工具的手，从而扩展人的能力，让你心中的愿景成为现实。",
+      "modality": "text",
+      "page": 27,
+      "section_path": [],
+      "reading_order": 163,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:164",
+      "block_type": "paragraph",
+      "text": "Manus在GAIA基准测试所有三个难度级别上，都取得了最先进SOTA（State-of-the-Art）的成绩",
+      "modality": "text",
+      "page": 27,
+      "section_path": [],
+      "reading_order": 164,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:165",
+      "block_type": "paragraph",
+      "text": "2.2 智能体实例",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 165,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:166",
+      "block_type": "paragraph",
+      "text": "Manus智能体核心功能",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 166,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:167",
+      "block_type": "paragraph",
+      "text": "复杂任务规划与执行",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 167,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:168",
+      "block_type": "paragraph",
+      "text": "文献快速阅读多领域任务处理",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 168,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:169",
+      "block_type": "paragraph",
+      "text": "工具调用与自动化",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 169,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:170",
+      "block_type": "paragraph",
+      "text": "自主学习与优化",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 170,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:171",
+      "block_type": "paragraph",
+      "text": "将复杂任务分解为子任务并自主执行",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 171,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:172",
+      "block_type": "paragraph",
+      "text": "支持文件处理、数据分析、l 知识网络构建内容创作、旅行规划等",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 172,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:173",
+      "block_type": "paragraph",
+      "text": "调用浏览器、代码编辑器、数据分析工具等",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 173,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:174",
+      "block_type": "paragraph",
+      "text": "根据用户反馈优化工作方式",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 174,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:175",
+      "block_type": "paragraph",
+      "text": "这些能力及其组合让Manus在多个任务中展现出强大的泛化能力",
+      "modality": "text",
+      "page": 28,
+      "section_path": [],
+      "reading_order": 175,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:176",
+      "block_type": "paragraph",
+      "text": "2.2 智能体实例",
+      "modality": "text",
+      "page": 29,
+      "section_path": [],
+      "reading_order": 176,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:177",
+      "block_type": "paragraph",
+      "text": "Manus通过简易HTML与动画演示的深度融合，实现产业模式新生态",
+      "modality": "text",
+      "page": 29,
+      "section_path": [],
+      "reading_order": 177,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:178",
+      "block_type": "paragraph",
+      "text": "2.2 智能体实例",
+      "modality": "text",
+      "page": 30,
+      "section_path": [],
+      "reading_order": 178,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:179",
+      "block_type": "paragraph",
+      "text": "依托Manus智能体，打造教学新生态",
+      "modality": "text",
+      "page": 30,
+      "section_path": [],
+      "reading_order": 179,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:180",
+      "block_type": "paragraph",
+      "text": "提示词查询",
+      "modality": "text",
+      "page": 30,
+      "section_path": [],
+      "reading_order": 180,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:181",
+      "block_type": "paragraph",
+      "text": "提示词：我是一名中学物理  \n老师，正准备教授动量守恒  \n定律。您能否创建一系列清  \n晰准确的演示动画，并将它们整理成一个简单的HTML 演示文稿？",
+      "modality": "text",
+      "page": 30,
+      "section_path": [],
+      "reading_order": 181,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:182",
+      "block_type": "paragraph",
+      "text": "Manus通过简易HTML与动画演示的深度融合，实现教学模式新生态",
+      "modality": "text",
+      "page": 30,
+      "section_path": [],
+      "reading_order": 182,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:183",
+      "block_type": "paragraph",
+      "text": "2.2 智能体实例",
+      "modality": "text",
+      "page": 31,
+      "section_path": [],
+      "reading_order": 183,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:184",
+      "block_type": "paragraph",
+      "text": "贯通跨平台编程与自动化部署，助力游戏重制与多领域开发提效",
+      "modality": "text",
+      "page": 31,
+      "section_path": [],
+      "reading_order": 184,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:185",
+      "block_type": "paragraph",
+      "text": "通过智能代码生成与自动化集成，Manus 为多行业数字化创新提供灵活、可扩展的技术生态",
+      "modality": "text",
+      "page": 31,
+      "section_path": [],
+      "reading_order": 185,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:186",
+      "block_type": "paragraph",
+      "text": "2.2 智能体实例",
+      "modality": "text",
+      "page": 32,
+      "section_path": [],
+      "reading_order": 186,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:187",
+      "block_type": "paragraph",
+      "text": "Manus：从数据分析到材料整合，从项目学习到历史可视化，一站式智能助手",
+      "modality": "text",
+      "page": 32,
+      "section_path": [],
+      "reading_order": 187,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:188",
+      "block_type": "paragraph",
+      "text": "历史讲解",
+      "modality": "text",
+      "page": 32,
+      "section_path": [],
+      "reading_order": 188,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:189",
+      "block_type": "paragraph",
+      "text": "Manus 为一家得克萨斯州的BBQ 门店深入进行门店周边的数据估算和分析并提供销售额提升策略报告",
+      "modality": "text",
+      "page": 32,
+      "section_path": [],
+      "reading_order": 189,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:190",
+      "block_type": "paragraph",
+      "text": "当你需要学习某个开源项目时，manus会深入代码库理解代码，绘制系统结构图，并为你深入讲解项目细节",
+      "modality": "text",
+      "page": 32,
+      "section_path": [],
+      "reading_order": 190,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:191",
+      "block_type": "paragraph",
+      "text": "Manus可以为记者或投资人深入整理待访谈人的全面信息并准备访谈所需的所有材料",
+      "modality": "text",
+      "page": 32,
+      "section_path": [],
+      "reading_order": 191,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:192",
+      "block_type": "paragraph",
+      "text": "Manus为我们讲解莱克星顿第一枪的战役过程时，配上了自己画的可视化地图",
+      "modality": "text",
+      "page": 32,
+      "section_path": [],
+      "reading_order": 192,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:193",
+      "block_type": "paragraph",
+      "text": "Manus全面支持多领域的高效协作与知识传递",
+      "modality": "text",
+      "page": 32,
+      "section_path": [],
+      "reading_order": 193,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:194",
+      "block_type": "paragraph",
+      "text": "2.2 智能体实例",
+      "modality": "text",
+      "page": 33,
+      "section_path": [],
+      "reading_order": 194,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:195",
+      "block_type": "paragraph",
+      "text": "Manus局限性与不足",
+      "modality": "text",
+      "page": 33,
+      "section_path": [],
+      "reading_order": 195,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:196",
+      "block_type": "paragraph",
+      "text": "依赖外部数据源",
+      "modality": "text",
+      "page": 33,
+      "section_path": [],
+      "reading_order": 196,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:197",
+      "block_type": "paragraph",
+      "text": "如果外部数据源出现问题或工具不可用，可能会影响Manus的任务执行效率和准确性",
+      "modality": "text",
+      "page": 33,
+      "section_path": [],
+      "reading_order": 197,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:198",
+      "block_type": "paragraph",
+      "text": "隐私与安全问题",
+      "modality": "text",
+      "page": 33,
+      "section_path": [],
+      "reading_order": 198,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:199",
+      "block_type": "paragraph",
+      "text": "Manus在处理用户数据时涉及隐私和安全问题。如果数据泄露或被恶意利用，可能会给用户带来损失和风险",
+      "modality": "text",
+      "page": 33,
+      "section_path": [],
+      "reading_order": 199,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:200",
+      "block_type": "paragraph",
+      "text": "技术门槛较高",
+      "modality": "text",
+      "page": 33,
+      "section_path": [],
+      "reading_order": 200,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:201",
+      "block_type": "paragraph",
+      "text": "虽然Manus的设计注重易用性，但其底层技术门槛仍然较高。这可能会影响用户对Manus的信任度和接受度",
+      "modality": "text",
+      "page": 33,
+      "section_path": [],
+      "reading_order": 201,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:202",
+      "block_type": "paragraph",
+      "text": "Manus虽功能先进，但对外部数据的依赖、隐私安全风险与底层技术门槛，可能仍需要改进",
+      "modality": "text",
+      "page": 33,
+      "section_path": [],
+      "reading_order": 202,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:203",
+      "block_type": "paragraph",
+      "text": "2.2 智能体实例",
+      "modality": "text",
+      "page": 34,
+      "section_path": [],
+      "reading_order": 203,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:204",
+      "block_type": "paragraph",
+      "text": "技术演进方向",
+      "modality": "text",
+      "page": 34,
+      "section_path": [],
+      "reading_order": 204,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:205",
+      "block_type": "paragraph",
+      "text": "认知增强架构",
+      "modality": "text",
+      "page": 34,
+      "section_path": [],
+      "reading_order": 205,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:206",
+      "block_type": "paragraph",
+      "text": "实时学习系统",
+      "modality": "text",
+      "page": 34,
+      "section_path": [],
+      "reading_order": 206,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:207",
+      "block_type": "paragraph",
+      "text": "人机协作界面",
+      "modality": "text",
+      "page": 34,
+      "section_path": [],
+      "reading_order": 207,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:208",
+      "block_type": "paragraph",
+      "text": "更多 Agent 将采用 Manus 的MCP 模式，解决复杂任务规划问题。Gartner 预测，到2028 年 $15 \\%$ 日常工作决策将由 Agent 完成",
+      "modality": "text",
+      "page": 34,
+      "section_path": [],
+      "reading_order": 208,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:209",
+      "block_type": "paragraph",
+      "text": "RAG 技术进化至多模态检索，实现动态知识更新。这将使 AI 具备“终身学习” 能力，应对金融市场波动等实时性需求",
+      "modality": "text",
+      "page": 34,
+      "section_path": [],
+      "reading_order": 209,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:210",
+      "block_type": "paragraph",
+      "text": "脑机接口、空间计算等技术的融合，可能催生 “意念驱动Agent” 的新型交互方式，进一步降低使用门槛",
+      "modality": "text",
+      "page": 34,
+      "section_path": [],
+      "reading_order": 210,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:211",
+      "block_type": "paragraph",
+      "text": "技术融合正加速智能体在决策、协作与应用场景中的全面跃升！",
+      "modality": "text",
+      "page": 34,
+      "section_path": [],
+      "reading_order": 211,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:212",
+      "block_type": "paragraph",
+      "text": "汇报提纲",
+      "modality": "text",
+      "page": 35,
+      "section_path": [],
+      "reading_order": 212,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:213",
+      "block_type": "paragraph",
+      "text": "AI驱动的第五科研范式",
+      "modality": "text",
+      "page": 35,
+      "section_path": [],
+      "reading_order": 213,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:214",
+      "block_type": "paragraph",
+      "text": "二 百花齐放的大模型时代",
+      "modality": "text",
+      "page": 35,
+      "section_path": [],
+      "reading_order": 214,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:215",
+      "block_type": "paragraph",
+      "text": "大模型辅助的科学假设生成",
+      "modality": "text",
+      "page": 35,
+      "section_path": [],
+      "reading_order": 215,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:216",
+      "block_type": "paragraph",
+      "text": "大模型辅助的论文与项目",
+      "modality": "text",
+      "page": 35,
+      "section_path": [],
+      "reading_order": 216,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:217",
+      "block_type": "paragraph",
+      "text": "未来科研范式展望",
+      "modality": "text",
+      "page": 35,
+      "section_path": [],
+      "reading_order": 217,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:218",
+      "block_type": "paragraph",
+      "text": "3.1 科学假设生成的原理",
+      "modality": "text",
+      "page": 36,
+      "section_path": [],
+      "reading_order": 218,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:219",
+      "block_type": "paragraph",
+      "text": "创造力研究表明，创新通常来自已有知识的重新组合",
+      "modality": "text",
+      "page": 36,
+      "section_path": [],
+      "reading_order": 219,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:220",
+      "block_type": "paragraph",
+      "text": "提出顶级交叉学科科学假设",
+      "modality": "text",
+      "page": 36,
+      "section_path": [],
+      "reading_order": 220,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:221",
+      "block_type": "paragraph",
+      "text": "生成数量：4451条个性化研究建议评估结果：394条非常感兴趣， 713条感兴趣，可行假设超24%",
+      "modality": "text",
+      "page": 36,
+      "section_path": [],
+      "reading_order": 221,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:222",
+      "block_type": "paragraph",
+      "text": "包含：自然科学与人文社科专业研究员学科交叉可合作假设比例超45%",
+      "modality": "text",
+      "page": 36,
+      "section_path": [],
+      "reading_order": 222,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:223",
+      "block_type": "paragraph",
+      "text": "科研输出",
+      "modality": "text",
+      "page": 36,
+      "section_path": [],
+      "reading_order": 223,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:224",
+      "block_type": "paragraph",
+      "text": "科研赋能",
+      "modality": "text",
+      "page": 36,
+      "section_path": [],
+      "reading_order": 224,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:225",
+      "block_type": "paragraph",
+      "text": "3.2 科学假设生成的流程",
+      "modality": "text",
+      "page": 37,
+      "section_path": [],
+      "reading_order": 225,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:226",
+      "block_type": "paragraph",
+      "text": "第2步：文献搜索与关键背景知识获取",
+      "modality": "text",
+      "page": 37,
+      "section_path": [],
+      "reading_order": 226,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:227",
+      "block_type": "paragraph",
+      "text": "通过检索和分析大量相关文献，获取重要背景知识，为假设生成提供基础",
+      "modality": "text",
+      "page": 37,
+      "section_path": [],
+      "reading_order": 227,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:228",
+      "block_type": "paragraph",
+      "text": "第4步：强化学习迭代细化假设",
+      "modality": "text",
+      "page": 37,
+      "section_path": [],
+      "reading_order": 228,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:229",
+      "block_type": "paragraph",
+      "text": "增加给定研究问题与生成假设之间的相似性",
+      "modality": "text",
+      "page": 37,
+      "section_path": [],
+      "reading_order": 229,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:230",
+      "block_type": "paragraph",
+      "text": "第1步：问题定义与领域聚焦  \n明确研究问题，分析  \n研究需求，为后续步骤提供方向",
+      "modality": "text",
+      "page": 37,
+      "section_path": [],
+      "reading_order": 230,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:231",
+      "block_type": "paragraph",
+      "text": "第3步：基于科学知识库生成假设",
+      "modality": "text",
+      "page": 37,
+      "section_path": [],
+      "reading_order": 231,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:232",
+      "block_type": "paragraph",
+      "text": "通过少样本学习或微调等策略，进一步提高生成假设的质量",
+      "modality": "text",
+      "page": 37,
+      "section_path": [],
+      "reading_order": 232,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:233",
+      "block_type": "paragraph",
+      "text": "第5步：假设评估评估假设的相关性、新颖性、重要性和可验证性",
+      "modality": "text",
+      "page": 37,
+      "section_path": [],
+      "reading_order": 233,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:234",
+      "block_type": "paragraph",
+      "text": "3.3 大模型辅助的科学假设生成—LLM提出跨学科假设",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 234,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:235",
+      "block_type": "paragraph",
+      "text": "科学家提示词查询",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 235,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:236",
+      "block_type": "paragraph",
+      "text": "deepseek",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 236,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:237",
+      "block_type": "paragraph",
+      "text": "模型假设生成",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 237,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:238",
+      "block_type": "paragraph",
+      "text": "背景：在双波长激发 （450/520nm）的光氧化还原反应中，光强比例、溶剂极性（丙酮/乙腈混合比例）与自由基生成动力学间存在复杂非线性关系。在人工智能技术中",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 238,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:239",
+      "block_type": "paragraph",
+      "text": "要求：这两个学科是否存在理论技术上的关联。",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 239,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:240",
+      "block_type": "paragraph",
+      "text": "发现AI4有机化学的跨学科关联",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 240,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:241",
+      "block_type": "paragraph",
+      "text": "一、跨学科关联：深度学习与光化学的耦合机制",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 241,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:242",
+      "block_type": "paragraph",
+      "text": "1.光化学的核心挑战",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 242,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:243",
+      "block_type": "paragraph",
+      "text": "知识整合",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 243,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:244",
+      "block_type": "paragraph",
+      "text": "在双波长激发（450nm和520nm）的光氧化还原反应中，光强比例、溶剂极性（丙酮/乙腈混合比例）与自由基生成动力学之间存在复杂的非线性关系。传统试错法难以穷举参数组合，且DFT计算成本高。",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 244,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:245",
+      "block_type": "paragraph",
+      "text": "2.深度学习的优势",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 245,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:246",
+      "block_type": "paragraph",
+      "text": "。多模态数据融合：光谱特征（波长、光强）、溶剂物化性质（极性、介电常数） 自由基浓度时序数据等异构数据可通过深度学习统一建模。 知识重组。动态优化能力：通过协同模型（CollaborativeDeepLearning，CDL）实现光-溶剂参数的联合寻优，超越传统单变量优化方法。",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 246,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:247",
+      "block_type": "paragraph",
+      "text": "3.关键结合点",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 247,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:248",
+      "block_type": "paragraph",
+      "text": "。光谱特征提取：CNN处理双波长激发的光谱图像（如吸收峰位置、强度分布），捕捉光能传递路径。 建立学科关联",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 248,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:249",
+      "block_type": "paragraph",
+      "text": "。溶剂动态建模：图神经网络（GNN）建模溶剂分子间相互作用（如丙酮与乙晴的氢键网络），预测极性对反应路径的影响。",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 249,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:250",
+      "block_type": "paragraph",
+      "text": "Q",
+      "modality": "text",
+      "page": 38,
+      "section_path": [],
+      "reading_order": 250,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:251",
+      "block_type": "paragraph",
+      "text": "3.3 大模型辅助的科学假设生成—LLM提出跨学科假设",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 251,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:252",
+      "block_type": "paragraph",
+      "text": "科学家提示词查询",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 252,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:253",
+      "block_type": "paragraph",
+      "text": "deepseek",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 253,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:254",
+      "block_type": "paragraph",
+      "text": "模型假设生成",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 254,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:255",
+      "block_type": "paragraph",
+      "text": "背景：在双波长激发 （450/520nm）的光氧化还原反应中，光强比例、溶剂极性（丙酮/乙腈混合比例）与自由基生成动力学间存在复杂非线性关系。在人工智能技术中",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 255,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:256",
+      "block_type": "paragraph",
+      "text": "要求：根据学科关联，提出一套合理的科学假设。",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 256,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:257",
+      "block_type": "paragraph",
+      "text": "提出假设 《基于协同学习的双波长激发-溶剂协同优化模型》",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 257,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:258",
+      "block_type": "paragraph",
+      "text": "假设核心：",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 258,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:259",
+      "block_type": "paragraph",
+      "text": "假设生成",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 259,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:260",
+      "block_type": "paragraph",
+      "text": "“双波长激发系统与溶剂极性的动态匹配可调控自由基/极性交叉路径的竞争，进而决定区域选择性；通过协同深度学习模型，可实现光-溶剂-自由基三元协同优化，最大化目标产物产率。“",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 260,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:261",
+      "block_type": "paragraph",
+      "text": "创新点：",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 261,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:262",
+      "block_type": "paragraph",
+      "text": "启发式推理",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 262,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:263",
+      "block_type": "paragraph",
+      "text": "$^ { 1 , }$ 动态协同框架：将光强 $( 1 _ { 1 } = 4 5 0 \\mathrm { n m } ,$ $1 _ { 2 } = 5 2 0 \\mathrm { n m }$ ）、溶剂比例 $\\mathrm { S } =$ 丙酮/乙睛）、温度（T）作为联合决策变量，而非独立参数。",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 263,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:264",
+      "block_type": "paragraph",
+      "text": "$2 .$ 物理约束嵌入：在损失函数中引入自由基稳定性条件（如Hammett参数约束）、能垒匹配（DFT计算的过渡态能量差），避免纯数据驱动的黑箱偏差。",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 264,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:265",
+      "block_type": "paragraph",
+      "text": "3.跨尺度建模：微观（分子轨道能级）-介观（溶剂极性）-宏观（反应器温度）的多尺度特征融合。",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 265,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:266",
+      "block_type": "paragraph",
+      "text": "Q",
+      "modality": "text",
+      "page": 39,
+      "section_path": [],
+      "reading_order": 266,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:267",
+      "block_type": "paragraph",
+      "text": "3.3 大模型辅助的科学假设生成—LLM提出跨学科假设",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 267,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:268",
+      "block_type": "paragraph",
+      "text": "科学家提示词查询",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 268,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:269",
+      "block_type": "paragraph",
+      "text": "deepseek",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 269,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:270",
+      "block_type": "paragraph",
+      "text": "模型假设生成",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 270,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:271",
+      "block_type": "paragraph",
+      "text": "背景：在双波长激发 （450/520nm）的光氧化还原反应中，光强比例、溶剂极性（丙酮/乙腈混合比例）与自由基生成动力学间存在复杂非线性关系。在人工智能技术中",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 271,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:272",
+      "block_type": "paragraph",
+      "text": "要求：根据科学假设，做出形式化分析。",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 272,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:273",
+      "block_type": "paragraph",
+      "text": "五、跨学科意义与潜在扩展",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 273,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:274",
+      "block_type": "paragraph",
+      "text": "形式化分析",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 274,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:275",
+      "block_type": "paragraph",
+      "text": "·化学视角：",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 275,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:276",
+      "block_type": "paragraph",
+      "text": "为多波长光化学反应提供了首个”光-溶剂-动力学“协同优化框架，可能推广至其他自由基偶联反应（如C-H活化）。",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 276,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:277",
+      "block_type": "paragraph",
+      "text": "·AI视角：",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 277,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:278",
+      "block_type": "paragraph",
+      "text": "开发了嵌入物理约束的协同深度学习范式，可迁移至材料合成、药物设计等需多参数耦合优化的领域。",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 278,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:279",
+      "block_type": "paragraph",
+      "text": "·未来方向：",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 279,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:280",
+      "block_type": "paragraph",
+      "text": "分析假设 《基于协同学习的双波长激发-溶剂协同优化模型》",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 280,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:281",
+      "block_type": "paragraph",
+      "text": "结合联邦学习（FederatedLearning），聚合多个实验室数据解决小样本问题；引入神经微分方程(NeuralODE）更精确地建模反应动力学。$^ { \\circ }$ 结果预期：LDL组的广物广率提升15 $20 \\%$ ，副广物减少 $30 \\%$ （因强化字习抑制了副反应路径）。",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 281,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:282",
+      "block_type": "paragraph",
+      "text": "2.在线优化阶段：",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 282,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:283",
+      "block_type": "paragraph",
+      "text": "。实时采集反应器数据，通过LSTM更新动力学状态 $\\mathbf { h } _ { t } .$ 。每5分钟调用协同模型生成参数调整建议 $\\Delta I _ { 4 5 0 } , \\Delta I _ { 5 2 0 } , \\Delta S _ { \\circ }$",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 283,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:284",
+      "block_type": "paragraph",
+      "text": "3.反馈校准：",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 284,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:285",
+      "block_type": "paragraph",
+      "text": "。将实际产率与预测值对比，若偏差超过阈值，触发迁移学习微调模型（仅更新决策层参数）。里解。",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 285,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:286",
+      "block_type": "paragraph",
+      "text": "Q",
+      "modality": "text",
+      "page": 40,
+      "section_path": [],
+      "reading_order": 286,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:287",
+      "block_type": "paragraph",
+      "text": "3.3 大模型辅助的科学假设生成—LLM提出跨学科假设",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 287,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:288",
+      "block_type": "paragraph",
+      "text": "科学家提示词查询",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 288,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:289",
+      "block_type": "paragraph",
+      "text": "deepseek",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 289,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:290",
+      "block_type": "paragraph",
+      "text": "模型假设生成",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 290,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:291",
+      "block_type": "paragraph",
+      "text": "背景：金属热处理中的退火淬火工艺存在对加热温度与冷却速度的精准控制，冷却介质选择，工艺参数优化等挑战。在人工智能技术中，存在时间序列建模的网络模型",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 291,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:292",
+      "block_type": "paragraph",
+      "text": "要求：这两个学科是否存在理论技术上的关联。",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 292,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:293",
+      "block_type": "paragraph",
+      "text": "发现AI4金属热处理的跨学科关联",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 293,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:294",
+      "block_type": "paragraph",
+      "text": "三、应用关联：从实验室到工业场景的实践",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 294,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:295",
+      "block_type": "paragraph",
+      "text": "1.退火/淬火工艺的时间序列特性",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 295,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:296",
+      "block_type": "paragraph",
+      "text": "建知立识学整科合关重联组",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 296,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:297",
+      "block_type": "paragraph",
+      "text": "·工艺阶段分解：",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 297,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:298",
+      "block_type": "paragraph",
+      "text": "。退火：加热段（升温速率）、保温段（温度稳定性）、冷却段（缓冷速率）。  \n。淬火：奥氏体化段（高温保持时间）、急冷段（冷却介质流速与温度梯度）。",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 298,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:299",
+      "block_type": "paragraph",
+      "text": "·时间依赖性：材料相变（如马氏体转变）与微观结构演化（如晶粒生长）强烈依赖于温度随时间的变化曲线（T-t曲线），具有显著的非线性记忆效应。 关，",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 299,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:300",
+      "block_type": "paragraph",
+      "text": "2.LSTM的适配性原理",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 300,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:301",
+      "block_type": "paragraph",
+      "text": "·记忆单元机制：LSTM通过遗忘门、输入门、输出门控制信息流，可捕捉工艺过程中长程依赖关系（如保温时间对后续冷却阶段的影响）。",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 301,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:302",
+      "block_type": "paragraph",
+      "text": "·多变量时序建模：支持同时输入温度、压力、冷却介质流量等多维度传感器数据，构建工艺参数与材料模。性能的映射关系。。动态调整退火炉各温区功率。 托最优解。",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 302,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:303",
+      "block_type": "paragraph",
+      "text": "Q",
+      "modality": "text",
+      "page": 41,
+      "section_path": [],
+      "reading_order": 303,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:304",
+      "block_type": "paragraph",
+      "text": "3.3 大模型辅助的科学假设生成—LLM提出跨学科假设",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 304,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:305",
+      "block_type": "paragraph",
+      "text": "最新已发表论文中存在相似假设，生成假设可覆盖相似假设中部分创新点",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 305,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:306",
+      "block_type": "paragraph",
+      "text": "Deepseek提出假设：“双波长激发系统与溶剂极性的动态匹配可调控自由基/极性交叉路径的竞争，进而决定区域选择性。通过深度协同模型，可实现光-溶剂-自由基三元协同优化，最大化目标产物产率。”",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 306,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:307",
+      "block_type": "paragraph",
+      "text": "相似假设一",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 307,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:308",
+      "block_type": "paragraph",
+      "text": "From: Nature",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 308,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:309",
+      "block_type": "paragraph",
+      "text": "nature",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 309,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:310",
+      "block_type": "paragraph",
+      "text": "Explore contentvAbout the journal Publish with us Subscribe",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 310,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:311",
+      "block_type": "paragraph",
+      "text": "nature>articles>article",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 311,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:312",
+      "block_type": "paragraph",
+      "text": "Synergisticphotobiocatalysisforenantioselective triple-radicalsorting",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 312,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:313",
+      "block_type": "paragraph",
+      "text": "ZhongqiuXing.FuluLiuJiangiangFeng,LuYuZhoupingWu,BeibeiZhao,BinChen，Heng Ping",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 313,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:314",
+      "block_type": "paragraph",
+      "text": "Nature637,1118-1123（2025)|Citethisaie",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 314,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:315",
+      "block_type": "paragraph",
+      "text": "相似假设二",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 315,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:316",
+      "block_type": "paragraph",
+      "text": "From: Nature Catalysis",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 316,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:317",
+      "block_type": "paragraph",
+      "text": "naturecatalysis",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 317,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:318",
+      "block_type": "paragraph",
+      "text": "ExplorecontentvAbout the journalvPublish with us v",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 318,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:319",
+      "block_type": "paragraph",
+      "text": "Photoredox-catalysed amidylradicalinsertionto bicyclo[1.1.0]butanes",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 319,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:320",
+      "block_type": "paragraph",
+      "text": "ChetanC.Chintawar，RanjiniLaskarDebanjanRanaFelixSchaferNeleVanWyngaerden,Subhabrata DuttaConstantin G.Daniliuc&Frank Glorius",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 320,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:321",
+      "block_type": "paragraph",
+      "text": "NatureCatalysis7,1232-1242(2024)|Citethisarticle",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 321,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:322",
+      "block_type": "paragraph",
+      "text": "相似假设三",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 322,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:323",
+      "block_type": "paragraph",
+      "text": "From: Chem, Cell Press",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 323,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:324",
+      "block_type": "paragraph",
+      "text": "ownd Fullisu",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 324,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:325",
+      "block_type": "paragraph",
+      "text": "4-Pyridylperfluoroalkylsulfideasapracticalnucleophilic perfluoroalkylationreagent",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 325,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:326",
+      "block_type": "paragraph",
+      "text": "Get Access",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 326,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:327",
+      "block_type": "paragraph",
+      "text": "The bigger picture",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 327,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:328",
+      "block_type": "paragraph",
+      "text": "该文提出：溶剂极性通过影响羟基自由基的生成路径，与光强协同增强氧化效率。动态调整丙酮/乙腈比例可使羟基产率提高 $30 \\%$ 。",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 328,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:329",
+      "block_type": "paragraph",
+      "text": "该文提出：通过DFT计算自由基生成速率与光强、溶剂极性的非线性关系，实现将酰胺基自由基插入到双环丁烷中。",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 329,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:330",
+      "block_type": "paragraph",
+      "text": "该文提出：从溶剂与光强二者协同角度思考，合成了一种创新型亲核全氟烷基化试剂。",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 330,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:331",
+      "block_type": "paragraph",
+      "text": "Deepseek通过“整合-关联-假设-分析”流程，可提出合理有效的科学假设",
+      "modality": "text",
+      "page": 42,
+      "section_path": [],
+      "reading_order": 331,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:332",
+      "block_type": "paragraph",
+      "text": "3.3 大模型辅助的科学假设生成—LLM提出跨学科假设",
+      "modality": "text",
+      "page": 43,
+      "section_path": [],
+      "reading_order": 332,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:333",
+      "block_type": "paragraph",
+      "text": "最新已发表论文中存在相似假设，生成假设可覆盖相似假设中部分创新点",
+      "modality": "text",
+      "page": 43,
+      "section_path": [],
+      "reading_order": 333,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:334",
+      "block_type": "paragraph",
+      "text": "Deepseek提出假设：“双波长激发系统与溶剂极性的动态匹配可调控自由基/极性交叉路径的竞争，进而决定区域选择性。通过深度协同模型，可实现光-溶剂-自由基三元协同优化，最大化目标产物产率。”",
+      "modality": "text",
+      "page": 43,
+      "section_path": [],
+      "reading_order": 334,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:335",
+      "block_type": "paragraph",
+      "text": "相似假设二顶级学科假设批量自动化生成",
+      "modality": "text",
+      "page": 43,
+      "section_path": [],
+      "reading_order": 335,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:336",
+      "block_type": "paragraph",
+      "text": "51篇Nature与Science同等级了一种创新型亲核全氟烷的评测论文中，近 $40 \\%$ 。的实验生成假设与真实假设高度相似",
+      "modality": "text",
+      "page": 43,
+      "section_path": [],
+      "reading_order": 336,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:337",
+      "block_type": "paragraph",
+      "text": "Deepseek通过“整合-关联-假设-分析”流程，可提出合理有效的科学假设",
+      "modality": "text",
+      "page": 43,
+      "section_path": [],
+      "reading_order": 337,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:338",
+      "block_type": "paragraph",
+      "text": "3.3 大模型辅助的科学假设生成—迭代优化解决组合爆炸问题",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 338,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:339",
+      "block_type": "paragraph",
+      "text": "GNoME预测新材料的结构和稳定性",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 339,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:340",
+      "block_type": "paragraph",
+      "text": "GNoME采用基于图神经网络的生成式模型，成功预测了220 万种新的晶体材料，其中 38 万种被计算验证为稳定结构。",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 340,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:341",
+      "block_type": "paragraph",
+      "text": "海量数据驱动",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 341,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:342",
+      "block_type": "paragraph",
+      "text": "爆炸式生成",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 342,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:343",
+      "block_type": "paragraph",
+      "text": "主动学习进化",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 343,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:344",
+      "block_type": "paragraph",
+      "text": "GNoME训练覆盖超过1亿组材料数据，通过图结构表示晶体材料的原子连接关系，将拓扑结构映射到能量预测模型中。",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 344,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:345",
+      "block_type": "paragraph",
+      "text": "•结构管道：基于已知晶体结构的微小调整生成候选材料。",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 345,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:346",
+      "block_type": "paragraph",
+      "text": "•成分管道：完全随机生成新化学式爆炸式组合，突破传统设计限制，探索更广阔可能性。",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 346,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:347",
+      "block_type": "paragraph",
+      "text": "1.理论计算验证稳定性；2.验证数据反哺模型训练；3.迭代优化，提升预测精度，准确率从初始 $5 \\%$ 的提升至 $80 \\%$ 。",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 347,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:348",
+      "block_type": "paragraph",
+      "text": "在反馈循环和数据增强过程中，调整评估方法，短时间内批量生成有效科学假设。",
+      "modality": "text",
+      "page": 44,
+      "section_path": [],
+      "reading_order": 348,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:349",
+      "block_type": "paragraph",
+      "text": "3.3 大模型辅助的科学假设生成—迭代优化解决组合爆炸问题",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 349,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:350",
+      "block_type": "paragraph",
+      "text": "AlphaFold3预测蛋白质三维结构",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 350,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:351",
+      "block_type": "paragraph",
+      "text": "AlphaFold3使用扩散模型实现了蛋白质三维结构的批量化预测。已生成数亿个蛋白质结构，几乎覆盖所有已知蛋白质。",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 351,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:352",
+      "block_type": "paragraph",
+      "text": "海量数据驱动",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 352,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:353",
+      "block_type": "paragraph",
+      "text": "爆炸式生成",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 353,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:354",
+      "block_type": "paragraph",
+      "text": "主动学习进化",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 354,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:355",
+      "block_type": "paragraph",
+      "text": "AlphaFold3的训练数据覆盖蛋白质数据库中的几乎所有分子类型。几何约束建模，构建三维空间关系的矩阵表示。",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 355,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:356",
+      "block_type": "paragraph",
+      "text": "扩散模型生成式预测。从随机噪声开始，同时处理局部立体化学细节 （如键长键角）和全局拓扑 （如蛋白质折叠域）。",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 356,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:357",
+      "block_type": "paragraph",
+      "text": "1.DFT理论计算与实验反馈；  \n2.筛选高置信度结果反哺训练；  \n3.逐步提升预测精度。",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 357,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:358",
+      "block_type": "paragraph",
+      "text": "并行生成数千种候选构象，并通过能量函数、实验可行性与多模态置信度评分排序，快速筛选合理结构。",
+      "modality": "text",
+      "page": 45,
+      "section_path": [],
+      "reading_order": 358,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:359",
+      "block_type": "paragraph",
+      "text": "3.3 大模型辅助的科学假设生成—AI co-scientist 系统",
+      "modality": "text",
+      "page": 46,
+      "section_path": [],
+      "reading_order": 359,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:360",
+      "block_type": "paragraph",
+      "text": "多智能体自主协作推进科学研究进度，不断进化假设",
+      "modality": "text",
+      "page": 46,
+      "section_path": [],
+      "reading_order": 360,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:361",
+      "block_type": "paragraph",
+      "text": "自我评估、纠正、改进的循环系统",
+      "modality": "text",
+      "page": 46,
+      "section_path": [],
+      "reading_order": 361,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:362",
+      "block_type": "paragraph",
+      "text": "自动规划分配任务任务特定智能专员灵活扩展计算能力自我对弈进化假设性能随计算时间增长逐步提高假设质量超过人类位居首位",
+      "modality": "text",
+      "page": 46,
+      "section_path": [],
+      "reading_order": 362,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:363",
+      "block_type": "paragraph",
+      "text": "AI 辅助技术迈出重要一步，加速科学家应对科学和医学等领域重大挑战的进度",
+      "modality": "text",
+      "page": 46,
+      "section_path": [],
+      "reading_order": 363,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:364",
+      "block_type": "paragraph",
+      "text": "3.4 科学假设生成的评价—案例评价",
+      "modality": "text",
+      "page": 47,
+      "section_path": [],
+      "reading_order": 364,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:365",
+      "block_type": "paragraph",
+      "text": "使用第三方语言模型作为“评估器” 对科学假设进行评估",
+      "modality": "text",
+      "page": 47,
+      "section_path": [],
+      "reading_order": 365,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:366",
+      "block_type": "paragraph",
+      "text": "评估提示词：这是基于FEA与GNN的金属疲劳与断裂韧性预测的科学假设，请从做出客观评价，并给出对应分数。检索相关论文判断该假设的创新点是否新颖，并推理其方法的有效性与可行性。最后给出改进建议。",
+      "modality": "text",
+      "page": 47,
+      "section_path": [],
+      "reading_order": 366,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:367",
+      "block_type": "paragraph",
+      "text": "评估结果",
+      "modality": "text",
+      "page": 47,
+      "section_path": [],
+      "reading_order": 367,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:368",
+      "block_type": "paragraph",
+      "text": "迭代进化科学假设，协助研究人员提出高质量假设，构建人机协作的科研闭环",
+      "modality": "text",
+      "page": 47,
+      "section_path": [],
+      "reading_order": 368,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:369",
+      "block_type": "paragraph",
+      "text": "3.4 科学假设生成的评价—自动评价策略统计",
+      "modality": "text",
+      "page": 48,
+      "section_path": [],
+      "reading_order": 369,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:370",
+      "block_type": "paragraph",
+      "text": "人机协同的假设评估策略能够优化评估质量，实现高效精准科学假设生成",
+      "modality": "text",
+      "page": 48,
+      "section_path": [],
+      "reading_order": 370,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:371",
+      "block_type": "paragraph",
+      "text": "优化科学假设创造推理能力，协助研究人员提出高质释放大模型优势 加快创新进程 开拓科研新境界",
+      "modality": "text",
+      "page": 48,
+      "section_path": [],
+      "reading_order": 371,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:372",
+      "block_type": "paragraph",
+      "text": "汇报提纲",
+      "modality": "text",
+      "page": 49,
+      "section_path": [],
+      "reading_order": 372,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:373",
+      "block_type": "paragraph",
+      "text": "AI驱动的第五科研范式",
+      "modality": "text",
+      "page": 49,
+      "section_path": [],
+      "reading_order": 373,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:374",
+      "block_type": "paragraph",
+      "text": "二 百花齐放的大模型时代",
+      "modality": "text",
+      "page": 49,
+      "section_path": [],
+      "reading_order": 374,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:375",
+      "block_type": "paragraph",
+      "text": "大模型辅助的科学假设生成",
+      "modality": "text",
+      "page": 49,
+      "section_path": [],
+      "reading_order": 375,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:376",
+      "block_type": "paragraph",
+      "text": "大模型辅助的论文与项目",
+      "modality": "text",
+      "page": 49,
+      "section_path": [],
+      "reading_order": 376,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:377",
+      "block_type": "paragraph",
+      "text": "未来科研范式展望",
+      "modality": "text",
+      "page": 49,
+      "section_path": [],
+      "reading_order": 377,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:378",
+      "block_type": "paragraph",
+      "text": "4.1 大模型辅助的论文与项目",
+      "modality": "text",
+      "page": 50,
+      "section_path": [],
+      "reading_order": 378,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:379",
+      "block_type": "paragraph",
+      "text": "大模型驱动科研创新，通过智能写作与评审提升科研质量与效率，实现人机协同的突破性进展",
+      "modality": "text",
+      "page": 50,
+      "section_path": [],
+      "reading_order": 379,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:380",
+      "block_type": "paragraph",
+      "text": "优化论文写作 提升项目质量 加速科研成果转化",
+      "modality": "text",
+      "page": 50,
+      "section_path": [],
+      "reading_order": 380,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:381",
+      "block_type": "paragraph",
+      "text": "4.2 申请书撰写",
+      "modality": "text",
+      "page": 51,
+      "section_path": [],
+      "reading_order": 381,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:382",
+      "block_type": "paragraph",
+      "text": "第2步：  \n初步选题  \n确定研究方向，指  \n导研究计划",
+      "modality": "text",
+      "page": 51,
+      "section_path": [],
+      "reading_order": 382,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:383",
+      "block_type": "paragraph",
+      "text": "第4步：选择合作老师与团队促进资源整合协作，提高项目的成功率",
+      "modality": "text",
+      "page": 51,
+      "section_path": [],
+      "reading_order": 383,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:384",
+      "block_type": "paragraph",
+      "text": "第1步：挖掘基础科学问题提升研究的创新性，增强项目的长远影响",
+      "modality": "text",
+      "page": 51,
+      "section_path": [],
+      "reading_order": 384,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:385",
+      "block_type": "paragraph",
+      "text": "第3步：  \n结合个人基础确定  \n选题",
+      "modality": "text",
+      "page": 51,
+      "section_path": [],
+      "reading_order": 385,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:386",
+      "block_type": "paragraph",
+      "text": "确保选题的可行性， 充分发挥个人优势",
+      "modality": "text",
+      "page": 51,
+      "section_path": [],
+      "reading_order": 386,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:387",
+      "block_type": "paragraph",
+      "text": "第5步：  \n撰写申请书  \n展示研究的基础与优  \n势，确保研究可行性",
+      "modality": "text",
+      "page": 51,
+      "section_path": [],
+      "reading_order": 387,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:388",
+      "block_type": "paragraph",
+      "text": "4.2 申请书撰写",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 388,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:389",
+      "block_type": "paragraph",
+      "text": "提示词查询",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 389,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:390",
+      "block_type": "paragraph",
+      "text": "deepseek",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 390,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:391",
+      "block_type": "paragraph",
+      "text": "模型交互回答",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 391,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:392",
+      "block_type": "paragraph",
+      "text": "根据基金委原创探索项目申请书低空经济中人工智能需要解决的基基金委有一类原创探索项目，请如果聚焦到无人机环境感知方面呢 ，我的研究基础主要集中在无如果跟天津大学的于强和任冬伟一起联合申报这个选题，可行性国内还有哪些团队适合引入进行模板，针对选题2，给出申请书初稿，请阐明以下内容：哪些？人机相关的可能选研究基础见主页en.github.io，于强主基础研究工作；http://aiskyeye.com/publication/页https://tns-yuq.github.io/二、所提学术思想的原创性、科学性和潜在影响力",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 392,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:393",
+      "block_type": "paragraph",
+      "text": "《原创项目申请书》",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 393,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:394",
+      "block_type": "paragraph",
+      "text": "（二）原创性基础研究工作",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 394,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:395",
+      "block_type": "paragraph",
+      "text": "围绕上述思想，拟开展以下研究：",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 395,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:396",
+      "block_type": "paragraph",
+      "text": "1.视网膜神经环路的脉冲编码建模与硬件映射",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 396,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:397",
+      "block_type": "paragraph",
+      "text": "解析视网膜水平细胞的侧向抑制机制，建立基于微分方程的脉冲时空滤波模型；  \n设计双极细胞-神经节细胞的脉冲触发反馈方程，实现光强自适应编码；  \n开发FPGA上的脉冲编码器原型，支持微秒级延迟的脉冲序列生成。",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 397,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:398",
+      "block_type": "paragraph",
+      "text": "2.动态场景的脉冲时空关联推理理论",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 398,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:399",
+      "block_type": "paragraph",
+      "text": "初步选题择合作老撰与写团申队请书",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 399,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:400",
+      "block_type": "paragraph",
+      "text": "提出脉冲卷积核（SpikeConvolutionKernel），直接对脉冲流进行时空特征提 结合个人基础构建基于脉冲时序依赖性的动态目标轨迹预测模型（Spike-TD），替代传统卡尔曼 确定选题",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 400,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:401",
+      "block_type": "paragraph",
+      "text": "3.仿生脉冲视觉架构的能效优化理论",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 401,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:402",
+      "block_type": "paragraph",
+      "text": "建立脉冲稀疏度与语义保真度的数学关系，提出熵约束下的脉冲压缩理论；  \n开发脉冲神经网络的突触权重动态剪枝算法，实现能耗-精度的帕累托最优；  \n构建脉冲视觉芯片的能效评估模型，量化电路级功耗与算法稀疏性的耦合关系。",
+      "modality": "text",
+      "page": 52,
+      "section_path": [],
+      "reading_order": 402,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:403",
+      "block_type": "paragraph",
+      "text": "4.3 项目评审-社会化学习",
+      "modality": "text",
+      "page": 53,
+      "section_path": [],
+      "reading_order": 403,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:404",
+      "block_type": "paragraph",
+      "text": "第2步：  \n技术与内容评审  \n评估项目的科学性与创  \n新性，确保技术可持续  \n性和实用性",
+      "modality": "text",
+      "page": 53,
+      "section_path": [],
+      "reading_order": 404,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:405",
+      "block_type": "paragraph",
+      "text": "第4步：团队能力与经验评审评估团队的专业能力，确保团队具备相关领域经验",
+      "modality": "text",
+      "page": 53,
+      "section_path": [],
+      "reading_order": 405,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:406",
+      "block_type": "paragraph",
+      "text": "第1步：",
+      "modality": "text",
+      "page": 53,
+      "section_path": [],
+      "reading_order": 406,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:407",
+      "block_type": "paragraph",
+      "text": "初步筛选和文档审核筛选合格项目，确保材料完整性",
+      "modality": "text",
+      "page": 53,
+      "section_path": [],
+      "reading_order": 407,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:408",
+      "block_type": "paragraph",
+      "text": "第3步：  \n项目管理与预算评审  \n评估项目的可执行性，确  \n保资源合理分配  \n第5步：  \n风险评估与可持续性分析  \n识别潜在风险，确保项目  \n的长期可持续性",
+      "modality": "text",
+      "page": 53,
+      "section_path": [],
+      "reading_order": 408,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:409",
+      "block_type": "paragraph",
+      "text": "4.3 项目评审",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 409,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:410",
+      "block_type": "paragraph",
+      "text": "提示词查询",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 410,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:411",
+      "block_type": "paragraph",
+      "text": "上传文档为国家自然科学基金申请书，请帮助检查申请书，请给出在项  \n术路线和研究内容上的评审意目管理与预算方面的评审意见目参与团队的团队能力与经验目在风险评估与可持续性分析否有格式、排版等初步建议。议。审意见和建议。审意见和修改建议。  \n问题",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 411,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:412",
+      "block_type": "paragraph",
+      "text": "deepseek",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 412,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:413",
+      "block_type": "paragraph",
+      "text": "模型交互回答",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 413,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:414",
+      "block_type": "paragraph",
+      "text": "《社会化学习》",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 414,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:415",
+      "block_type": "paragraph",
+      "text": "1风险评估与可持续性分析方面的评审意见与建议",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 415,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:416",
+      "block_type": "paragraph",
+      "text": "1.风险评估不足，潜在问题未能充分识别",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 416,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:417",
+      "block_type": "paragraph",
+      "text": "如果申请书中未能明确列出项目可能面临的技术、时间或资源等风险，或者未提出切实可行的应对措施，评审专家可能会认为项能目的可行性存在较大疑问。",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 417,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:418",
+      "block_type": "paragraph",
+      "text": "建议：",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 418,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:419",
+      "block_type": "paragraph",
+      "text": "。在申请书中列出可能影响项目进度和成果的主要风险（如技术难点、实验条件限制、数据获取困难等）。  \n。对每个潜在风险提出具体的应对策略，例如调整实验设计、增加备选方案或提前储备资源。",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 419,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:420",
+      "block_type": "paragraph",
+      "text": "2.缺乏对项目失败的应急预案",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 420,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:421",
+      "block_type": "paragraph",
+      "text": "如果未能展示团队在面对关键节点失败时的应急计划，可能会影响评审专家对项目稳定性的信心。",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 421,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:422",
+      "block_type": "paragraph",
+      "text": "。明确关键实验或技术的可能失败点，并提出备选方案或替代方法。  \n。说明团队在时间管理和资源分配上的灵活性，以应对突发问题。",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 422,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:423",
+      "block_type": "paragraph",
+      "text": "3.可持续性分析不够深入，缺乏长期影响的阐述",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 423,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:424",
+      "block_type": "paragraph",
+      "text": "如果未能清晰描述项目完成后的成果如何实现可持续发展，或者未体现研究的长期社会价值和学术贡献，可能会降低申请书的竞综争力。",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 424,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:425",
+      "block_type": "paragraph",
+      "text": "。明确项目完成后成果的推广路径（如技术转化、学术交流或政策建议）。  \n。说明团队如何利用现有资源持续推进相关研究，或形成长期合作机制以延续项目影响力。",
+      "modality": "text",
+      "page": 54,
+      "section_path": [],
+      "reading_order": 425,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:426",
+      "block_type": "paragraph",
+      "text": "4.4 高水平论文撰写",
+      "modality": "text",
+      "page": 55,
+      "section_path": [],
+      "reading_order": 426,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:427",
+      "block_type": "paragraph",
+      "text": "4.4 高水平论文撰写",
+      "modality": "text",
+      "page": 56,
+      "section_path": [],
+      "reading_order": 427,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:428",
+      "block_type": "paragraph",
+      "text": "提示词查询",
+      "modality": "text",
+      "page": 56,
+      "section_path": [],
+      "reading_order": 428,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:429",
+      "block_type": "paragraph",
+      "text": "能体系统体智能 ）交叉学科的角度，针对群现核心创新点的实验过程代照定理、证明、推导、完善哪些工作？请站在机ntroduction部分(该部分包究为维度，以机器学习法(验证)几专家(交叉意义，存在智能体系 问 给出切入题和挑战，AS)及其交。现方学习L)和此问题提出角度， 具体科学假设的详解决方案和贡献)究现状。 细步 骤建议。",
+      "modality": "text",
+      "page": 56,
+      "section_path": [],
+      "reading_order": 429,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:430",
+      "block_type": "paragraph",
+      "text": "deepseek",
+      "modality": "text",
+      "page": 56,
+      "section_path": [],
+      "reading_order": 430,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:431",
+      "block_type": "paragraph",
+      "text": "模型交互回答",
+      "modality": "text",
+      "page": 56,
+      "section_path": [],
+      "reading_order": 431,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:432",
+      "block_type": "paragraph",
+      "text": "《群体智能》",
+      "modality": "text",
+      "page": 56,
+      "section_path": [],
+      "reading_order": 432,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:433",
+      "block_type": "paragraph",
+      "text": "4.5 学位论文撰写",
+      "modality": "text",
+      "page": 57,
+      "section_path": [],
+      "reading_order": 433,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:434",
+      "block_type": "paragraph",
+      "text": "第2阶段：数据收集与实验设计提供实证依据，确保研究的可靠性与有效性",
+      "modality": "text",
+      "page": 57,
+      "section_path": [],
+      "reading_order": 434,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:435",
+      "block_type": "paragraph",
+      "text": "第4阶段：  \n论文撰写  \n系统展示研究成果，  \n展示学术能力与贡献  \n第1阶段：  \n选题与研究计划  \n确定研究方向，指导研  \n究过程",
+      "modality": "text",
+      "page": 57,
+      "section_path": [],
+      "reading_order": 435,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:436",
+      "block_type": "paragraph",
+      "text": "第3阶段：理论框架与方法论提供研究的理论基础，增强研究的可信度",
+      "modality": "text",
+      "page": 57,
+      "section_path": [],
+      "reading_order": 436,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:437",
+      "block_type": "paragraph",
+      "text": "4.5 学位论文撰写",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 437,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:438",
+      "block_type": "paragraph",
+      "text": "提示词查询",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 438,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:439",
+      "block_type": "paragraph",
+      "text": "deepseek",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 439,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:440",
+      "block_type": "paragraph",
+      "text": "模型交互回答",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 440,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:441",
+      "block_type": "paragraph",
+      "text": "《智能电网》",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 441,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:442",
+      "block_type": "paragraph",
+      "text": "请以人工智能与电力系统交叉学科的角度，基于学位论文的标准基于本课题内容，给出可验证所基于本课题内容，给出理论部分请以人工智能与电力系统交叉学科的角度，基于学位论文的标准格式，针对“智能电网”课题，给有科学假设所需的完整的数据收的所有分析与证明，包括理论框格式，针对“智能电网”课题，给出具体的选题与研究计划。出完整的引言部分。",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 442,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:443",
+      "block_type": "paragraph",
+      "text": "三、研究内容与创新点",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 443,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:444",
+      "block_type": "paragraph",
+      "text": "1.主要研究内容",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 444,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:445",
+      "block_type": "paragraph",
+      "text": "题究方计向划研究内容",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 445,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:446",
+      "block_type": "paragraph",
+      "text": "基于深度学习的高精度负荷预测方法研究，为电网调度提供数据支持。  \n强化学习在分布式能源优化调度中的应用，提升系统经济性和可靠性。  \n面向智能电网设备状态监测的故障诊断技术开发，延长设备使用寿命并减少维护成本。",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 446,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:447",
+      "block_type": "paragraph",
+      "text": "2.创新点",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 447,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:448",
+      "block_type": "paragraph",
+      "text": "页",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 448,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:449",
+      "block_type": "paragraph",
+      "text": "。将先进的人工智能算法（如深度学习、强化学习）与智能电网的实际需求相结合，提出针对性的解决方案。针对分布式能源和微电网场景，设计高效的多目标优化方法，以实现经济性、环境性和可靠性的平衡。",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 449,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:450",
+      "block_type": "paragraph",
+      "text": "1.国内外研究进展",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 450,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:451",
+      "block_type": "paragraph",
+      "text": "四、论文组织结构",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 451,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:452",
+      "block_type": "paragraph",
+      "text": "论文组织结构",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 452,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:453",
+      "block_type": "paragraph",
+      "text": "本文将从以下几个方面展开：",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 453,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:454",
+      "block_type": "paragraph",
+      "text": "文献综述：总结智能电网与人工智能交叉研究的国内外现状与发展趋势，分析存在的问题及研究空白。",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 454,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:455",
+      "block_type": "paragraph",
+      "text": "2.方法设计：详细介绍本课题提出的算法和模型，包括负荷预测、优化调度和设备监测等方面的技术实现。",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 455,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:456",
+      "block_type": "paragraph",
+      "text": "3.实验与验证：通过实际数据集进行算法性能评估，验证其在智能电网场景中的有效性和优势。",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 456,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:457",
+      "block_type": "paragraph",
+      "text": "4.结论与展望：总结研究成果，并对未来人工智能与智能电网结合的发展方向提出建议。 可撰与研究报告或字不论又，准备友表。",
+      "modality": "text",
+      "page": 58,
+      "section_path": [],
+      "reading_order": 457,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:458",
+      "block_type": "paragraph",
+      "text": "4.6 论文评审",
+      "modality": "text",
+      "page": 59,
+      "section_path": [],
+      "reading_order": 458,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:459",
+      "block_type": "paragraph",
+      "text": "第2步：深入阅读发现问题全面评估论文质量，确保研究创新性与贡献",
+      "modality": "text",
+      "page": 59,
+      "section_path": [],
+      "reading_order": 459,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:460",
+      "block_type": "paragraph",
+      "text": "第4步：  \n提出建议  \n改进论文质量，促进  \n学术发展  \n第1步：  \n初步评审  \n筛选合格论文，识别明  \n显问题  \n第3步：  \n评估写作质量  \n确保论文清晰性与可读  \n性，提高学术规范性  \n第5步：  \n最终评审结论  \n总结评审意见，归纳改进  \n建议",
+      "modality": "text",
+      "page": 59,
+      "section_path": [],
+      "reading_order": 460,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:461",
+      "block_type": "paragraph",
+      "text": "4.6 论文评审",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 461,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:462",
+      "block_type": "paragraph",
+      "text": "提示词查询",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 462,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:463",
+      "block_type": "paragraph",
+      "text": "deepseek",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 463,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:464",
+      "block_type": "paragraph",
+      "text": "模型交互回答",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 464,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:465",
+      "block_type": "paragraph",
+      "text": "《可编程模拟器上的量子粗化和集体动力学》",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 465,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:466",
+      "block_type": "paragraph",
+      "text": "针对上述投稿针对上述投稿 请从审稿人的请从审稿人的，请从审深度解析合其存在   \n角度对论文写作质量进行评估。角度结合上述问题提出建议。论文。在的问题。给出最终评审结论。",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 466,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:467",
+      "block_type": "paragraph",
+      "text": "：二、写作质量评价",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 467,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:468",
+      "block_type": "paragraph",
+      "text": "1.语言表达",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 468,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:469",
+      "block_type": "paragraph",
+      "text": "论文整体语言流畅，但部分句子表述不够准确，影响了阅读体验。建议使用更专业的学术词汇，并避免冗长和重复的表述。",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 469,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:470",
+      "block_type": "paragraph",
+      "text": "2.段落结构与逻辑衔接",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 470,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:471",
+      "block_type": "paragraph",
+      "text": "部分段落之间的逻辑衔接较为松散，导致阅读时略显突兀。建议调整段落顺序，增强各部分内容的连贯性。",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 471,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:472",
+      "block_type": "paragraph",
+      "text": "3.格式与引用规范",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 472,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:473",
+      "block_type": "paragraph",
+      "text": "论文的格式和引用方式基本符合期刊要求，但个别参考文献格式不统一。请作者仔细检查并统一修正。",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 473,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:474",
+      "block_type": "paragraph",
+      "text": "三、修改建议",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 474,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:475",
+      "block_type": "paragraph",
+      "text": "1.增加对研究假设和方法的详细阐述，确保理论分析更加深入。",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 475,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:476",
+      "block_type": "paragraph",
+      "text": "2.补充实验数据，尤其是增加重复实验和对照组，以增强结果的可靠性。",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 476,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:477",
+      "block_type": "paragraph",
+      "text": "3.修改部分表述不清晰的句子，提升语言的准确性和专业性。",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 477,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:478",
+      "block_type": "paragraph",
+      "text": "4.调整段落结构，增强内容之间的逻辑连贯性，并统一参考文献格式。",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 478,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:479",
+      "block_type": "paragraph",
+      "text": "四、综合意见",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 479,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:480",
+      "block_type": "paragraph",
+      "text": "综上所述，该论文在创新性和学术价值方面表现出色，但仍需在理论深度、数据支持和写作质量等方面进一步完善。希望作者能够根据评审意见进行修改后重新提交，以期发表于《[期刊名称]》。",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 480,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:481",
+      "block_type": "paragraph",
+      "text": "Q",
+      "modality": "text",
+      "page": 60,
+      "section_path": [],
+      "reading_order": 481,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:482",
+      "block_type": "paragraph",
+      "text": "汇报提纲",
+      "modality": "text",
+      "page": 61,
+      "section_path": [],
+      "reading_order": 482,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:483",
+      "block_type": "paragraph",
+      "text": "AI驱动的第五科研范式",
+      "modality": "text",
+      "page": 61,
+      "section_path": [],
+      "reading_order": 483,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:484",
+      "block_type": "paragraph",
+      "text": "二 百花齐放的大模型时代",
+      "modality": "text",
+      "page": 61,
+      "section_path": [],
+      "reading_order": 484,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:485",
+      "block_type": "paragraph",
+      "text": "大模型辅助的科学假设生成",
+      "modality": "text",
+      "page": 61,
+      "section_path": [],
+      "reading_order": 485,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:486",
+      "block_type": "paragraph",
+      "text": "大模型辅助的论文与项目",
+      "modality": "text",
+      "page": 61,
+      "section_path": [],
+      "reading_order": 486,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:487",
+      "block_type": "paragraph",
+      "text": "未来科研范式展望",
+      "modality": "text",
+      "page": 61,
+      "section_path": [],
+      "reading_order": 487,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:488",
+      "block_type": "paragraph",
+      "text": "5.1 AI研究新范式的浪潮前夜",
+      "modality": "text",
+      "page": 62,
+      "section_path": [],
+      "reading_order": 488,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:489",
+      "block_type": "paragraph",
+      "text": "2024年Nature/Science正刊中已经有15%左右的研究以AI技术为主导/工具，比例呈现逐年增长趋势",
+      "modality": "text",
+      "page": 62,
+      "section_path": [],
+      "reading_order": 489,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:490",
+      "block_type": "paragraph",
+      "text": "AI技术将在未来各个科研领域中扮演重要的基础性角色",
+      "modality": "text",
+      "page": 62,
+      "section_path": [],
+      "reading_order": 490,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:491",
+      "block_type": "paragraph",
+      "text": "5.2 AI研究新范式展望",
+      "modality": "text",
+      "page": 63,
+      "section_path": [],
+      "reading_order": 491,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:492",
+      "block_type": "paragraph",
+      "text": "新科研范式以数据智能为核心，是人类专家引导下的AI自主发现",
+      "modality": "text",
+      "page": 63,
+      "section_path": [],
+      "reading_order": 492,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:493",
+      "block_type": "paragraph",
+      "text": "人类专家和AI发挥各自专长",
+      "modality": "text",
+      "page": 63,
+      "section_path": [],
+      "reading_order": 493,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:494",
+      "block_type": "paragraph",
+      "text": "人类专家擅长：需求判断；价值判断；审美判断；道德判断；",
+      "modality": "text",
+      "page": 63,
+      "section_path": [],
+      "reading_order": 494,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:495",
+      "block_type": "paragraph",
+      "text": "国家战略需求- $, >$ 新质生产力科研价值- $> \\pmb { \\mathbb { A } } |$ I驱动自主发现科研审美- $>$ 数据智能基座系统道德要求- $, >$ 严谨严格求实求是",
+      "modality": "text",
+      "page": 63,
+      "section_path": [],
+      "reading_order": 495,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:496",
+      "block_type": "paragraph",
+      "text": "AI擅长：",
+      "modality": "text",
+      "page": 63,
+      "section_path": [],
+      "reading_order": 496,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:497",
+      "block_type": "paragraph",
+      "text": "数据整理；跨学科支持；复杂推理；批量设计；大规模实验等等",
+      "modality": "text",
+      "page": 63,
+      "section_path": [],
+      "reading_order": 497,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:498",
+      "block_type": "paragraph",
+      "text": "人类专家与AI协同科研，实现研究效率的指数级提升",
+      "modality": "text",
+      "page": 63,
+      "section_path": [],
+      "reading_order": 498,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:499",
+      "block_type": "paragraph",
+      "text": "5.3 新范式促进学科交叉下的AI研究",
+      "modality": "text",
+      "page": 64,
+      "section_path": [],
+      "reading_order": 499,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:500",
+      "block_type": "paragraph",
+      "text": "量子智能，人机接口，群体智能等谁将成为下一代智能涌现的风口",
+      "modality": "text",
+      "page": 64,
+      "section_path": [],
+      "reading_order": 500,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:501",
+      "block_type": "paragraph",
+      "text": "5.4 新范式促进学科交叉下的基础研究",
+      "modality": "text",
+      "page": 65,
+      "section_path": [],
+      "reading_order": 501,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:502",
+      "block_type": "paragraph",
+      "text": "以AI引领下的新型功能材料的研发为例",
+      "modality": "text",
+      "page": 65,
+      "section_path": [],
+      "reading_order": 502,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:503",
+      "block_type": "paragraph",
+      "text": "由AI技术发现的稳定材料结构已经超越人类专家发现的历史总和",
+      "modality": "text",
+      "page": 65,
+      "section_path": [],
+      "reading_order": 503,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:504",
+      "block_type": "paragraph",
+      "text": "5.5 AI赋能新质生产力",
+      "modality": "text",
+      "page": 66,
+      "section_path": [],
+      "reading_order": 504,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:505",
+      "block_type": "paragraph",
+      "text": "AI驱动的交叉学科研究操作系统：重塑科研新范式，推动新质生产力",
+      "modality": "text",
+      "page": 66,
+      "section_path": [],
+      "reading_order": 505,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:506",
+      "block_type": "paragraph",
+      "text": "AI将深刻促进研究领域之间的智慧交融和过程智能化",
+      "modality": "text",
+      "page": 66,
+      "section_path": [],
+      "reading_order": 506,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:507",
+      "block_type": "paragraph",
+      "text": "5.6 AI研究新范式下的潜在风险",
+      "modality": "text",
+      "page": 67,
+      "section_path": [],
+      "reading_order": 507,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:508",
+      "block_type": "paragraph",
+      "text": "AI for Research是在人类专家引导和监管下的智能科研范式",
+      "modality": "text",
+      "page": 67,
+      "section_path": [],
+      "reading_order": 508,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:509",
+      "block_type": "paragraph",
+      "text": "AI技术带来的风险需要通过合适的监管、道德框架和技术发展来平衡",
+      "modality": "text",
+      "page": 67,
+      "section_path": [],
+      "reading_order": 509,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "bda197a9a3a8370016e7bc03cf180c56bdc38d58:pdf:510",
+      "block_type": "paragraph",
+      "text": "恳请批评指正谢谢！",
+      "modality": "text",
+      "page": 68,
+      "section_path": [],
+      "reading_order": 510,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "pdf_parser": "mineru_first"
+  }
+}

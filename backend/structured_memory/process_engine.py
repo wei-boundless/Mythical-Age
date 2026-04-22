@@ -411,7 +411,7 @@ class ProcessStateEngine:
         if not task_switch and previous_state.flow_state.flow_type == flow_type:
             flow_id = previous_state.flow_state.flow_id
         else:
-            flow_id = f"{flow_type}:{self._slugify(understanding.target_object or active_goal or 'active')}"
+            flow_id = f"{flow_type}:{self._slugify(active_goal or 'active')}"
         return FlowState(
             flow_id=flow_id,
             flow_type=flow_type,
@@ -464,15 +464,13 @@ class ProcessStateEngine:
         turn_trace: list[TurnUnderstanding],
     ) -> ContextSlots:
         active_pdf, active_dataset = self._extract_slots_from_active_goal(active_goal)
-        if not active_pdf and not task_switch:
-            active_pdf = previous_state.context_slots.active_pdf
-        if not active_dataset and not task_switch:
-            active_dataset = previous_state.context_slots.active_dataset
 
         active_entity = self._infer_active_entity(
             active_goal,
             active_understanding.understanding,
             previous_state,
+            active_pdf=active_pdf,
+            active_dataset=active_dataset,
             task_switch=task_switch,
         )
         active_rule = self._extract_constraint_slot(turn_trace, convention_hints, previous_state, task_switch=task_switch)
@@ -642,10 +640,16 @@ class ProcessStateEngine:
         understanding: TaskUnderstanding,
         previous_state: DialogueState,
         *,
+        active_pdf: str,
+        active_dataset: str,
         task_switch: bool,
     ) -> str:
-        if understanding.target_object:
-            return understanding.target_object
+        if active_pdf:
+            return "pdf_document"
+        if active_dataset:
+            return "dataset"
+        if understanding.modality in {"realtime", "web"}:
+            return ""
 
         lowered = normalize_storage_text(active_goal).lower()
         if "session memory" in lowered:
@@ -656,9 +660,13 @@ class ProcessStateEngine:
             return "memory_system"
         if "context management" in lowered:
             return "context_management"
-        if not task_switch:
+        if not task_switch and self._can_carry_forward_active_entity(previous_state.context_slots.active_entity):
             return previous_state.context_slots.active_entity
         return ""
+
+    def _can_carry_forward_active_entity(self, active_entity: str) -> bool:
+        entity = normalize_storage_text(active_entity)
+        return bool(entity) and entity not in {"pdf_document", "dataset"}
 
     def _extract_constraint_slot(
         self,

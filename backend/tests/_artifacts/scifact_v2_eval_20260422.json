@@ -1,0 +1,97 @@
+{
+  "config": {
+    "split": "test",
+    "max_queries": 5,
+    "candidate_top_k": 10,
+    "metric_top_k": 10,
+    "seed": 42,
+    "use_rewrite": false,
+    "use_rerank": false,
+    "rebuild": true
+  },
+  "scifact_root": "D:\\AI应用\\langchain-agent\\scifact\\_beir_extract\\scifact",
+  "index_root": "D:\\AI应用\\langchain-agent\\output\\benchmark_runtime\\scifact_v2",
+  "build_seconds": 783.235,
+  "index_payload": {
+    "collection": "benchmark",
+    "status": "ready",
+    "dense_documents": 5183,
+    "dense_documents_indexed": 5183,
+    "parser_backends": [
+      "scifact_jsonl"
+    ],
+    "vector_backend": "qdrant",
+    "qdrant_collection": "agent__benchmark",
+    "build_batch_size": 128,
+    "lexical_enabled": true,
+    "lexical_documents": 5183,
+    "lexical_status": "ready"
+  },
+  "rewrite_changed_queries": 0,
+  "base_retrieval": {
+    "queries_evaluated": 5,
+    "accuracy_at_1": 0.4,
+    "hit_at_3": 0.4,
+    "hit_at_5": 0.6,
+    "hit_at_10": 0.6,
+    "recall_at_10": 0.6,
+    "mrr_at_10": 0.45,
+    "ndcg_at_10": 0.4861
+  },
+  "current_chain": {
+    "queries_evaluated": 5,
+    "accuracy_at_1": 0.4,
+    "hit_at_3": 0.4,
+    "hit_at_5": 0.6,
+    "hit_at_10": 0.6,
+    "recall_at_10": 0.6,
+    "mrr_at_10": 0.45,
+    "ndcg_at_10": 0.4861
+  },
+  "latency": {
+    "mean_retrieval_seconds": 0.6178,
+    "mean_rerank_seconds": 0.0
+  },
+  "sample_failures": [
+    {
+      "qid": "239",
+      "query": "Cellular aging closely links to an older appearance.",
+      "rewritten_query": "Cellular aging closely links to an older appearance.",
+      "gold_doc_ids": [
+        "14079881"
+      ],
+      "top_doc_ids": [
+        "3230557",
+        "516867",
+        "19343151",
+        "22264117",
+        "7514614",
+        "9559146",
+        "34747208",
+        "25419778",
+        "40349336",
+        "2466614"
+      ]
+    },
+    {
+      "qid": "312",
+      "query": "De novo assembly of sequence data has more specific contigs than unassembled sequence data.",
+      "rewritten_query": "De novo assembly of sequence data has more specific contigs than unassembled sequence data.",
+      "gold_doc_ids": [
+        "6173523"
+      ],
+      "top_doc_ids": [
+        "32770503",
+        "14464451",
+        "13123189",
+        "1544804",
+        "11244195",
+        "13914198",
+        "19293654",
+        "25536577",
+        "27061085",
+        "45200347"
+      ]
+    }
+  ]
+}

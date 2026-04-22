@@ -4,7 +4,6 @@ import argparse
 import json
 from pathlib import Path
 
-from retrieval.memory_index import memory_indexer
 from structured_memory import DurableMemoryConsolidator, MemoryManager
 
 from .parser_adapter import MultimodalParserAdapter
@@ -127,8 +126,6 @@ def main() -> int:
     if args.command in {"durable-memory-maintain", "memory-maintain"}:
         manager = MemoryManager(base_dir / "durable_memory")
         repair_payload = manager.repair_store()
-        memory_indexer.configure(base_dir)
-        memory_indexer.rebuild_index()
         rag_payload = registry.rebuild("durable_memory")
         print(
             json.dumps(
@@ -146,8 +143,6 @@ def main() -> int:
     if args.command == "durable-memory-consolidate":
         consolidator = DurableMemoryConsolidator(base_dir / "durable_memory")
         report = consolidator.run()
-        memory_indexer.configure(base_dir)
-        memory_indexer.rebuild_index()
         rag_payload = registry.rebuild("durable_memory")
         print(
             json.dumps(

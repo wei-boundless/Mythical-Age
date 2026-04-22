@@ -1,0 +1,8 @@
+{
+  "collection": "knowledge",
+  "status": "ready",
+  "lexical_documents": 2,
+  "tokenizer": "mixed_word_cjk_bigram_v1",
+  "k1": 1.5,
+  "b": 0.75
+}

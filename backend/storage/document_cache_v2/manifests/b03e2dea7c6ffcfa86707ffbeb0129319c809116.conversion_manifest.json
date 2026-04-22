@@ -1,0 +1,11 @@
+{
+  "doc_id": "b03e2dea7c6ffcfa86707ffbeb0129319c809116",
+  "source_path": "knowledge/Financial Report Data/上汽集团 2025 Q3.pdf",
+  "version_digest": "49f70c83aa7889f44e46b7887522709e81c4499c",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 64
+}

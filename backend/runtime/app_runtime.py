@@ -101,6 +101,9 @@ class AppRuntime:
         if normalized.startswith("durable_memory/"):
             runtime.retrieval_service.rebuild_durable_memory()
             return
+        if normalized.startswith("session-memory/"):
+            runtime.retrieval_service.rebuild_session_memory()
+            return
         if normalized.startswith("knowledge/"):
             runtime.retrieval_service.rebuild_knowledge()
 

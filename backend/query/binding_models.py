@@ -9,11 +9,12 @@ class StructuredDatasetBinding:
     target_object: str = ""
     source: str = ""
     confidence: float = 0.0
+    binding_identity: str = ""
     derived_from_task_id: str = ""
     explicit_switch: bool = False
 
     def is_bound(self) -> bool:
-        return bool(self.dataset_path.strip() or self.target_object.strip())
+        return bool(self.dataset_path.strip())
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)

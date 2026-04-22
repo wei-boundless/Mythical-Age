@@ -1,0 +1,3101 @@
+{
+  "doc_id": "f53923e433a5f98a215913d603557789c2e26bf8",
+  "collection": "knowledge",
+  "source_path": "knowledge/AI Knowledge/OpenAI深度报告：大模型王者，引领AGI之路.pdf",
+  "source_type": "pdf",
+  "version_digest": "fd6204384fdf8408df2876724f4b5b0d532cf45c",
+  "parser_backend": "mineru_pdf",
+  "title": "OpenAI深度报告：大模型王者，引领AGI之路",
+  "language": null,
+  "page_count": 26,
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "blocks": [
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:0",
+      "block_type": "paragraph",
+      "text": "行业评级 推荐（维持）",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:1",
+      "block_type": "paragraph",
+      "text": "报告日期 2025年12月28日",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:2",
+      "block_type": "paragraph",
+      "text": "相关研究",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:3",
+      "block_type": "paragraph",
+      "text": "【兴证计算机】从火山原动力大会看AI  \n投资机会-2025.12.21  \n【兴证计算机】Robotaxi：进入商业化  \n落地加速阶段-2025.12.14  \n【兴证计算机】结构致胜，创新为矛  \n一计算机行业2026 年度投资策略-  \n2025.12.09",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:4",
+      "block_type": "paragraph",
+      "text": "分析师：蒋佳霖S0190515050002jiangjialin@xyzq.com.cn分析师：孙乾S0190518110001sunqian@xyzq.com.cn",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:5",
+      "block_type": "paragraph",
+      "text": "分析师：陈鑫  \nS0190522030001  \nchenxin21@xyzq.com.cn",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:6",
+      "block_type": "paragraph",
+      "text": "OpenAI深度：大模型王者，引领AGI之路",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:7",
+      "block_type": "paragraph",
+      "text": "投资要点：",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:8",
+      "block_type": "paragraph",
+      "text": "OpenAI作为大模型时代的全球领航者，经过10年发展，持续引领大模型产业风向。对 OpenAI的复盘和研究，有助于更好地理解AI大模型产业趋势。本篇报告从OpenAl的历史沿革、产品布局、未来展望等维度出发，对AI大模型行业做了前瞻剖析。",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:9",
+      "block_type": "paragraph",
+      "text": "$\\bullet$ 复盘：AI新物种，大模型时代的全球领航者。1)团队激励显效，海纳顶尖人才：OpenAl自2015年以非营利机构形式成立，凭借顶尖创始团队的技术积淀奠定领先地位。近年团队规模持续扩张，但仍保持扁平化架构，2025年4月员工人数已超过5000人，公司薪酬中位数（63万美元）领先全美，并通过PPU激励机制吸引AI人才，涵盖大量AI学术和实践领军人物。2）收入增长强劲，结构趋向多元：公司预计2025全年营收130 亿美元，同比增长2.5倍；并预计2028年营收超过千亿美元，收入结构从ChatGPT向API、Agents 等领域多元发展。3）估值方面：公司融资历程丰富，融资窗口多伴随重磅AI模型升级、产品发布，历经10余轮融资后，截至2025年底估值升至7500亿美元，微软、软银、英伟达等巨头持续注资。",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:10",
+      "block_type": "paragraph",
+      "text": "$\\bullet$ 展望：模型为基，多模态、AI应用全面发力。1）大模型：OpenAI保持年度迭代、季度更新的高频模型发布节奏，GPT-5系列在数学推理、编程等领域领跑同行，助力产品从“工具型助手”到“生产力伙伴”的跨越。2）多模态：Sora2性能跨阶质变，物理模拟精度、生成一致性显著提升。迪士尼作为首个内容授权伙伴，与公司达成10 亿美元股权投资合作，200余个版权角色将增加用户活跃度、留存率。3)AI搜索：ChatGPT多端月活已经超12亿，用户规模长期处于行业榜首。周活用户付费率约 $5 \\%$ ，同样优于行业水平，考虑到生产力属性的提升，后续付费转化空间仍较大。4)AI应用：公司模型为基拓宽产品线、完成多元应用布局，AtlasAI浏览器重塑交互模式、Codex 代码工具性能先进，API覆盖文本、视频、图像等多场景，AI硬件进入规划阶段。",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:11",
+      "block_type": "paragraph",
+      "text": "$\\bullet$ 愿景：强强联合，共赴AGI造福人类新时代。1）平台：以AGI造福人类为核心使命。OpenAI成立之初便以实现“让AGI惠及全人类”为核心使命，2025年10月重组后形成Foundation（ $2 6 \\%$ 控股） $+ P B C$ 的双轨架构，非营利主体掌控核心决策，确保商业发展与使命对齐。2)生态：携手巨头，聚力驱动AI变革。相较于谷歌、阿里巴巴、字节等互联网厂商，公司依托技术先发优势、8亿周活的用户规模，构建差异化竞争壁垒。$\\textcircled{1}$ 算力方面，与微软、英伟达、甲骨文、亚马逊AWS 等达成巨额合作，启动“星际之门”项目打造AI基建网络，同时携手博通自研定制AI加速器，实现软硬件垂直整合。$\\textcircled{2}$ 应用方面，2025年12月推出ChatGPT应用商店，集成 Photoshop、Apple Music等多款应用，为其带来链接第三方应用的能力，推动ChatGPT向类操作系统转型。 $\\textcircled{3}$ 公司重视B端用户，截至2025年11月全球企业客户突破百万，ChatGPTforWork 的商业用户席位数量已突破700万。",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:12",
+      "block_type": "paragraph",
+      "text": "$\\bullet$ 投资建议与公司梳理：建议持续关注国内外相关大模型公司的模型、产品进展，包括OpenAl、谷歌、阿里巴巴、字节跳动、DeepSeek、智谱华章、Minimax等。",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:13",
+      "block_type": "paragraph",
+      "text": "$\\bullet$ 风险提示：1）行业竞争加剧的风险；2）应用进展不及预期的风险；3）核心技术人才流动的风险。",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:14",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:15",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:16",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机证券研究报告",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:17",
+      "block_type": "paragraph",
+      "text": "1/26",
+      "modality": "text",
+      "page": 1,
+      "section_path": [],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:18",
+      "block_type": "paragraph",
+      "text": "目录",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:19",
+      "block_type": "paragraph",
+      "text": "1．复盘：AI新物种，大模型时代的全球领航者 4  \n1.1、概况：十年磨剑，引领全球大模型产业， 4  \n1.2、团队：激励显效，海纳AI领域顶尖人才 4  \n1.3、估值：持续新高，最新估值7500亿美元， 7  \n2．展望：模型为基，多模态、AI应用全面发力 9  \n2.1、大模型：高频迭代，GPT5系列领跑同行. .9  \n2.2、多模态：两年沉淀，Sora2性能跨阶质变.. .11  \n2.3、AI搜索：月活居首，用户付费率持续提升 13  \n2.4、AI应用：点面结合，模型为基拓宽产品线 15  \n3．愿景：强强联合，共赴AGI造福人类新时代. 20  \n3.1、平台：从大模型顶流，到AGI造福全人类 20  \n3.2、生态：携手行业巨头，聚力驱动AI新变革. 22  \n4．风险提示. 25",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:20",
+      "block_type": "paragraph",
+      "text": "图目录",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:21",
+      "block_type": "paragraph",
+      "text": "图1、OpenAI与微软公司的合作机制. 4  \n图2、OpenAl发起人及创始人.. 4  \n图3、2025Q3 OpenAl人才流动情况 .5  \n图4、 OpenAl员工的院校结构. .5  \n图5、 OpenAI分级别软件工程师薪资结构（万美元） .6  \n图6、 PPU 激励机制采用4年归属期安排 .6  \n图7、 OpenAl2024-2030E营收情况（10亿美元） .7  \n图8、 OpenAl2028、2030年预计收入结构， .7  \n图9、 OpenAl2025年10月重组完成后股权结构情况. .9  \n图10、 GPT-5在AIME2025 测试中得分位居第一， . 10  \n图11、 GPT-5在MMMU 测评中表现突出. .10  \n图12、 GPT-5.2在GDPval评测中以 $70 \\% +$ 的胜率优于或持平于行业专家..11  \n图13、 GPT-5.2长多轮任务工具调用在Tau2-bench Telecom 测试中领先.11  \n图14、 Sora APP 发布后登顶 Apple store. 12  \n图15、 SoraAPP上线首周下载量高速增长. 12  \n图16、 Sora APP应用页面.. 12  \n图17、 Sora APP应用使用界面.. 12  \n图18、 OpenAl与迪士尼达成合作. 13  \n图19、 Sora 目前的用户留存率情况， 13  \n图20、 ChatGPT月活问鼎2025M10应用 $^ +$ 网站双榜首 14  \n图21、 2024-2025M10 ChatGPT用户增长超8倍 14  \n图22、 生成式AI模型市场份额统计. 14  \n图23、 企业级大模型市场份额图. 14  \n图24、 ChatGPT分场景使用占比情况. 15  \n图25、 消费级AI行业用户付费率情况梳理 .15  \n图26、 GPT-5API价格下调，性价比提升. 15  \n图 27、AI大模型应用为多个应用场景带来收入增长 17  \n图28、通过Atlas 实现代理购物.  \n图29、ChatGPTAtlas 浏览器页面 .18  \n图30、Codex水平领先. 19  \n图31、Codex支持多种拓展形式. 19  \n图32、 2019-2025M10 OpenAl股权架构变化情况 20  \n图33、 OpenAl 重组后 OpenAl Foundation 使命.. 21  \n图34、 奥特曼描述的OpenAI的结构体系！ 21  \n图35、ChatGPT应用（BETA）页面.. .24  \n图36、用户可在ChatGPT对话过程中调用应用 24",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:22",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:23",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:24",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:25",
+      "block_type": "paragraph",
+      "text": "2/26",
+      "modality": "text",
+      "page": 2,
+      "section_path": [],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:26",
+      "block_type": "paragraph",
+      "text": "表目录",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 26,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:27",
+      "block_type": "paragraph",
+      "text": "表1、OpenAl核心员工离职后的创业情况 6  \n表2、OpenAl历次融资情况梳理.. 8  \n表3、OpenAl的关键模型迭代情况梳理 .9  \n表4、 AI大模型颠覆多应用商业模式， 16  \n表5、 OpenAI代表性API及应用场景 17  \n表6、AI浏览器市场的主要产品梳理 18  \n表7、AI编程领域的主要产品梳理. 19  \n表8、国内外主流大模型厂商模型、应用及生态梳理 21  \n表9、主流AI大模型公司竞争力梳理. 22  \n表10、OpenAI在算力领域的重点合作梳理 23",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 27,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:28",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 28,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:29",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 29,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:30",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 30,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:31",
+      "block_type": "paragraph",
+      "text": "3/26",
+      "modality": "text",
+      "page": 3,
+      "section_path": [],
+      "reading_order": 31,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:32",
+      "block_type": "paragraph",
+      "text": "1．复盘：AI新物种，大模型时代的全球领航者",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 32,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:33",
+      "block_type": "paragraph",
+      "text": "1.1、概况：十年磨剑，引领全球大模型产业",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 33,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:34",
+      "block_type": "paragraph",
+      "text": "OpenAI是全球最具影响力的大模型公司之一。OpenAl于2015年12月以非营利的研究机构形式成立，获得了包括埃隆·马斯克、里德·霍夫曼（Linkedln 联合创始人）、彼得·蒂尔（PayPal创始人）等多位科技及商业领袖的10 亿美元捐赠承诺。创始人奥特曼、伊尔亚、格雷格等人具备顶尖学术背景与工程实践能力。2019 年，公司转向“封顶盈利”的商业实体模式，获得微软的10亿美元投资，并集成Azure云计算资源，为公司早期发展提供算力、资金支持。2022年11月，ChatGPT发布后5天内实现用户量增长100万，并随后快速成长为AI大模型领域的科技巨头，依托大模型能力构建应用生态体系。截至2025年10月，ChatGPT周活跃用户规模攀升至8亿，覆盖全球成年人口的 $10 \\%$ 以上。",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 34,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:35",
+      "block_type": "paragraph",
+      "text": "公司维持高密度的AI大模型、产品更新节奏。1）模型方面：目前公司保持每3-4个月便有新模型发布或者升级的频率,2019年GPT-1首次采用Transformer奠定大语言模型技术发展方向；2023年GPT-4作为首个多模态大模型引领行业从单模态向多模态演进；2024-2025年，公司GPT和o系列保持高频迭代，不断提升复杂推理、类人思考等能力。2）产品方面：2025年9月30日，发布Al视频社交应用Sora，首周下载量高达62.7万次，开创AI社交和内容生成新范式；2025年10月22日,发布Al 浏览器Atlas,以ChatGPT为流量分发渠道。OpenAl多次引领大模型行业技术发展方向，并加速在多领域的商业化落地进程，成为全球 AI发展的风向标。",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 35,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:36",
+      "block_type": "paragraph",
+      "text": "1.2、团队：激励显效，海纳Al领域顶尖人才",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 36,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:37",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 37,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:38",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 38,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:39",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 39,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:40",
+      "block_type": "paragraph",
+      "text": "4/26",
+      "modality": "text",
+      "page": 4,
+      "section_path": [],
+      "reading_order": 40,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:41",
+      "block_type": "paragraph",
+      "text": "OpenAI汇聚硅谷顶尖AI人才，团队背景优势显著。公司早期便汇集AI行业精英，包括伊尔亚（Google Brain 负责人）、格雷格（Stripe CTO）等 50 多位技术专家。经过7年发展，OpenAI经历了由非营利向营利模式的转变，依托具备市场吸引力的薪酬和奖励机制汇聚大量技术人才。具体来看：",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 41,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:42",
+      "block_type": "paragraph",
+      "text": "1)人数方面：由GPT-1的4 名贡献者增加到 GPT-3的30人，GPT-4、GPT-4o、01模型的贡献者合计进一步增加至631人；员工规模已从2023年的770人增长至2025年4月的5328人，主要分布于旧金山（研发中心）、纽约、伦敦（首个国际办事处）新加坡（亚太地区战略枢纽）。已打造多个完善成熟的团队，包括后训练团队、OAILabs、Agent团队，以及消费级产品应用团队。",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 42,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:43",
+      "block_type": "paragraph",
+      "text": "2)背景方面：从早期多位AI大模型技术路线引领者至今已涵盖大量AI学术和实践人才，包括斯坦福大学、加州伯克利、MIT等顶级高校，2023年OpenAl的技术报告贡献者中超过 $40 \\%$ 有大厂工作经验。",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 43,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:44",
+      "block_type": "paragraph",
+      "text": "3）人才流动方面：2025Q3 吸纳来自传统科技巨头Google、Meta、Apple 的精英，从Meta 跳槽至OpenAI的人数多于反向流动，公司人才吸引力保持强劲。",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 44,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:45",
+      "block_type": "paragraph",
+      "text": "OPENAITALENTPIPELINESFLOWFROM UNIVERSITIES   \nStanford MIT Carnegie   \nUniversity Mellon 24.2% 13.2% 11.4%   \nUC Berkeley UCLAHarvard ColumbiaNYU 8.27% 4.71% 4.65% USC Cornell University 18.2% 6.09% 4.77% 4.54%",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 45,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:46",
+      "block_type": "paragraph",
+      "text": "OpenAI的治理架构、激励机制较为特殊。1）组织结构方面：公司技术团队采用高度扁平化的项目驱动型架构，不同项目从各部门抽调人员组成跨职能团队，减少传统的层级管理，自下而上的组织文化形成更加快速、灵活的决策和开发流程。",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 46,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:47",
+      "block_type": "paragraph",
+      "text": "2）治理结构方面：2025年10月OpenAl重组后形成了Foundation（基金会，$26 \\%$ 控股实体）+PBC（公益公司，负责研究、产品、商业化运营）的双轨架构，在制度层面与公司核心使命高度对齐；公司鼓励员工作为“自己的CEO”发起项目，赋予自主权，加速最前沿创意转化。3）激励机制方面：OpenAl的软件工程师分为L2-L6共5个级别，每个级别工程师的薪酬都包括基础工资及股票，年薪范围从L2级的24.5万美元到L6级的119万美元不等，中位数为63万美元（截至2025年12月27日），所提供薪酬居全美软件工程师前列；公司采用利润参与单位（PPUs）激励模式，将员工薪酬与公司长期盈利能力直接挂钩，L5级AI工程师年化PPUs可达50万美元。",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 47,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:48",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 48,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:49",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 49,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:50",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 50,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:51",
+      "block_type": "paragraph",
+      "text": "5/26",
+      "modality": "text",
+      "page": 5,
+      "section_path": [],
+      "reading_order": 51,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:52",
+      "block_type": "paragraph",
+      "text": "数据来源：Levels.fyl，兴业证券经济与金融研究院整理",
+      "modality": "text",
+      "page": 6,
+      "section_path": [],
+      "reading_order": 52,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:53",
+      "block_type": "paragraph",
+      "text": "“人才外溢”效应促进AI大模型行业共同繁荣。从OpenAI离职的核心员工创立了多个AI公司，已经有至少7家成为独角兽企业，聚焦AI安全、机器人、搜索、教育等细分领域，形成与OpenAI竞合交织的生态网络。例如，公司前副总裁达里奥于2020 年底离职并携手多名OpenAl骨干共同创立Anthropic，开发以安全性著称的 Claude 系列产品；前研究科学家阿拉文德在 OpenAI工作一年后离职并于2022年8月创立AI搜索引擎Perplexity；前CSO 伊利亚于2024年5月离职后同年6月创立SSI，聚焦开发“安全优先”的超级智能AI系统。OpenAI的人才外溢彰显其作为AI产业创新巨头的辐射效应，带动行业百花齐放。",
+      "modality": "text",
+      "page": 6,
+      "section_path": [],
+      "reading_order": 53,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:54",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 6,
+      "section_path": [],
+      "reading_order": 54,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:55",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 6,
+      "section_path": [],
+      "reading_order": 55,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:56",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 6,
+      "section_path": [],
+      "reading_order": 56,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:57",
+      "block_type": "paragraph",
+      "text": "6/26",
+      "modality": "text",
+      "page": 6,
+      "section_path": [],
+      "reading_order": 57,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:58",
+      "block_type": "paragraph",
+      "text": "1.3、估值：持续新高，最新估值7500亿美元",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 58,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:59",
+      "block_type": "paragraph",
+      "text": "收入增长强劲，收入结构向多元化演进，预计2028年营收超千亿美元。具体看：",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 59,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:60",
+      "block_type": "paragraph",
+      "text": "1）营收增长迅速：公司2023、2024年分别营收16、37亿美元；同比分别增长$5 7 1 4 . 2 9 \\%$ 、 $2 3 1 . 2 5 \\%$ ；2025H1营收 43亿美元，已经超过2024年全年营收，ChatGPT订阅和API收费为核心增长引擎。",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 60,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:61",
+      "block_type": "paragraph",
+      "text": "2）业绩预期向好：据OpenAI预测，2025年营收将达到130亿美元，为2024年的3.5倍，2028年营收有望突破1000 亿美元，2030 年营收将增长至2000 亿美元。2024-2030 年复合年均增长率（CAGR）接近 $92 \\%$ 0",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 61,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:62",
+      "block_type": "paragraph",
+      "text": "3)收入结构多元化：目前 $^ { * } \\mathsf { C }$ 端订阅 $+ \\mathsf { B }$ 端服务\"结构下，公司预测2025年ChatGPT、Agents、API将分别贡献 100、20、10 亿美元收入。公司开拓以 Atlas、Apps、Sora 为入口的\"免费用户变现\"模式，通过将\"高价值意图\"（购物、法律、出行等）直连交易与抽佣闭环，让免费流量具备现金流。根据The Information 2025Q3预测，2028年公司新产品业务将放量，收入占比可达 $20 \\%$ ；2030 年 ChatGPT、API、Agents、新产品四大业务将实现均衡发展,ChatGPT收入占比将下降至 $40 \\%$ 左右，新产品、API、Agents 份额预计分别为 $2 5 \\%$ 、 $1 7 \\%$ 、 $18 \\%$",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 62,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:63",
+      "block_type": "paragraph",
+      "text": "数据来源：DataLearner，兴业证券经济与金融研究院整理",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 63,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:64",
+      "block_type": "paragraph",
+      "text": "OpenAI经历多轮融资，估值规模提升至7500亿美元。从2015年创立至今，公司共完成10余轮融资，2025年3月的400亿美元融资使估值从1570亿美元提升至3000亿美元，10月公司完成重组后估值增长至5000亿美元，12月公司估值实现 $50 \\%$ 跃升达到7500亿美元。1)从融资节奏上看：公司的融资窗口多伴随重磅AI模型的升级或产品发布。2）投资机构方面：公司与算力及硬件供应商、资本巨头整合形成良好的合作生态，微软作为OpenAI独家云服务与算力提供方总计投资超130 亿美元，英伟达作为OpenAI核心硬件供应商成为一轮66 亿融资的重要出资方，软银多次领投融资成为2025年重要大规模资本投资方。",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 64,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:65",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 65,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:66",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 66,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:67",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 67,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:68",
+      "block_type": "paragraph",
+      "text": "7/26",
+      "modality": "text",
+      "page": 7,
+      "section_path": [],
+      "reading_order": 68,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:69",
+      "block_type": "paragraph",
+      "text": "OpenAI基金会掌握控制权，利益分配模式利于吸引人才。2025年公司完成重组后，OpenAl基金会持有营利实体 OpenAl Group PBC $26 \\%$ 的股权，并获得控制权；微软由重组前的 $3 2 . 5 \\%$ 降至 $2 7 \\%$ ，享有分红权，不参与公司日常决策，并继续拥有OpenAI的独家知识产权和Azure API独家经营权；另外 $4 7 \\%$ 的股权由员工与投资者合计持有，其中，软银作为2025年主要出资方持有 $1 1 \\%$ 的股份。同时，重组后OpenAI取消“封顶盈利”模式，不再设置分红上限。",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 69,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:70",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 70,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:71",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 71,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:72",
+      "block_type": "paragraph",
+      "text": "行业深度报告」计算机",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 72,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:73",
+      "block_type": "paragraph",
+      "text": "8/26",
+      "modality": "text",
+      "page": 8,
+      "section_path": [],
+      "reading_order": 73,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:74",
+      "block_type": "paragraph",
+      "text": "2．展望：模型为基，多模态、AI应用全面发力",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 74,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:75",
+      "block_type": "paragraph",
+      "text": "2.1、大模型：高频迭代，GPT5系列领跑同行",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 75,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:76",
+      "block_type": "paragraph",
+      "text": "OpenAI保持高频迭代，模型能力稳步提升。随着参数规模扩大和技术架构精进，OpenAI通过高频次迭代升级优化模型能力。在迭代速度方面，从2018年的GPT-1到2025年8月的GPT-5，公司完成了5次基础模型重大升级，其中衍生版本（GPT-4Turbo、GPT-4o等）平均以0.5 年频次推出更新，精细化版本（GPT-4.1、GPT-5.1等）以季度级频次实现优化升级。",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 76,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:77",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 77,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:78",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 78,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:79",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 79,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:80",
+      "block_type": "paragraph",
+      "text": "9/26",
+      "modality": "text",
+      "page": 9,
+      "section_path": [],
+      "reading_order": 80,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:81",
+      "block_type": "paragraph",
+      "text": "在参数规模和模型能力方面：1）参数规模：GPT-3从1.17亿参数（GPT-1）增长至1750亿参数，深度语义理解能力提升；GPT-4参数高达1.76万亿，实现多模态能力；GPT-5参数跃升至52万亿，泛化和推理能力增强；2)模型能力方面：从初代的通用生成逐步演进为具备深度推理、智能交互、多模态等能力的模型，在专业性、准确性、速度、幻觉率等方面有所优化。",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 81,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:82",
+      "block_type": "paragraph",
+      "text": "GPT-5领跑多项榜单。GPT-5首次将多模态与推理能力集成于一体化系统，实现多维性能突破。1）数学推理能力：2025年8月，GPT-5-pro 在AIME2025（竞赛数学）基准测试中获得 $100 \\%$ 成绩，在FrontierMath-Tier4测评中以 $13 \\%$ 的得分问鼎；2）编程能力：2025年9月，GPT-5在软件工程基准SWE-BENCHPRO 测试中以 $2 3 . 3 \\%$ 的解决率登顶，并在网页开发测试中超越Gemini-2.5-pro 和Claude-Opus-4成为冠军；3）多模态能力：GPT-5以 $8 4 . 2 \\%$ 和 $84 . 6 \\%$ 的得分登顶MMMU(学院水平视觉问题）和VideoMMMU(基于视频的多模态推理）榜单，相较03(2025年4月， $8 2 . 9 \\% . 8 3 . 3 \\%$ ）、Gemini-2.5-pro(2025 年6月， $8 2 . 0 \\%$ 、$8 3 . 6 \\%$ ）能力突出；4）幻觉率方面：在开放题prompt、医学对话、ChatGPT实际用户问题三组场景中，GPT-5的错误率大幅降低，其中医疗对话错误率下降至$1 . 6 \\%$ ，日常问答场景错误率从 $22 \\%$ 降到 $4 . 8 \\%$",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 82,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:83",
+      "block_type": "paragraph",
+      "text": "数据来源：ArtificialAnalysis，兴业证券经济与金融研究院整理",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 83,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:84",
+      "block_type": "paragraph",
+      "text": "数据来源：DataLearner，兴业证券经济与金融研究院整理",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 84,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:85",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 85,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:86",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 86,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:87",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 87,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:88",
+      "block_type": "paragraph",
+      "text": "10/26",
+      "modality": "text",
+      "page": 10,
+      "section_path": [],
+      "reading_order": 88,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:89",
+      "block_type": "paragraph",
+      "text": "GPT-5.2发布，重点提升专业知识能力。OpenAI于12月推出为专业知识型工作打造的GPT-5.2系列模型，该模型在通用智能、超长文本理解、Agent工具调用以及视觉能力上有所升级。1)专业任务处理能力：在GDPval任务测评中，GPT-5.2Thinking成为GPT系列首个达到人类专家水平的模型，在 $7 0 . 7 \\%$ 的高难度知识型工作任务上表现优于或持平于行业顶尖专家，且速度11倍快于专业人士，而成本仅约为 $1 \\%$ ；模型从工具型辅助向智能协作伙伴转变，为各行业的工作流程优化、生产力提升和人机协作提供支持。2）更类人的知识泛化能力：GPT-5.2Pro成为首个突破通用推理能力的基准测试 ARC-AGI-1 $90 \\%$ 门槛的模型，在抽象思维、模式识别和泛化能力方面更加接近人类在类似任务中的表现水平。",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 89,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:90",
+      "block_type": "paragraph",
+      "text": "数据来源：OpenAI官网，兴业证券经济与金融研究院整理数据来源：OpenAI官网，兴业证券经济与金融研究院整理",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 90,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:91",
+      "block_type": "paragraph",
+      "text": "2.2、多模态：两年沉淀，Sora2性能跨阶质变",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 91,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:92",
+      "block_type": "paragraph",
+      "text": "两年沉淀多模态能力，Sora2实现跨阶提升。OpenAI自2024年2月正式披露初代文生视频模型Sora后,历经近2年沉淀，于2025年9月发布全新模型Sora2，并同步推出Al社交应用SoraApp。具体来看：",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 92,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:93",
+      "block_type": "paragraph",
+      "text": "1）模型能力方面： $\\textcircled{1}$ 遵循物理规律：Sora2能模拟刚体碰撞、流体力学及布料动力学等复杂物理现象，物理模拟精度有所提升； $\\textcircled{2}$ 生成一致性提升：Sora2可建立帧间关联，动作连贯性得到突破，物理模拟的一致性水平较高； $\\textcircled{3}$ 可生成同步音频：Sora2可以基于文本指令直接生成同步音频。",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 93,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:94",
+      "block_type": "paragraph",
+      "text": "2）应用流量方面：SoraApp作为全部由AI生成视频内容的社交平台，创作门槛大幅降低。Sora于10月3日登顶苹果美国\"热门免费应用\"榜单，首周收获62.7万下载量，超过ChatGPT首周表现（60.6万下载量）。截至10月31日，Sora下载量已攀升至400万次，日均生成数百万条10秒AI视频。",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 94,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:95",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 95,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:96",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 96,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:97",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 97,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:98",
+      "block_type": "paragraph",
+      "text": "11/26",
+      "modality": "text",
+      "page": 11,
+      "section_path": [],
+      "reading_order": 98,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:99",
+      "block_type": "paragraph",
+      "text": "数据来源：财联社，兴业证券经济与金融研究院整理",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 99,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:100",
+      "block_type": "paragraph",
+      "text": "Sora具备强社交属性，加速C端应用场景落地。1）功能上：Sora 提供Cameo（客串）CharacterCameo（角色客串）二次创作（Remix）和社区排行榜功能，从传统文生视频模型升维至创意短视频社交应用，以更具创意和想象力的社交理念激活用户创作与互动的意愿，市场潜力巨大;2)商业化模式上：Sora与ChatGPT收费结构相似，C端采取“免费生成 $^ +$ 付费额度”模式，同时面向企业和创作者开放 API，从生产工具转向AI社交平台，推动AI视频生成行业从生产力属性升级至视频方案产品，加速 $C + B$ 端应用商业化。",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 100,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:101",
+      "block_type": "paragraph",
+      "text": "牵手迪士尼，Sora创作生态的商业价值提升。据量子位，迪士尼计划向OpenAl进行10 亿美元的股权投资，成为Sora的首个内容授权伙伴。预计从2026 年初开始，Sora用户可基于迪士尼旗下200余个版权角色生成创意视频内容。此次授权远超简单的素材库价值，迪士尼的热门IP将为Sora平台注入创作吸引力，满足用户对喜爱角色的互动需求，加强Sora 作为社交平台的情感连接，有望提升Sora的用户活跃热度和留存率。",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 101,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:102",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 102,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:103",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 103,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:104",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 104,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:105",
+      "block_type": "paragraph",
+      "text": "12/26",
+      "modality": "text",
+      "page": 12,
+      "section_path": [],
+      "reading_order": 105,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:106",
+      "block_type": "paragraph",
+      "text": "2.3、AI搜索：月活居首，用户付费率持续提升",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 106,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:107",
+      "block_type": "paragraph",
+      "text": "ChatGPT月活持续快速增长。2025年10月，ChatGPT应用端以超过8亿的月活跃用户稳居全球第一，加上网站端用户，ChatGPT已拥有超过12亿的月活用户。在 token 调用量方面，据官方介绍，2025年10月初，公司API每分钟处理近 60亿 token；2025 年ChatGPT token 消耗达 6425万亿，同比 2024年增长超16倍。具体来看：",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 107,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:108",
+      "block_type": "paragraph",
+      "text": "1）ChatGPT用户规模长期占据榜首：2023年1月，ChatGPT月活突破1亿，成为历史上增长最快的C端app，后续快速拉开与相关竞品用户规模的差距，截至2025年10月，ChatGPT应用端月活已破8亿，相较于Gemini（应用端3.3亿）、Perplexity（网站端5亿）等公司具有规模优势。",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 108,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:109",
+      "block_type": "paragraph",
+      "text": "2）模型升级吸引用户使用并提升粘性：2024年3月，多模态模型GPT-4发布当月月活增长 $5 4 . 2 1 \\%$ ，月独立访客数量增加8.48亿；5月GPT-4o实现多模态无缝交互能力革新后月活从4月的3.87亿升至4.72亿，2024全年月活规模增长$1 0 3 . 8 8 \\%$ ；2025年4月GPT-4.1凭借性价比优势吸引价格敏感和轻量级用户，月活从3月的7.88亿突破至4月的8.9亿；GPT-5多榜单领跑的强劲技术优势驱动下，8月双端月活突破11亿。",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 109,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:110",
+      "block_type": "paragraph",
+      "text": "3)潜在的用户规模仍然广阔：谷歌多个巨大流量入口依托Gemini嵌入Al功能，Chrome凭借浏览器市场长期近 $70 \\%$ 的强势主导份额,2025年7月AlOverviews功能月活已达20 亿；Workspace 全球用户超30 亿，已全面集成 Gemini Al助理；多渠道推动下，Gemini用户增速超过ChatGPT。OpenAI当前用户增长主要依赖ChatGPT这一核心平台，后续将向更多应用场景发力，公司预测2030 年周活可达26亿，随着公司加速拓展社交、搜索等入口，将从单点应用升级为“超级助手\"平台，整体用户规模增长潜力依旧强劲。",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 110,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:111",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 111,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:112",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 112,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:113",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 113,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:114",
+      "block_type": "paragraph",
+      "text": "13/26",
+      "modality": "text",
+      "page": 13,
+      "section_path": [],
+      "reading_order": 114,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:115",
+      "block_type": "paragraph",
+      "text": "大模型行业竞争激烈,OpenAI具有领先优势。1)生成式AI市场：根据Similarweb数据，截至11月13日，ChatGPT以 $7 2 . 3 \\%$ 的流量份额强势占据全球生成式AI模型市场，相比2024 年减少14.3pcts，主要由于用户需求从“聊天式交互”向多维场景（写作、低成本API、搜索）迁移，细分需求紧密增加下流量有所分散；2）企业级API市场：根据MenloVentures 数据，公司市占率由2024年的 $34 \\%$ 下降至2025年中期的 $2 5 \\%$ ，位居第二，仅次于Anthropic，随模型设计和定价策略优化，B端API市场份额有望回升；3）用户粘性方面：根据BOND2025年5月的研究，ChatGPT每天搜索量达到10 亿次，用户每天在ChatGPT应用上花费的时间比21个月前增加3倍，用户粘性维持在较高水平。",
+      "modality": "text",
+      "page": 14,
+      "section_path": [],
+      "reading_order": 115,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:116",
+      "block_type": "paragraph",
+      "text": "使用维度方面，OpenAI非工作类信息处理需求广泛。据 2025年9月数据，ChatGPT处理的非工作类信息由2024年6月的 $53 \\%$ 增长至2025年6月的 $70 \\%$ ，其中实用建议、信息查询、文书写作等日常场景占比 $80 \\%$ ，ChatGPT在改善日常生活方面的作用日益凸显。",
+      "modality": "text",
+      "page": 14,
+      "section_path": [],
+      "reading_order": 116,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:117",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 14,
+      "section_path": [],
+      "reading_order": 117,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:118",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 14,
+      "section_path": [],
+      "reading_order": 118,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:119",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 14,
+      "section_path": [],
+      "reading_order": 119,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:120",
+      "block_type": "paragraph",
+      "text": "14/26",
+      "modality": "text",
+      "page": 14,
+      "section_path": [],
+      "reading_order": 120,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:121",
+      "block_type": "paragraph",
+      "text": "用户付费意愿稳步提升，潜在付费转化空间较大。1）个人付费：目前，OpenAl8亿周活跃用户中约 $5 \\%$ 为付费用户，优于消费级AI行业水平（ $3 \\%$ 付费率），公司预计2030年付费率可达 $8 . 5 \\%$ ；与微软Office365的9个应用组成生产力套件的4.5亿付费用户数相比，ChatGPT凭借单个应用在3年内积累超3500万付费用户，随着OpenAI横向应用拓展以及实务功能的增加，订阅用户转化空间仍较大。2）企业付费：截至2025年6月，OpenAl付费企业用户已突破300万，相比 2025年2月的200万数据实现快速增长。3）性价比提升：GPT-5实时路由器设计降低推理成本，主模型输入端价格由2.5美元/百万token（GPT-4o）下调至1.25 美元/百万 token，定价较Gemini3 Pro（2美元/百万 token）等模型有一定优势。新的定价策略下，用户付费意愿预计将继续提升。",
+      "modality": "text",
+      "page": 15,
+      "section_path": [],
+      "reading_order": 121,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:122",
+      "block_type": "paragraph",
+      "text": "2.4、AI应用：点面结合，模型为基拓宽产品线",
+      "modality": "text",
+      "page": 15,
+      "section_path": [],
+      "reading_order": 122,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:123",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 15,
+      "section_path": [],
+      "reading_order": 123,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:124",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 15,
+      "section_path": [],
+      "reading_order": 124,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:125",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 15,
+      "section_path": [],
+      "reading_order": 125,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:126",
+      "block_type": "paragraph",
+      "text": "15/26",
+      "modality": "text",
+      "page": 15,
+      "section_path": [],
+      "reading_order": 126,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:127",
+      "block_type": "paragraph",
+      "text": "AI大模型正在重构传统应用及其商业模式。1）浏览器领域：AI大模型直接提供结构化回答并完成任务辅助，替代传统浏览器繁琐的查找与验证流程；2）视频、图像编辑领域：AI大模型的加入降低了PS、AE、PR 应用的专业化门槛并提升处理质量；3）电商购物领域：AI大模型的引入压缩传统电商漫长比价链路，流量匹配效率、推荐信息流点击率得以提升；4)客服领域：AI智能客服已经大规模替代传统人工客服，降低运营成本并提高客户满意度。AI大模型已从“工具性赋能\"迈向“结构性替代”，商业应用价值尽显。",
+      "modality": "text",
+      "page": 16,
+      "section_path": [],
+      "reading_order": 127,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:128",
+      "block_type": "paragraph",
+      "text": "垂类Agent正进入加速商业化阶段。大模型已经在多维日常领域展现Agent 能力，Perplexity 的 Buy with Pro、亚马逊的 Buy forMe、OpenAl 的 Operator Agent通过完全AI托管的服务实现自动加购和付款的全套购物操作。在传统需求端，AI大模型正在深刻重构交互范式与决策模式，开辟全新商业空间。",
+      "modality": "text",
+      "page": 16,
+      "section_path": [],
+      "reading_order": 128,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:129",
+      "block_type": "paragraph",
+      "text": "AI大模型的生产力工具属性持续强化，并加速渗透。1）生产能力方面：根据OpenAI研究，AI大模型在政府部门、零售和批发上的能力已经达到或超越人类水平，同时显著提升使用者的工作速度或体验，帮助用户每天节省40-60 分钟，深度使用者每周节省可超10小时。2）生产应用方面：大模型行业已然技术验证阶段迈向规模化价值创造阶段，据Artificial Analysis调研显示， $45 \\%$ 的企业已将AI大模型部署到生产环境中，活跃支持工程研发、客户支持和营销，并为多应用场景带来收入增长；3）生产需求方面：2025年上半年中国大模型累计中标项目达1810个，总金额突破64亿元，从辅助工具跃升为核心生产力，深度渗透政务、金融、制造、医疗等实体经济领域。",
+      "modality": "text",
+      "page": 16,
+      "section_path": [],
+      "reading_order": 129,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:130",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 16,
+      "section_path": [],
+      "reading_order": 130,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:131",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 16,
+      "section_path": [],
+      "reading_order": 131,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:132",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 16,
+      "section_path": [],
+      "reading_order": 132,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:133",
+      "block_type": "paragraph",
+      "text": "16/26",
+      "modality": "text",
+      "page": 16,
+      "section_path": [],
+      "reading_order": 133,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:134",
+      "block_type": "paragraph",
+      "text": "API：OpenAI持续升级API，重视开发者生态建设。目前公司API模型矩阵已经实现文本（GPT系列）、视频（Sora 2）、图像、（GPT-Image）、Agent（AgentKit）、代码（CodeX）、语音（GPT-Realtime-Mini）等多维能力覆盖，为企业和应用生态提供了更完整的AI基础设施。完善API布局是AI原生应用商业化落地的重要抓手，办公领域涌现自动文档生成、客服行业被语音级Agent重塑、影视行业因Sora 出现低成本专业级视频制作、编程行业因CodeX能力实现自动化软件工程，OpenAI多API模型能力渗透到多行业信息工作流，加速大模型商业化落成。",
+      "modality": "text",
+      "page": 17,
+      "section_path": [],
+      "reading_order": 134,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:135",
+      "block_type": "paragraph",
+      "text": "AI浏览器：发布ChatGPTAtlas，布局AI浏览器赛道。2025年10月22日，OpenAl正式发布 Atlas，深度内嵌 ChatGPT 能力，融合ChatGPT 侧边栏、浏览器记忆、智能体代理等诸多AI功能。以“AI优先”的理念将浏览器本身重塑为ChatGPT的延伸和操作界面，改变传统浏览器“搜索框 $^ +$ 地址栏”的交互模式，转向以对话和任务为导向的代理工具。",
+      "modality": "text",
+      "page": 17,
+      "section_path": [],
+      "reading_order": 135,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:136",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 17,
+      "section_path": [],
+      "reading_order": 136,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:137",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 17,
+      "section_path": [],
+      "reading_order": 137,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:138",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 17,
+      "section_path": [],
+      "reading_order": 138,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:139",
+      "block_type": "paragraph",
+      "text": "17/26",
+      "modality": "text",
+      "page": 17,
+      "section_path": [],
+      "reading_order": 139,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:140",
+      "block_type": "paragraph",
+      "text": "商业模式上，浏览器核心功能免费，发布初期\"代理模式\"仅限于付费的ChatGPTPlus、Pro和Business订阅用户，未来有望依托ChatGPT巨大分发渠道实现用户规模转化。11月19日，Atlas 进行九项升级，包括支持iCloud 通行密钥、简化用户浏览器迁移插件流程、新增垂直标签等实用属性，降低传统浏览器的迁移门槛，AI能力与日常浏览深度融合，提升用户使用舒适度。",
+      "modality": "text",
+      "page": 18,
+      "section_path": [],
+      "reading_order": 140,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:141",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 18,
+      "section_path": [],
+      "reading_order": 141,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:142",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 18,
+      "section_path": [],
+      "reading_order": 142,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:143",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 18,
+      "section_path": [],
+      "reading_order": 143,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:144",
+      "block_type": "paragraph",
+      "text": "18/26",
+      "modality": "text",
+      "page": 18,
+      "section_path": [],
+      "reading_order": 144,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:145",
+      "block_type": "paragraph",
+      "text": "AI编程：Codex作为云端软件工程智能体，团队管理与协作工具成熟。早期CodeX基于GPT-3演化为代码补全工具,2025年5月OpenAI发布研究预览版CodeX，以o3为底层模型成为云端软件工程智能体；2025年10月，Codex正式发布，开放 Slack 集成、Codex SDK、管理Codex 环境等功能，覆盖软件开发全生命周期。思科、乐天已经将Codex引入其开发工作流。",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 145,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:146",
+      "block_type": "paragraph",
+      "text": "Codex模型性能提升，驱动份额向上。GPT-5-Code 在SWE-benchVerified 评分高达 $7 4 . 5 \\%$ ，驱动CodeX在Al编程工具市场份额较模型发布前提升5pcts（占据 $2 4 . 9 \\%$ )。GPT-5.2-Codex较前代实现约 $6 \\%$ 的性能提升，在长时间、跨步骤的编程任务中实现稳定的端到端工作流，对大规模代码库的重构、迁移和功能构建支持更加成熟，推动AI编程“软件工程”能力增强。",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 146,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:147",
+      "block_type": "paragraph",
+      "text": "数据来源：OpenAI官网，兴业证券经济与金融研究院整理",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 147,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:148",
+      "block_type": "paragraph",
+      "text": "AI端侧：战略布局智能硬件，打开新增长空间。1）产品规划：公司硬件产品将定位于强调语音交互和情境感知的AI伴侣，计划涵盖无显示屏智能音箱、可穿戴徽章（AIPin）智能眼镜和数字录音笔等，首批产品预计在2026年末或 2027年初发布。2）合作伙伴：2025年5月，OpenAl以65亿美元收购前苹果首席设计官创立的io Products 公司，获得工业设计领域核心能力；9月，OpenAl宣布将与立讯精密共同开发消费级AI硬件产品；同月，OpenAI联合歌尔股份以寻求供应扬声器等零部件。2025年11月18日，首批AI硬件已成功完成原型设计，OpenAI有望依托强软件优势，抢占端侧AI流量入口，打造新的成长曲线。",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 148,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:149",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 149,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:150",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 150,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:151",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 151,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:152",
+      "block_type": "paragraph",
+      "text": "19/26",
+      "modality": "text",
+      "page": 19,
+      "section_path": [],
+      "reading_order": 152,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:153",
+      "block_type": "paragraph",
+      "text": "3．愿景：强强联合，共赴AGI造福人类新时代",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 153,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:154",
+      "block_type": "paragraph",
+      "text": "3.1、平台：从大模型顶流，到AGI造福全人类",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 154,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:155",
+      "block_type": "paragraph",
+      "text": "OpenAI坚持“AI赋能于人”的理念，并基于此构建模型及产品的底层逻辑。2015年公司成立起便将“实现并安全推动通用人工智能（AGI）惠及全人类”设定为根本目标，2025年10月完成公司组织结构重组，成立OpenAl Foundation（非营利基金会）持有OpenAIGroup（公共利益公司，PBC）约 $26 \\%$ 股权，以“公共事业体”形式，通过资源分配推动“AI造福全人类”的目标。在此愿景下，OpenAl垂直整合AGI战略，工作围绕AI产品服务、前沿模型研究实验室、超大规模基础设施三大核心支柱展开，打造超级平台，并相信超级智能体将于10 年内到来。",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 155,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:156",
+      "block_type": "paragraph",
+      "text": "非营利主体绝对控制权一以贯之，践行AGI使命。2015年OpenAI成立至2025年10月公司资本结构重组前，非营利组织OpenAIInc.始终担任管理角色；2019年起，非营利组织通过普通合伙人（GP）的角色控制营利性实体，不直接参与利润分配，对公司的治理、决策、战略规划有最终决定权；公司完成重组后，非营利主体改名为OpenAlFoundation（基金会），依旧不以获取经济回报为目的继续掌控营利实体，设立5000 万美元的“以人为本人工智能基金\"，旨在推动AI技术发展的同时优先考虑人类福祉。另外，重组后员工持股比例约为 $26 \\%$ ，成为公司重要的利益相关方，员工原有的PPU权益预计将逐步转化为普通股形式，与公司价值增长实现更紧密管理，共同承担推动AI技术发展的责任。",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 156,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:157",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 157,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:158",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 158,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:159",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 159,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:160",
+      "block_type": "paragraph",
+      "text": "20/26",
+      "modality": "text",
+      "page": 20,
+      "section_path": [],
+      "reading_order": 160,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:161",
+      "block_type": "paragraph",
+      "text": "在AGI使命指引下，打造OpenAI应用生态。1）新产品推出、新版本迭代的速度快：以AGI为目标下，技术团队工作节奏快且氛围严肃，Codex仅用7周便完成了从第一行代码到上线，实现模型及产品的高质量高频迭代；2)模型开放程度高：公司最先进的模型并不局限于某个需要年度协议的企业，API效率高，供开发者和初创企业使用；3)公司积极打造AI用户生态：公司以通用AI平台为目标打造塑造其应用生态，使得各类用户可以通过OpenAI的消费产品、API、专用硬件等使用OpenAI的技术及服务，形成开放的AI应用生态。",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 161,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:162",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 162,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:163",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 163,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:164",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 164,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:165",
+      "block_type": "paragraph",
+      "text": "21/26",
+      "modality": "text",
+      "page": 21,
+      "section_path": [],
+      "reading_order": 165,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:166",
+      "block_type": "paragraph",
+      "text": "3.2、生态：携手行业巨头，聚力驱动AI新变革",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 166,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:167",
+      "block_type": "paragraph",
+      "text": "AI大模型竞赛已从单维技术评比转向生态体系的较量。主流厂商依托自身资源禀赋，构建差异化竞争优势：1）OpenAI：技术先发优势突出，依托8亿周活用户构建强大流量能力，并通过入口平台化加速生态延展；2)谷歌：充分整合Google搜索、安卓等生态系统，形成规模效应与闭环模型体验；3）字节：豆包深度集成进抖音、今日头条、飞书、智能耳机等软硬件，串联软硬件生态；广告投放和字节系平台投流优势明显，旗下豆包为2025Q3 国内月活与下载量双冠；4)阿里巴巴：淘宝、支付宝等B端/C 端用户生态庞大，强化眼镜、手机等端侧应用落地。同时云服务能力强，提升B端大模型API体验。5）DeepSeek：技术领先 $^ +$ 开源生态 $^ +$ 政企合作，引领大模型技术创新和开源发展。如下，对目前主流5家公司进行相关竞争力梳理：",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 167,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:168",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 168,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:169",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 169,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:170",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 170,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:171",
+      "block_type": "paragraph",
+      "text": "22/26",
+      "modality": "text",
+      "page": 22,
+      "section_path": [],
+      "reading_order": 171,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:172",
+      "block_type": "paragraph",
+      "text": "在算力端：OpenAI持续壮大生态联盟。OpenAl成立早期便与英伟达和微软深度合作，在芯片、算力资源、云服务等方面获得支持，后续算力联盟逐步扩张，并启动芯片自研。具体来看：",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 172,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:173",
+      "block_type": "paragraph",
+      "text": "1)芯片合作方面：公司成立之初便获得英伟达超级计算机支持，后续基于英伟达芯片进行训练（GPT-3使用英伟达V100、A100）并展开紧密合作。2025年5月OpenAI首次大规模租用谷歌TPU以降低算力成本。2025年10月，OpenAl 与博通达成数十亿美元芯片开发协议，计划联合博通自研芯片，OpenAI负责芯片设计，与博通共同设计机架系统，并将于2026年下半年开始部署10GW定制AI加速器与网络系统架构，目标在2029年底前完成全部部署。",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 173,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:174",
+      "block_type": "paragraph",
+      "text": "2）算力建设方面：随着模型快速迭代，公司对算力的需求日益庞大，OpenAI于2025年1月启动“星际之门\"（Stargate）项目，与多家科技公司达成算力合作，包括与微软及甲骨文等签署5000亿美元10GMAI大模型骨干基建网络项目。",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 174,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:175",
+      "block_type": "paragraph",
+      "text": "3)云基础设施方面：早期微软与OpenAl在云计算领域合作紧密；2025年9月，OpenAI与甲骨文签订合同，公司计划将在未来五年内向甲骨文采购价值3000 亿美元的云计算算力服务；2025年11月，亚马逊AWS与OpenAI共同宣布签署价值 380亿美元的七年算力协议。",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 175,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:176",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 176,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:177",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 177,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:178",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 178,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:179",
+      "block_type": "paragraph",
+      "text": "23/26",
+      "modality": "text",
+      "page": 23,
+      "section_path": [],
+      "reading_order": 179,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:180",
+      "block_type": "paragraph",
+      "text": "在应用端：OpenAI推出应用商店，基于ChatGPT搭建新的插件、应用生态。应用产品维度，OpenAI依托ChatGPT分发渠道铺开多产品线，包括Agent、社交媒体（Sora）、浏览器（Atlas）、购物、音乐、API、定制化模型等，并延伸至机器人、AI手机、AI端侧设备等硬件。OpenAI于2025年12月正式推出ChatGPT版应用商店，该功能与2025年10 月推出的ChatGPTApps SD 相结合，使开发者可以将自有服务封装为在ChatGPT 内可调用的应用，目前包括 Photoshop、Apple Music、Canva、Figma 等多款应用。公司探索将ChatGPT从对话型Al工具向类操作系统转型，构建长期生态竞争力。",
+      "modality": "text",
+      "page": 24,
+      "section_path": [],
+      "reading_order": 180,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:181",
+      "block_type": "paragraph",
+      "text": "OpenAI与头部应用企业广泛建立合作关系。OpenAl从模型层、行业应用层、平台层形成了高度开放、可扩展的协同体系。公司GPT、Sora、GPT-Image、Audio等系列模型已成为通用AI能力的基础设施，嵌入到海量C端与B端产品中，与Adobe、Bloomberg、HubSpot、Stripe 等科技公司建立稳定合作，加速模型产品在创意软件、办公协作、金融服务、SaaS 等领域渗透。同时通过API、Assistants、GPTs、代理框架与插件生态，为各类开发者和企业留下自主空间。",
+      "modality": "text",
+      "page": 24,
+      "section_path": [],
+      "reading_order": 181,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:182",
+      "block_type": "paragraph",
+      "text": "OpenAI重视B端客户市场，打造更多的行业增长点。公司通过高度开放的AI部署平台获B端企业认可。1）模型和产品方面：OpenAI推出Codex 代码工具、AgentKit企业智能体功能、Image Generation APl等模型或工具帮助企业客户快速部署AI大模型。2）客户规模方面：截至2025年11月5日，公司全球企业客户突破百万，澳大利亚联邦银行、摩根士丹利等知名企业已采用OpenAI平台，",
+      "modality": "text",
+      "page": 24,
+      "section_path": [],
+      "reading_order": 182,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:183",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 24,
+      "section_path": [],
+      "reading_order": 183,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:184",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 24,
+      "section_path": [],
+      "reading_order": 184,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:185",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 24,
+      "section_path": [],
+      "reading_order": 185,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:186",
+      "block_type": "paragraph",
+      "text": "24/26",
+      "modality": "text",
+      "page": 24,
+      "section_path": [],
+      "reading_order": 186,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:187",
+      "block_type": "paragraph",
+      "text": "ChatGPTforWork的商业用户席位数量已突破700万。3)生态建设方面:Figma、Spotify 等科技公司已直接接入ChatGPT平台；沃尔玛、Paypal、Shopify通过代理商务协议向AI工具用户提供实时购物选项。",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 187,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:188",
+      "block_type": "paragraph",
+      "text": "4．风险提示",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 188,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:189",
+      "block_type": "paragraph",
+      "text": "1）行业竞争加剧的风险",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 189,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:190",
+      "block_type": "paragraph",
+      "text": "大模型作为高投入的科技领域，代表公司普遍处于亏损状态，而在行业利润暂未转正的情况下，行业内模型调用价格普遍下探、竞争趋烈。",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 190,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:191",
+      "block_type": "paragraph",
+      "text": "2）应用进展不及预期的风险",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 191,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:192",
+      "block_type": "paragraph",
+      "text": "公司除了在AI大模型领域大幅投入，同时布局Sora、AI浏览器等应用产品，产品线趋向丰富。对应领域存在大模型应用落地进展不及预期的可能。",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 192,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:193",
+      "block_type": "paragraph",
+      "text": "3）核心技术人才流动的风险",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 193,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:194",
+      "block_type": "paragraph",
+      "text": "AI大模型行业的竞争升温，核心技术人才成为了各公司争夺的焦点。在外部高薪岗位吸引下，公司的核心技术人才存在流动的风险。",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 194,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:195",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 195,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:196",
+      "block_type": "paragraph",
+      "text": "行业深度报告丨计算机",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 196,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:197",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 197,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:198",
+      "block_type": "paragraph",
+      "text": "25/26",
+      "modality": "text",
+      "page": 25,
+      "section_path": [],
+      "reading_order": 198,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:199",
+      "block_type": "paragraph",
+      "text": "分析师声明",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 199,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:200",
+      "block_type": "paragraph",
+      "text": "本人具有中国证券业协会授予的证券投资咨询执业资格并登记为证券分析师，以勤勉的职业态度，独立、客观地出具本报告。本报告清晰准确地反映了本人的研究观点。本人不曾因，不因，也将不会因本报告中的具体推荐意见或观点而直接或间接收到任何形式的补偿。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 200,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:201",
+      "block_type": "paragraph",
+      "text": "信息披露",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 201,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:202",
+      "block_type": "paragraph",
+      "text": "本公司在知晓的范围内履行信息披露义务。客户可登录wWW.Xyzq.com.cn 内幕交易防控栏内查询静默期安排和关联公司持股情况。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 202,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:203",
+      "block_type": "paragraph",
+      "text": "本公司为寒武纪(688256)做市商。但上述持仓不曾、不会、不将对研究业务的独立性、客观性产生影响。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 203,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:204",
+      "block_type": "paragraph",
+      "text": "使用本研究报告的风险提示以及法律声明",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 204,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:205",
+      "block_type": "paragraph",
+      "text": "兴业证券股份有限公司经中国证券监督管理委员会批准，已具备证券投资咨询业务资格。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 205,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:206",
+      "block_type": "paragraph",
+      "text": "，本公司不会因接收人收到本报告而视其为客户。本报告中的信息、意见",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 206,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:207",
+      "block_type": "paragraph",
+      "text": "等均仅供客户参考，不构成所述证券买卖的出价或征价邀请或要约，投资者自主作出投资决策并自行承担投资风险，任何形式的分享证券投资收益或者分担证券投资损失的书面或口头承诺均为无效，任何有关本报告的摘要或节选都不代表本报告正式完整的观点，一切须以本公司向客户发布的本报告完整版本为准。该等信息、意见并未考虑到获取本报告人员的具体投资目的、财务状况以及特定需求，在任何时候均不构成对任何人的个人推荐。客户应当对本报告中的信息和意见进行独立评估，并应同时考量各自的投资目的、财务状况和特定需求，必要时就法律、商业、财务、税收等方面咨询专家的意见。对依据或者使用本报告所造成的一切后果，本公司及/或其关联人员均不承担任何法律责任。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 207,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:208",
+      "block_type": "paragraph",
+      "text": "本报告所载资料的来源被认为是可靠的，但本公司不保证其准确性或完整性，也不保证所包含的信息和建议不会发生任何变更。本公司并不对使用本报告所包含的材料产生的任何直接或间接损失或与此相关的其他任何损失承担任何责任。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 208,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:209",
+      "block_type": "paragraph",
+      "text": "本报告所载的资料、意见及推测仅反映本公司于发布本报告当日的判断，本报告所指的证券或投资标的的价格、价值及投资收入可升可跌，过往表现不应作为日后的表现依据；在不同时期，本公司可发出与本报告所载资料、意见及推测不一致的报告；本公司不保证本报告所含信息保持在最新状态。同时，本公司对本报告所含信息可在不发出通知的情形下做出修改，投资者应当自行关注相应的更新或修改。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 209,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:210",
+      "block_type": "paragraph",
+      "text": "除非另行说明，本报告中所引用的关于业绩的数据代表过往表现。过往的业绩表现亦不应作为日后回报的预示。我们不承诺也不保证，任何所预示的回报会得以实现。分析中所做的回报预测可能是基于相应的假设。任何假设的变化可能会显著地影响所预测的回报。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 210,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:211",
+      "block_type": "paragraph",
+      "text": "本公司的销售人员、交易人员以及其他专业人士可能会依据不同假设和标准、采用不同的分析方法而口头或书面发表与本报告意见及建议不一致的市场评论和/或交易观点。本公司没有将此意见及建议向报告所有接收者进行更新的义务。本公司的资产管理部门、自营部门以及其他投资业务部门可能独立做出与本报告中的意见或建议不一致的投资决策。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 211,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:212",
+      "block_type": "paragraph",
+      "text": "本报告并非针对或意图发送予或为任何就发送、发布、可得到或使用此报告而使兴业证券股份有限公司及其关联子公司等违反当地的法律或法规或可致使兴业证券股份有限公司受制于相关法律或法规的任何地区、国家或其他管辖区域的公民或居民，包括但不限于美国及美国公民（1934年美国《证券交易所》第15a-6条例定义为本「主要美国机构投资者」除外）。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 212,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:213",
+      "block_type": "paragraph",
+      "text": "本报告的版权归本公司所有。本公司对本报告保留一切权利。除非另有书面显示，否则本报告中的所有材料的版权均属本公司。未经本公司事先书面授权，本报告的任何部分均不得以任何方式制作任何形式的拷贝、复印件或复制品，或再次分发给任何其他人，或以任何侵犯本公司版权的其他方式使用。未经授权的转载，本公司不承担任何转载责任。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 213,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:214",
+      "block_type": "paragraph",
+      "text": "特别声明",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 214,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:215",
+      "block_type": "paragraph",
+      "text": "在法律许可的情况下，兴业证券股份有限公司可能会持有本报告中提及公司所发行的证券头寸并进行交易，也可能为这些公司提供或争取提供投资银行业务服务。因此，投资者应当考虑到兴业证券股份有限公司及/或其相关人员可能存在影响本报告观点客观性的潜在利益冲突。投资者请勿将本报告视为投资或其他决定的唯一信赖依据。",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 215,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "text"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:216",
+      "block_type": "paragraph",
+      "text": "兴业证券 INDUSTRIAL SECURITIES",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 216,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:217",
+      "block_type": "paragraph",
+      "text": "行业深度报告」计算机",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 217,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:218",
+      "block_type": "paragraph",
+      "text": "请阅读最后评级说明和重要声明",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 218,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    },
+    {
+      "block_id": "fd6204384fdf8408df2876724f4b5b0d532cf45c:pdf:219",
+      "block_type": "paragraph",
+      "text": "26/26",
+      "modality": "text",
+      "page": 26,
+      "section_path": [],
+      "reading_order": 219,
+      "bbox": null,
+      "metadata": {
+        "parser": "mineru_api",
+        "block_type": "discarded"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "pdf_parser": "mineru_first"
+  }
+}

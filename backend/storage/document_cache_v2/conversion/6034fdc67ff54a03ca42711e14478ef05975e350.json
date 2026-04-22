@@ -1,0 +1,17 @@
+{
+  "doc_id": "6034fdc67ff54a03ca42711e14478ef05975e350",
+  "collection": "knowledge",
+  "source_path": "knowledge/stub.pdf",
+  "source_type": "pdf",
+  "version_digest": "31e573fd4e2ff68d62389f18822e45d4dd8b82c4",
+  "parser_backend": "legacy_fallback",
+  "title": "",
+  "language": null,
+  "page_count": 0,
+  "quality_flags": [
+    "empty_conversion",
+    "fallback_parser"
+  ],
+  "blocks": [],
+  "metadata": {}
+}

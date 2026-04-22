@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-
-from llama_index.core import Document
 
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from RAG.eval_retrieval import _hybrid_fuse
-from RAG.hybrid import BM25Index, build_searchable_text
+from retrieval_core.lexical import BM25Index, build_searchable_text, hybrid_fuse_payload
 
 
-def _bm25_from_docs(docs: list[Document]) -> BM25Index:
+@dataclass(slots=True)
+class _Doc:
+    text: str
+    metadata: dict[str, object]
+
+
+def _bm25_from_docs(docs: list[_Doc]) -> BM25Index:
     return BM25Index.from_texts(
         [
             build_searchable_text(
@@ -29,15 +33,15 @@ def _bm25_from_docs(docs: list[Document]) -> BM25Index:
 
 def main() -> None:
     english_docs = [
-        Document(
+        _Doc(
             text="fresh red apple fruit for breakfast",
             metadata={"doc_id": "d1", "source": "knowledge/apple_note.txt", "section": "fruit"},
         ),
-        Document(
+        _Doc(
             text="banana smoothie with oat milk",
             metadata={"doc_id": "d2", "source": "knowledge/banana.txt", "section": "drink"},
         ),
-        Document(
+        _Doc(
             text="apple watch charging cable accessories",
             metadata={"doc_id": "d3", "source": "knowledge/apple_watch.txt", "section": "device"},
         ),
@@ -49,11 +53,11 @@ def main() -> None:
     assert english_hits[0].score > 0
 
     chinese_docs = [
-        Document(
+        _Doc(
             text="现代客厅大落地窗设计案例，采光很好。",
             metadata={"doc_id": "c1", "source": "knowledge/living_room.txt", "section": "design"},
         ),
-        Document(
+        _Doc(
             text="厨房水槽和龙头安装说明。",
             metadata={"doc_id": "c2", "source": "knowledge/kitchen.txt", "section": "guide"},
         ),
@@ -68,7 +72,7 @@ def main() -> None:
     assert source_hits
     assert source_hits[0].index == 0
 
-    hybrid_payload = _hybrid_fuse(
+    hybrid_payload = hybrid_fuse_payload(
         query="apple_note red apple",
         dense_payload=[],
         docs=english_docs,

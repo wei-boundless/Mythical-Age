@@ -11,7 +11,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from structured_memory import Message, SessionMemoryManager
+from structured_memory import DialogueState, Message, SessionMemoryManager, TurnUnderstandingAnalyzer
 from structured_memory.session_processor import SessionUnderstandingProcessor
 
 
@@ -325,6 +325,65 @@ def test_summary_first_context_projection_prefers_committed_binding_over_text_sc
         _assert(
             state.context_slots.active_dataset == "knowledge/E-commerce Data/inventory.xlsx",
             "summary-first projection should take the committed dataset binding instead of rescanning incidental filenames",
+        )
+        _assert(
+            state.context_slots.active_binding_identity.endswith("inventory.xlsx"),
+            "summary-first projection should persist the committed binding identity alongside the dataset slot",
+        )
+        _assert(
+            state.context_slots.active_binding_owner_task_id == "task-2",
+            "summary-first projection should preserve the concrete owner task for the committed binding",
+        )
+
+
+def test_summary_first_projection_does_not_carry_forward_stale_dataset_slot() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "先看 inventory.xlsx 的缺货情况。",
+                "active_work_item": "structured_data_analysis",
+                "active_constraints": {
+                    "source_kind": "dataset",
+                    "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                },
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "inventory-task",
+                    "query": "先看 inventory.xlsx 的缺货情况。",
+                    "summary": "inventory.xlsx 里华东仓库缺货最严重。",
+                    "key_points": ["dataset=knowledge/E-commerce Data/inventory.xlsx"],
+                }
+            ],
+        )
+
+        summary = manager.update_from_context_state(
+            {
+                "active_goal": "那下一步继续整理成汇报结构，不用再看表。",
+                "active_work_item": "report_structuring",
+                "active_constraints": {"response_style": "outline"},
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "outline-task",
+                    "query": "整理成汇报结构",
+                    "summary": "先按结论、风险、建议三个部分组织。",
+                }
+            ],
+        )
+
+        state = manager.load_state()
+
+        _assert(
+            not state.context_slots.active_dataset,
+            "summary-first projection should not inherit a stale dataset slot when the current turn has no committed owner",
+        )
+        _assert(
+            "当前数据集：" not in summary,
+            "model-visible summary should stop exposing stale dataset bindings as current context",
         )
 
 
@@ -664,6 +723,46 @@ def test_session_processor_exposes_split_understanding_and_process_collaborators
     )
 
 
+def test_turn_understanding_keeps_workspace_owner_out_of_understanding_snapshot() -> None:
+    analyzer = TurnUnderstandingAnalyzer()
+    snapshot = analyzer.analyze(
+        [Message(role="user", content="Continue refactoring the session memory pipeline.")],
+        DialogueState(),
+    )
+
+    _assert(
+        snapshot.active_understanding.understanding.target_object is None,
+        "turn understanding should not invent a workspace owner from coding-language heuristics",
+    )
+    _assert(
+        snapshot.turn_trace[-1].target_object == "",
+        "turn trace should no longer persist inferred target_object owner truth",
+    )
+
+
+def test_flow_id_uses_goal_slug_instead_of_inferred_owner_token() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_messages(
+            [Message(role="user", content="Continue refactoring the session memory pipeline.")]
+        )
+
+        state = manager.load_state()
+
+        _assert(
+            state.flow_state.flow_type == "coding_change_flow",
+            "coding-oriented requests should still resolve to the coding flow",
+        )
+        _assert(
+            not state.flow_state.flow_id.endswith(":session-memory"),
+            "flow id should be derived from the active goal slug, not an inferred target_object token",
+        )
+        _assert(
+            "continue-refactoring-the-session-memory-pipeline" in state.flow_state.flow_id,
+            "flow id should preserve the active goal slug after removing inferred owner synthesis",
+        )
+
+
 def test_correction_feedback_clears_stale_slots_and_blocks_wrong_result_promotion() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         manager = SessionMemoryManager(Path(tmp))
@@ -695,6 +794,29 @@ def test_correction_feedback_clears_stale_slots_and_blocks_wrong_result_promotio
         _assert(
             "你查的不对" in summary,
             "rendered summary should continue surfacing the latest user correction",
+        )
+
+
+def test_message_pipeline_does_not_carry_forward_stale_pdf_slot() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        messages = [
+            Message(role="user", content="请分析 report.pdf 第3页的结论"),
+            Message(role="assistant", content="结论：report.pdf 第3页主要讲供应链风险。"),
+        ]
+        manager.update_from_messages(messages)
+
+        messages.append(Message(role="user", content="那下一步继续整理输出结构，不用再看文件。"))
+        summary = manager.update_from_messages(messages)
+        state = manager.load_state()
+
+        _assert(
+            not state.context_slots.active_pdf,
+            "message pipeline should not inherit a stale pdf slot when the latest turn no longer commits an active file owner",
+        )
+        _assert(
+            "当前 PDF：" not in summary,
+            "model-visible summary should stop exposing stale pdf bindings as current context",
         )
 
 
@@ -777,6 +899,58 @@ def test_corrected_assistant_reply_can_reenter_state_after_user_correction() -> 
         )
 
 
+def test_summary_first_projection_clears_binding_owner_when_no_committed_handle_survives() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "先看 inventory.xlsx 的缺货情况。",
+                "active_work_item": "structured_data_analysis",
+                "active_constraints": {
+                    "source_kind": "dataset",
+                    "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                    "active_binding_identity": "knowledge/e-commerce data/inventory.xlsx",
+                },
+                "followup_target_task_id": "dataset-task",
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "dataset-task",
+                    "query": "先看 inventory.xlsx 的缺货情况",
+                    "summary": "库存里武汉仓和上海仓缺货最多。",
+                    "key_points": ["dataset=knowledge/E-commerce Data/inventory.xlsx"],
+                }
+            ],
+        )
+        manager.update_from_context_state(
+            {
+                "active_goal": "那下一步继续整理成汇报结构，不用再看表。",
+                "active_work_item": "report_structuring",
+                "active_constraints": {"response_style": "outline"},
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "outline-task",
+                    "query": "整理成汇报结构",
+                    "summary": "先按结论、风险、建议三个部分组织。",
+                }
+            ],
+        )
+
+        state = manager.load_state()
+
+        _assert(
+            not state.context_slots.active_binding_identity,
+            "when the current turn no longer commits a binding owner, the restore layer should clear binding identity with the stale slot",
+        )
+        _assert(
+            not state.context_slots.active_binding_owner_task_id,
+            "when the current turn no longer commits a binding owner, the restore layer should clear the stale owner task",
+        )
+
+
 def main() -> None:
     tests = [
         test_session_memory_hygiene,
@@ -796,9 +970,12 @@ def main() -> None:
         test_process_state_can_read_legacy_workflow_field_but_rewrite_canonical_field,
         test_session_memory_collection_excludes_process_state_json_from_retrieval_sources,
         test_session_processor_exposes_split_understanding_and_process_collaborators,
+        test_turn_understanding_keeps_workspace_owner_out_of_understanding_snapshot,
+        test_flow_id_uses_goal_slug_instead_of_inferred_owner_token,
         test_correction_feedback_clears_stale_slots_and_blocks_wrong_result_promotion,
         test_low_confidence_flow_switch_stays_on_previous_flow_until_clarified,
         test_corrected_assistant_reply_can_reenter_state_after_user_correction,
+        test_summary_first_projection_clears_binding_owner_when_no_committed_handle_survives,
     ]
     for test in tests:
         test()

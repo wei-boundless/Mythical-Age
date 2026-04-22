@@ -1,0 +1,10 @@
+{
+  "doc_id": "f39409ca092e21f1a9b98b442efac5f31fe78586",
+  "source_path": "knowledge/Financial Report Data/data_structure.md",
+  "version_digest": "7a48b1fe2edd67e12715130dcb9d02de4f62592c",
+  "parser_backend": "legacy_fallback",
+  "quality_flags": [
+    "fallback_parser"
+  ],
+  "block_count": 1
+}

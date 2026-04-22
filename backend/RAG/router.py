@@ -3,15 +3,15 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-
-from config import get_settings
+from typing import TYPE_CHECKING, Any
 
 from .collections import build_default_collections
 from .models import RetrievalHit
 from .query_rewriter import QueryRewriteResult, QueryRewriter
-from .reranker import build_reranker
-from .registry import RAGIndexRegistry
+
+if TYPE_CHECKING:
+    from .registry import RAGIndexRegistry
+    from .reranker import DictReranker
 
 
 @dataclass(slots=True)
@@ -26,10 +26,29 @@ class RoutePlan:
 class RAGQueryRouter:
     def __init__(self, base_dir: Path, *, ocr_language: str = "eng") -> None:
         self.base_dir = base_dir
-        self.registry = RAGIndexRegistry(base_dir, ocr_language=ocr_language)
+        self.ocr_language = ocr_language
         self.collection_configs = build_default_collections(base_dir)
         self.rewriter = QueryRewriter()
-        self.reranker = build_reranker(get_settings())
+        self._registry: RAGIndexRegistry | Any | None = None
+        self._reranker: DictReranker | Any | None = None
+
+    @property
+    def registry(self) -> Any:
+        if self._registry is None:
+            from .registry import RAGIndexRegistry
+
+            self._registry = RAGIndexRegistry(self.base_dir, ocr_language=self.ocr_language)
+        return self._registry
+
+    @property
+    def reranker(self) -> Any:
+        if self._reranker is None:
+            from config import get_settings
+
+            from .reranker import build_reranker
+
+            self._reranker = build_reranker(get_settings())
+        return self._reranker
 
     def _chat_enabled_collections(self) -> set[str]:
         return {
@@ -104,7 +123,18 @@ class RAGQueryRouter:
                     "rewritten_query": plan.rewritten_query,
                     "rewrite_keywords": plan.rewrite.keywords,
                     "rewrite_rules": plan.rewrite.applied_rules,
-                    "metadata": hit.metadata,
+                    "retrieval_backend": getattr(self.registry, "backend_name", "llamaindex_v2"),
+                    "metadata": {
+                        **dict(hit.metadata),
+                        "doc_id": hit.doc_id,
+                        "block_id": hit.block_id,
+                        "object_ref_id": hit.object_ref_id,
+                        "block_type": hit.block_type,
+                        "section_path": list(hit.section_path),
+                        "retrieval_modes": list(hit.retrieval_modes),
+                        "parser_backend": hit.parser_backend,
+                        "quality_flags": list(hit.quality_flags),
+                    },
                 }
             )
         return self.reranker.rerank_dict_results(

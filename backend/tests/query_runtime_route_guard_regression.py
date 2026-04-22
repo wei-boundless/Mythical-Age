@@ -289,6 +289,15 @@ def test_direct_tool_route_normalizes_final_content() -> None:
     assert tool_start["structured_binding"]["dataset_path"].endswith("inventory.xlsx")
     assert events[-1]["content"] == "normalized tool answer"
     assert events[-2]["output"] == "normalized tool answer"
+    assert str(events[-1]["task_id"]).startswith("tool-session-tool-structured_data_analysis-")
+    assert isinstance(events[-1]["summary"], dict)
+    assert isinstance(events[-1]["context_ref"], dict)
+    assert isinstance(events[-1]["result_ref"], dict)
+    assert events[-1]["main_context"]["followup_mode"] == "task_ref"
+    assert events[-1]["main_context"]["followup_resolution_source"] == "task_record"
+    assert events[-1]["main_context"]["followup_target_task_id"] == events[-1]["task_id"]
+    assert events[-1]["main_context"]["followup_target_task_ids"] == [events[-1]["task_id"]]
+    assert events[-1]["main_context"]["active_binding_identity"].endswith("inventory.xlsx")
     assert events[-1]["task_summary_refs"]
     assert str(events[-1]["task_summary_refs"][0]["task_id"]).startswith("tool-session-tool-structured_data_analysis-")
 
@@ -542,10 +551,78 @@ def test_binding_followup_executes_from_owner_task_without_replanning() -> None:
     done = next(event for event in reversed(events) if event.get("type") == "done")
     assert done["followup_mode"] == "binding_ref"
     assert done["main_context"]["active_work_item"] == "followup_task_binding_execution"
+    assert done["main_context"]["followup_mode"] == "binding_ref"
+    assert done["main_context"]["followup_resolution_source"] == "task_registry_binding"
+    assert done["main_context"]["followup_binding_key"] == "active_pdf"
+    assert done["main_context"]["followup_binding_identity"].endswith(".pdf")
+    assert done["main_context"]["active_binding_identity"].endswith(".pdf")
     assert done["main_context"]["followup_target_task_id"]
     assert done["main_context"]["active_constraints"]["active_pdf"].endswith(".pdf")
     assert done["task_summary_refs"]
     assert done["task_summary_refs"][0]["task_id"] == done["main_context"]["followup_target_task_id"]
+
+
+def test_ambiguous_binding_followup_requests_clarification_without_replanning() -> None:
+    coordinator = TaskCoordinator()
+    tool = SimpleNamespace(invoke=lambda _tool_input: {"answer": "unused"})
+    runtime, retrieval, model_runtime, memory_facade = _build_runtime(
+        rag_mode=False,
+        direct_tools={"structured_data_analysis": tool},
+        task_coordinator=coordinator,
+    )
+
+    async def _seed_tasks() -> None:
+        executions = [
+            QueryExecutionPlan(
+                message="给我 inventory.xlsx 里最缺货的前三个仓库",
+                history=[],
+                memory_intent=MemoryIntent(),
+                query_understanding=QueryUnderstanding(route="tool", tool_name="structured_data_analysis", task_kind="structured_followup_query"),
+            ),
+            QueryExecutionPlan(
+                message="给我 employees.xlsx 里薪资最高的前三个人",
+                history=[],
+                memory_intent=MemoryIntent(),
+                query_understanding=QueryUnderstanding(route="tool", tool_name="structured_data_analysis", task_kind="structured_followup_query"),
+            ),
+        ]
+
+        async def runner(execution: QueryExecutionPlan):
+            yield {"type": "done", "content": f"answer for {execution.message}"}
+
+        async for _event in coordinator.run_query_tasks("ambiguous-binding-session", executions, runner):
+            pass
+
+    asyncio.run(_seed_tasks())
+
+    def _unexpected_plan(**_kwargs):
+        raise AssertionError("planner should not run when follow-up resolution requests clarification")
+
+    runtime.planner.build_plan = _unexpected_plan  # type: ignore[method-assign]
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._execution_events(
+            "ambiguous-binding-session",
+            "把那个表按仓库展开一下。",
+            [],
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+
+    assert retrieval.queries == []
+    assert memory_facade.prefetch_queries == []
+    assert model_runtime.last_tools == []
+    assert [event["type"] for event in events] == ["done"]
+    done = events[0]
+    assert done["followup_mode"] == "clarify"
+    assert "请直接说文件名" in str(done["content"])
+    assert done["main_context"]["active_work_item"] == "clarify_followup_owner"
+    assert done["main_context"]["followup_mode"] == "clarify"
+    assert done["main_context"]["followup_resolution_source"] == "task_registry_binding"
+    assert done["task_summary_refs"] == []
 
 
 def test_runtime_output_boundary_strips_internal_protocol_from_streamed_answer() -> None:
@@ -713,7 +790,8 @@ def test_runtime_output_boundary_strips_inline_pseudo_tool_calls_from_visible_an
     done_text = str(events[-1]["content"])
     assert done_text
     assert "search_knowledge(" not in done_text
-    assert "我需要先检索本地知识库中关于 AI 治理风险的内容" in done_text
+    assert "我需要先检索本地知识库中关于 AI 治理风险的内容" not in done_text
+    assert "已检索到相关资料，但当前模型尚未产出可直接展示的结论。" == done_text
 
 
 def test_runtime_output_boundary_salvages_nonempty_answer_when_only_procedural_text_remains() -> None:
@@ -763,7 +841,158 @@ def test_runtime_output_boundary_salvages_nonempty_answer_when_only_procedural_t
     assert done_text
     assert "</think>" not in done_text
     assert "**工具调用:**" not in done_text
-    assert "我来检索本地知识库中关于 AI 治理风险的相关内容" in done_text
+    assert "我来检索本地知识库中关于 AI 治理风险的相关内容" not in done_text
+    assert "已检索到相关资料，但当前模型尚未产出可直接展示的结论。" == done_text
+
+
+def test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_content() -> None:
+    plan = QueryPlan(
+        session_id="tool-output-leak-guard",
+        message="把库存表按缺货量给我看结果。",
+        history=[],
+        subqueries=["把库存表按缺货量给我看结果。"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(
+            intent="tool_query",
+            route="tool",
+            modality="table",
+            tool_name="structured_data_analysis",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, _model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "updates",
+                {
+                    "node": {
+                        "messages": [
+                            SimpleNamespace(
+                                type="ai",
+                                content="我先读取库存表，再整理答案。",
+                                tool_calls=[
+                                    {
+                                        "id": "call-1",
+                                        "name": "structured_data_analysis",
+                                        "args": {"path": "knowledge/E-commerce Data/inventory.xlsx"},
+                                    }
+                                ],
+                            )
+                        ]
+                    }
+                },
+            ),
+            (
+                "updates",
+                {
+                    "node": {
+                        "messages": [
+                            SimpleNamespace(
+                                type="tool",
+                                tool_call_id="call-1",
+                                name="structured_data_analysis",
+                                content="warehouse,shortage\nEast,12\nNorth,9",
+                            )
+                        ]
+                    }
+                },
+            ),
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+
+    done_text = str(events[-1]["content"])
+    assert "warehouse,shortage" not in done_text
+    assert "East,12" not in done_text
+    assert "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。" == done_text
+
+
+def test_direct_tool_pdf_raw_browse_dump_does_not_become_done_content() -> None:
+    raw_pdf_dump = (
+        "Source: knowledge/test.pdf\n"
+        "Mode: PDF browse\n"
+        "Relevant pages:\n"
+        "[P12] score=0.91\n"
+        "[P18] score=0.84\n"
+        "Page snippet: raw dump should not be exposed directly."
+    )
+    tool = SimpleNamespace(invoke=lambda _tool_input: raw_pdf_dump)
+    plan = QueryPlan(
+        session_id="pdf-dump-session",
+        message="打开这份 PDF，告诉我结论。",
+        history=[],
+        subqueries=["打开这份 PDF，告诉我结论。"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="pdf_overview_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            task_kind="pdf",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+        tool_input={"query": "打开这份 PDF，告诉我结论。", "path": "knowledge/test.pdf"},
+        execution_kind="direct_tool",
+    )
+    events, _retrieval, _model_runtime, _memory_facade = asyncio.run(
+        _collect_events(
+            plan,
+            rag_mode=False,
+            direct_tools={"pdf_analysis": tool},
+        )
+    )
+
+    done_text = str(events[-1]["content"])
+    assert "Source:" not in done_text
+    assert "Mode: PDF browse" not in done_text
+    assert "P12" in done_text
+    assert "P18" in done_text
+
+
+def test_direct_tool_plain_table_dump_does_not_become_done_content() -> None:
+    raw_table_dump = "warehouse,shortage\nEast,12\nNorth,9"
+    tool = SimpleNamespace(invoke=lambda _tool_input: raw_table_dump)
+    plan = QueryPlan(
+        session_id="table-dump-session",
+        message="直接执行库存表工具。",
+        history=[],
+        subqueries=["直接执行库存表工具。"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="tool_query",
+            route="tool",
+            modality="table",
+            tool_name="structured_data_analysis",
+            task_kind="structured_followup_query",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+        tool_input={"query": "直接执行库存表工具。", "path": "knowledge/E-commerce Data/inventory.xlsx"},
+        execution_kind="direct_tool",
+    )
+    events, _retrieval, _model_runtime, _memory_facade = asyncio.run(
+        _collect_events(
+            plan,
+            rag_mode=False,
+            direct_tools={"structured_data_analysis": tool},
+        )
+    )
+
+    done_text = str(events[-1]["content"])
+    assert "warehouse,shortage" not in done_text
+    assert "East,12" not in done_text
+    assert "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。" == done_text
 
 
 def test_assistant_message_persistence_uses_canonical_visible_content() -> None:
@@ -787,6 +1016,29 @@ def test_assistant_message_persistence_uses_canonical_visible_content() -> None:
     assert "先检查 workspace 的安全边界" in messages[0]["content"]
 
 
+def test_output_boundary_strips_search_protocol_tail_from_visible_answer() -> None:
+    runtime, _retrieval, _model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+
+    messages = runtime._build_assistant_messages(
+        [
+            {
+                "content": (
+                    "岩，上一轮我并没有给出三类风险。\n\n"
+                    "现在我再检索一次本地知识库，看是否有 AI 治理相关内容："
+                    "search_knowledge 查询本地知识库中关于 AI 治理风险的内容。"
+                    "{\n\"query\": \"AI 治理 风险 类型 分类\",\n\"top_k\": 5\n}"
+                ),
+                "tool_calls": [],
+            }
+        ]
+    )
+
+    assert len(messages) == 1
+    assert "search_knowledge" not in messages[0]["content"]
+    assert "\"top_k\"" not in messages[0]["content"]
+    assert "上一轮我并没有给出三类风险" in messages[0]["content"]
+
+
 def main() -> None:
     test_memory_route_disables_tools()
     test_rag_route_prefetches_retrieval_without_tools()
@@ -799,7 +1051,11 @@ def main() -> None:
     test_runtime_output_boundary_keeps_final_stream_answer_when_ai_update_is_partial()
     test_runtime_output_boundary_strips_inline_pseudo_tool_calls_from_visible_answer()
     test_runtime_output_boundary_salvages_nonempty_answer_when_only_procedural_text_remains()
+    test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_content()
+    test_direct_tool_pdf_raw_browse_dump_does_not_become_done_content()
+    test_direct_tool_plain_table_dump_does_not_become_done_content()
     test_assistant_message_persistence_uses_canonical_visible_content()
+    test_output_boundary_strips_search_protocol_tail_from_visible_answer()
     print("ALL PASSED (query runtime route guard regression)")
 
 

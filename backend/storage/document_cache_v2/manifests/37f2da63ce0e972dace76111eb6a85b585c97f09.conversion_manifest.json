@@ -1,0 +1,11 @@
+{
+  "doc_id": "37f2da63ce0e972dace76111eb6a85b585c97f09",
+  "source_path": "knowledge/AI Knowledge/2026年AI Agent智能体技术发展报告.pdf",
+  "version_digest": "34b32a47de2ea8fefa790f44bf71f3d9deebe911",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 985
+}

@@ -46,7 +46,7 @@ def main() -> None:
 
     shortage = analyze_task_understanding(parts[0])
     assert shortage.source_kind == "dataset"
-    assert shortage.task_kind == "dataset_filter"
+    assert shortage.task_kind == "dataset_query"
     assert shortage.preferred_skill == "structured-data-analysis"
 
     faq = analyze_task_understanding(parts[2])

@@ -1,0 +1,42 @@
+[
+  {
+    "unit_id": "u1",
+    "unit_type": "content_block",
+    "collection": "knowledge",
+    "doc_id": "doc-1",
+    "source_path": "knowledge/alpha.md",
+    "text": "本页总结介绍人工智能治理框架和合规要求。",
+    "modality": "text",
+    "block_id": "b1",
+    "object_ref_id": null,
+    "page": null,
+    "block_type": "paragraph",
+    "section_path": [],
+    "metadata": {
+      "parser_backend": "test",
+      "index_profiles": [
+        "dense_main",
+        "lexical_main"
+      ]
+    },
+    "quality_flags": []
+  },
+  {
+    "unit_id": "u2",
+    "unit_type": "object_block",
+    "collection": "knowledge",
+    "doc_id": "doc-2",
+    "source_path": "knowledge/beta.md",
+    "text": "SKU-8472 风险控制检查表",
+    "modality": "text",
+    "block_id": "b2",
+    "object_ref_id": "obj-1",
+    "page": null,
+    "block_type": "table",
+    "section_path": [],
+    "metadata": {
+      "parser_backend": "test"
+    },
+    "quality_flags": []
+  }
+]

@@ -20,6 +20,7 @@ class AnswerAssembler:
         )
         segments: list[AnswerSegment] = []
         dedupe_targets: list[str] = []
+        source_refs: list[str] = []
         seen_bodies: set[str] = set()
         selected_task_ids = [
             str(task_id)
@@ -39,19 +40,27 @@ class AnswerAssembler:
             summary_payload = item.get("summary")
             body = ""
             response_style = style_constraints.default_style
+            answer_source = ""
+            answer_ref = ""
             if isinstance(summary_payload, dict):
                 body = str(summary_payload.get("response", "") or "").strip()
                 response_style = str(summary_payload.get("response_style", "") or response_style)
+                if body:
+                    answer_source = "canonical_summary"
+            result_ref_payload = item.get("result_ref")
             if not body:
-                body = str(item.get("content", "") or "").strip()
-            body = self._apply_style(body, response_style=response_style)
+                body, answer_source, answer_ref = self._fallback_from_result_ref(result_ref_payload)
+            body = self._apply_style(body, response_style=response_style) if answer_source == "canonical_summary" else body
             if not body:
-                body = "未能生成结果。"
+                body = "任务已执行，但当前尚未形成可直接展示的摘要。"
+                answer_source = "missing_summary"
             dedupe_key = re.sub(r"\s+", " ", body).strip()
             if style_constraints.dedupe and dedupe_key in seen_bodies:
                 dedupe_targets.append(task_id or query)
                 continue
             seen_bodies.add(dedupe_key)
+            if answer_ref and answer_ref not in source_refs:
+                source_refs.append(answer_ref)
             segments.append(
                 AnswerSegment(
                     index=index,
@@ -59,12 +68,15 @@ class AnswerAssembler:
                     title=query,
                     body=body,
                     response_style=response_style,
+                    answer_source=answer_source,
+                    answer_ref=answer_ref,
                 )
             )
         return AnswerAssemblyPlan(
             segments=segments,
             style_constraints=style_constraints,
             dedupe_targets=dedupe_targets,
+            source_refs=source_refs,
         )
 
     def render(self, plan: AnswerAssemblyPlan) -> str:
@@ -85,3 +97,16 @@ class AnswerAssembler:
         if response_style == "brief":
             return normalized[:140].rstrip()
         return normalized
+
+    def _fallback_from_result_ref(self, result_ref_payload: object) -> tuple[str, str, str]:
+        if not isinstance(result_ref_payload, dict):
+            return ("任务已执行，但当前尚未形成可直接展示的摘要。", "missing_summary", "")
+        result_id = str(result_ref_payload.get("result_id", "") or "").strip()
+        storage_path = str(result_ref_payload.get("storage_path", "") or "").strip()
+        if result_id or storage_path:
+            return (
+                "任务已执行，结果已保存，但当前尚未形成可直接展示的摘要。",
+                "result_ref_placeholder",
+                result_id or storage_path,
+            )
+        return ("任务已执行，但当前尚未形成可直接展示的摘要。", "missing_summary", "")

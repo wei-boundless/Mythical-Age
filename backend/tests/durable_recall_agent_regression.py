@@ -87,6 +87,21 @@ def test_inventory_query_with_session_marker_still_routes_to_manifest_inventory(
         assert result.selected_notes == []
 
 
+def test_inventory_query_with_long_term_keep_phrase_routes_to_manifest_inventory() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        _seed_notes(facade)
+
+        intent = analyze_memory_intent("你刚刚让我长期保留了哪几件事？")
+        result = facade.recall_durable_memories(query="你刚刚让我长期保留了哪几件事？", memory_intent=intent)
+
+        assert intent.intent == "durable_memory_query"
+        assert intent.explicit_read_inventory is True
+        assert result.selection.manifest_only is True
+        assert result.selected_notes == []
+
+
 def test_recall_request_selects_small_relevant_note_subset() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

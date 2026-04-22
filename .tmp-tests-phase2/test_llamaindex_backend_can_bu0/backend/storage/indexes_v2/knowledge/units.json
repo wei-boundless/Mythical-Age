@@ -1,0 +1,38 @@
+[
+  {
+    "unit_id": "u1",
+    "unit_type": "content_block",
+    "collection": "knowledge",
+    "doc_id": "doc-1",
+    "source_path": "knowledge/alpha.md",
+    "text": "AI governance risk categories include compliance, security, and misuse.",
+    "modality": "text",
+    "block_id": "b1",
+    "object_ref_id": null,
+    "page": null,
+    "block_type": "paragraph",
+    "section_path": [],
+    "metadata": {
+      "parser_backend": "test"
+    },
+    "quality_flags": []
+  },
+  {
+    "unit_id": "u2",
+    "unit_type": "content_block",
+    "collection": "knowledge",
+    "doc_id": "doc-2",
+    "source_path": "knowledge/beta.md",
+    "text": "Retail staffing and inventory operations summary for store managers.",
+    "modality": "text",
+    "block_id": "b2",
+    "object_ref_id": null,
+    "page": null,
+    "block_type": "paragraph",
+    "section_path": [],
+    "metadata": {
+      "parser_backend": "test"
+    },
+    "quality_flags": []
+  }
+]

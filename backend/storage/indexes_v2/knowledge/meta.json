@@ -1,0 +1,14 @@
+{
+  "collection": "knowledge",
+  "status": "ready",
+  "dense_documents": 7485,
+  "lexical_enabled": true,
+  "parser_backends": [
+    "legacy_fallback",
+    "mineru_pdf"
+  ],
+  "vector_backend": "qdrant",
+  "qdrant_collection": "agent__knowledge",
+  "lexical_documents": 7485,
+  "lexical_status": "ready"
+}

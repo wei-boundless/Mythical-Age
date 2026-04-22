@@ -336,11 +336,18 @@ class ContextController:
         items: list[str] = []
         for snapshot in snapshots[:3]:
             slot_parts = [f"{key}={value}" for key, value in snapshot.key_slots.items() if value]
+            binding_part = ""
+            if snapshot.binding_identity:
+                binding_label = snapshot.binding_kind or "binding"
+                binding_part = f" | binding={binding_label}:{snapshot.binding_identity}"
+            owner_part = f" | owner={snapshot.binding_owner_task_id}" if snapshot.binding_owner_task_id else ""
             result_part = f" | recent result: {snapshot.recent_results[0]}" if snapshot.recent_results else ""
             hint_part = f" | resume hint: {snapshot.resume_hints[0]}" if snapshot.resume_hints else ""
             items.append(
                 f"{snapshot.goal} | flow={snapshot.flow_type}"
-                + (f" | slots: {', '.join(slot_parts)}" if slot_parts else "")
+                + binding_part
+                + owner_part
+                + (f" | restore candidates: {', '.join(slot_parts)}" if slot_parts else "")
                 + result_part
                 + hint_part
             )

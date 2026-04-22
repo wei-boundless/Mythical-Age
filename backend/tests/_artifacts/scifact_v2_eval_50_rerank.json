@@ -1,0 +1,258 @@
+{
+  "config": {
+    "split": "test",
+    "max_queries": 50,
+    "candidate_top_k": 10,
+    "metric_top_k": 10,
+    "seed": 42,
+    "use_rewrite": false,
+    "use_rerank": true,
+    "rebuild": false
+  },
+  "scifact_root": "D:\\AI应用\\langchain-agent\\scifact\\_beir_extract\\scifact",
+  "index_root": "D:\\AI应用\\langchain-agent\\output\\benchmark_runtime\\scifact_v2",
+  "build_seconds": 0.0,
+  "index_payload": {
+    "collection": "benchmark",
+    "status": "ready",
+    "dense_documents": 5183,
+    "dense_documents_indexed": 5183,
+    "parser_backends": [
+      "scifact_jsonl"
+    ],
+    "vector_backend": "qdrant",
+    "qdrant_collection": "agent__benchmark",
+    "build_batch_size": 128,
+    "lexical_enabled": true,
+    "lexical_documents": 5183,
+    "lexical_status": "ready"
+  },
+  "rewrite_changed_queries": 0,
+  "base_retrieval": {
+    "queries_evaluated": 50,
+    "accuracy_at_1": 0.54,
+    "hit_at_3": 0.66,
+    "hit_at_5": 0.74,
+    "hit_at_10": 0.8,
+    "recall_at_10": 0.79,
+    "mrr_at_10": 0.6234,
+    "ndcg_at_10": 0.6592
+  },
+  "current_chain": {
+    "queries_evaluated": 50,
+    "accuracy_at_1": 0.58,
+    "hit_at_3": 0.74,
+    "hit_at_5": 0.76,
+    "hit_at_10": 0.8,
+    "recall_at_10": 0.79,
+    "mrr_at_10": 0.6645,
+    "ndcg_at_10": 0.6986
+  },
+  "latency": {
+    "mean_retrieval_seconds": 0.5781,
+    "mean_rerank_seconds": 0.1698
+  },
+  "sample_failures": [
+    {
+      "qid": "1132",
+      "query": "TCR/CD3 microdomains are a required to induce the immunologic synapse to activate T cells.",
+      "rewritten_query": "TCR/CD3 microdomains are a required to induce the immunologic synapse to activate T cells.",
+      "gold_doc_ids": [
+        "33499189",
+        "9283422"
+      ],
+      "top_doc_ids": [
+        "6936141",
+        "41982985",
+        "2714623",
+        "5914739",
+        "15972906",
+        "4422734",
+        "18834078",
+        "2825380",
+        "40094786",
+        "21746539"
+      ]
+    },
+    {
+      "qid": "132",
+      "query": "Aspirin inhibits the production of PGE2.",
+      "rewritten_query": "Aspirin inhibits the production of PGE2.",
+      "gold_doc_ids": [
+        "7975937"
+      ],
+      "top_doc_ids": [
+        "7613033",
+        "6407356",
+        "3866315",
+        "33118292",
+        "12513042",
+        "24005548",
+        "6158879",
+        "41913714",
+        "25543207",
+        "21557614"
+      ]
+    },
+    {
+      "qid": "198",
+      "query": "CCL19 is absent within dLNs.",
+      "rewritten_query": "CCL19 is absent within dLNs.",
+      "gold_doc_ids": [
+        "2177022"
+      ],
+      "top_doc_ids": [
+        "38747567",
+        "18662787",
+        "14657344",
+        "29366489",
+        "8596357",
+        "25141908",
+        "26873988",
+        "7020505",
+        "45143088",
+        "1667063"
+      ]
+    },
+    {
+      "qid": "239",
+      "query": "Cellular aging closely links to an older appearance.",
+      "rewritten_query": "Cellular aging closely links to an older appearance.",
+      "gold_doc_ids": [
+        "14079881"
+      ],
+      "top_doc_ids": [
+        "3230557",
+        "516867",
+        "19343151",
+        "22264117",
+        "9559146",
+        "2466614",
+        "7514614",
+        "34747208",
+        "40349336",
+        "25419778"
+      ]
+    },
+    {
+      "qid": "312",
+      "query": "De novo assembly of sequence data has more specific contigs than unassembled sequence data.",
+      "rewritten_query": "De novo assembly of sequence data has more specific contigs than unassembled sequence data.",
+      "gold_doc_ids": [
+        "6173523"
+      ],
+      "top_doc_ids": [
+        "32770503",
+        "14464451",
+        "27061085",
+        "45200347",
+        "19293654",
+        "13123189",
+        "11244195",
+        "13914198",
+        "1544804",
+        "25536577"
+      ]
+    },
+    {
+      "qid": "324",
+      "query": "Deleting Raptor reduces G-CSF levels.",
+      "rewritten_query": "Deleting Raptor reduces G-CSF levels.",
+      "gold_doc_ids": [
+        "2014909"
+      ],
+      "top_doc_ids": [
+        "26887439",
+        "4658268",
+        "22174015",
+        "36345185",
+        "29073751",
+        "1127562",
+        "4396105",
+        "9091863",
+        "13878124",
+        "3559136"
+      ]
+    },
+    {
+      "qid": "502",
+      "query": "Healthcare delivery efficiency in crowded delivery centers is impaired by improving structural, logistical, and interpersonal elements.",
+      "rewritten_query": "Healthcare delivery efficiency in crowded delivery centers is impaired by improving structural, logistical, and interpersonal elements.",
+      "gold_doc_ids": [
+        "13071728"
+      ],
+      "top_doc_ids": [
+        "13906581",
+        "143796742",
+        "20491205",
+        "21323587",
+        "17626822",
+        "12087063",
+        "10509344",
+        "43128141",
+        "16625620",
+        "35087728"
+      ]
+    },
+    {
+      "qid": "870",
+      "query": "Obesity decreases life quality.",
+      "rewritten_query": "Obesity decreases life quality.",
+      "gold_doc_ids": [
+        "195689316"
+      ],
+      "top_doc_ids": [
+        "4345757",
+        "120626",
+        "25973484",
+        "11481946",
+        "23369842",
+        "11630388",
+        "25837950",
+        "29947146",
+        "20288322",
+        "31942055"
+      ]
+    },
+    {
+      "qid": "887",
+      "query": "Only a minority of cells survive development after differentiation into stress-resistant spores.",
+      "rewritten_query": "Only a minority of cells survive development after differentiation into stress-resistant spores.",
+      "gold_doc_ids": [
+        "18855191"
+      ],
+      "top_doc_ids": [
+        "9550981",
+        "16630060",
+        "20524091",
+        "4942718",
+        "16712164",
+        "680949",
+        "464511",
+        "6106004",
+        "22908536",
+        "9977329"
+      ]
+    },
+    {
+      "qid": "975",
+      "query": "Primary pro-inflammatory cytokines induce secondary pro- and anti-inflammatory mediators.",
+      "rewritten_query": "Primary pro-inflammatory cytokines induce secondary pro- and anti-inflammatory mediators.",
+      "gold_doc_ids": [
+        "5304891"
+      ],
+      "top_doc_ids": [
+        "4454788",
+        "2844490",
+        "13778710",
+        "20722510",
+        "27093166",
+        "4928282",
+        "4429118",
+        "22852120",
+        "16488405",
+        "13636631"
+      ]
+    }
+  ]
+}

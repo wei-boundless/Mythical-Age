@@ -107,10 +107,56 @@ def test_answer_assembler_can_filter_to_followup_target_tasks() -> None:
     assert "第三条。" in rendered
 
 
+def test_answer_assembler_never_falls_back_to_raw_content() -> None:
+    assembler = AnswerAssembler()
+    main_context = MainContextState(active_goal="followup", active_work_item="followup_task_result_assembly")
+    results = [
+        {
+            "index": 1,
+            "task_id": "t1",
+            "query": "库存任务",
+            "summary": None,
+            "content": "warehouse,shortage\nEast,12\nNorth,9",
+            "result_ref": {"result_id": "t1-result", "storage_path": "output/task_results/t1.json"},
+        }
+    ]
+
+    plan = assembler.build_plan(results=results, main_context=main_context)
+    rendered = assembler.render(plan)
+
+    assert len(plan.segments) == 1
+    assert plan.segments[0].answer_source == "result_ref_placeholder"
+    assert plan.segments[0].answer_ref == "t1-result"
+    assert "warehouse,shortage" not in rendered
+    assert "结果已保存，但当前尚未形成可直接展示的摘要" in rendered
+
+
+def test_answer_assembler_records_summary_source_ref() -> None:
+    assembler = AnswerAssembler()
+    main_context = MainContextState(active_goal="compound", active_work_item="compound_query")
+    results = [
+        {
+            "index": 1,
+            "task_id": "t1",
+            "query": "第一个任务",
+            "summary": {"response": "结论一。", "response_style": ""},
+            "result_ref": {"result_id": "t1-result", "storage_path": "output/task_results/t1.json"},
+        }
+    ]
+
+    plan = assembler.build_plan(results=results, main_context=main_context)
+
+    assert plan.segments[0].answer_source == "canonical_summary"
+    assert plan.segments[0].answer_ref == ""
+    assert plan.source_refs == []
+
+
 def main() -> None:
     test_answer_assembler_prefers_summary_and_dedupes()
     test_answer_assembler_compresses_one_sentence_segments()
     test_answer_assembler_can_filter_to_followup_target_tasks()
+    test_answer_assembler_never_falls_back_to_raw_content()
+    test_answer_assembler_records_summary_source_ref()
     print("ALL PASSED (answer assembler regression)")
 
 

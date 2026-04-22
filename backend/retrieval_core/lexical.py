@@ -1,0 +1,327 @@
+from __future__ import annotations
+
+import heapq
+import math
+import re
+from collections import Counter
+from dataclasses import dataclass
+from typing import Any, Sequence
+
+
+def normalize_text(text: str) -> str:
+    lowered = str(text or "").lower().strip()
+    return re.sub(r"\s+", " ", lowered)
+
+
+def lexical_tokens(text: str) -> list[str]:
+    normalized = normalize_text(text)
+    if not normalized:
+        return []
+    tokens: list[str] = []
+    for chunk in re.findall(r"[a-z0-9][a-z0-9_./:-]*|[\u4e00-\u9fff]+", normalized):
+        if re.fullmatch(r"[\u4e00-\u9fff]+", chunk):
+            if len(chunk) == 1:
+                tokens.append(chunk)
+            else:
+                tokens.extend(chunk[index : index + 2] for index in range(len(chunk) - 1))
+        else:
+            token = chunk.strip(".,;:!?()[]{}\"'")
+            if token:
+                tokens.append(token)
+    return tokens
+
+
+def build_searchable_text(
+    text: str,
+    *,
+    source: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    metadata = metadata or {}
+    section = str(metadata.get("section", "") or "").strip()
+    title = str(metadata.get("title", "") or "").strip()
+    header = metadata.get("header")
+
+    parts: list[str] = []
+    if source:
+        parts.append(source)
+    if title:
+        parts.append(title)
+    if section and section != title:
+        parts.append(section)
+    if isinstance(header, list):
+        joined_header = " ".join(str(item).strip() for item in header if str(item).strip())
+        if joined_header:
+            parts.append(joined_header)
+    elif header:
+        parts.append(str(header).strip())
+    if text:
+        parts.append(text)
+    return "\n".join(part for part in parts if part).strip()
+
+
+def build_lexical_index_payload(texts: Sequence[str]) -> dict[str, Any]:
+    postings: dict[str, dict[str, list[int]]] = {}
+    doc_lengths: list[int] = []
+    for doc_idx, text in enumerate(texts):
+        tokens = lexical_tokens(text)
+        term_freqs: dict[str, int] = {}
+        for token in tokens:
+            term_freqs[token] = term_freqs.get(token, 0) + 1
+        doc_lengths.append(sum(term_freqs.values()))
+        for term, tf in term_freqs.items():
+            entry = postings.setdefault(term, {"doc_indexes": [], "term_freqs": []})
+            entry["doc_indexes"].append(doc_idx)
+            entry["term_freqs"].append(tf)
+    avg_doc_length = (sum(doc_lengths) / len(doc_lengths)) if doc_lengths else 0.0
+    return {
+        "doc_lengths": doc_lengths,
+        "avg_doc_length": avg_doc_length,
+        "doc_count": len(texts),
+        "k1": 1.5,
+        "b": 0.75,
+        "postings": postings,
+    }
+
+
+def score_lexical_query(
+    lexical_index: dict[str, Any],
+    query_tokens: list[str],
+    *,
+    top_k: int,
+) -> list[tuple[int, float]]:
+    if not query_tokens:
+        return []
+    postings = dict(lexical_index.get("postings", {}) or {})
+    doc_lengths = list(lexical_index.get("doc_lengths", []) or [])
+    doc_count = max(1, int(lexical_index.get("doc_count", 0) or 0))
+    avg_doc_length = float(lexical_index.get("avg_doc_length", 0.0) or 0.0) or 1.0
+    k1 = float(lexical_index.get("k1", 1.5) or 1.5)
+    b = float(lexical_index.get("b", 0.75) or 0.75)
+    scores: dict[int, float] = {}
+    for term in query_tokens:
+        posting = dict(postings.get(term, {}) or {})
+        doc_indexes = list(posting.get("doc_indexes", []) or [])
+        term_freqs = list(posting.get("term_freqs", []) or [])
+        if not doc_indexes:
+            continue
+        df = len(doc_indexes)
+        idf = math.log(1.0 + ((doc_count - df + 0.5) / (df + 0.5)))
+        for doc_idx, tf in zip(doc_indexes, term_freqs, strict=False):
+            doc_len = float(doc_lengths[doc_idx]) if doc_idx < len(doc_lengths) else 0.0
+            denom = float(tf) + k1 * (1.0 - b + b * (doc_len / avg_doc_length))
+            contribution = idf * ((float(tf) * (k1 + 1.0)) / denom) if denom > 0 else 0.0
+            scores[doc_idx] = scores.get(doc_idx, 0.0) + contribution
+    if not scores:
+        return []
+    return heapq.nlargest(top_k, scores.items(), key=lambda item: item[1])
+
+
+@dataclass(slots=True)
+class BM25Match:
+    index: int
+    score: float
+    matched_terms: list[str]
+    matched_term_count: int
+
+
+class BM25Index:
+    def __init__(
+        self,
+        corpus_tokens: Sequence[Sequence[str]],
+        *,
+        k1: float = 1.5,
+        b: float = 0.75,
+    ) -> None:
+        self.k1 = max(float(k1), 0.1)
+        self.b = min(max(float(b), 0.0), 1.0)
+        self.doc_term_freqs = [Counter(tokens) for tokens in corpus_tokens]
+        self.doc_lengths = [sum(counter.values()) for counter in self.doc_term_freqs]
+        self.doc_count = len(self.doc_term_freqs)
+        self.avg_doc_len = sum(self.doc_lengths) / self.doc_count if self.doc_count > 0 else 0.0
+
+        document_frequency: Counter[str] = Counter()
+        for counter in self.doc_term_freqs:
+            document_frequency.update(counter.keys())
+
+        self.idf: dict[str, float] = {
+            term: math.log(1.0 + (self.doc_count - freq + 0.5) / (freq + 0.5))
+            for term, freq in document_frequency.items()
+        }
+
+    @classmethod
+    def from_texts(
+        cls,
+        texts: Sequence[str],
+        *,
+        k1: float = 1.5,
+        b: float = 0.75,
+    ) -> BM25Index:
+        return cls([lexical_tokens(text) for text in texts], k1=k1, b=b)
+
+    def search(self, query: str, *, top_k: int) -> list[BM25Match]:
+        if top_k <= 0 or self.doc_count <= 0:
+            return []
+
+        query_tokens = lexical_tokens(query)
+        if not query_tokens:
+            return []
+
+        query_term_freq = Counter(query_tokens)
+        results: list[BM25Match] = []
+        avg_doc_len = self.avg_doc_len or 1.0
+
+        for index, term_freq in enumerate(self.doc_term_freqs):
+            doc_len = self.doc_lengths[index] or 1
+            denominator_bias = self.k1 * (1.0 - self.b + self.b * doc_len / avg_doc_len)
+
+            score = 0.0
+            term_contributions: dict[str, float] = {}
+            for term, query_tf in query_term_freq.items():
+                freq = term_freq.get(term, 0)
+                if freq <= 0:
+                    continue
+                idf = self.idf.get(term, 0.0)
+                contribution = idf * (freq * (self.k1 + 1.0)) / (freq + denominator_bias)
+                contribution *= query_tf
+                score += contribution
+                term_contributions[term] = contribution
+
+            if score <= 0:
+                continue
+
+            matched_terms = [
+                term
+                for term, _ in sorted(
+                    term_contributions.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )[:6]
+            ]
+            results.append(
+                BM25Match(
+                    index=index,
+                    score=score,
+                    matched_terms=matched_terms,
+                    matched_term_count=len(term_contributions),
+                )
+            )
+
+        results.sort(key=lambda item: item.score, reverse=True)
+        return results[:top_k]
+
+
+def required_bm25_term_matches(query: str) -> int:
+    unique_terms = len(set(lexical_tokens(query)))
+    if unique_terms <= 2:
+        return 1
+    if unique_terms <= 5:
+        return 2
+    return max(2, math.ceil(unique_terms * 0.35))
+
+
+def reciprocal_rank_fusion(rank: int, *, weight: float = 1.0, k: float = 50.0) -> float:
+    return weight / (rank + k)
+
+
+def merge_scores(*parts: float) -> float:
+    return sum(parts)
+
+
+def normalize_dense_score(score: float) -> float:
+    if score < 0:
+        return 0.0
+    if score > 1:
+        return 1.0
+    return score
+
+
+def normalize_keyword_score(score: float, *, ceiling: float | None = None) -> float:
+    if score <= 0:
+        return 0.0
+    if ceiling is not None and ceiling > 0:
+        return min(score / ceiling, 1.0)
+    return score / (score + 1.0)
+
+
+def hybrid_fuse_payload(
+    *,
+    query: str,
+    dense_payload: list[dict[str, Any]],
+    docs: list[Any],
+    top_k: int,
+    bm25_index: BM25Index | None = None,
+) -> list[dict[str, Any]]:
+    fused: dict[str, dict[str, Any]] = {}
+    for rank, item in enumerate(dense_payload, start=1):
+        metadata = dict(item.get("metadata") or {})
+        key = str(metadata.get("doc_id", "")) or f"dense::{rank}"
+        fused[key] = {
+            **item,
+            "score": merge_scores(
+                reciprocal_rank_fusion(rank),
+                normalize_dense_score(float(item.get("score", 0.0) or 0.0)),
+            ),
+            "hybrid_reasons": ["dense"],
+        }
+
+    active_bm25 = bm25_index or BM25Index.from_texts(
+        [
+            build_searchable_text(
+                str(getattr(doc, "text", "") or ""),
+                source=str(getattr(doc, "metadata", {}).get("source", "") or ""),
+                metadata=dict(getattr(doc, "metadata", {}) or {}),
+            )
+            for doc in docs
+        ]
+    )
+
+    lexical_rows: list[dict[str, Any]] = []
+    min_term_matches = required_bm25_term_matches(query)
+    for match in active_bm25.search(query, top_k=top_k * 2):
+        if match.matched_term_count < min_term_matches:
+            continue
+        doc = docs[match.index]
+        metadata = dict(getattr(doc, "metadata", {}) or {})
+        lexical_rows.append(
+            {
+                "text": str(getattr(doc, "text", "") or ""),
+                "source": str(metadata.get("source", "") or ""),
+                "metadata": metadata,
+                "keyword_score": float(match.score),
+                "hybrid_reasons": [
+                    "bm25",
+                    f"matched_terms:{len(match.matched_terms)}",
+                    *[f"term:{term}" for term in match.matched_terms[:3]],
+                    "keyword",
+                ],
+            }
+        )
+        if len(lexical_rows) >= top_k:
+            break
+
+    best_keyword_score = max(float(row["keyword_score"]) for row in lexical_rows) if lexical_rows else 0.0
+    for rank, item in enumerate(lexical_rows[:top_k], start=1):
+        metadata = dict(item.get("metadata") or {})
+        key = str(metadata.get("doc_id", "")) or f"keyword::{rank}"
+        lexical_score = merge_scores(
+            reciprocal_rank_fusion(rank),
+            normalize_keyword_score(
+                float(item["keyword_score"]),
+                ceiling=best_keyword_score,
+            ),
+        )
+        if key in fused:
+            fused[key]["score"] = float(fused[key]["score"]) + lexical_score
+            fused[key]["hybrid_reasons"] = list(
+                dict.fromkeys(list(fused[key].get("hybrid_reasons", [])) + list(item["hybrid_reasons"]))
+            )
+        else:
+            fused[key] = {
+                "text": item["text"],
+                "source": item["source"],
+                "metadata": metadata,
+                "score": lexical_score,
+                "hybrid_reasons": item["hybrid_reasons"],
+            }
+    return sorted(fused.values(), key=lambda row: float(row.get("score", 0.0)), reverse=True)[:top_k]

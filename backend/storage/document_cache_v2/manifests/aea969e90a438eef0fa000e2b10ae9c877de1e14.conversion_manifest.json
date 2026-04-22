@@ -1,0 +1,10 @@
+{
+  "doc_id": "aea969e90a438eef0fa000e2b10ae9c877de1e14",
+  "source_path": "knowledge/Safety Knowledge/cors.md",
+  "version_digest": "684b7b2b8fb7718c56ba8282fdc7fbd688bc361c",
+  "parser_backend": "legacy_fallback",
+  "quality_flags": [
+    "fallback_parser"
+  ],
+  "block_count": 1
+}

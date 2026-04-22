@@ -51,7 +51,7 @@ def _from_task(task: TaskUnderstanding) -> QueryUnderstanding:
         intent=task.intent,
         source_kind=task.source_kind,
         task_kind=task.task_kind,
-        target_object=task.target_object,
+        target_object=None,
         modality=task.modality,
         route=task.route_hint,
         skill_name=task.preferred_skill,

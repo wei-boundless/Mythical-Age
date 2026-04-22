@@ -210,6 +210,10 @@ class SessionMemoryViewBuilder:
             items.append(f"当前 PDF：{slots.active_pdf}")
         if slots.active_dataset:
             items.append(f"当前数据集：{slots.active_dataset}")
+        if include_debug and slots.active_binding_identity:
+            items.append(f"当前绑定标识：{slots.active_binding_identity}")
+        if include_debug and slots.active_binding_owner_task_id:
+            items.append(f"当前绑定 Owner：{slots.active_binding_owner_task_id}")
         if slots.active_entity:
             items.append(f"当前实体：{slots.active_entity}")
         if include_debug and slots.active_rule:

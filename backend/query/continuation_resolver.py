@@ -30,16 +30,25 @@ class QueryContinuationResolver:
         history: list[dict[str, Any]],
         understanding: QueryUnderstanding,
     ) -> QueryUnderstanding:
-        if understanding.route == "tool":
+        existing_tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
+        existing_tool_input = dict(getattr(understanding, "tool_input", {}) or {})
+        existing_path = str(existing_tool_input.get("path", "") or "").strip()
+        if understanding.route == "tool" and (existing_tool_name != "pdf_analysis" or existing_path):
             return understanding
-        if not self._looks_like_pdf_followup(message):
+        explicit_reference = self._extract_explicit_pdf_reference(message)
+        if not explicit_reference:
             return understanding
-        resolved = PdfAnalysisCatalog.resolve_pdf_path_from_history(self.base_dir, history)
+        try:
+            resolved = PdfAnalysisCatalog.resolve_pdf_path(self.base_dir, explicit_reference, message)
+        except ValueError:
+            resolved = None
         if resolved is None:
             return understanding
         mode = self._select_pdf_mode(message)
         return QueryUnderstanding(
             intent="pdf_page_followup_query" if mode == "page_read" else "pdf_followup_query",
+            source_kind="document",
+            task_kind="document_page_read" if mode == "page_read" else "document_browse",
             modality="pdf",
             route="tool",
             tool_name="pdf_analysis",
@@ -61,9 +70,16 @@ class QueryContinuationResolver:
     ) -> QueryUnderstanding:
         if understanding.route == "tool":
             return understanding
-        if not self._looks_like_structured_followup(message):
+        explicit_path = self._extract_explicit_dataset_reference(message)
+        if not explicit_path:
             return understanding
-        if StructuredDataCatalog.resolve_dataset_path_from_history(self.base_dir, history) is None:
+        if not self._has_strong_structured_operation(message):
+            return understanding
+        try:
+            resolved = StructuredDataCatalog.resolve_dataset_path(self.base_dir, explicit_path, message)
+        except ValueError:
+            resolved = None
+        if resolved is None:
             return understanding
         return QueryUnderstanding(
             intent="structured_followup_query",
@@ -73,10 +89,11 @@ class QueryContinuationResolver:
             tool_input={
                 "query": message,
                 "analysis_type": "auto",
+                "path": StructuredDataCatalog.relative_path(self.base_dir, resolved),
             },
             should_skip_rag=True,
             confidence=max(float(getattr(understanding, "confidence", 0.0) or 0.0), 0.88),
-            reasons=[*list(getattr(understanding, "reasons", []) or []), "structured_followup_context"],
+            reasons=[*list(getattr(understanding, "reasons", []) or []), "structured_explicit_context"],
         )
 
     def promote_session_summary_query(
@@ -100,6 +117,13 @@ class QueryContinuationResolver:
             reasons=[*list(getattr(understanding, "reasons", []) or []), "session_summary_context"],
         )
 
+    def _extract_explicit_pdf_reference(self, message: str) -> str:
+        normalized = (message or "").strip()
+        if not normalized:
+            return ""
+        matches = PdfAnalysisCatalog.extract_explicit_pdf_references(normalized)
+        return matches[0] if matches else ""
+
     def _looks_like_pdf_followup(self, message: str) -> bool:
         normalized = (message or "").strip().lower()
         if not normalized:
@@ -113,9 +137,7 @@ class QueryContinuationResolver:
         if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)", message):
             return True
 
-        explicit_doc_reference = "pdf" in normalized or any(
-            marker in message for marker in ("报告", "文档", "白皮书")
-        )
+        explicit_doc_reference = ".pdf" in normalized or "pdf" in normalized
         followup_markers = (
             "这一页",
             "那一页",
@@ -124,21 +146,11 @@ class QueryContinuationResolver:
             "这页",
             "那页",
             "回到刚才",
-            "回到之前",
-            "回到上一个",
             "刚才那份",
-            "这份报告",
-            "这份文档",
             "这一部分",
             "那一部分",
             "这一章",
             "那一章",
-            "第一部分",
-            "第二部分",
-            "第三部分",
-            "第一章",
-            "第二章",
-            "第三章",
             "核心结论",
             "主要结论",
             "结论是什么",
@@ -159,37 +171,68 @@ class QueryContinuationResolver:
         normalized = (message or "").strip().lower()
         if not normalized:
             return False
-        explicit_dataset_reference = any(
-            marker in message for marker in ("表格", "数据表", "数据集", "这个表", "那张表", "刚才那个表")
-        )
-        if len(normalized) > 40 and not explicit_dataset_reference:
+        if self._looks_like_summary_or_rewrite_request(message):
             return False
-        followup_markers = (
-            "再",
-            "那",
-            "呢",
-            "按",
-            "前五",
-            "前十",
-            "top",
-            "排名",
-            "排行",
-            "最高",
-            "最低",
+        if not self._has_explicit_dataset_reference(message):
+            return False
+        return self._has_strong_structured_operation(message)
+
+    def _has_explicit_dataset_reference(self, message: str) -> bool:
+        return bool(self._extract_explicit_dataset_reference(message))
+
+    def _extract_explicit_dataset_reference(self, message: str) -> str:
+        normalized = (message or "").strip()
+        if not normalized:
+            return ""
+        match = re.search(
+            r"([^\s,，;；:：\"'“”‘’]+?\.(?:xlsx|csv|xls|json|parquet))",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        return match.group(1).strip() if match is not None else ""
+
+    def _has_strong_structured_operation(self, message: str) -> bool:
+        normalized = (message or "").strip().lower()
+        if not normalized:
+            return False
+        operation_markers = (
             "汇总",
+            "统计",
+            "分组",
             "分布",
-            "按地区",
-            "按部门",
-            "按仓库",
-            "按品类",
+            "筛选",
+            "过滤",
+            "排序",
+            "均值",
+            "平均",
+            "总和",
+            "总计",
+            "占比",
             "缺货",
             "补货",
+            "展开",
         )
-        if explicit_dataset_reference:
+        if any(marker in message for marker in operation_markers):
             return True
-        if any(marker in message for marker in followup_markers):
-            return True
-        return bool(re.search(r"(top\s*\d+|第?\d+名)", normalized))
+        return bool(re.search(r"按[^\s,，。；;]{1,12}(?:汇总|统计|分组|展开|分析|排序|筛选|查看|列出|看)?", message))
+
+    def _looks_like_summary_or_rewrite_request(self, message: str) -> bool:
+        return any(
+            marker in message
+            for marker in (
+                "总结",
+                "概括",
+                "归纳",
+                "梳理",
+                "整理成",
+                "压成",
+                "改写",
+                "改成",
+                "润色",
+                "适合管理层",
+                "汇报版本",
+            )
+        )
 
     def _looks_like_session_summary(self, message: str) -> bool:
         normalized = (message or "").strip().lower()

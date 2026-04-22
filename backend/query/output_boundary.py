@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import re
 
+from query.output_classifier import build_output_decision, classify_output_candidate
+from query.output_models import OutputCandidate
+
 
 INTERNAL_PROTOCOL_MARKERS = (
     "</think>",
@@ -24,6 +27,10 @@ _TOOL_OUTPUT_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 _FENCED_JSON_RE = re.compile(r"```json\s*.*?```", re.IGNORECASE | re.DOTALL)
+_SEARCH_PROTOCOL_BLOCK_RE = re.compile(
+    r"(?:现在)?(?:我)?(?:再)?(?:检索|搜索|看|查看)[^\n]{0,120}?(?:search_knowledge|searchKnowledge|web_search|retrieve)[^\n{]*\{[\s\S]{0,240}?\}",
+    re.IGNORECASE,
+)
 _INLINE_PSEUDO_TOOL_CALL_RE = re.compile(
     r"(?:[A-Za-z_][A-Za-z0-9_]*\([^()\n]{0,400}\)\s*){1,8}",
     re.DOTALL,
@@ -82,6 +89,7 @@ def _sanitize_visible_assistant_content(
     cleaned = _TOOL_OUTPUT_BLOCK_RE.sub("", cleaned)
     if contains_internal_protocol(normalized):
         cleaned = _FENCED_JSON_RE.sub("", cleaned)
+    cleaned = _SEARCH_PROTOCOL_BLOCK_RE.sub("", cleaned)
     cleaned = _INLINE_PSEUDO_TOOL_CALL_RE.sub("", cleaned)
 
     kept_lines: list[str] = []
@@ -90,7 +98,12 @@ def _sanitize_visible_assistant_content(
         if not line:
             kept_lines.append("")
             continue
-        if drop_internal_status and _INTERNAL_STATUS_LINE_RE.match(line):
+        if drop_internal_status and (
+            _INTERNAL_STATUS_LINE_RE.match(line)
+            or "search_knowledge" in line.lower()
+            or "searchknowledge" in line.lower()
+            or "web_search" in line.lower()
+        ):
             continue
         kept_lines.append(line)
 
@@ -138,10 +151,14 @@ class AssistantOutputSegment:
 @dataclass(slots=True)
 class AssistantOutputResponse:
     visible_text: str
+    canonical_answer: str
+    selected_channel: str
+    selected_source: str
     segments: list[AssistantOutputSegment]
     tool_calls: list[dict[str, str]]
     raw_debug_text: str
     leak_flags: list[str]
+    fallback_reason: str = ""
 
 
 class AssistantOutputBoundary:
@@ -214,24 +231,78 @@ class AssistantOutputBoundary:
             self._segments.append(self._current)
         self._current = AssistantOutputSegment()
 
-    def build_response(self) -> AssistantOutputResponse:
+    def build_response(
+        self,
+        *,
+        route: str = "",
+        user_message: str = "",
+        tool_name: str = "",
+        retrieval_results: list[dict[str, object]] | None = None,
+    ) -> AssistantOutputResponse:
         segments = list(self._segments)
         visible_parts = [segment.visible_text.strip() for segment in segments if segment.visible_text.strip()]
         all_tool_calls: list[dict[str, str]] = []
         raw_parts: list[str] = []
         leak_flags: list[str] = []
+        candidates: list[OutputCandidate] = []
         for segment in segments:
             raw_parts.append(segment.raw_text)
             all_tool_calls.extend(list(segment.tool_calls))
+            if segment.visible_text.strip():
+                candidate = classify_output_candidate(
+                    text=segment.visible_text,
+                    route=route,
+                    source="segment.visible_text",
+                    tool_name=tool_name,
+                )
+                if candidate is not None:
+                    candidates.append(candidate)
+            if (
+                segment.ai_update_visible_text.strip()
+                and segment.ai_update_visible_text.strip() != segment.visible_text.strip()
+            ):
+                candidate = classify_output_candidate(
+                    text=segment.ai_update_visible_text,
+                    route=route,
+                    source="segment.ai_update_visible_text",
+                    tool_name=tool_name,
+                )
+                if candidate is not None:
+                    candidates.append(candidate)
+            for tool_call in segment.tool_calls:
+                output = str(tool_call.get("output", "") or "").strip()
+                if not output:
+                    continue
+                candidate = classify_output_candidate(
+                    text=output,
+                    route=route,
+                    source=f"tool.{tool_call.get('tool', tool_name or 'tool')}.output",
+                    tool_name=str(tool_call.get("tool", "") or tool_name or ""),
+                    allow_unlabeled_answer=False,
+                )
+                if candidate is not None:
+                    candidates.append(candidate)
             for flag in segment.debug_flags:
                 if flag not in leak_flags:
                     leak_flags.append(flag)
+        decision = build_output_decision(
+            candidates=candidates,
+            route=route,
+            user_message=user_message,
+            tool_name=tool_name,
+            retrieval_results=retrieval_results,
+            leak_flags=leak_flags,
+        )
         return AssistantOutputResponse(
             visible_text="\n\n".join(visible_parts).strip(),
+            canonical_answer=decision.canonical_answer,
+            selected_channel=decision.selected_channel,
+            selected_source=decision.selected_source,
             segments=segments,
             tool_calls=all_tool_calls,
             raw_debug_text="\n\n".join(part for part in raw_parts if part.strip()).strip(),
             leak_flags=leak_flags,
+            fallback_reason=decision.fallback_reason,
         )
 
     def _add_flag(self, flag: str) -> None:

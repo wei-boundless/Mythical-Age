@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pdf_analysis.catalog import PdfAnalysisCatalog
+from structured_data.catalog import StructuredDataCatalog
 from understanding.memory_intent import MemoryIntent
 
 
@@ -65,29 +66,6 @@ def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker in text for marker in markers)
 
 
-def _structured_semantic_hints(
-    *,
-    analysis_type: str,
-    target_object: str | None,
-    state_kind: str | None = None,
-    group_hint: str | None = None,
-    metric_hint: str | None = None,
-    query_mode_hint: str | None = None,
-) -> dict[str, Any]:
-    hints: dict[str, Any] = {"analysis_type_hint": analysis_type}
-    if target_object is not None:
-        hints["target_object"] = target_object
-    if state_kind is not None:
-        hints["state_kind"] = state_kind
-    if group_hint is not None:
-        hints["group_hint"] = group_hint
-    if metric_hint is not None:
-        hints["metric_hint"] = metric_hint
-    if query_mode_hint is not None:
-        hints["query_mode_hint"] = query_mode_hint
-    return hints
-
-
 def _detect_realtime_task(message: str, lowered: str) -> TaskUnderstanding | None:
     weather_markers = (
         "weather",
@@ -109,7 +87,6 @@ def _detect_realtime_task(message: str, lowered: str) -> TaskUnderstanding | Non
             intent="weather_query",
             source_kind="external_web",
             task_kind="realtime_lookup",
-            target_object="weather",
             modality="realtime",
             route_hint="tool",
             preferred_skill="get-weather",
@@ -135,7 +112,6 @@ def _detect_realtime_task(message: str, lowered: str) -> TaskUnderstanding | Non
             intent="gold_price_query",
             source_kind="external_web",
             task_kind="realtime_lookup",
-            target_object="gold_price",
             modality="realtime",
             route_hint="tool",
             preferred_skill="gold-price",
@@ -149,27 +125,37 @@ def _detect_realtime_task(message: str, lowered: str) -> TaskUnderstanding | Non
 
 
 def _detect_web_task(message: str, lowered: str) -> TaskUnderstanding | None:
-    web_markers = (
+    explicit_web_markers = (
         "联网",
         "搜索",
         "查官网",
         "官网",
-        "最新",
-        "新闻",
-        "实时",
-        "最新消息",
         "look it up",
         "search",
         "official docs",
         "news",
+        "web search",
+        "上网",
+        "网上查",
     )
-    if not _contains_any(lowered, web_markers):
+    freshness_markers = (
+        "最新",
+        "最新消息",
+        "新闻",
+        "实时",
+        "recent",
+        "latest",
+        "today",
+    )
+    lookup_verbs = ("查", "搜", "搜索", "看看", "检索", "了解", "查询", "look up", "search")
+    has_explicit_web_marker = _contains_any(lowered, explicit_web_markers)
+    has_fresh_lookup = _contains_any(lowered, freshness_markers) and _contains_any(lowered, lookup_verbs)
+    if not has_explicit_web_marker and not has_fresh_lookup:
         return None
     return TaskUnderstanding(
         intent="web_search_query",
         source_kind="external_web",
         task_kind="web_lookup",
-        target_object="external_information",
         modality="web",
         route_hint="tool",
         preferred_skill="web-search",
@@ -177,20 +163,37 @@ def _detect_web_task(message: str, lowered: str) -> TaskUnderstanding | None:
         parameters={"query": message},
         should_skip_rag=True,
         confidence=0.92,
-        reasons=["web_markers"],
+        reasons=["web_markers" if has_explicit_web_marker else "fresh_lookup_markers"],
     )
 
 
 def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
-    pdf_markers = ("pdf", "白皮书", "报告", "文档")
+    explicit_pdf_markers = ("pdf", "白皮书")
+    contextual_doc_markers = ("报告", "文档")
     page_markers = (
         bool(re.search(r"第\s*\d+\s*页", message)),
         bool(re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message)),
         bool(re.search(r"page\s*\d+", lowered)),
     )
     deep_read_markers = ("详细解读", "通读", "精读", "逐页", "完整总结", "deep read")
+    document_action_markers = (
+        *deep_read_markers,
+        "分析",
+        "解读",
+        "总结",
+        "总览",
+        "看一下",
+        "看看",
+        "讲得什么",
+        "讲什么",
+    )
+    explicit_references = PdfAnalysisCatalog.extract_explicit_pdf_references(message)
+    has_explicit_pdf_marker = _contains_any(lowered, explicit_pdf_markers) or bool(explicit_references)
+    has_contextual_document_signal = _contains_any(lowered, contextual_doc_markers) and (
+        any(page_markers) or _contains_any(lowered, document_action_markers)
+    )
 
-    if not _contains_any(lowered, pdf_markers) and not any(page_markers):
+    if not has_explicit_pdf_marker and not any(page_markers) and not has_contextual_document_signal:
         return None
 
     if any(page_markers):
@@ -203,13 +206,12 @@ def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
         task_kind = "document_browse"
         mode = "browse"
 
-    reasons = ["pdf_markers"] if _contains_any(lowered, pdf_markers) else []
+    reasons = ["pdf_markers"] if has_explicit_pdf_marker or has_contextual_document_signal else []
     if any(page_markers):
         reasons.append("page_markers")
     if task_kind == "document_deep_read":
         reasons.append("deep_read_markers")
     parameters = {"query": message, "mode": mode}
-    explicit_references = PdfAnalysisCatalog.extract_explicit_pdf_references(message)
     if explicit_references:
         parameters["path"] = explicit_references[0]
         reasons.append("explicit_pdf_reference")
@@ -218,7 +220,6 @@ def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
         intent=f"pdf_{task_kind}",
         source_kind="document",
         task_kind=task_kind,
-        target_object="pdf_document",
         modality="pdf",
         route_hint="tool",
         preferred_skill="pdf-analysis",
@@ -273,7 +274,6 @@ def _detect_faq_task(message: str, lowered: str) -> TaskUnderstanding | None:
         intent="faq_explanation_query",
         source_kind="knowledge_base",
         task_kind="faq_explanation",
-        target_object="faq",
         modality="general",
         route_hint="rag",
         preferred_skill="rag-skill",
@@ -286,88 +286,37 @@ def _detect_faq_task(message: str, lowered: str) -> TaskUnderstanding | None:
 
 
 def _detect_structured_data_task(message: str, lowered: str) -> TaskUnderstanding | None:
+    explicit_dataset_path = _extract_explicit_dataset_reference(message)
     explicit_dataset_markers = (
-        ".xlsx",
-        ".csv",
-        ".json",
         "excel",
+        "csv",
+        "json",
+        "parquet",
         "spreadsheet",
-        "sheet",
-        "数据表",
-        "表格",
-        "工作表",
-        "列名",
-        "schema",
-        "数据库",
+        "workbook",
+        "工作簿",
     )
-    inventory_markers = (
-        "inventory",
-        "stock",
-        "reorder",
-        "warehouse",
-        "sku",
-        "库存",
-        "缺货",
-        "补货",
-        "安全库存",
-        "仓库",
-        "货物",
-        "商品",
-    )
-    employee_markers = (
-        "employee",
-        "employees",
-        "staff",
-        "salary",
-        "wage",
-        "pay",
-        "base_salary",
-        "department",
-        "title",
-        "hire",
-        "员工",
-        "薪水",
-        "工资",
-        "薪资",
-        "底薪",
-        "部门",
-        "职位",
-    )
-    sales_markers = (
-        "sales",
-        "sale",
-        "orders",
-        "revenue",
-        "amount",
-        "region",
-        "quantity",
-        "gmv",
-        "销售",
-        "销售额",
-        "销量",
-        "金额",
-        "地区",
-        "区域",
-        "成交",
-    )
-    customer_markers = (
-        "customer",
-        "customers",
-        "segment",
-        "signup",
-        "email",
-        "province",
-        "客户",
-        "用户",
-        "分群",
-        "注册",
-        "邮箱",
-        "省份",
+    weak_dataset_reference_markers = (
+        "这个表",
+        "这张表",
+        "那个表",
+        "那张表",
+        "刚才那个表",
+        "刚才的数据表",
+        "这份表格",
+        "这个数据表",
     )
 
     schema_markers = ("schema", "columns", "row count", "列名", "字段", "结构", "表头", "总行数")
     row_count_markers = ("总数", "总行数", "多少条", "几条", "多少人", "多少商品", "row count")
     shortage_markers = ("缺货", "库存不足", "补货", "安全库存", "reorder")
+    shortage_location_markers = (
+        "不够",
+        "不足",
+        "缺少",
+        "不太够",
+        "紧张",
+    )
     non_shortage_markers = (
         "不缺货",
         "不缺",
@@ -375,13 +324,6 @@ def _detect_structured_data_task(message: str, lowered: str) -> TaskUnderstandin
         "无缺货",
         "不短缺",
         "不紧张",
-    )
-    shortage_location_markers = (
-        "不够",
-        "不足",
-        "缺少",
-        "不太够",
-        "紧张",
     )
     abundance_markers = (
         "充足",
@@ -399,161 +341,60 @@ def _detect_structured_data_task(message: str, lowered: str) -> TaskUnderstandin
     grouping_markers = ("group", "sum", "mean", "avg", "按地区", "按仓库", "按部门", "按品类", "汇总", "分布", "平均")
     query_markers = ("查询", "查找", "找出", "有哪些", "筛选", "统计", "分析")
     explanation_markers = ("为什么", "怎么回事", "找不到", "无法", "不能", "失败")
-    correction_markers = ("不是", "不要", "而是", "别", "别再", "我不是要")
+    structured_operation_markers = (
+        *schema_markers,
+        *row_count_markers,
+        *shortage_markers,
+        *shortage_location_markers,
+        *non_shortage_markers,
+        *abundance_markers,
+        *ranking_markers,
+        *extreme_markers,
+        *grouping_markers,
+        *query_markers,
+    )
 
-    has_explicit_dataset_source = _contains_any(lowered, explicit_dataset_markers)
-
-    target_object: str | None = None
-    if _contains_any(lowered, inventory_markers):
-        target_object = "inventory"
-    elif _contains_any(lowered, employee_markers):
-        target_object = "employee"
-    elif _contains_any(lowered, sales_markers):
-        target_object = "sales"
-    elif _contains_any(lowered, customer_markers):
-        target_object = "customer"
+    has_explicit_dataset_source = bool(explicit_dataset_path) or _contains_any(lowered, explicit_dataset_markers)
+    has_weak_dataset_reference = _contains_any(lowered, weak_dataset_reference_markers)
+    has_generic_dataset_followup = _looks_generic_dataset_followup(message, lowered)
+    has_structured_operation = _contains_any(lowered, structured_operation_markers)
+    has_catalog_dataset_candidate = _can_infer_catalog_dataset(message)
 
     if _contains_any(lowered, explanation_markers) and not has_explicit_dataset_source:
         return None
-
-    task_kind: str | None = None
-    analysis_type = "auto"
-    reasons: list[str] = []
-
-    correction_override = _contains_any(lowered, correction_markers)
-    inventory_abundance_query = target_object == "inventory" and _contains_any(lowered, abundance_markers)
-    inventory_non_shortage_query = (
-        target_object == "inventory"
-        and _contains_any(lowered, non_shortage_markers)
-        and any(marker in lowered for marker in ("哪些地方", "哪个地方", "哪里", "地方", "哪些仓库", "哪个仓库", "仓库"))
-    )
-    inventory_location_shortage_query = (
-        target_object == "inventory"
-        and (_contains_any(lowered, shortage_markers) or _contains_any(lowered, shortage_location_markers))
-        and any(marker in lowered for marker in ("哪些地方", "哪个地方", "哪里", "地方", "哪些仓库", "哪个仓库", "仓库"))
-    )
-
-    if _contains_any(lowered, schema_markers):
-        task_kind = "dataset_schema_inspect"
-        analysis_type = "schema_preview"
-        reasons.append("schema_markers")
-    elif _contains_any(lowered, row_count_markers):
-        task_kind = "dataset_row_count"
-        analysis_type = "row_count"
-        reasons.append("row_count_markers")
-    elif inventory_non_shortage_query:
-        task_kind = "dataset_top_n"
-        analysis_type = "top_n"
-        reasons.append("inventory_non_shortage_markers")
-    elif inventory_location_shortage_query and not (correction_override and inventory_abundance_query):
-        task_kind = "dataset_top_n"
-        analysis_type = "top_n"
-        reasons.append("inventory_location_shortage_markers")
-    elif target_object == "inventory" and _contains_any(lowered, shortage_markers + shortage_location_markers) and not (correction_override and inventory_abundance_query):
-        task_kind = "dataset_filter"
-        analysis_type = "inventory_shortage"
-        reasons.append("inventory_shortage_markers")
-    elif inventory_abundance_query:
-        task_kind = "dataset_top_n"
-        analysis_type = "top_n"
-        reasons.append("inventory_abundance_markers")
-    elif _contains_any(lowered, ranking_markers):
-        task_kind = "dataset_top_n"
-        analysis_type = "top_n"
-        reasons.append("ranking_markers")
-    elif _contains_any(lowered, extreme_markers):
-        task_kind = "dataset_extreme_record"
-        analysis_type = "extreme_record"
-        reasons.append("extreme_markers")
-    elif _contains_any(lowered, grouping_markers):
-        task_kind = "dataset_group_summary"
-        analysis_type = "grouped_summary"
-        reasons.append("grouping_markers")
-    elif target_object == "inventory" and "库存" in lowered:
-        task_kind = "dataset_summary"
-        analysis_type = "inventory_summary"
-        reasons.append("inventory_summary_markers")
-
-    strong_query_shape = has_explicit_dataset_source or target_object is not None or _contains_any(lowered, query_markers)
-    if task_kind is None and strong_query_shape and target_object is not None:
-        task_kind = "dataset_inspect"
-        analysis_type = "auto"
-        reasons.append("dataset_domain_fallback")
-
-    if task_kind is None:
+    if (has_weak_dataset_reference or has_generic_dataset_followup) and not has_explicit_dataset_source:
+        return None
+    if not has_explicit_dataset_source and not has_catalog_dataset_candidate:
+        return None
+    if not has_explicit_dataset_source and not has_structured_operation:
         return None
 
-    semantic_hints: dict[str, Any] = {}
-    if target_object == "inventory":
-        if inventory_abundance_query:
-            semantic_hints = _structured_semantic_hints(
-                analysis_type=analysis_type,
-                target_object=target_object,
-                state_kind="abundance",
-                group_hint="warehouse",
-                metric_hint="stock_on_hand",
-                query_mode_hint="grouped",
-            )
-        elif inventory_non_shortage_query:
-            semantic_hints = _structured_semantic_hints(
-                analysis_type=analysis_type,
-                target_object=target_object,
-                state_kind="non_shortage",
-                group_hint="warehouse",
-                metric_hint="shortage_qty",
-                query_mode_hint="grouped",
-            )
-        elif inventory_location_shortage_query:
-            semantic_hints = _structured_semantic_hints(
-                analysis_type=analysis_type,
-                target_object=target_object,
-                state_kind="shortage",
-                group_hint="warehouse",
-                metric_hint="shortage_qty",
-                query_mode_hint="grouped",
-            )
-        elif analysis_type == "inventory_shortage":
-            semantic_hints = _structured_semantic_hints(
-                analysis_type=analysis_type,
-                target_object=target_object,
-                state_kind="shortage",
-                metric_hint="shortage_qty",
-            )
-    elif analysis_type == "grouped_summary":
-        semantic_hints = _structured_semantic_hints(
-            analysis_type=analysis_type,
-            target_object=target_object,
-            query_mode_hint="grouped",
-        )
-    elif analysis_type == "extreme_record":
-        semantic_hints = _structured_semantic_hints(
-            analysis_type=analysis_type,
-            target_object=target_object,
-            query_mode_hint="record",
-        )
-    elif analysis_type == "top_n":
-        semantic_hints = _structured_semantic_hints(
-            analysis_type=analysis_type,
-            target_object=target_object,
-        )
+    reasons: list[str] = []
+    if explicit_dataset_path:
+        reasons.append("explicit_dataset_reference")
+    elif has_explicit_dataset_source:
+        reasons.append("explicit_dataset_source")
+    if has_catalog_dataset_candidate:
+        reasons.append("catalog_dataset_candidate")
+    if has_structured_operation:
+        reasons.append("structured_operation_markers")
+
+    parameters: dict[str, Any] = {"query": message}
+    if explicit_dataset_path:
+        parameters["path"] = explicit_dataset_path
 
     return TaskUnderstanding(
-        intent=f"structured_{task_kind}",
+        intent="structured_dataset_query",
         source_kind="dataset",
-        task_kind=task_kind,
-        target_object=target_object,
+        task_kind="dataset_query",
         modality="table",
         route_hint="tool",
         preferred_skill="structured-data-analysis",
         candidate_tools=["structured_data_analysis"],
-        parameters={
-            "query": message,
-            "analysis_type": analysis_type,
-            "semantic_hints": semantic_hints,
-        },
+        parameters=parameters,
         should_skip_rag=True,
-        confidence=0.94 if target_object is not None else 0.82,
-        reasons=reasons + (["explicit_dataset_source"] if has_explicit_dataset_source else []),
+        confidence=0.9 if explicit_dataset_path else 0.76,
+        reasons=reasons,
     )
 
 
@@ -578,7 +419,6 @@ def _detect_knowledge_task(message: str, lowered: str) -> TaskUnderstanding | No
         intent="knowledge_lookup_query",
         source_kind="knowledge_base",
         task_kind="knowledge_lookup",
-        target_object="local_knowledge",
         modality="general",
         route_hint="rag",
         preferred_skill="rag-skill",
@@ -588,3 +428,77 @@ def _detect_knowledge_task(message: str, lowered: str) -> TaskUnderstanding | No
         confidence=0.78,
         reasons=["knowledge_markers"],
     )
+
+
+def _extract_explicit_dataset_reference(message: str) -> str:
+    normalized = (message or "").strip()
+    if not normalized:
+        return ""
+    match = re.search(
+        r"([^\s,，;；:：\"'“”‘’]+?\.(?:xlsx|csv|xls|json|parquet))",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    return match.group(1).strip() if match is not None else ""
+
+
+def _can_infer_catalog_dataset(message: str) -> bool:
+    try:
+        StructuredDataCatalog.default_path_for_query(message)
+    except ValueError:
+        return False
+    return True
+
+
+def _looks_generic_dataset_followup(message: str, lowered: str) -> bool:
+    starter_markers = ("再", "继续", "然后", "接着", "那就", "再来", "回到刚才", "刚才那个")
+    generic_reference_markers = (
+        "这个表",
+        "这张表",
+        "那个表",
+        "那张表",
+        "刚才那个表",
+        "刚才的数据表",
+        "这份表格",
+        "这个数据表",
+    )
+    continuation_actions = (
+        "展开一下",
+        "展开",
+        "看一下",
+        "看下",
+        "列一下",
+        "整理一下",
+        "再按",
+    )
+    grouping_markers = ("按仓库", "按地区", "按部门", "按品类")
+    domain_markers = (
+        "缺货",
+        "库存",
+        "商品",
+        "员工",
+        "薪水",
+        "工资",
+        "订单",
+        "客户",
+        "销售",
+        "总数",
+        "多少",
+        "均值",
+        "平均",
+        "统计",
+        "汇总",
+        "筛选",
+        "排序",
+        "top",
+        "前",
+    )
+    if any(marker in message for marker in generic_reference_markers):
+        return True
+    if not any(lowered.startswith(marker) for marker in starter_markers):
+        return (
+            any(marker in message for marker in grouping_markers)
+            and any(marker in message for marker in continuation_actions)
+            and not any(marker in message for marker in domain_markers)
+        )
+    return any(marker in message for marker in continuation_actions)

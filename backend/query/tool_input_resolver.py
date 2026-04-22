@@ -21,18 +21,18 @@ class ToolInputResolver:
         tool_input = dict(understanding.tool_input or {"query": message})
         structured_binding = getattr(plan, "structured_binding", None)
         if understanding.tool_name == "pdf_analysis" and not str(tool_input.get("path", "") or "").strip():
-            try:
-                resolved = PdfAnalysisCatalog.resolve_pdf_path(
-                    self.base_dir,
-                    str(tool_input.get("path", "") or ""),
-                    message,
-                )
-            except ValueError:
-                resolved = None
-            if resolved is None:
-                resolved = PdfAnalysisCatalog.resolve_pdf_path_from_history(self.base_dir, history)
-            if resolved is not None:
-                tool_input["path"] = PdfAnalysisCatalog.relative_path(self.base_dir, resolved)
+            explicit_refs = PdfAnalysisCatalog.extract_explicit_pdf_references(message)
+            if explicit_refs:
+                try:
+                    resolved = PdfAnalysisCatalog.resolve_pdf_path(
+                        self.base_dir,
+                        explicit_refs[0],
+                        message,
+                    )
+                except ValueError:
+                    resolved = None
+                if resolved is not None:
+                    tool_input["path"] = PdfAnalysisCatalog.relative_path(self.base_dir, resolved)
         if (
             understanding.tool_name == "structured_data_analysis"
             and not str(tool_input.get("path", "") or "").strip()

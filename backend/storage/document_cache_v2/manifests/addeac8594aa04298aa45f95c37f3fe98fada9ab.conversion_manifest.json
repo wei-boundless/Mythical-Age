@@ -1,0 +1,11 @@
+{
+  "doc_id": "addeac8594aa04298aa45f95c37f3fe98fada9ab",
+  "source_path": "knowledge/AI Knowledge/2025全球人工智能技术应用洞察报告.pdf",
+  "version_digest": "9bf56e6d4b11089d6751a0a217456f4e765f1723",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 566
+}
