@@ -201,6 +201,12 @@ def main() -> None:
     assert "数据源：inventory.xlsx" in non_shortage_places_output
     assert "当前没有完全不缺货的仓库" in non_shortage_places_output
 
+    missing_path_output = tool._run("给我薪水前五的名单", path="")
+    assert missing_path_output == "结构化分析失败：必须显式提供数据文件 path。"
+
+    shortname_output = tool._run("给我薪水前五的名单", path="employees.xlsx")
+    assert "数据源：employees.xlsx" in shortname_output
+
     print("ALL PASSED (structured data semantics regression)")
 
 

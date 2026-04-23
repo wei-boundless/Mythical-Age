@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pdf_analysis.catalog import PdfAnalysisCatalog
-from structured_data.catalog import StructuredDataCatalog
 from understanding.memory_intent import MemoryIntent
 
 
@@ -366,13 +365,11 @@ def _detect_structured_data_task(message: str, lowered: str) -> TaskUnderstandin
     has_weak_dataset_reference = _contains_any(lowered, weak_dataset_reference_markers)
     has_generic_dataset_followup = _looks_generic_dataset_followup(message, lowered)
     has_structured_operation = _contains_any(lowered, structured_operation_markers)
-    has_catalog_dataset_candidate = _can_infer_catalog_dataset(message)
-
     if _contains_any(lowered, explanation_markers) and not has_explicit_dataset_source:
         return None
     if (has_weak_dataset_reference or has_generic_dataset_followup) and not has_explicit_dataset_source:
         return None
-    if not has_explicit_dataset_source and not has_catalog_dataset_candidate:
+    if not has_explicit_dataset_source:
         return None
     if not has_explicit_dataset_source and not has_structured_operation:
         return None
@@ -382,8 +379,6 @@ def _detect_structured_data_task(message: str, lowered: str) -> TaskUnderstandin
         reasons.append("explicit_dataset_reference")
     elif has_explicit_dataset_source:
         reasons.append("explicit_dataset_source")
-    if has_catalog_dataset_candidate:
-        reasons.append("catalog_dataset_candidate")
     if has_structured_operation:
         reasons.append("structured_operation_markers")
 
@@ -448,16 +443,6 @@ def _extract_explicit_dataset_reference(message: str) -> str:
         flags=re.IGNORECASE,
     )
     return match.group(1).strip() if match is not None else ""
-
-
-def _can_infer_catalog_dataset(message: str) -> bool:
-    try:
-        StructuredDataCatalog.default_path_for_query(message)
-    except ValueError:
-        return False
-    return True
-
-
 def _looks_generic_dataset_followup(message: str, lowered: str) -> bool:
     starter_markers = ("再", "继续", "然后", "接着", "那就", "再来", "回到刚才", "刚才那个")
     generic_reference_markers = (

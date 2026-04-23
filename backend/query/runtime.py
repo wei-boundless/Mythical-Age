@@ -1551,7 +1551,10 @@ class QueryRuntime:
         if contract_decision.should_block:
             yield {
                 "type": "done",
-                "content": f"无法调用工具 {tool_name}：{contract_decision.reason}",
+                "content": self._tool_contract_failure_message(
+                    tool_name=tool_name,
+                    contract_decision=contract_decision,
+                ),
                 "answer_channel": "fallback_answer",
                 "answer_source": "tool_contract_gate",
                 "answer_fallback_reason": "tool_contract_blocked",
@@ -1729,6 +1732,7 @@ class QueryRuntime:
         tool_input: dict[str, Any],
         execution: QueryExecutionPlan,
     ) -> ToolContractDecision:
+        effective_mode = self._effective_tool_contract_mode(tool_name)
         contract = None
         runtime_get_contract = getattr(self.tool_runtime, "get_contract", None)
         if callable(runtime_get_contract):
@@ -1740,7 +1744,7 @@ class QueryRuntime:
         if contract is None:
             return ToolContractDecision(
                 tool_name=tool_name,
-                mode=self.tool_contract_gate.mode,
+                mode=effective_mode,
                 action="deny",
                 reason="missing_tool_contract",
             )
@@ -1753,13 +1757,45 @@ class QueryRuntime:
             ),
             "active_pdf": str(tool_input.get("path", "") or "").strip(),
         }
-        return self.tool_contract_gate.evaluate(
+        local_gate = ToolContractGate(mode=effective_mode)
+        return local_gate.evaluate(
             tool_name=tool_name,
             contract=contract,
             tool_input=tool_input,
             skill_allowed_tools=getattr(execution.active_skill, "allowed_tools", None),
             binding_context=binding_context,
         )
+
+    def _effective_tool_contract_mode(self, tool_name: str) -> str:
+        base_mode = str(self.tool_contract_gate.mode or "shadow").strip().lower() or "shadow"
+        if base_mode == "off":
+            return "off"
+        if tool_name in {
+            "pdf_analysis",
+            "structured_data_analysis",
+            "analyze_multimodal_file",
+            "index_multimodal_file",
+        }:
+            return "enforce"
+        return base_mode
+
+    def _tool_contract_failure_message(
+        self,
+        *,
+        tool_name: str,
+        contract_decision: ToolContractDecision,
+    ) -> str:
+        if contract_decision.reason == "missing_required_binding":
+            if tool_name == "pdf_analysis":
+                return "无法调用 PDF 工具：需要先明确 PDF 文件 path，或已有已确认的 PDF 绑定。"
+            if tool_name == "structured_data_analysis":
+                return "无法调用表格工具：需要先明确数据文件 path，或已有已确认的数据集绑定。"
+            if contract_decision.missing_bindings:
+                return f"无法调用工具 {tool_name}：缺少绑定 {', '.join(contract_decision.missing_bindings)}。"
+        if contract_decision.reason == "missing_required_input":
+            if contract_decision.missing_inputs:
+                return f"无法调用工具 {tool_name}：缺少输入 {', '.join(contract_decision.missing_inputs)}。"
+        return f"无法调用工具 {tool_name}：{contract_decision.reason}"
 
     def _normalize_direct_tool_output(
         self,

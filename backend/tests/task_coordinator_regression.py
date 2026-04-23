@@ -102,9 +102,82 @@ def test_task_coordinator_records_tool_tasks() -> None:
     assert task.context_ref.status == "completed"
 
 
+def test_task_coordinator_query_tasks_do_not_infer_weather_or_finance_binding_from_text_only() -> None:
+    coordinator = TaskCoordinator()
+
+    async def runner(execution: QueryExecutionPlan):
+        yield {"type": "done", "content": f"answer for {execution.message}"}
+
+    async def seed() -> None:
+        async for _event in coordinator.run_query_tasks(
+            "session-3",
+            [
+                QueryExecutionPlan(
+                    message="再查一下北京天气和黄金价格",
+                    history=[],
+                    memory_intent=MemoryIntent(),
+                    query_understanding=QueryUnderstanding(route="compound"),
+                )
+            ],
+            runner,
+        ):
+            pass
+
+    asyncio.run(seed())
+    task = coordinator.list_tasks(session_id="session-3")[0]
+
+    assert task.context_ref is not None
+    assert task.context_ref.task_kind == "general"
+    assert task.context_ref.bindings.active_location == ""
+    assert task.context_ref.bindings.active_entity == ""
+    assert task.context_ref.bindings.source_kind == ""
+
+
+def test_task_coordinator_records_runtime_weather_and_finance_binding_after_tool_execution() -> None:
+    coordinator = TaskCoordinator()
+
+    async def weather_runner() -> str:
+        return "北京晴，15°C。"
+
+    weather_task = asyncio.run(
+        coordinator.run_tool_task(
+            "session-4",
+            "get_weather",
+            weather_runner,
+            query="北京今天天气怎么样",
+            tool_input={"query": "北京今天天气怎么样", "location": "北京"},
+            task_kind="weather",
+        )
+    )
+    assert weather_task.context_ref is not None
+    assert weather_task.context_ref.task_kind == "weather"
+    assert weather_task.context_ref.bindings.active_location == "北京"
+    assert weather_task.context_ref.bindings.source_kind == "weather"
+
+    async def finance_runner() -> str:
+        return "黄金价格已返回。"
+
+    finance_task = asyncio.run(
+        coordinator.run_tool_task(
+            "session-4",
+            "get_gold_price",
+            finance_runner,
+            query="查询黄金价格",
+            tool_input={"query": "查询黄金价格"},
+            task_kind="finance",
+        )
+    )
+    assert finance_task.context_ref is not None
+    assert finance_task.context_ref.task_kind == "finance"
+    assert finance_task.context_ref.bindings.active_entity == "黄金"
+    assert finance_task.context_ref.bindings.source_kind == "finance"
+
+
 def main() -> None:
     test_task_coordinator_records_query_subtasks()
     test_task_coordinator_records_tool_tasks()
+    test_task_coordinator_query_tasks_do_not_infer_weather_or_finance_binding_from_text_only()
+    test_task_coordinator_records_runtime_weather_and_finance_binding_after_tool_execution()
     print("ALL PASSED (task coordinator regression)")
 
 

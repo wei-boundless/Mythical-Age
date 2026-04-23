@@ -265,6 +265,20 @@ def test_followup_resolver_keeps_global_synthesis_request_out_of_single_binding(
     assert resolution.resolved_task_id == ""
 
 
+def test_followup_resolver_keeps_ops_summary_request_out_of_single_binding() -> None:
+    coordinator = asyncio.run(_seed_tasks())
+    resolver = QueryFollowupResolver(coordinator)
+
+    resolution = resolver.resolve(
+        session_id="session-1",
+        message="把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。",
+    )
+
+    assert resolution.mode == "none"
+    assert resolution.binding_owner_task_id == ""
+    assert resolution.resolved_task_id == ""
+
+
 def main() -> None:
     test_followup_resolver_prefers_task_ref_for_ordinal_request()
     test_followup_resolver_can_bind_back_to_recent_pdf_task()
@@ -275,6 +289,7 @@ def main() -> None:
     test_followup_resolver_can_continue_unique_dataset_owner_with_operation_hint()
     test_followup_resolver_does_not_treat_generic_pdf_mention_as_committed_owner()
     test_followup_resolver_keeps_global_synthesis_request_out_of_single_binding()
+    test_followup_resolver_keeps_ops_summary_request_out_of_single_binding()
     print("ALL PASSED (followup resolution regression)")
 
 

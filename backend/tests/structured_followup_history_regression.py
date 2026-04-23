@@ -34,9 +34,10 @@ def main() -> None:
         history=history,
     )
     explicit_execution = explicit_plan.iter_executions()[0]
-    assert explicit_execution.tool_input.get("path", "").endswith("employees.xlsx")
-    assert explicit_execution.structured_binding is not None
-    assert explicit_execution.structured_binding.dataset_path.endswith("employees.xlsx")
+    assert explicit_execution.query_understanding.route == "rag"
+    assert explicit_execution.query_understanding.tool_name is None
+    assert explicit_execution.structured_binding is None
+    assert not explicit_execution.tool_input.get("path", "")
 
     weak_followup_plan = planner.build_plan(
         session_id="structured-followup-regression",
@@ -62,8 +63,10 @@ def main() -> None:
         history=history,
     )
     fresh_grouped_execution = fresh_grouped_plan.iter_executions()[0]
-    assert fresh_grouped_execution.structured_binding is not None
-    assert fresh_grouped_execution.tool_input.get("path", "").endswith("inventory.xlsx")
+    assert fresh_grouped_execution.query_understanding.route == "rag"
+    assert fresh_grouped_execution.query_understanding.tool_name is None
+    assert fresh_grouped_execution.structured_binding is None
+    assert not fresh_grouped_execution.tool_input.get("path", "")
 
     explicit_followup_plan = planner.build_plan(
         session_id="structured-followup-regression",
@@ -105,6 +108,22 @@ def main() -> None:
     )()
     explicit_shortname_input = resolver.resolve(plan=explicit_shortname_plan, history=history)
     assert explicit_shortname_input["path"] == "knowledge/E-commerce Data/inventory.xlsx"
+
+    explicit_only_shortname_plan = type(
+        "PlanStub",
+        (),
+        {
+            "message": "给我 inventory.xlsx 最缺货的前三个仓库",
+            "query_understanding": QueryUnderstanding(
+                route="tool",
+                tool_name="structured_data_analysis",
+                tool_input={"query": "给我 inventory.xlsx 最缺货的前三个仓库", "path": "inventory.xlsx"},
+            ),
+            "structured_binding": None,
+        },
+    )()
+    explicit_only_shortname_input = resolver.resolve(plan=explicit_only_shortname_plan, history=history)
+    assert explicit_only_shortname_input["path"] == "knowledge/E-commerce Data/inventory.xlsx"
 
     weak_followup_plan = planner.build_plan(
         session_id="structured-followup-regression",

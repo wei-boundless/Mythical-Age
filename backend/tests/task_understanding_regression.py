@@ -12,12 +12,22 @@ from understanding.task_understanding import analyze_task_understanding
 
 def main() -> None:
     shortage = analyze_task_understanding("从我的数据库中，查询有哪些货物缺货")
-    assert shortage.source_kind == "dataset"
-    assert shortage.task_kind == "dataset_query"
+    assert shortage.source_kind == "knowledge_base"
+    assert shortage.task_kind == "knowledge_lookup"
     assert shortage.target_object is None
-    assert shortage.route_hint == "tool"
-    assert shortage.preferred_skill == "structured-data-analysis"
-    assert shortage.parameters == {"query": "从我的数据库中，查询有哪些货物缺货"}
+    assert shortage.route_hint == "rag"
+    assert shortage.preferred_skill == "rag-skill"
+    assert shortage.parameters == {}
+
+    explicit_dataset = analyze_task_understanding("帮我看一下 inventory.xlsx 里哪些货物缺货")
+    assert explicit_dataset.source_kind == "dataset"
+    assert explicit_dataset.task_kind == "dataset_query"
+    assert explicit_dataset.route_hint == "tool"
+    assert explicit_dataset.preferred_skill == "structured-data-analysis"
+    assert explicit_dataset.parameters == {
+        "query": "帮我看一下 inventory.xlsx 里哪些货物缺货",
+        "path": "inventory.xlsx",
+    }
 
     generic_followup = analyze_task_understanding("按仓库展开一下")
     assert generic_followup.source_kind == "knowledge_base"

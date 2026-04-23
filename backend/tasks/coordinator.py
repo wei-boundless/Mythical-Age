@@ -121,12 +121,9 @@ class TaskCoordinator:
             return "pdf"
         if bindings.active_dataset:
             return "structured_data"
-        if bindings.active_location:
-            return "weather"
         return bindings.source_kind or "general"
 
     def _derive_task_bindings(self, query: str) -> TaskBindings:
-        lowered = query.lower()
         pdf_match = re.search(r"([^\s,，。；;:：]+\.pdf)", query, flags=re.IGNORECASE)
         dataset_match = re.search(r"([^\s,，。；;:：]+?\.(?:xlsx|csv|xls))", query, flags=re.IGNORECASE)
         active_pdf = pdf_match.group(1) if pdf_match else ""
@@ -136,26 +133,17 @@ class TaskCoordinator:
             active_binding_identity = active_pdf.replace("\\", "/").strip().lower()
         elif active_dataset:
             active_binding_identity = active_dataset.replace("\\", "/").strip().lower()
-        location = ""
-        for candidate in ("北京", "上海", "深圳", "广州", "杭州", "武汉", "成都"):
-            if candidate in query:
-                location = candidate
-                break
-        source_kind = "general"
+        source_kind = ""
         if pdf_match:
             source_kind = "pdf"
         elif dataset_match:
             source_kind = "dataset"
-        elif "天气" in query:
-            source_kind = "weather"
-        elif "黄金" in query:
-            source_kind = "finance"
         return TaskBindings(
             active_pdf=active_pdf,
             active_dataset=active_dataset,
             active_binding_identity=active_binding_identity,
-            active_entity="黄金" if "黄金" in query else "",
-            active_location=location,
+            active_entity="",
+            active_location="",
             source_kind=source_kind,
         )
 

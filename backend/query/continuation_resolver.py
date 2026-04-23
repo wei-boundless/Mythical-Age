@@ -153,34 +153,13 @@ class QueryContinuationResolver:
         normalized = (message or "").strip().lower()
         if not normalized:
             return False
-        if re.search(r"第\s*\d+\s*页", message):
+        if self._has_pdf_page_reference(message):
             return True
-        if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message):
+        if self._has_pdf_section_reference(message):
             return True
-        if re.search(r"page\s*\d+", normalized):
+        if self._has_explicit_pdf_object_reference(message):
             return True
-        if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)", message):
-            return True
-
-        explicit_doc_reference = ".pdf" in normalized or "pdf" in normalized
-        followup_markers = (
-            "这一页",
-            "那一页",
-            "上一页",
-            "下一页",
-            "这页",
-            "那页",
-            "回到刚才",
-            "刚才那份",
-            "这一部分",
-            "那一部分",
-            "这一章",
-            "那一章",
-            "核心结论",
-            "主要结论",
-            "结论是什么",
-        )
-        return explicit_doc_reference and any(marker in message for marker in followup_markers)
+        return False
 
     def _select_pdf_mode(self, message: str) -> str:
         normalized = (message or "").strip().lower()
@@ -250,9 +229,13 @@ class QueryContinuationResolver:
             marker in message
             for marker in (
                 "总结",
+                "摘要",
+                "运营摘要",
+                "简报",
                 "概括",
                 "归纳",
                 "梳理",
+                "汇总摘要",
                 "整理成",
                 "压成",
                 "改写",
@@ -269,13 +252,27 @@ class QueryContinuationResolver:
             return False
         summary_markers = (
             "总结",
+            "摘要",
+            "运营摘要",
             "回顾",
             "归纳",
             "梳理",
             "整理",
             "概括",
+            "简报",
+            "汇总摘要",
+        )
+        organization_markers = (
             "分成",
             "拆成",
+            "分开",
+            "分段",
+            "按",
+            "组织",
+            "三段",
+            "四段",
+            "四块",
+            "几块",
         )
         scope_markers = (
             "这几个任务",
@@ -292,9 +289,27 @@ class QueryContinuationResolver:
             "刚做的",
             "刚问的",
         )
-        return any(marker in message for marker in summary_markers) and any(
-            marker in message for marker in scope_markers
+        source_markers = (
+            "pdf",
+            "报告",
+            "数据",
+            "数据表",
+            "表格",
+            "库存",
+            "员工",
+            "黄金",
+            "天气",
+            "实时",
+            "知识库",
+            "记忆",
         )
+        has_summary_intent = any(marker in message for marker in summary_markers)
+        has_organization_intent = any(marker in message for marker in organization_markers) and (
+            has_summary_intent or any(marker in message for marker in ("汇报", "简报", "结论"))
+        )
+        multi_source_hits = sum(1 for marker in source_markers if marker in normalized or marker in message)
+        has_session_scope = any(marker in message for marker in scope_markers)
+        return (has_summary_intent or has_organization_intent) and (has_session_scope or multi_source_hits >= 2)
 
     def _apply_pdf_authority(
         self,
@@ -393,23 +408,11 @@ class QueryContinuationResolver:
         tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
         if tool_name == "pdf_analysis":
             return True
+        if self._looks_like_session_summary(message):
+            return False
         if self._looks_like_pdf_followup(message):
             return True
-        return any(
-            marker in message
-            for marker in (
-                "全文",
-                "总览",
-                "结论",
-                "行动建议",
-                "约束",
-                "重点",
-                "解读",
-                "分析",
-                "说明",
-                "提炼",
-            )
-        )
+        return False
 
     def _can_apply_structured_authority(
         self,
@@ -419,4 +422,36 @@ class QueryContinuationResolver:
         tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
         if tool_name == "structured_data_analysis":
             return True
+        if self._looks_like_session_summary(message):
+            return False
         return self._has_strong_structured_operation(message)
+
+    def _has_pdf_page_reference(self, message: str) -> bool:
+        normalized = (message or "").strip().lower()
+        return bool(
+            re.search(r"第\s*\d+\s*页", message)
+            or re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message)
+            or re.search(r"page\s*\d+", normalized)
+        )
+
+    def _has_pdf_section_reference(self, message: str) -> bool:
+        return bool(
+            re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)", message)
+            or any(marker in message for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节"))
+        )
+
+    def _has_explicit_pdf_object_reference(self, message: str) -> bool:
+        normalized = (message or "").strip().lower()
+        if ".pdf" in normalized:
+            return True
+        explicit_pdf_markers = (
+            "这份 pdf",
+            "那个 pdf",
+            "这份PDF",
+            "那个PDF",
+            "回到刚才 pdf",
+            "回到刚才 PDF",
+            "刚才那份 pdf",
+            "刚才那份 PDF",
+        )
+        return any(marker in message or marker in normalized for marker in explicit_pdf_markers) or "pdf" in normalized

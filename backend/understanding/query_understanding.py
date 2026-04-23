@@ -93,14 +93,6 @@ def _apply_skill_tool_routing(
             understanding.skill_name = matched_skill.name
             if matched_skill.allowed_tools:
                 understanding.candidate_tools = list(matched_skill.allowed_tools)
-            if (
-                understanding.route == "rag"
-                and matched_skill.preferred_route == "tool"
-                and matched_skill.allowed_tools
-            ):
-                understanding.route = "tool"
-                understanding.should_skip_rag = True
-                understanding.reasons.append("skill_promoted_tool_route")
 
     if understanding.route != "tool":
         return

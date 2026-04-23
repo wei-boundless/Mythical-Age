@@ -58,6 +58,21 @@ class StructuredDataAnalysisTool(BaseTool):
         self._engine = StructuredDataEngine()
         self._artifact_builder = StructuredDataArtifactBuilder(root_dir=self._root_dir)
 
+    def _resolve_explicit_path(self, path: str) -> Path:
+        normalized = str(path or "").strip()
+        if not normalized:
+            raise ValueError("missing_explicit_dataset_path")
+        candidates = StructuredDataCatalog.list_dataset_paths(self._root_dir)
+        matched = StructuredDataCatalog._match_filename(self._root_dir, candidates, normalized)
+        if matched is not None:
+            return matched
+        resolved = StructuredDataCatalog.resolve_dataset_path(self._root_dir, normalized, normalized)
+        if not resolved.exists():
+            raise ValueError("file_does_not_exist")
+        if resolved.is_dir():
+            raise ValueError("path_is_directory")
+        return resolved
+
     def _load_dataframe(self, file_path: Path, sheet_name: str = "") -> pd.DataFrame:
         suffix = file_path.suffix.lower()
         if suffix == ".xlsx":
@@ -82,14 +97,16 @@ class StructuredDataAnalysisTool(BaseTool):
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            file_path = StructuredDataCatalog.resolve_dataset_path(self._root_dir, path, query)
+            file_path = self._resolve_explicit_path(path)
         except ValueError as exc:
+            code = str(exc)
+            if code == "missing_explicit_dataset_path":
+                return "结构化分析失败：必须显式提供数据文件 path。"
+            if code == "file_does_not_exist":
+                return "结构化分析失败：文件不存在。"
+            if code == "path_is_directory":
+                return "结构化分析失败：给定路径是目录。"
             return f"结构化分析失败：{exc}"
-
-        if not file_path.exists():
-            return "结构化分析失败：文件不存在。"
-        if file_path.is_dir():
-            return "结构化分析失败：给定路径是目录。"
 
         try:
             df = self._load_dataframe(file_path, sheet_name=sheet_name)

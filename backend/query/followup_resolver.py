@@ -255,7 +255,7 @@ class QueryFollowupResolver:
             return False
         if self._looks_like_summary_or_rewrite_request(message):
             return False
-        starter_markers = ("再", "继续", "然后", "接着", "那", "把", "按", "回到刚才", "刚才那个")
+        starter_markers = ("再", "继续", "然后", "接着", "回到刚才", "刚才那个", "刚才那份", "前面那个")
         generic_reference_markers = (
             "这个",
             "那个",
@@ -352,9 +352,13 @@ class QueryFollowupResolver:
             marker in message
             for marker in (
                 "总结",
+                "摘要",
+                "运营摘要",
+                "简报",
                 "概括",
                 "归纳",
                 "梳理",
+                "汇总摘要",
                 "整理成",
                 "压成",
                 "改写",
@@ -366,7 +370,9 @@ class QueryFollowupResolver:
         )
 
     def _looks_like_global_synthesis_request(self, message: str) -> bool:
-        if not self._looks_like_summary_or_rewrite_request(message):
+        if not self._looks_like_summary_or_rewrite_request(message) and not any(
+            marker in message for marker in ("分开", "分段", "分成", "拆成", "组织")
+        ):
             return False
         cross_source_markers = (
             "按 pdf",
@@ -384,6 +390,10 @@ class QueryFollowupResolver:
             "最后给我一个总结",
             "最后给我一个总结",
             "先给结论",
+            "运营摘要",
+            "分开给我",
+            "分段给我",
+            "分开组织",
         )
         source_markers = (
             "pdf",
@@ -391,6 +401,9 @@ class QueryFollowupResolver:
             "表格",
             "实时",
             "天气",
+            "黄金",
+            "库存",
+            "员工",
             "知识库",
             "长期记忆",
             "记忆",

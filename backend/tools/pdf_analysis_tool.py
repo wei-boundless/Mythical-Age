@@ -49,6 +49,21 @@ class PdfAnalysisTool(BaseTool):
         self._root_dir = root_dir.resolve()
         self._runtime = PDFReadAgentRuntime(root_dir=self._root_dir)
 
+    def _resolve_explicit_path(self, path: str) -> Path:
+        normalized = str(path or "").strip()
+        if not normalized:
+            raise ValueError("missing_explicit_pdf_path")
+        candidates = PdfAnalysisCatalog.list_pdf_paths(self._root_dir)
+        matched = PdfAnalysisCatalog._match_filename(self._root_dir, candidates, normalized)
+        if matched is not None:
+            return matched
+        resolved = PdfAnalysisCatalog.resolve_pdf_path(self._root_dir, normalized, normalized)
+        if not resolved.exists():
+            raise ValueError("file_does_not_exist")
+        if resolved.is_dir():
+            raise ValueError("path_is_directory")
+        return resolved
+
     def _run(
         self,
         query: str,
@@ -58,14 +73,16 @@ class PdfAnalysisTool(BaseTool):
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            file_path = PdfAnalysisCatalog.resolve_pdf_path(self._root_dir, path, query)
+            file_path = self._resolve_explicit_path(path)
         except ValueError as exc:
+            code = str(exc)
+            if code == "missing_explicit_pdf_path":
+                return "PDF analysis failed: explicit path is required."
+            if code == "file_does_not_exist":
+                return "PDF analysis failed: file does not exist."
+            if code == "path_is_directory":
+                return "PDF analysis failed: the provided path is a directory."
             return f"PDF analysis failed: {exc}"
-
-        if not file_path.exists():
-            return "PDF analysis failed: file does not exist."
-        if file_path.is_dir():
-            return "PDF analysis failed: the provided path is a directory."
 
         result = self._runtime.run(
             request=PDFReadRequest(

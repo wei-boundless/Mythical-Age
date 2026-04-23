@@ -243,6 +243,52 @@ def test_pdf_analysis_tool_returns_canonical_protocol() -> None:
         assert parsed.pages == [2, 4]
 
 
+def test_pdf_analysis_tool_requires_explicit_path() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root_dir = Path(temp_dir)
+        tool = PdfAnalysisTool(root_dir=root_dir)
+        output = tool._run(
+            query="打开 demo.pdf，给我一个全文总览。",
+            path="",
+            mode="document",
+            max_chunks=4,
+        )
+
+        assert output == "PDF analysis failed: explicit path is required."
+
+
+def test_pdf_analysis_tool_resolves_explicit_shortname_path() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root_dir = Path(temp_dir)
+        pdf_path = root_dir / "knowledge" / "nested" / "demo.pdf"
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        pdf_path.write_bytes(b"%PDF-1.4\n")
+
+        tool = PdfAnalysisTool(root_dir=root_dir)
+        stub_runtime = _StubRuntime(
+            PDFCanonicalResult(
+                status="ok",
+                source="demo.pdf",
+                requested_mode="document",
+                effective_mode="document",
+                summary="短文件名也已解析。",
+                pages=[1],
+            )
+        )
+        tool._runtime = stub_runtime
+        output = tool._run(
+            query="打开 demo.pdf，给我一个全文总览。",
+            path="demo.pdf",
+            mode="document",
+            max_chunks=4,
+        )
+
+        parsed = PDFCanonicalResult.from_tool_output(output)
+        assert parsed is not None
+        assert parsed.summary == "短文件名也已解析。"
+        assert stub_runtime.calls[0]["file_path"].endswith("knowledge\\nested\\demo.pdf") or stub_runtime.calls[0]["file_path"].endswith("knowledge/nested/demo.pdf")
+
+
 def test_pdf_agent_runtime_cleans_dirty_body_text_before_stable_summary() -> None:
     parser = _FakeParser(
         pages=[

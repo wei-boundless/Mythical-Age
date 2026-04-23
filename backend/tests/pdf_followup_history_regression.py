@@ -68,6 +68,18 @@ def main() -> None:
         explicit_tool_input = resolver.resolve(plan=explicit_plan, history=history)
     assert explicit_tool_input["path"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
 
+    shortname_plan = SimpleNamespace(
+        message="现在打开 2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。",
+        query_understanding=QueryUnderstanding(
+            route="tool",
+            tool_name="pdf_analysis",
+            tool_input={"query": "现在打开 2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。", "mode": "document"},
+        ),
+        structured_binding=None,
+    )
+    shortname_tool_input = resolver.resolve(plan=shortname_plan, history=history)
+    assert shortname_tool_input["path"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+
     non_explicit_plan = SimpleNamespace(
         message="请继续解读第三页。",
         query_understanding=QueryUnderstanding(

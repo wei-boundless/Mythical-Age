@@ -107,7 +107,6 @@ class SkillRegistry:
             if tool_skill is not None:
                 return tool_skill
 
-        normalized = (message or "").strip().lower()
         best_skill: SkillDefinition | None = None
         best_score = float("-inf")
 
@@ -120,25 +119,12 @@ class SkillRegistry:
                 score += 8.0
             if source_kind and source_kind in skill.supported_source_kinds:
                 score += 7.0
-            if route and skill.preferred_route == route:
-                score += 3.0
             if modality and modality in skill.supported_modalities:
                 score += 2.0
 
             if candidate_tools and skill.allowed_tools:
                 overlap = set(candidate_tools) & set(skill.allowed_tools)
                 score += float(len(overlap)) * 2.5
-
-            for hint in skill.routing_hints:
-                if hint and hint.lower() in normalized:
-                    score += 2.0
-            for example in skill.examples:
-                example_lower = example.lower()
-                if example_lower and example_lower in normalized:
-                    score += 3.0
-            for tag in skill.capability_tags:
-                if tag and tag.lower() in normalized:
-                    score += 1.0
 
             if score > best_score:
                 best_score = score

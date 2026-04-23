@@ -52,22 +52,6 @@ class StructuredBindingResolver:
                 )
             return None
 
-        if self._looks_like_generic_followup(message):
-            return None
-
-        try:
-            resolved = StructuredDataCatalog.resolve_dataset_path(self.base_dir, "", message)
-        except ValueError:
-            resolved = None
-        if resolved is not None:
-            return StructuredDatasetBinding(
-                dataset_path=StructuredDataCatalog.relative_path(self.base_dir, resolved),
-                target_object=StructuredDataCatalog.target_object_for_path(resolved),
-                source="catalog_default",
-                confidence=float(getattr(understanding, "confidence", 0.0) or 0.0),
-                binding_identity=StructuredDataCatalog.relative_path(self.base_dir, resolved).replace("\\", "/").lower(),
-                explicit_switch=self._looks_explicit_switch(message),
-            )
         return None
 
     def _looks_structured(self, understanding: Any) -> bool:

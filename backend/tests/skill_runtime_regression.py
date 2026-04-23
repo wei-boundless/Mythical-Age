@@ -47,58 +47,70 @@ def main() -> None:
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert structured.route == "tool"
-    assert structured.skill_name == "structured-data-analysis"
-    assert structured.tool_name == "structured_data_analysis"
-    assert "structured_data_analysis" in structured.candidate_tools
+    assert structured.route == "rag"
+    assert structured.skill_name == "rag-skill"
+    assert structured.tool_name is None
 
     shortage = analyze_query_understanding(
         "从我的数据库中，查询有哪些货物缺货",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert shortage.route == "tool"
-    assert shortage.skill_name == "structured-data-analysis"
-    assert shortage.tool_name == "structured_data_analysis"
-    assert shortage.task_kind == "dataset_query"
+    assert shortage.route == "rag"
+    assert shortage.skill_name == "rag-skill"
+    assert shortage.tool_name is None
+    assert shortage.task_kind == "knowledge_lookup"
     assert shortage.target_object is None
-    assert shortage.tool_input == {"query": "从我的数据库中，查询有哪些货物缺货"}
+    assert shortage.tool_input == {}
 
     abundance = analyze_query_understanding(
         "我不是要知道缺货情况，我要你分析哪些地方货物最充足",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert abundance.route == "tool"
-    assert abundance.skill_name == "structured-data-analysis"
-    assert abundance.tool_name == "structured_data_analysis"
-    assert abundance.task_kind == "dataset_query"
+    assert abundance.route == "rag"
+    assert abundance.skill_name == "rag-skill"
+    assert abundance.tool_name is None
+    assert abundance.task_kind == "knowledge_lookup"
     assert abundance.target_object is None
-    assert abundance.tool_input == {"query": "我不是要知道缺货情况，我要你分析哪些地方货物最充足"}
+    assert abundance.tool_input == {}
 
     shortage_places = analyze_query_understanding(
         "哪些地方货物不够",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert shortage_places.route == "tool"
-    assert shortage_places.skill_name == "structured-data-analysis"
-    assert shortage_places.tool_name == "structured_data_analysis"
-    assert shortage_places.task_kind == "dataset_query"
+    assert shortage_places.route == "rag"
+    assert shortage_places.skill_name == "rag-skill"
+    assert shortage_places.tool_name is None
+    assert shortage_places.task_kind == "knowledge_lookup"
     assert shortage_places.target_object is None
-    assert shortage_places.tool_input == {"query": "哪些地方货物不够"}
+    assert shortage_places.tool_input == {}
 
     non_shortage_places = analyze_query_understanding(
         "哪些地方不缺货",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert non_shortage_places.route == "tool"
-    assert non_shortage_places.skill_name == "structured-data-analysis"
-    assert non_shortage_places.tool_name == "structured_data_analysis"
-    assert non_shortage_places.task_kind == "dataset_query"
+    assert non_shortage_places.route == "rag"
+    assert non_shortage_places.skill_name == "rag-skill"
+    assert non_shortage_places.tool_name is None
+    assert non_shortage_places.task_kind == "knowledge_lookup"
     assert non_shortage_places.target_object is None
-    assert non_shortage_places.tool_input == {"query": "哪些地方不缺货"}
+    assert non_shortage_places.tool_input == {}
+
+    explicit_structured = analyze_query_understanding(
+        "帮我看一下 inventory.xlsx 里销量前五的有哪些",
+        skill_registry=skill_registry,
+        tool_registry=tool_registry,
+    )
+    assert explicit_structured.route == "tool"
+    assert explicit_structured.skill_name == "structured-data-analysis"
+    assert explicit_structured.tool_name == "structured_data_analysis"
+    assert explicit_structured.tool_input == {
+        "query": "帮我看一下 inventory.xlsx 里销量前五的有哪些",
+        "path": "inventory.xlsx",
+    }
 
     pdf = analyze_query_understanding(
         "2025年AI治理报告的第三页讲得什么",

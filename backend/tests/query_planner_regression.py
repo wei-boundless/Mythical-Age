@@ -230,6 +230,24 @@ def main() -> None:
     assert summary_plan.query_understanding.intent == "session_summary_query"
     assert summary_plan.subqueries == ["把今天这几个任务分成 PDF、数据表、实时查询三段总结。"]
 
+    ops_summary_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。",
+        history=summary_history,
+    )
+    assert ops_summary_plan.query_understanding.route == "memory"
+    assert ops_summary_plan.query_understanding.intent == "session_summary_query"
+    assert ops_summary_plan.query_understanding.tool_name is None
+    assert ops_summary_plan.subqueries == ["把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。"]
+
+    protected_summary_understanding = continuation_resolver.apply_authoritative_context(
+        message="把刚才这几块信息压成适合管理层汇报的三条。",
+        understanding=QueryUnderstanding(route="rag", task_kind="knowledge_lookup", source_kind="knowledge_base"),
+        authority_context={"active_pdf": "knowledge/reports/test.pdf"},
+    )
+    assert protected_summary_understanding.route == "rag"
+    assert protected_summary_understanding.tool_name is None
+
     print("ALL PASSED (query planner regression)")
 
 

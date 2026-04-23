@@ -122,7 +122,10 @@ class QueryPlanner:
             message=message,
             route=query_understanding.route,
             modality=query_understanding.modality,
+            task_kind=query_understanding.task_kind,
+            source_kind=query_understanding.source_kind,
             tool_name=query_understanding.tool_name,
+            candidate_tools=query_understanding.candidate_tools,
         )
         if skill is not None:
             query_understanding.skill_name = skill.name

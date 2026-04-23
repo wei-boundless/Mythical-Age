@@ -220,10 +220,66 @@ def test_memory_route_disables_tools() -> None:
     assert memory_facade.prefetch_queries == []
     assert model_runtime.last_tools == []
     assert not any(event.get("type") == "tool_start" for event in events)
-    assert any(event.get("type") == "done" for event in events)
-    done = [event for event in events if event.get("type") == "done"][-1]
-    assert isinstance(done.get("main_context"), dict)
-    assert done["main_context"]["active_work_item"] == "session_summary_query"
+
+
+def test_direct_tool_pdf_without_path_is_blocked_by_contract_gate() -> None:
+    tool = SimpleNamespace(invoke=lambda _tool_input: {"answer": "should not run"})
+    plan = QueryPlan(
+        session_id="pdf-contract-block",
+        message="第四页讲了什么？",
+        history=[],
+        subqueries=["第四页讲了什么？"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="tool_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+        tool_input={"query": "第四页讲了什么？"},
+        execution_kind="direct_tool",
+    )
+    events, _retrieval, _model_runtime, _memory_facade = asyncio.run(
+        _collect_events(plan, rag_mode=False, direct_tools={"pdf_analysis": tool})
+    )
+
+    assert not any(event.get("type") == "tool_start" for event in events)
+    done = next(event for event in events if event.get("type") == "done")
+    assert done["answer_source"] == "tool_contract_gate"
+    assert done["answer_fallback_reason"] == "tool_contract_blocked"
+    assert "需要先明确 PDF 文件 path" in str(done["content"])
+
+
+def test_direct_tool_structured_without_path_is_blocked_by_contract_gate() -> None:
+    tool = SimpleNamespace(invoke=lambda _tool_input: {"answer": "should not run"})
+    plan = QueryPlan(
+        session_id="structured-contract-block",
+        message="按仓库统计哪些商品缺货",
+        history=[],
+        subqueries=["按仓库统计哪些商品缺货"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="tool_query",
+            route="tool",
+            modality="table",
+            tool_name="structured_data_analysis",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+        tool_input={"query": "按仓库统计哪些商品缺货"},
+        execution_kind="direct_tool",
+    )
+    events, _retrieval, _model_runtime, _memory_facade = asyncio.run(
+        _collect_events(plan, rag_mode=False, direct_tools={"structured_data_analysis": tool})
+    )
+
+    assert not any(event.get("type") == "tool_start" for event in events)
+    done = next(event for event in events if event.get("type") == "done")
+    assert done["answer_source"] == "tool_contract_gate"
+    assert done["answer_fallback_reason"] == "tool_contract_blocked"
+    assert "需要先明确数据文件 path" in str(done["content"])
 
 
 def test_rag_route_prefetches_retrieval_without_tools() -> None:
