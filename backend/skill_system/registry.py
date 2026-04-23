@@ -20,6 +20,9 @@ class SkillDefinition:
     forbidden_routes: list[str] = field(default_factory=list)
     routing_hints: list[str] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
+    activation_policy: str = "model_visible"
+    context_mode: str = "inline"
+    route_authority: str = "candidate_only"
     reference_paths: list[str] = field(default_factory=list)
 
 
@@ -58,6 +61,9 @@ class SkillRegistry:
                     forbidden_routes=[str(v) for v in item.get("forbidden_routes", []) if str(v).strip()],
                     routing_hints=[str(v) for v in item.get("routing_hints", []) if str(v).strip()],
                     examples=[str(v) for v in item.get("examples", []) if str(v).strip()],
+                    activation_policy=str(item.get("activation_policy", "model_visible") or "model_visible").strip(),
+                    context_mode=str(item.get("context_mode", "inline") or "inline").strip(),
+                    route_authority=str(item.get("route_authority", "candidate_only") or "candidate_only").strip(),
                     reference_paths=[str(v) for v in item.get("reference_paths", []) if str(v).strip()],
                 )
             )
@@ -154,6 +160,9 @@ class SkillRegistry:
             f"Skill: {skill.title or skill.name}",
             f"Skill ID: {skill.name}",
             f"Preferred Route: {skill.preferred_route}",
+            f"Activation Policy: {skill.activation_policy}",
+            f"Context Mode: {skill.context_mode}",
+            f"Route Authority: {skill.route_authority}",
             f"Description: {skill.description}",
         ]
         if skill.supported_source_kinds:

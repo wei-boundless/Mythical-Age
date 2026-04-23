@@ -14,6 +14,8 @@ class QueryFollowupResolver:
         normalized = (message or "").strip()
         if not normalized:
             return FollowupResolution()
+        if self._looks_like_global_synthesis_request(normalized):
+            return FollowupResolution()
         if self._looks_explicit(normalized):
             return FollowupResolution(resolution_source="explicit_input", reason="explicit_reference_present")
 
@@ -362,6 +364,39 @@ class QueryFollowupResolver:
                 "汇报版本",
             )
         )
+
+    def _looks_like_global_synthesis_request(self, message: str) -> bool:
+        if not self._looks_like_summary_or_rewrite_request(message):
+            return False
+        cross_source_markers = (
+            "按 pdf",
+            "按数据",
+            "按实时",
+            "按长期记忆",
+            "按记忆",
+            "四段",
+            "多段",
+            "多源",
+            "跨源",
+            "综合",
+            "总总结",
+            "总的总结",
+            "最后给我一个总结",
+            "最后给我一个总结",
+            "先给结论",
+        )
+        source_markers = (
+            "pdf",
+            "数据",
+            "表格",
+            "实时",
+            "天气",
+            "知识库",
+            "长期记忆",
+            "记忆",
+        )
+        hit_sources = sum(1 for marker in source_markers if marker in message.lower() or marker in message)
+        return any(marker in message.lower() or marker in message for marker in cross_source_markers) or hit_sources >= 2
 
     def _has_committed_pdf_binding(self, task) -> bool:
         if task.context_ref is None:

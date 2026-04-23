@@ -27,6 +27,9 @@ class SkillRecord:
     forbidden_routes: list[str] = field(default_factory=list)
     routing_hints: list[str] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
+    activation_policy: str = "model_visible"
+    context_mode: str = "inline"
+    route_authority: str = "candidate_only"
     reference_paths: list[str] = field(default_factory=list)
 
 
@@ -128,6 +131,9 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
                 forbidden_routes=_coerce_list(_lookup(meta, "metadata.forbidden_routes")),
                 routing_hints=_coerce_list(_lookup(meta, "metadata.routing_hints")),
                 examples=_coerce_list(_lookup(meta, "metadata.examples")),
+                activation_policy=_coerce_str(_lookup(meta, "metadata.activation_policy"), "model_visible") or "model_visible",
+                context_mode=_coerce_str(_lookup(meta, "metadata.context_mode"), "inline") or "inline",
+                route_authority=_coerce_str(_lookup(meta, "metadata.route_authority"), "candidate_only") or "candidate_only",
                 reference_paths=_collect_reference_paths(base_dir, skill_dir),
             )
         )
@@ -157,6 +163,9 @@ def build_snapshot(skills: list[SkillRecord]) -> str:
             lines.append(f"    <allowed_tools>{', '.join(skill.allowed_tools)}</allowed_tools>")
         if skill.capability_tags:
             lines.append(f"    <capability_tags>{', '.join(skill.capability_tags)}</capability_tags>")
+        lines.append(f"    <activation_policy>{skill.activation_policy}</activation_policy>")
+        lines.append(f"    <context_mode>{skill.context_mode}</context_mode>")
+        lines.append(f"    <route_authority>{skill.route_authority}</route_authority>")
         if skill.routing_hints:
             lines.append(f"    <routing_hints>{', '.join(skill.routing_hints[:6])}</routing_hints>")
         if skill.forbidden_routes:

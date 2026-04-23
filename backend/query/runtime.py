@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -21,6 +22,8 @@ from query.planner import QueryPlanner
 from runtime.model_runtime import ModelRuntime, ModelRuntimeError, stringify_content
 from tasks.context_models import TaskConstraints
 from tasks.coordinator import TaskCoordinator
+from tools.contracts import ToolContractDecision, ToolContractGate
+from tools.definitions import get_tool_definition_map
 from understanding import MemoryIntent, QueryUnderstanding
 
 logger = logging.getLogger(__name__)
@@ -57,6 +60,9 @@ class QueryRuntime:
         self.answer_assembler = AnswerAssembler()
         self._session_memory_projection: dict[str, dict[str, Any]] = {}
         self.max_tool_steps = 8
+        self.tool_contract_gate = ToolContractGate(
+            mode=str(os.getenv("TOOL_CONTRACT_MODE", "shadow") or "shadow").strip().lower()
+        )
         self.planner = QueryPlanner(
             base_dir=base_dir,
             skill_registry=skill_registry,
@@ -336,16 +342,6 @@ class QueryRuntime:
                 "answer_leak_flags": [],
             }
             return
-        if followup_resolution.mode == "binding_ref" and self._binding_owner_task(session_id, followup_resolution) is not None:
-            async for event in self._stream_binding_followup(
-                session_id,
-                message,
-                history,
-                followup_resolution=followup_resolution,
-                trace=trace,
-            ):
-                yield event
-            return
         if trace is not None:
             with trace.stage(
                 "query.plan",
@@ -365,6 +361,20 @@ class QueryRuntime:
                     "app.subquery_count": len(executions),
                 }
             )
+        if self._should_execute_binding_followup(
+            session_id=session_id,
+            followup_resolution=followup_resolution,
+            plan=plan,
+        ):
+            async for event in self._stream_binding_followup(
+                session_id,
+                message,
+                history,
+                followup_resolution=followup_resolution,
+                trace=trace,
+            ):
+                yield event
+            return
         if len(executions) > 1:
             subtask_results: list[dict[str, object]] = []
             async for event in self.task_coordinator.run_query_tasks(
@@ -781,11 +791,6 @@ class QueryRuntime:
             if task_id:
                 followup_target_task_id = task_id
         constraints = self._extract_active_constraints(message)
-        if task_refs:
-            latest = task_refs[-1]
-            constraints = dict(constraints)
-            if latest.response_style:
-                constraints.setdefault("response_style", latest.response_style)
         return MainContextState(
             active_goal=message.strip(),
             active_work_item="compound_query",
@@ -835,12 +840,6 @@ class QueryRuntime:
         followup_resolution,
     ) -> MainContextState:
         constraints = self._extract_active_constraints(message)
-        task_refs = self._task_summary_refs_from_results(results)
-        if task_refs:
-            latest = task_refs[-1]
-            if latest.response_style:
-                constraints = dict(constraints)
-                constraints.setdefault("response_style", latest.response_style)
         target_task_ids = self._resolved_task_ids(followup_resolution)
         target_task_id = self._resolved_task_id(followup_resolution) or (target_task_ids[0] if target_task_ids else "")
         work_item = "followup_task_result_assembly"
@@ -1003,9 +1002,6 @@ class QueryRuntime:
                     merged["usable_pages"] = int(task_constraints["usable_pages"])
                 if task_constraints.get("total_pages") is not None and merged.get("total_pages") is None:
                     merged["total_pages"] = int(task_constraints["total_pages"])
-            summary_payload = item.get("summary")
-            if isinstance(summary_payload, dict) and summary_payload.get("response_style") and not merged.get("response_style"):
-                merged["response_style"] = str(summary_payload["response_style"])
         return merged
 
     def _capture_session_memory_projection(
@@ -1169,6 +1165,47 @@ class QueryRuntime:
             )
         return sorted(records, key=lambda item: int(item.get("index", 0) or 0))
 
+    def _followup_result_from_done_event(
+        self,
+        event: dict[str, object],
+        *,
+        fallback_query: str,
+    ) -> dict[str, object] | None:
+        task_id = str(event.get("task_id", "") or "").strip()
+        summary_payload = event.get("summary")
+        context_ref_payload = event.get("context_ref")
+        result_ref_payload = event.get("result_ref")
+        content = event.get("content")
+        if not task_id and not isinstance(summary_payload, dict):
+            return None
+        return {
+            "index": 1,
+            "query": str(event.get("query", "") or fallback_query),
+            "content": content if content is not None else "",
+            "task_id": task_id,
+            "summary": summary_payload if isinstance(summary_payload, dict) else None,
+            "context_ref": context_ref_payload if isinstance(context_ref_payload, dict) else None,
+            "result_ref": result_ref_payload if isinstance(result_ref_payload, dict) else None,
+        }
+
+    def _synthesize_followup_task_summary_ref(
+        self,
+        *,
+        task_id: str,
+        query: str,
+        content: str,
+        task_kind: str = "",
+    ) -> TaskSummaryRef | None:
+        summary = " ".join(sanitize_visible_assistant_content(str(content or "")).split()).strip()
+        if not task_id or not summary or contains_internal_protocol(summary):
+            return None
+        return TaskSummaryRef(
+            task_id=task_id,
+            query=query,
+            summary=summary[:280],
+            task_kind=task_kind,
+        )
+
     def _binding_owner_task(self, session_id: str, followup_resolution) -> Any | None:
         owner_task_id = str(
             self._resolved_binding_owner_task_id(followup_resolution)
@@ -1183,6 +1220,48 @@ class QueryRuntime:
         if str(task.metadata.get("session_id", "")) != session_id:
             return None
         return task
+
+    def _should_execute_binding_followup(
+        self,
+        *,
+        session_id: str,
+        followup_resolution,
+        plan: QueryPlan,
+    ) -> bool:
+        if str(getattr(followup_resolution, "mode", "") or "") != "binding_ref":
+            return False
+        owner_task = self._binding_owner_task(session_id, followup_resolution)
+        if owner_task is None:
+            return False
+        executions = plan.iter_executions()
+        if len(executions) != 1:
+            return False
+        execution = executions[0]
+        if str(getattr(execution.query_understanding, "route", "") or "") != "tool":
+            return False
+        binding_kind = self._resolved_binding_kind(followup_resolution)
+        tool_name = str(getattr(execution.query_understanding, "tool_name", "") or "").strip()
+        tool_input = dict(getattr(execution, "tool_input", {}) or getattr(execution.query_understanding, "tool_input", {}) or {})
+        normalized_path = self._normalize_binding_identity(str(tool_input.get("path", "") or ""))
+        normalized_location = str(tool_input.get("location", "") or "").strip()
+        owner_context = getattr(owner_task, "context_ref", None)
+        owner_bindings = getattr(owner_context, "bindings", None)
+        if binding_kind == "active_pdf":
+            owner_path = self._normalize_binding_identity(str(getattr(owner_bindings, "active_pdf", "") or ""))
+            return tool_name == "pdf_analysis" and (not normalized_path or normalized_path == owner_path)
+        if binding_kind == "active_dataset":
+            owner_path = self._normalize_binding_identity(str(getattr(owner_bindings, "active_dataset", "") or ""))
+            return tool_name == "structured_data_analysis" and (not normalized_path or normalized_path == owner_path)
+        if binding_kind == "active_location":
+            owner_location = str(getattr(owner_bindings, "active_location", "") or "").strip()
+            return tool_name == "get_weather" and (not normalized_location or normalized_location == owner_location)
+        if binding_kind == "active_entity":
+            owner_entity = str(getattr(owner_bindings, "active_entity", "") or "").strip()
+            return tool_name == "get_gold_price" and owner_entity == "黄金"
+        return False
+
+    def _normalize_binding_identity(self, value: str) -> str:
+        return str(value or "").replace("\\", "/").strip().lower()
 
     def _binding_execution_from_owner(
         self,
@@ -1311,13 +1390,27 @@ class QueryRuntime:
                 if str(dict(item or {}).get("task_id", "") or "").strip()
             ]
             followup_results = self._followup_results_from_task_ids(session_id, task_ids)
+            if not followup_results:
+                synthetic_result = self._followup_result_from_done_event(event, fallback_query=message)
+                if synthetic_result is not None:
+                    followup_results = [synthetic_result]
             if followup_results:
+                resolved_followup_task_id = (
+                    task_ids[-1]
+                    if task_ids
+                    else str(event.get("task_id", "") or self._resolved_task_id(followup_resolution)).strip()
+                )
+                resolved_followup_task_ids = (
+                    list(task_ids)
+                    if task_ids
+                    else [resolved_followup_task_id] if resolved_followup_task_id else self._resolved_task_ids(followup_resolution)
+                )
                 synthetic_resolution = followup_resolution.model_copy(
                     update={
-                        "task_id": task_ids[-1] if task_ids else self._resolved_task_id(followup_resolution),
-                        "resolved_task_id": task_ids[-1] if task_ids else self._resolved_task_id(followup_resolution),
-                        "task_ids": task_ids or self._resolved_task_ids(followup_resolution),
-                        "resolved_task_ids": task_ids or self._resolved_task_ids(followup_resolution),
+                        "task_id": resolved_followup_task_id,
+                        "resolved_task_id": resolved_followup_task_id,
+                        "task_ids": resolved_followup_task_ids,
+                        "resolved_task_ids": resolved_followup_task_ids,
                     }
                 )
                 main_context = self._build_followup_main_context(
@@ -1330,6 +1423,26 @@ class QueryRuntime:
                     followup_results,
                     main_context=main_context,
                 )
+                if not task_summary_payloads:
+                    followup_task_refs = self._task_summary_refs_from_results(followup_results)
+                    if not followup_task_refs:
+                        followup_task_refs = [
+                            synthetic_ref
+                            for synthetic_ref in [
+                                self._synthesize_followup_task_summary_ref(
+                                    task_id=synthetic_resolution.resolved_task_id
+                                    or synthetic_resolution.task_id,
+                                    query=message,
+                                    content=str(event.get("content", "") or ""),
+                                    task_kind=str(synthetic_resolution.resolved_task_kind or ""),
+                                )
+                            ]
+                            if synthetic_ref is not None
+                        ]
+                    event["task_summary_refs"] = [
+                        item.to_dict() if isinstance(item, TaskSummaryRef) else dict(item or {})
+                        for item in followup_task_refs
+                    ]
             event["followup_mode"] = followup_resolution.mode
             yield event
 
@@ -1422,6 +1535,30 @@ class QueryRuntime:
     ):
         tool_name = str(execution.query_understanding.tool_name or "").strip()
         tool_input = dict(execution.tool_input or execution.query_understanding.tool_input or {"query": execution.message})
+        contract_decision = self._evaluate_tool_contract(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            execution=execution,
+        )
+        if trace is not None:
+            trace.annotate(
+                {
+                    "app.tool_contract_mode": contract_decision.mode,
+                    "app.tool_contract_action": contract_decision.action,
+                    "app.tool_contract_reason": contract_decision.reason,
+                }
+            )
+        if contract_decision.should_block:
+            yield {
+                "type": "done",
+                "content": f"无法调用工具 {tool_name}：{contract_decision.reason}",
+                "answer_channel": "fallback_answer",
+                "answer_source": "tool_contract_gate",
+                "answer_fallback_reason": "tool_contract_blocked",
+                "answer_leak_flags": [],
+                "contract": contract_decision.to_dict(),
+            }
+            return
         decision = self.permission_service.can_invoke_tool(
             tool_name,
             allowed_tools=getattr(execution.active_skill, "allowed_tools", None),
@@ -1473,6 +1610,7 @@ class QueryRuntime:
             "type": "tool_start",
             "tool": tool_name,
             "input": tool_input,
+            "contract": contract_decision.to_dict(),
             "structured_binding": (
                 execution.structured_binding.to_dict()
                 if getattr(execution, "structured_binding", None) is not None
@@ -1576,12 +1714,52 @@ class QueryRuntime:
             "answer_source": "pdf_model_finalization" if pdf_model_finalized else tool_decision.selected_source,
             "answer_fallback_reason": "" if pdf_model_finalized else tool_decision.fallback_reason,
             "answer_leak_flags": list(tool_decision.leak_flags),
+            "contract": contract_decision.to_dict(),
             "task_summary_refs": (
                 [task_summary_ref.to_dict()]
                 if task_summary_ref is not None
                 else []
             ),
         }
+
+    def _evaluate_tool_contract(
+        self,
+        *,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        execution: QueryExecutionPlan,
+    ) -> ToolContractDecision:
+        contract = None
+        runtime_get_contract = getattr(self.tool_runtime, "get_contract", None)
+        if callable(runtime_get_contract):
+            contract = runtime_get_contract(tool_name)
+        if contract is None:
+            definition = get_tool_definition_map().get(tool_name)
+            if definition is not None:
+                contract = definition.contract
+        if contract is None:
+            return ToolContractDecision(
+                tool_name=tool_name,
+                mode=self.tool_contract_gate.mode,
+                action="deny",
+                reason="missing_tool_contract",
+            )
+
+        binding_context = {
+            "active_dataset": (
+                execution.structured_binding.dataset_path
+                if getattr(execution, "structured_binding", None) is not None
+                else ""
+            ),
+            "active_pdf": str(tool_input.get("path", "") or "").strip(),
+        }
+        return self.tool_contract_gate.evaluate(
+            tool_name=tool_name,
+            contract=contract,
+            tool_input=tool_input,
+            skill_allowed_tools=getattr(execution.active_skill, "allowed_tools", None),
+            binding_context=binding_context,
+        )
 
     def _normalize_direct_tool_output(
         self,

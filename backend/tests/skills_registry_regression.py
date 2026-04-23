@@ -33,6 +33,9 @@ def main() -> None:
     assert by_name["get-weather"].preferred_route == "tool"
     assert by_name["get-weather"].allowed_tools == ["get_weather"]
     assert by_name["get-weather"].supported_task_kinds == ["realtime_lookup"]
+    assert by_name["get-weather"].activation_policy == "model_visible"
+    assert by_name["get-weather"].context_mode == "inline"
+    assert by_name["get-weather"].route_authority == "candidate_only"
 
     assert "structured-data-analysis" in by_name
     structured = by_name["structured-data-analysis"]
@@ -41,12 +44,16 @@ def main() -> None:
     assert structured.allowed_tools == ["structured_data_analysis"]
     assert "dataset_filter" in structured.supported_task_kinds
     assert "dataset" in structured.supported_source_kinds
+    assert structured.context_mode == "isolated"
+    assert structured.route_authority == "candidate_only"
     assert any(path.endswith("references/excel_reading.md") for path in structured.reference_paths)
 
     assert "pdf-analysis" in by_name
     pdf = by_name["pdf-analysis"]
     assert "document_page" in pdf.supported_task_kinds
     assert "document_read" in pdf.supported_task_kinds
+    assert pdf.context_mode == "isolated"
+    assert pdf.activation_policy == "model_visible"
     assert any(path.endswith("references/pdf_reading.md") for path in pdf.reference_paths)
 
     assert "rag-skill" in by_name
@@ -72,6 +79,8 @@ def main() -> None:
     assert "<task_kinds>realtime_lookup</task_kinds>" in snapshot_text
     assert "<allowed_tools>get_weather</allowed_tools>" in snapshot_text
     assert "<source_kinds>dataset</source_kinds>" in snapshot_text
+    assert "<context_mode>isolated</context_mode>" in snapshot_text
+    assert "<route_authority>candidate_only</route_authority>" in snapshot_text
 
     print(f"ALL PASSED ({len(skills)} skills)")
 

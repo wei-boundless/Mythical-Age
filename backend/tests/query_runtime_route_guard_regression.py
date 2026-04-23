@@ -12,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 from pdf_agent import PDFCanonicalEvidence, PDFCanonicalResult
 from query import QueryRuntime
 from query.binding_models import StructuredDatasetBinding
+from query.followup_models import FollowupResolution
 from query.models import QueryExecutionPlan, QueryPlan
 from tasks import TaskCoordinator
 from understanding import MemoryIntent, QueryUnderstanding
@@ -703,10 +704,31 @@ def test_binding_followup_executes_from_owner_task_without_replanning() -> None:
 
     asyncio.run(_seed())
 
-    def _unexpected_plan(**_kwargs):
-        raise AssertionError("planner should not run for binding follow-up execution")
+    followup_plan = QueryPlan(
+        session_id="binding-session",
+        message="把这份 PDF 的核心结论压成三条行动建议。",
+        history=[],
+        subqueries=["把这份 PDF 的核心结论压成三条行动建议。"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="pdf_followup_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            task_kind="pdf",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+        tool_input={"query": "把这份 PDF 的核心结论压成三条行动建议。"},
+        execution_kind="direct_tool",
+    )
+    plan_calls = {"count": 0}
 
-    runtime.planner.build_plan = _unexpected_plan  # type: ignore[method-assign]
+    def _planned_followup(**_kwargs):
+        plan_calls["count"] += 1
+        return followup_plan
+
+    runtime.planner.build_plan = _planned_followup  # type: ignore[method-assign]
 
     async def _run() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -723,6 +745,7 @@ def test_binding_followup_executes_from_owner_task_without_replanning() -> None:
     assert retrieval.queries == []
     assert memory_facade.prefetch_queries == []
     assert model_runtime.last_tools == []
+    assert plan_calls["count"] == 1
     assert "tool_start" in [event["type"] for event in events]
     done = next(event for event in reversed(events) if event.get("type") == "done")
     assert done["followup_mode"] == "binding_ref"
@@ -736,6 +759,114 @@ def test_binding_followup_executes_from_owner_task_without_replanning() -> None:
     assert done["main_context"]["active_constraints"]["active_pdf"].endswith(".pdf")
     assert done["task_summary_refs"]
     assert done["task_summary_refs"][0]["task_id"] == done["main_context"]["followup_target_task_id"]
+
+
+def test_binding_followup_candidate_yields_to_memory_plan_when_route_conflicts() -> None:
+    coordinator = TaskCoordinator()
+    tool = SimpleNamespace(invoke=lambda _tool_input: {"answer": "unused"})
+    runtime, retrieval, model_runtime, memory_facade = _build_runtime(
+        rag_mode=False,
+        direct_tools={"pdf_analysis": tool},
+        task_coordinator=coordinator,
+    )
+
+    initial_plan = QueryPlan(
+        session_id="binding-session-memory-cutover",
+        message="现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。",
+        history=[],
+        subqueries=["现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="pdf_overview_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            task_kind="pdf",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+        tool_input={
+            "query": "现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。",
+            "path": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+        },
+        execution_kind="direct_tool",
+    )
+    runtime.planner.build_plan = lambda *, session_id, message, history: initial_plan  # type: ignore[method-assign]
+
+    async def _seed() -> None:
+        async for _event in runtime._execution_events(
+            "binding-session-memory-cutover",
+            initial_plan.message,
+            [],
+        ):
+            pass
+
+    asyncio.run(_seed())
+
+    owner_task_id = next(iter(coordinator._tasks.keys()))
+    normalized_path = "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf".replace("\\", "/").lower()
+    runtime.followup_resolver.resolve = lambda **_kwargs: FollowupResolution(  # type: ignore[method-assign]
+        mode="binding_ref",
+        target_kind="binding",
+        resolved_target_kind="binding",
+        task_id=owner_task_id,
+        resolved_task_id=owner_task_id,
+        binding_key="active_pdf",
+        binding_kind="active_pdf",
+        resolved_binding_kind="active_pdf",
+        binding_owner_task_id=owner_task_id,
+        resolved_binding_owner_task_id=owner_task_id,
+        binding_identity=normalized_path,
+        resolved_binding_identity=normalized_path,
+        resolved_binding_ref=normalized_path,
+        resolution_source="task_registry_binding_hint",
+        confidence=0.45,
+        reason="binding_reference",
+    )
+
+    memory_plan = QueryPlan(
+        session_id="binding-session-memory-cutover",
+        message="把今天这几个任务分成 PDF、数据表、实时查询三段总结。",
+        history=[{"role": "assistant", "content": "已有上下文"}],
+        subqueries=["把今天这几个任务分成 PDF、数据表、实时查询三段总结。"],
+        memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="session_summary_query",
+            route="memory",
+            modality="memory",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+    plan_calls = {"count": 0}
+
+    def _memory_plan(**_kwargs):
+        plan_calls["count"] += 1
+        return memory_plan
+
+    runtime.planner.build_plan = _memory_plan  # type: ignore[method-assign]
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._execution_events(
+            "binding-session-memory-cutover",
+            memory_plan.message,
+            memory_plan.history,
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+
+    assert plan_calls["count"] == 1
+    assert retrieval.queries == []
+    assert memory_facade.prefetch_queries == []
+    assert model_runtime.last_tools == []
+    assert not any(event.get("type") == "tool_start" for event in events)
+    done = next(event for event in reversed(events) if event.get("type") == "done")
+    assert done["main_context"]["active_work_item"] == "session_summary_query"
+    assert done["main_context"]["followup_mode"] == ""
+    assert done["content"]
 
 
 def test_ambiguous_binding_followup_requests_clarification_without_replanning() -> None:
@@ -1344,6 +1475,9 @@ def main() -> None:
     test_execution_events_reuses_built_plan_for_subtasks()
     test_memory_route_does_not_promote_fake_tool_call_into_task_summary()
     test_followup_task_ref_is_answered_without_replanning()
+    test_binding_followup_executes_from_owner_task_without_replanning()
+    test_binding_followup_candidate_yields_to_memory_plan_when_route_conflicts()
+    test_ambiguous_binding_followup_requests_clarification_without_replanning()
     test_runtime_output_boundary_strips_internal_protocol_from_streamed_answer()
     test_runtime_output_boundary_keeps_final_stream_answer_when_ai_update_is_partial()
     test_runtime_output_boundary_strips_inline_pseudo_tool_calls_from_visible_answer()

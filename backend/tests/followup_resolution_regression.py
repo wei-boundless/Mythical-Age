@@ -251,6 +251,20 @@ def test_followup_resolver_does_not_treat_generic_pdf_mention_as_committed_owner
     assert resolution.binding_owner_task_id == ""
 
 
+def test_followup_resolver_keeps_global_synthesis_request_out_of_single_binding() -> None:
+    coordinator = asyncio.run(_seed_tasks())
+    resolver = QueryFollowupResolver(coordinator)
+
+    resolution = resolver.resolve(
+        session_id="session-1",
+        message="最后给我一个总总结，按 PDF、数据、实时、长期记忆四段组织，而且先给结论。",
+    )
+
+    assert resolution.mode == "none"
+    assert resolution.binding_owner_task_id == ""
+    assert resolution.resolved_task_id == ""
+
+
 def main() -> None:
     test_followup_resolver_prefers_task_ref_for_ordinal_request()
     test_followup_resolver_can_bind_back_to_recent_pdf_task()
@@ -260,6 +274,7 @@ def main() -> None:
     test_followup_resolver_generic_realtime_query_does_not_get_stolen_by_binding_clarify()
     test_followup_resolver_can_continue_unique_dataset_owner_with_operation_hint()
     test_followup_resolver_does_not_treat_generic_pdf_mention_as_committed_owner()
+    test_followup_resolver_keeps_global_synthesis_request_out_of_single_binding()
     print("ALL PASSED (followup resolution regression)")
 
 

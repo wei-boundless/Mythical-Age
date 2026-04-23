@@ -59,6 +59,16 @@ class TaskCoordinator:
             )
         )
 
+    def _next_query_subtask_index(self, session_id: str) -> int:
+        highest = 0
+        for task in self._tasks.values():
+            if task.task_type != "query":
+                continue
+            if str(task.metadata.get("session_id", "")) != session_id:
+                continue
+            highest = max(highest, int(task.metadata.get("subtask_index", 0) or 0))
+        return highest + 1
+
     def _tool_task(
         self,
         session_id: str,
@@ -331,7 +341,9 @@ class TaskCoordinator:
         runner: Callable[[Any], AsyncIterator[dict[str, object]]],
     ) -> AsyncIterator[dict[str, object]]:
         parent_query_id = f"{session_id}-query-{len(self._tasks) + 1}"
-        for index, execution in enumerate(executions, start=1):
+        start_index = self._next_query_subtask_index(session_id)
+        for offset, execution in enumerate(executions):
+            index = start_index + offset
             subquery = execution.message
             structured_binding = getattr(execution, "structured_binding", None)
             task = self._query_task(session_id, subquery, index, parent_query_id)

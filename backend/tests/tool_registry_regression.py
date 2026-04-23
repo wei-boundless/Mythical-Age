@@ -46,10 +46,16 @@ def main() -> None:
 
     assert by_name["structured_data_analysis"]["safe_for_auto_route"] is True
     assert "table" in by_name["structured_data_analysis"]["supported_modalities"]
+    assert by_name["structured_data_analysis"]["contract"]["owner_scope"] == "active_binding_or_explicit_path"
+    assert by_name["structured_data_analysis"]["contract"]["required_bindings"] == ["active_dataset"]
 
     assert by_name["search_knowledge"]["safe_for_auto_route"] is True
     assert "faq" in by_name["search_knowledge"]["capability_tags"]
     assert "retrieval" in by_name["search_knowledge"]["safety_tags"]
+    assert by_name["search_knowledge"]["contract"]["missing_binding_behavior"] == "fallback_to_rag"
+
+    assert by_name["pdf_analysis"]["contract"]["owner_scope"] == "active_binding_or_explicit_path"
+    assert by_name["pdf_analysis"]["contract"]["required_bindings"] == ["active_pdf"]
 
     assert by_name["python_repl"]["safe_for_auto_route"] is False
     assert by_name["terminal"]["safe_for_auto_route"] is False

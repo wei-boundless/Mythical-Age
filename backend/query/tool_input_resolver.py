@@ -35,7 +35,6 @@ class ToolInputResolver:
                     tool_input["path"] = PdfAnalysisCatalog.relative_path(self.base_dir, resolved)
         if (
             understanding.tool_name == "structured_data_analysis"
-            and not str(tool_input.get("path", "") or "").strip()
         ):
             binding_path = str(getattr(structured_binding, "dataset_path", "") or "").strip()
             if binding_path:

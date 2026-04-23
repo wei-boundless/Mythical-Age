@@ -15,6 +15,9 @@ metadata:
     - forecast
     - realtime
   preferred_route: tool
+  activation_policy: model_visible
+  context_mode: inline
+  route_authority: candidate_only
   forbidden_routes:
     - rag
   routing_hints:

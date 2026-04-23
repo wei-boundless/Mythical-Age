@@ -5,6 +5,20 @@
     {
       "name": "get_weather",
       "module": "tools.get_weather_tool",
+      "contract": {
+        "required_inputs": [
+          "query",
+          "location"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
       "capability_tags": [
         "weather",
         "forecast",
@@ -41,6 +55,19 @@
     {
       "name": "get_gold_price",
       "module": "tools.get_gold_price_tool",
+      "contract": {
+        "required_inputs": [
+          "query"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "deny",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
       "capability_tags": [
         "finance",
         "gold",
@@ -77,6 +104,19 @@
     {
       "name": "web_search",
       "module": "tools.web_search_tool",
+      "contract": {
+        "required_inputs": [
+          "query"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
       "capability_tags": [
         "search",
         "news",
@@ -114,6 +154,21 @@
     {
       "name": "structured_data_analysis",
       "module": "tools.structured_data_analysis_tool",
+      "contract": {
+        "required_inputs": [
+          "query"
+        ],
+        "required_bindings": [
+          "active_dataset"
+        ],
+        "optional_inputs": [],
+        "owner_scope": "active_binding_or_explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": true,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "isolated",
+        "result_channel": "canonical"
+      },
       "capability_tags": [
         "analytics",
         "table",
@@ -158,6 +213,21 @@
     {
       "name": "pdf_analysis",
       "module": "tools.pdf_analysis_tool",
+      "contract": {
+        "required_inputs": [
+          "query"
+        ],
+        "required_bindings": [
+          "active_pdf"
+        ],
+        "optional_inputs": [],
+        "owner_scope": "active_binding_or_explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": true,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "isolated",
+        "result_channel": "canonical"
+      },
       "capability_tags": [
         "pdf",
         "document",
@@ -195,6 +265,19 @@
     {
       "name": "search_knowledge",
       "module": "tools.search_knowledge_tool",
+      "contract": {
+        "required_inputs": [
+          "query"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "fallback_to_rag",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
       "capability_tags": [
         "rag",
         "retrieval",
@@ -234,6 +317,19 @@
     {
       "name": "analyze_multimodal_file",
       "module": "tools.analyze_multimodal_file_tool",
+      "contract": {
+        "required_inputs": [
+          "path"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "isolated",
+        "result_channel": "canonical"
+      },
       "capability_tags": [
         "multimodal",
         "inspection",
@@ -270,6 +366,19 @@
     {
       "name": "index_multimodal_file",
       "module": "tools.index_multimodal_file_tool",
+      "contract": {
+        "required_inputs": [
+          "path"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "deny",
+        "context_policy": "isolated",
+        "result_channel": "artifact_only"
+      },
       "capability_tags": [
         "indexing",
         "multimodal",
@@ -307,6 +416,19 @@
     {
       "name": "read_file",
       "module": "tools.read_file_tool",
+      "contract": {
+        "required_inputs": [
+          "path"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
       "capability_tags": [
         "file",
         "read",
@@ -337,6 +459,19 @@
     {
       "name": "fetch_url",
       "module": "tools.fetch_url_tool",
+      "contract": {
+        "required_inputs": [
+          "url"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
       "capability_tags": [
         "web",
         "fetch",
@@ -366,6 +501,19 @@
     {
       "name": "terminal",
       "module": "tools.terminal_tool",
+      "contract": {
+        "required_inputs": [
+          "command"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "deny",
+        "context_policy": "isolated",
+        "result_channel": "tool_raw"
+      },
       "capability_tags": [
         "shell",
         "terminal",
@@ -397,6 +545,19 @@
     {
       "name": "python_repl",
       "module": "tools.python_repl_tool",
+      "contract": {
+        "required_inputs": [
+          "code"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "deny",
+        "context_policy": "isolated",
+        "result_channel": "tool_raw"
+      },
       "capability_tags": [
         "python",
         "repl",

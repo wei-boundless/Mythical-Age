@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from langchain_core.tools import BaseTool
 
+from tools.contracts import ToolExecutionContract
 from tools.analyze_multimodal_file_tool import AnalyzeMultimodalFileTool
 from tools.fetch_url_tool import FetchURLTool
 from tools.get_gold_price_tool import GetGoldPriceTool
@@ -28,6 +29,7 @@ class ToolDefinition:
     name: str
     module: str
     factory: ToolFactory
+    contract: ToolExecutionContract = field(default_factory=ToolExecutionContract)
     capability_tags: list[str] = field(default_factory=list)
     supported_modalities: list[str] = field(default_factory=list)
     safety_tags: list[str] = field(default_factory=list)
@@ -54,6 +56,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="get_weather",
             module="tools.get_weather_tool",
             factory=lambda _base_dir: GetWeatherTool(),
+            contract=ToolExecutionContract(
+                required_inputs=["query", "location"],
+                owner_scope="none",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
             capability_tags=["weather", "forecast", "realtime"],
             supported_modalities=["realtime"],
             safety_tags=["read", "network"],
@@ -69,6 +78,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="get_gold_price",
             module="tools.get_gold_price_tool",
             factory=lambda base_dir: GetGoldPriceTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["query"],
+                owner_scope="none",
+                missing_binding_behavior="deny",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
             capability_tags=["finance", "gold", "realtime", "price"],
             supported_modalities=["realtime"],
             safety_tags=["read", "network"],
@@ -84,6 +100,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="web_search",
             module="tools.web_search_tool",
             factory=lambda base_dir: WebSearchTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["query"],
+                owner_scope="none",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
             capability_tags=["search", "news", "finance", "official-docs"],
             supported_modalities=["web", "realtime"],
             safety_tags=["read", "network"],
@@ -99,6 +122,16 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="structured_data_analysis",
             module="tools.structured_data_analysis_tool",
             factory=lambda base_dir: StructuredDataAnalysisTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["query"],
+                required_bindings=["active_dataset"],
+                owner_scope="active_binding_or_explicit_path",
+                allow_catalog_default=False,
+                allow_history_binding=True,
+                missing_binding_behavior="clarify",
+                context_policy="isolated",
+                result_channel="canonical",
+            ),
             capability_tags=["analytics", "table", "top-n", "group-by", "schema", "dataset"],
             supported_modalities=["table", "spreadsheet", "csv", "json"],
             safety_tags=["read", "compute"],
@@ -114,6 +147,16 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="pdf_analysis",
             module="tools.pdf_analysis_tool",
             factory=lambda base_dir: PdfAnalysisTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["query"],
+                required_bindings=["active_pdf"],
+                owner_scope="active_binding_or_explicit_path",
+                allow_catalog_default=False,
+                allow_history_binding=True,
+                missing_binding_behavior="clarify",
+                context_policy="isolated",
+                result_channel="canonical",
+            ),
             capability_tags=["pdf", "document", "page", "section"],
             supported_modalities=["pdf", "document"],
             safety_tags=["read", "compute"],
@@ -129,6 +172,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="search_knowledge",
             module="tools.search_knowledge_tool",
             factory=lambda base_dir: SearchKnowledgeBaseTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["query"],
+                owner_scope="none",
+                missing_binding_behavior="fallback_to_rag",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
             capability_tags=["rag", "retrieval", "local-knowledge", "faq"],
             supported_modalities=["text", "document", "knowledge"],
             safety_tags=["read", "retrieval"],
@@ -144,6 +194,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="analyze_multimodal_file",
             module="tools.analyze_multimodal_file_tool",
             factory=lambda base_dir: AnalyzeMultimodalFileTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["path"],
+                owner_scope="explicit_path",
+                missing_binding_behavior="clarify",
+                context_policy="isolated",
+                result_channel="canonical",
+            ),
             capability_tags=["multimodal", "inspection", "preview"],
             supported_modalities=["pdf", "table", "image", "document"],
             safety_tags=["read", "compute"],
@@ -159,6 +216,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="index_multimodal_file",
             module="tools.index_multimodal_file_tool",
             factory=lambda base_dir: IndexMultimodalFileTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["path"],
+                owner_scope="explicit_path",
+                missing_binding_behavior="deny",
+                context_policy="isolated",
+                result_channel="artifact_only",
+            ),
             capability_tags=["indexing", "multimodal", "ingest"],
             supported_modalities=["pdf", "table", "image", "document"],
             safety_tags=["write", "compute"],
@@ -174,6 +238,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="read_file",
             module="tools.read_file_tool",
             factory=lambda base_dir: ReadFileTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["path"],
+                owner_scope="explicit_path",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
             capability_tags=["file", "read", "local"],
             supported_modalities=["text", "code", "document"],
             safety_tags=["read"],
@@ -188,6 +259,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="fetch_url",
             module="tools.fetch_url_tool",
             factory=lambda _base_dir: FetchURLTool(),
+            contract=ToolExecutionContract(
+                required_inputs=["url"],
+                owner_scope="none",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
             capability_tags=["web", "fetch", "verification"],
             supported_modalities=["web"],
             safety_tags=["read", "network"],
@@ -202,6 +280,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="terminal",
             module="tools.terminal_tool",
             factory=lambda base_dir: TerminalTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["command"],
+                owner_scope="none",
+                missing_binding_behavior="deny",
+                context_policy="isolated",
+                result_channel="tool_raw",
+            ),
             capability_tags=["shell", "terminal", "command"],
             supported_modalities=["system"],
             safety_tags=["write", "shell", "destructive"],
@@ -216,6 +301,13 @@ def _tool_definitions() -> list[ToolDefinition]:
             name="python_repl",
             module="tools.python_repl_tool",
             factory=lambda base_dir: PythonReplTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["code"],
+                owner_scope="none",
+                missing_binding_behavior="deny",
+                context_policy="isolated",
+                result_channel="tool_raw",
+            ),
             capability_tags=["python", "repl", "scripting"],
             supported_modalities=["system"],
             safety_tags=["write", "compute", "shell"],

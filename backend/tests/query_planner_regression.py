@@ -47,6 +47,47 @@ def main() -> None:
     assert structured_plan.iter_executions()[0].structured_binding.source == "prebound_tool_input"
     assert structured_plan.iter_executions()[0].structured_binding.explicit_switch is True
 
+    structured_compound_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="切到 knowledge/E-commerce Data/inventory.xlsx，先按仓库汇总，再按部门排序，最后给我缺货前五。",
+        history=[],
+    )
+    assert structured_compound_plan.query_understanding.route == "compound"
+    assert structured_compound_plan.subqueries == [
+        "切到 knowledge/E-commerce Data/inventory.xlsx",
+        "按仓库汇总",
+        "按部门排序",
+        "给我缺货前五",
+    ]
+    structured_compound_executions = structured_compound_plan.iter_executions()
+    assert len(structured_compound_executions) == 4
+    assert all(execution.query_understanding.tool_name == "structured_data_analysis" for execution in structured_compound_executions)
+    assert structured_compound_executions[0].structured_binding is not None
+    assert structured_compound_executions[0].structured_binding.source == "prebound_tool_input"
+    assert structured_compound_executions[1].structured_binding is not None
+    assert structured_compound_executions[1].structured_binding.source == "compound_authority"
+    assert structured_compound_executions[2].structured_binding is not None
+    assert structured_compound_executions[2].structured_binding.source == "compound_authority"
+    assert structured_compound_executions[3].structured_binding is not None
+    assert structured_compound_executions[3].structured_binding.source == "compound_authority"
+    assert all(execution.tool_input.get("path", "").endswith("inventory.xlsx") for execution in structured_compound_executions)
+
+    structured_mixed_compound_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="切到 knowledge/E-commerce Data/inventory.xlsx，先按仓库汇总，最后查北京天气。",
+        history=[],
+    )
+    structured_mixed_executions = structured_mixed_compound_plan.iter_executions()
+    assert [execution.message for execution in structured_mixed_executions] == [
+        "切到 knowledge/E-commerce Data/inventory.xlsx",
+        "按仓库汇总",
+        "查北京天气",
+    ]
+    assert structured_mixed_executions[0].query_understanding.tool_name == "structured_data_analysis"
+    assert structured_mixed_executions[1].query_understanding.tool_name == "structured_data_analysis"
+    assert structured_mixed_executions[2].query_understanding.tool_name == "get_weather"
+    assert not structured_mixed_executions[2].tool_input.get("path", "")
+
     compound_plan = planner.build_plan(
         session_id="planner-regression",
         message="请查询哪些商品库存不足/三一重工前三大股东/为什么我在我的帐户中找不到我的订单？",
@@ -95,6 +136,27 @@ def main() -> None:
     assert nested_executions[0].query_understanding.tool_name == "pdf_analysis"
     assert nested_executions[1].query_understanding.tool_name == "structured_data_analysis"
     assert nested_executions[2].query_understanding.tool_name == "get_weather"
+
+    pdf_compound_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，然后总结第三页，最后查北京天气。",
+        history=[],
+    )
+    assert pdf_compound_plan.query_understanding.route == "compound"
+    assert pdf_compound_plan.subqueries == [
+        "打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+        "总结第三页",
+        "查北京天气",
+    ]
+    pdf_compound_executions = pdf_compound_plan.iter_executions()
+    assert len(pdf_compound_executions) == 3
+    assert pdf_compound_executions[0].query_understanding.tool_name == "pdf_analysis"
+    assert pdf_compound_executions[1].query_understanding.tool_name == "pdf_analysis"
+    assert pdf_compound_executions[2].query_understanding.tool_name == "get_weather"
+    assert pdf_compound_executions[0].tool_input.get("path", "").endswith(".pdf")
+    assert pdf_compound_executions[1].tool_input.get("path", "").endswith(".pdf")
+    assert not pdf_compound_executions[2].tool_input.get("path", "")
+    assert pdf_compound_executions[1].tool_input.get("mode") == "page"
 
     section_plan = planner.build_plan(
         session_id="planner-regression",

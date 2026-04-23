@@ -24,6 +24,18 @@ class QueryContinuationResolver:
         promoted = self.promote_structured_query(message, history, promoted)
         return self.promote_session_summary_query(message, history, promoted)
 
+    def apply_authoritative_context(
+        self,
+        *,
+        message: str,
+        understanding: QueryUnderstanding,
+        authority_context: dict[str, Any] | None,
+    ) -> QueryUnderstanding:
+        if not authority_context:
+            return understanding
+        promoted = self._apply_pdf_authority(message, understanding, authority_context)
+        return self._apply_structured_authority(message, promoted, authority_context)
+
     def promote_pdf_query(
         self,
         message: str,
@@ -283,3 +295,128 @@ class QueryContinuationResolver:
         return any(marker in message for marker in summary_markers) and any(
             marker in message for marker in scope_markers
         )
+
+    def _apply_pdf_authority(
+        self,
+        message: str,
+        understanding: QueryUnderstanding,
+        authority_context: dict[str, Any],
+    ) -> QueryUnderstanding:
+        authority_pdf = str(authority_context.get("active_pdf", "") or "").strip()
+        if not authority_pdf:
+            return understanding
+        if understanding.route in {"memory", "compound"}:
+            return understanding
+        existing_tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
+        existing_tool_input = dict(getattr(understanding, "tool_input", {}) or {})
+        existing_path = str(existing_tool_input.get("path", "") or "").strip()
+        if existing_path:
+            return understanding
+        if existing_tool_name and existing_tool_name != "pdf_analysis":
+            return understanding
+        if not self._can_apply_pdf_authority(message, understanding):
+            return understanding
+        mode = self._select_pdf_mode(message)
+        return QueryUnderstanding(
+            intent=(
+                "pdf_page_followup_query"
+                if mode == "page"
+                else "pdf_section_followup_query"
+                if mode == "section"
+                else "pdf_followup_query"
+            ),
+            source_kind="document",
+            task_kind=(
+                "document_page"
+                if mode == "page"
+                else "document_section"
+                if mode == "section"
+                else "document_read"
+            ),
+            modality="pdf",
+            route="tool",
+            tool_name="pdf_analysis",
+            tool_input={
+                **existing_tool_input,
+                "query": message,
+                "mode": mode,
+                "path": authority_pdf,
+            },
+            should_skip_rag=True,
+            confidence=max(float(getattr(understanding, "confidence", 0.0) or 0.0), 0.82),
+            reasons=[*list(getattr(understanding, "reasons", []) or []), "compound_authoritative_pdf_context"],
+        )
+
+    def _apply_structured_authority(
+        self,
+        message: str,
+        understanding: QueryUnderstanding,
+        authority_context: dict[str, Any],
+    ) -> QueryUnderstanding:
+        authority_dataset = str(authority_context.get("active_dataset", "") or "").strip()
+        if not authority_dataset:
+            return understanding
+        if understanding.route in {"memory", "compound"}:
+            return understanding
+        existing_tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
+        existing_tool_input = dict(getattr(understanding, "tool_input", {}) or {})
+        existing_path = str(existing_tool_input.get("path", "") or "").strip()
+        if existing_path:
+            return understanding
+        if existing_tool_name and existing_tool_name != "structured_data_analysis":
+            return understanding
+        if not self._can_apply_structured_authority(message, understanding):
+            return understanding
+        return QueryUnderstanding(
+            intent="structured_followup_query",
+            source_kind="dataset",
+            task_kind="structured_data",
+            modality="table",
+            route="tool",
+            tool_name="structured_data_analysis",
+            tool_input={
+                **existing_tool_input,
+                "query": message,
+                "analysis_type": "auto",
+                "path": authority_dataset,
+            },
+            should_skip_rag=True,
+            confidence=max(float(getattr(understanding, "confidence", 0.0) or 0.0), 0.8),
+            reasons=[*list(getattr(understanding, "reasons", []) or []), "compound_authoritative_dataset_context"],
+        )
+
+    def _can_apply_pdf_authority(
+        self,
+        message: str,
+        understanding: QueryUnderstanding,
+    ) -> bool:
+        tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
+        if tool_name == "pdf_analysis":
+            return True
+        if self._looks_like_pdf_followup(message):
+            return True
+        return any(
+            marker in message
+            for marker in (
+                "全文",
+                "总览",
+                "结论",
+                "行动建议",
+                "约束",
+                "重点",
+                "解读",
+                "分析",
+                "说明",
+                "提炼",
+            )
+        )
+
+    def _can_apply_structured_authority(
+        self,
+        message: str,
+        understanding: QueryUnderstanding,
+    ) -> bool:
+        tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
+        if tool_name == "structured_data_analysis":
+            return True
+        return self._has_strong_structured_operation(message)

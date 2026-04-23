@@ -8,6 +8,9 @@
     <task_kinds>realtime_lookup</task_kinds>
     <allowed_tools>get_weather</allowed_tools>
     <capability_tags>weather, forecast, realtime</capability_tags>
+    <activation_policy>model_visible</activation_policy>
+    <context_mode>inline</context_mode>
+    <route_authority>candidate_only</route_authority>
     <routing_hints>天气, 气温, 温度, 预报, 下雨</routing_hints>
     <forbidden_routes>rag</forbidden_routes>
   </skill>
@@ -19,6 +22,9 @@
     <task_kinds>realtime_lookup</task_kinds>
     <allowed_tools>get_gold_price</allowed_tools>
     <capability_tags>gold, xau, realtime, finance, spot-price</capability_tags>
+    <activation_policy>model_visible</activation_policy>
+    <context_mode>inline</context_mode>
+    <route_authority>candidate_only</route_authority>
     <routing_hints>黄金, 金价, 现货黄金, XAU, XAUUSD, 实时黄金价格</routing_hints>
     <forbidden_routes>rag</forbidden_routes>
   </skill>
@@ -30,6 +36,9 @@
     <task_kinds>document_read, document_section, document_page</task_kinds>
     <allowed_tools>pdf_analysis</allowed_tools>
     <capability_tags>pdf, document, section, page</capability_tags>
+    <activation_policy>model_visible</activation_policy>
+    <context_mode>isolated</context_mode>
+    <route_authority>candidate_only</route_authority>
     <routing_hints>白皮书, 报告, PDF, 第几页, 章节</routing_hints>
     <forbidden_routes>rag</forbidden_routes>
     <references>skills/pdf-analysis/references/pdf_reading.md</references>
@@ -42,6 +51,9 @@
     <task_kinds>knowledge_lookup, faq_explanation</task_kinds>
     <allowed_tools>search_knowledge</allowed_tools>
     <capability_tags>rag, retrieval, local-knowledge, faq</capability_tags>
+    <activation_policy>model_visible</activation_policy>
+    <context_mode>inline</context_mode>
+    <route_authority>candidate_only</route_authority>
     <routing_hints>知识库, 本地资料, 查资料, FAQ, 为什么</routing_hints>
     <forbidden_routes>tool</forbidden_routes>
   </skill>
@@ -53,6 +65,9 @@
     <task_kinds>workflow_lesson_capture</task_kinds>
     <allowed_tools>read_file</allowed_tools>
     <capability_tags>lesson, retry, durable-memory</capability_tags>
+    <activation_policy>model_visible</activation_policy>
+    <context_mode>inline</context_mode>
+    <route_authority>candidate_only</route_authority>
     <routing_hints>失败后成功, 经验教训, 沉淀</routing_hints>
   </skill>
   <skill name="结构化数据分析" id="structured-data-analysis" path="skills/structured-data-analysis/SKILL.md">
@@ -63,6 +78,9 @@
     <task_kinds>dataset_schema_inspect, dataset_row_count, dataset_filter, dataset_summary, dataset_top_n, dataset_extreme_record, dataset_group_summary, dataset_inspect</task_kinds>
     <allowed_tools>structured_data_analysis</allowed_tools>
     <capability_tags>analytics, top-n, group-by, schema</capability_tags>
+    <activation_policy>model_visible</activation_policy>
+    <context_mode>isolated</context_mode>
+    <route_authority>candidate_only</route_authority>
     <routing_hints>表格, Excel, CSV, 前五, 排名, 汇总</routing_hints>
     <forbidden_routes>rag</forbidden_routes>
     <references>skills/structured-data-analysis/references/excel_analysis.md, skills/structured-data-analysis/references/excel_reading.md</references>
@@ -75,6 +93,9 @@
     <task_kinds>web_lookup, realtime_lookup</task_kinds>
     <allowed_tools>web_search</allowed_tools>
     <capability_tags>search, news, finance, official-docs</capability_tags>
+    <activation_policy>model_visible</activation_policy>
+    <context_mode>inline</context_mode>
+    <route_authority>candidate_only</route_authority>
     <routing_hints>联网, 搜索, 最新, 新闻, 官网, 实时</routing_hints>
     <forbidden_routes>rag</forbidden_routes>
   </skill>

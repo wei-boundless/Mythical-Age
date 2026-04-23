@@ -10,6 +10,8 @@ if str(ROOT) not in sys.path:
 
 from structured_data.catalog import StructuredDataCatalog
 from query.planner import QueryPlanner
+from query.tool_input_resolver import ToolInputResolver
+from understanding.query_understanding import QueryUnderstanding
 
 
 def main() -> None:
@@ -82,6 +84,27 @@ def main() -> None:
     assert unresolved_explicit_execution.structured_binding is None
     assert unresolved_explicit_execution.tool_input.get("path", "").endswith("missing.xlsx")
     assert not unresolved_explicit_execution.tool_input.get("path", "").endswith("inventory.xlsx")
+
+    resolver = ToolInputResolver(base_dir=ROOT)
+    explicit_shortname_plan = type(
+        "PlanStub",
+        (),
+        {
+            "message": "给我 inventory.xlsx 最缺货的前三个仓库",
+            "query_understanding": QueryUnderstanding(
+                route="tool",
+                tool_name="structured_data_analysis",
+                tool_input={"query": "给我 inventory.xlsx 最缺货的前三个仓库", "path": "inventory.xlsx"},
+            ),
+            "structured_binding": type(
+                "BindingStub",
+                (),
+                {"dataset_path": "knowledge/E-commerce Data/inventory.xlsx"},
+            )(),
+        },
+    )()
+    explicit_shortname_input = resolver.resolve(plan=explicit_shortname_plan, history=history)
+    assert explicit_shortname_input["path"] == "knowledge/E-commerce Data/inventory.xlsx"
 
     weak_followup_plan = planner.build_plan(
         session_id="structured-followup-regression",

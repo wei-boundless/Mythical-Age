@@ -54,10 +54,11 @@ class QueryPlanner:
             structured_binding = root_execution.structured_binding
             execution_kind = root_execution.execution_kind
         else:
-            executions = [
-                self._build_execution(message=subquery, history=history)
-                for subquery in subqueries
-            ]
+            executions = self._build_compound_executions(
+                history=history,
+                subqueries=subqueries,
+                root_execution=root_execution,
+            )
             query_understanding = QueryUnderstanding(
                 intent="compound_query",
                 source_kind="orchestration",
@@ -83,6 +84,28 @@ class QueryPlanner:
             execution_kind=execution_kind,
             executions=executions,
         )
+
+    def _build_compound_executions(
+        self,
+        *,
+        history: list[dict[str, Any]],
+        subqueries: list[str],
+        root_execution: QueryExecutionPlan,
+    ) -> list[QueryExecutionPlan]:
+        executions: list[QueryExecutionPlan] = []
+        authority_context = self._authoritative_context_from_execution(root_execution)
+        for subquery in subqueries:
+            execution = self._build_execution(
+                message=subquery,
+                history=history,
+                authority_context=authority_context,
+            )
+            executions.append(execution)
+            authority_context = self._merge_authoritative_context(
+                authority_context,
+                self._authoritative_context_from_execution(execution),
+            )
+        return executions
 
     def _resolve_active_skill(
         self,
@@ -110,6 +133,7 @@ class QueryPlanner:
         *,
         message: str,
         history: list[dict[str, Any]],
+        authority_context: dict[str, Any] | None = None,
     ) -> QueryExecutionPlan:
         memory_intent = analyze_memory_intent(message)
         query_understanding = analyze_query_understanding(
@@ -123,12 +147,24 @@ class QueryPlanner:
             history=history,
             understanding=query_understanding,
         )
+        query_understanding = self.continuation_resolver.apply_authoritative_context(
+            message=message,
+            understanding=query_understanding,
+            authority_context=authority_context,
+        )
         active_skill = self._resolve_active_skill(message, query_understanding)
         structured_binding = self.binding_resolver.resolve(
             message=message,
             understanding=query_understanding,
             history=history,
         )
+        if (
+            structured_binding is not None
+            and "compound_authoritative_dataset_context" in list(getattr(query_understanding, "reasons", []) or [])
+            and structured_binding.source == "prebound_tool_input"
+            and not structured_binding.explicit_switch
+        ):
+            structured_binding.source = "compound_authority"
         tool_input = {}
         execution_kind = "agent"
         if query_understanding.route == "tool" and query_understanding.tool_name:
@@ -152,3 +188,32 @@ class QueryPlanner:
             structured_binding=structured_binding,
             execution_kind=execution_kind,
         )
+
+    def _authoritative_context_from_execution(
+        self,
+        execution: QueryExecutionPlan,
+    ) -> dict[str, Any]:
+        context: dict[str, Any] = {}
+        tool_name = str(getattr(execution.query_understanding, "tool_name", "") or "").strip()
+        tool_input = dict(getattr(execution, "tool_input", {}) or getattr(execution.query_understanding, "tool_input", {}) or {})
+        pdf_path = str(tool_input.get("path", "") or "").strip()
+        if tool_name == "pdf_analysis" and pdf_path:
+            context["active_pdf"] = pdf_path
+        binding = getattr(execution, "structured_binding", None)
+        dataset_path = str(getattr(binding, "dataset_path", "") or "").strip()
+        if dataset_path:
+            binding_source = str(getattr(binding, "source", "") or "").strip()
+            if binding_source in {"prebound_tool_input", "explicit_path", "compound_authority"}:
+                context["active_dataset"] = dataset_path
+        return context
+
+    def _merge_authoritative_context(
+        self,
+        existing: dict[str, Any] | None,
+        latest: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        merged = dict(existing or {})
+        for key, value in dict(latest or {}).items():
+            if value:
+                merged[key] = value
+        return merged

@@ -174,6 +174,32 @@ def test_answer_assembler_renders_single_followup_segment_without_numbered_wrapp
     assert "1. 把这份 PDF 的核心结论压成三条行动建议。" not in rendered
 
 
+def test_answer_assembler_only_applies_one_sentence_to_segment_local_style() -> None:
+    assembler = AnswerAssembler()
+    main_context = MainContextState(active_goal="compound", active_work_item="compound_query")
+    results = [
+        {
+            "index": 1,
+            "task_id": "pdf-task",
+            "query": "总结 PDF 第三页",
+            "summary": {"response": "第三页先说明报告背景。然后进入治理原则。", "response_style": ""},
+        },
+        {
+            "index": 2,
+            "task_id": "weather-task",
+            "query": "补一句北京天气",
+            "summary": {"response": "北京晴朗。当前温度 15.6°C，西南风 8.5 km/h。", "response_style": "one_sentence"},
+        },
+    ]
+
+    plan = assembler.build_plan(results=results, main_context=main_context)
+    rendered = assembler.render(plan)
+
+    assert "第三页先说明报告背景。然后进入治理原则。" in rendered
+    assert "北京晴朗。" in rendered
+    assert "西南风" not in rendered
+
+
 def main() -> None:
     test_answer_assembler_prefers_summary_and_dedupes()
     test_answer_assembler_compresses_one_sentence_segments()
@@ -181,6 +207,7 @@ def main() -> None:
     test_answer_assembler_never_falls_back_to_raw_content()
     test_answer_assembler_records_summary_source_ref()
     test_answer_assembler_renders_single_followup_segment_without_numbered_wrapper()
+    test_answer_assembler_only_applies_one_sentence_to_segment_local_style()
     print("ALL PASSED (answer assembler regression)")
 
 
