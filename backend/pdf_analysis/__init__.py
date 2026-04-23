@@ -5,19 +5,16 @@ from typing import TYPE_CHECKING
 
 __all__ = [
     "PdfAnalysisCatalog",
-    "PdfAnalysisEngine",
     "PdfTextParser",
 ]
 
 _EXPORTS = {
     "PdfAnalysisCatalog": ("pdf_analysis.catalog", "PdfAnalysisCatalog"),
-    "PdfAnalysisEngine": ("pdf_analysis.engine", "PdfAnalysisEngine"),
     "PdfTextParser": ("pdf_analysis.parser", "PdfTextParser"),
 }
 
 if TYPE_CHECKING:
     from pdf_analysis.catalog import PdfAnalysisCatalog
-    from pdf_analysis.engine import PdfAnalysisEngine
     from pdf_analysis.parser import PdfTextParser
 
 

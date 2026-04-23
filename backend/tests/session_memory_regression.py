@@ -276,17 +276,23 @@ def test_summary_first_context_projection_does_not_reenter_message_processor() -
         manager.processor.process = _fail_process  # type: ignore[method-assign]
         summary = manager.update_from_context_state(
             {
-                "active_goal": "继续分析 report.pdf 第3页的结论。",
+                "active_goal": "继续分析 report.pdf 第二部分第3页的结论。",
                 "active_work_item": "pdf_analysis",
-                "active_constraints": {"page": 3, "source_kind": "pdf"},
+                "active_constraints": {
+                    "page": 3,
+                    "source_kind": "pdf",
+                    "pdf_mode": "section",
+                    "pdf_section": "第二部分",
+                    "pdf_focus_pages": [3, 4],
+                },
                 "next_step": "answer_current_request",
             },
             task_summaries=[
                 {
                     "task_id": "pdf-task",
-                    "query": "继续分析 report.pdf 第3页的结论。",
+                    "query": "继续分析 report.pdf 第二部分第3页的结论。",
                     "summary": "第三页主要在讨论供应链风险和现金流压力。",
-                    "key_points": ["page=3", "pdf=report.pdf"],
+                    "key_points": ["page=3", "pdf=report.pdf", "pdf_mode=section", "pdf_section=第二部分", "pdf_pages=3,4"],
                 }
             ],
         )
@@ -294,6 +300,11 @@ def test_summary_first_context_projection_does_not_reenter_message_processor() -
         state = manager.load_state()
         _assert("report.pdf" in summary, "summary-first context projection should still render the projected goal")
         _assert(state.context_slots.active_pdf == "report.pdf", "summary-first projection should rebuild slots directly from context state")
+        _assert(state.context_slots.active_pdf_mode == "section", "summary-first projection should rebuild the PDF read mode")
+        _assert(state.context_slots.active_pdf_section == "第二部分", "summary-first projection should rebuild the PDF section focus")
+        _assert(state.context_slots.active_pdf_pages == [3, 4], "summary-first projection should rebuild the focused PDF pages")
+        _assert("PDF 查询范围：section" in summary, "model-visible summary should expose the active PDF mode")
+        _assert("PDF 当前章节：第二部分" in summary, "model-visible summary should expose the active PDF section")
         _assert(not hasattr(state, "durable_candidates"), "summary-first context projection should not restore the removed durable-candidate field")
 
 

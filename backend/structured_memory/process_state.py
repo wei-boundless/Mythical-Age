@@ -41,6 +41,9 @@ class TaskState:
 @dataclass(slots=True)
 class ContextSlots:
     active_pdf: str = ""
+    active_pdf_mode: str = ""
+    active_pdf_section: str = ""
+    active_pdf_pages: list[int] = field(default_factory=list)
     active_dataset: str = ""
     active_binding_kind: str = ""
     active_binding_identity: str = ""
@@ -144,6 +147,13 @@ class ProcessState:
         context_slots = (
             ContextSlots(
                 active_pdf=str(getattr(slots_payload, "get", lambda *_: "")("active_pdf", "")),
+                active_pdf_mode=str(getattr(slots_payload, "get", lambda *_: "")("active_pdf_mode", "")),
+                active_pdf_section=str(getattr(slots_payload, "get", lambda *_: "")("active_pdf_section", "")),
+                active_pdf_pages=[
+                    int(item)
+                    for item in list(getattr(slots_payload, "get", lambda *_: [])("active_pdf_pages", []) or [])
+                    if str(item).strip()
+                ],
                 active_dataset=str(getattr(slots_payload, "get", lambda *_: "")("active_dataset", "")),
                 active_binding_kind=str(getattr(slots_payload, "get", lambda *_: "")("active_binding_kind", "")),
                 active_binding_identity=str(getattr(slots_payload, "get", lambda *_: "")("active_binding_identity", "")),

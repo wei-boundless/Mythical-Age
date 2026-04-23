@@ -23,6 +23,12 @@ class TaskConstraints:
     group_by: str = ""
     page: int | None = None
     response_style: str = ""
+    pdf_mode: str = ""
+    pdf_section: str = ""
+    pdf_focus_pages: list[int] = field(default_factory=list)
+    total_pages: int | None = None
+    readable_pages: int | None = None
+    usable_pages: int | None = None
     must_exclude: list[str] = field(default_factory=list)
     must_include: list[str] = field(default_factory=list)
 

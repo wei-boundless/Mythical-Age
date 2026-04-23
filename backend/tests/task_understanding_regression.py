@@ -25,10 +25,10 @@ def main() -> None:
 
     pdf_page = analyze_task_understanding("2025年AI治理报告的第三页讲得什么")
     assert pdf_page.source_kind == "document"
-    assert pdf_page.task_kind == "document_page_read"
+    assert pdf_page.task_kind == "document_page"
     assert pdf_page.target_object is None
     assert pdf_page.preferred_skill == "pdf-analysis"
-    assert pdf_page.parameters["mode"] == "page_read"
+    assert pdf_page.parameters["mode"] == "page"
 
     pdf_explicit = analyze_task_understanding(
         "现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。"

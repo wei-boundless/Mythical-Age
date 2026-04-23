@@ -175,12 +175,18 @@ def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
         bool(re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message)),
         bool(re.search(r"page\s*\d+", lowered)),
     )
-    deep_read_markers = ("详细解读", "通读", "精读", "逐页", "完整总结", "deep read")
+    section_markers = (
+        bool(re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)", message)),
+        any(marker in message for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节")),
+    )
     document_action_markers = (
-        *deep_read_markers,
         "分析",
         "解读",
         "总结",
+        "详细解读",
+        "通读",
+        "逐页",
+        "完整总结",
         "总览",
         "看一下",
         "看看",
@@ -197,20 +203,22 @@ def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
         return None
 
     if any(page_markers):
-        task_kind = "document_page_read"
-        mode = "page_read"
-    elif _contains_any(lowered, deep_read_markers):
-        task_kind = "document_deep_read"
-        mode = "deep_read"
+        task_kind = "document_page"
+        mode = "page"
+    elif any(section_markers):
+        task_kind = "document_section"
+        mode = "section"
     else:
-        task_kind = "document_browse"
-        mode = "browse"
+        task_kind = "document_read"
+        mode = "document"
 
     reasons = ["pdf_markers"] if has_explicit_pdf_marker or has_contextual_document_signal else []
     if any(page_markers):
         reasons.append("page_markers")
-    if task_kind == "document_deep_read":
-        reasons.append("deep_read_markers")
+    if any(section_markers):
+        reasons.append("section_markers")
+    if mode == "document" and _contains_any(lowered, ("详细解读", "通读", "逐页", "完整总结")):
+        reasons.append("document_read_markers")
     parameters = {"query": message, "mode": mode}
     if explicit_references:
         parameters["path"] = explicit_references[0]
@@ -226,7 +234,7 @@ def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
         candidate_tools=["pdf_analysis"],
         parameters=parameters,
         should_skip_rag=True,
-        confidence=0.93 if mode == "page_read" else 0.88,
+        confidence=0.93 if mode in {"page", "section"} else 0.88,
         reasons=reasons,
     )
 

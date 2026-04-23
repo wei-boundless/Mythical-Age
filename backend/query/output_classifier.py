@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from pdf_agent import PDFCanonicalResult
 from query.output_models import OutputCandidate, OutputDecision
 
 
@@ -18,19 +19,6 @@ _CONCLUSION_RE = re.compile(
     r"(?:\*\*结论[:：]?\*\*|结论[:：])\s*(.+)",
     re.IGNORECASE | re.DOTALL,
 )
-_RAW_PDF_BROWSE_RE = re.compile(
-    r"Source:\s*.+?\nMode:\s*PDF browse\b.*?(?:Relevant pages:|\[P\d+\]\s*score=)",
-    re.IGNORECASE | re.DOTALL,
-)
-_RAW_PDF_PAGE_RE = re.compile(
-    r"Source:\s*.+?\nMode:\s*PDF page read\b",
-    re.IGNORECASE,
-)
-_PDF_SUMMARY_RE = re.compile(
-    r"Summary:\s*(.+?)(?:\n\s*Page snippet:|\Z)",
-    re.IGNORECASE | re.DOTALL,
-)
-_PAGE_IDS_RE = re.compile(r"\[P(\d+)\]")
 _MARKDOWN_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
 _NOISY_WHITESPACE_RE = re.compile(r"\s+")
 _STRUCTURED_DATA_HINT_RE = re.compile(r"(?:数据源[:：]|查询模式[:：]|前\s*\d+\s*项[:：])")
@@ -75,19 +63,11 @@ def extract_tool_visible_summary(text: str, tool_name: str) -> str:
     if not normalized:
         return ""
     if tool_name == "pdf_analysis":
-        match = _PDF_SUMMARY_RE.search(normalized)
-        if match:
-            summary = _collapse_inline_whitespace(match.group(1))
-            return summary.strip(" .。")
-        if _RAW_PDF_BROWSE_RE.search(normalized):
-            pages = _PAGE_IDS_RE.findall(normalized)
-            if pages:
-                selected = "、".join(f"P{page}" for page in pages[:3])
-                return f"已定位到与问题最相关的页面：{selected}。当前工具返回的是原始检索片段，尚未形成可靠摘要。"
-            return "已定位到相关 PDF 内容，但当前工具返回的是原始检索片段，尚未形成可靠摘要。"
-        if _RAW_PDF_PAGE_RE.search(normalized):
-            stripped = _remove_pdf_scaffolding(normalized)
-            return _collapse_inline_whitespace(stripped)
+        canonical_result = PDFCanonicalResult.from_tool_output(normalized)
+        if canonical_result is not None:
+            if canonical_result.ok and canonical_result.summary.strip():
+                return canonical_result.summary.strip()
+            return ""
     if tool_name == "structured_data_analysis" and _STRUCTURED_DATA_HINT_RE.search(normalized):
         return _collapse_inline_whitespace(normalized)
     if tool_name == "get_weather" and _WEATHER_HINT_RE.search(normalized):
@@ -102,7 +82,9 @@ def looks_like_raw_tool_output(text: str, tool_name: str) -> bool:
     if not normalized:
         return False
     if tool_name == "pdf_analysis":
-        return bool(_RAW_PDF_BROWSE_RE.search(normalized))
+        if PDFCanonicalResult.from_tool_output(normalized) is not None:
+            return False
+        return False
     if tool_name == "structured_data_analysis":
         return normalized.startswith("{") or normalized.startswith("[")
     return False
@@ -131,6 +113,12 @@ def classify_output_candidate(
         )
     tool_summary = extract_tool_visible_summary(normalized, tool_name)
     if tool_summary:
+        metadata: dict[str, object] = {}
+        if tool_name == "pdf_analysis":
+            canonical_result = PDFCanonicalResult.from_tool_output(normalized)
+            if canonical_result is not None:
+                metadata["pdf_pages"] = list(canonical_result.pages)
+                metadata["pdf_mode"] = canonical_result.effective_mode
         return OutputCandidate(
             channel="tool_visible_summary",
             text=tool_summary,
@@ -138,7 +126,25 @@ def classify_output_candidate(
             route=route,
             tool_name=tool_name,
             priority_hint=80,
+            metadata=metadata,
         )
+    if tool_name == "pdf_analysis":
+        canonical_result = PDFCanonicalResult.from_tool_output(normalized)
+        if canonical_result is not None:
+            return OutputCandidate(
+                channel="tool_raw_output",
+                text=normalized,
+                source=source,
+                route=route,
+                tool_name=tool_name,
+                priority_hint=10,
+                metadata={
+                    "pdf_pages": list(canonical_result.pages),
+                    "pdf_mode": canonical_result.effective_mode,
+                    "pdf_status": canonical_result.status,
+                    "pdf_degraded_reason": canonical_result.degraded_reason,
+                },
+            )
     if looks_like_progress_text(normalized):
         return OutputCandidate(
             channel="progress_text",
@@ -235,17 +241,18 @@ def build_route_fallback(
     if route == "memory":
         return ("当前没有足够的会话记忆可直接回答这个问题。", "memory_missing_answer")
     if tool_name == "pdf_analysis":
-        browse_candidate = next(
-            (item for item in rejected_candidates if item.channel == "tool_raw_output"),
-            None,
-        )
-        if browse_candidate is not None:
-            pages = _PAGE_IDS_RE.findall(browse_candidate.text)
-            if pages:
-                selected = "、".join(f"P{page}" for page in pages[:3])
+        canonical_candidates = [
+            item
+            for item in rejected_candidates
+            if item.tool_name == "pdf_analysis" and item.metadata.get("pdf_pages")
+        ]
+        if canonical_candidates:
+            pages = canonical_candidates[0].metadata.get("pdf_pages") or []
+            selected = "、".join(f"P{page}" for page in list(pages)[:3])
+            if selected:
                 return (
-                    f"已定位到与当前问题最相关的 PDF 页面：{selected}，但工具尚未形成可直接展示的摘要。",
-                    "pdf_raw_browse_fallback",
+                    f"已读取与当前问题最相关的 PDF 页面：{selected}，但当前还没有形成稳定摘要。",
+                    "pdf_canonical_missing_summary",
                 )
         return ("已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。", "pdf_missing_summary")
     if tool_name:
@@ -257,13 +264,3 @@ def build_route_fallback(
 
 def _collapse_inline_whitespace(text: str) -> str:
     return _NOISY_WHITESPACE_RE.sub(" ", text).strip()
-
-
-def _remove_pdf_scaffolding(text: str) -> str:
-    cleaned = re.sub(r"Source:\s*.+?(?:\n|$)", "", text, flags=re.IGNORECASE)
-    cleaned = re.sub(r"Mode:\s*PDF page read(?:\n|$)", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"Target page:\s*P\d+(?:\n|$)", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"Heading candidate:\s*.+?(?:\n|$)", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"Keywords:\s*.+?(?:\n|$)", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"Page snippet:\s*.+", "", cleaned, flags=re.IGNORECASE | re.DOTALL)
-    return cleaned.strip()

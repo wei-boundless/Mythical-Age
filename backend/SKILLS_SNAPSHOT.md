@@ -23,14 +23,14 @@
     <forbidden_routes>rag</forbidden_routes>
   </skill>
   <skill name="PDF 阅读分析" id="pdf-analysis" path="skills/pdf-analysis/SKILL.md">
-    <description>用于本地 PDF 文件的泛读、精读和单页阅读，适合回答“这份 PDF 主要讲什么”“第几页讲什么”等问题。</description>
+    <description>用于本地 PDF 文件的文档级、章节级和页级阅读分析，适合回答“这份 PDF 主要讲什么”“某一章讲什么”“第几页讲什么”等问题。</description>
     <preferred_route>tool</preferred_route>
     <modalities>pdf, document</modalities>
     <source_kinds>document</source_kinds>
-    <task_kinds>document_browse, document_deep_read, document_page_read</task_kinds>
+    <task_kinds>document_read, document_section, document_page</task_kinds>
     <allowed_tools>pdf_analysis</allowed_tools>
-    <capability_tags>pdf, browse, deep-read, page-read</capability_tags>
-    <routing_hints>白皮书, 报告, PDF, 第几页, 详细解读</routing_hints>
+    <capability_tags>pdf, document, section, page</capability_tags>
+    <routing_hints>白皮书, 报告, PDF, 第几页, 章节</routing_hints>
     <forbidden_routes>rag</forbidden_routes>
     <references>skills/pdf-analysis/references/pdf_reading.md</references>
   </skill>

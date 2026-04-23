@@ -160,10 +160,9 @@
       "module": "tools.pdf_analysis_tool",
       "capability_tags": [
         "pdf",
-        "browse",
-        "deep-read",
-        "page-read",
-        "document"
+        "document",
+        "page",
+        "section"
       ],
       "supported_modalities": [
         "pdf",
@@ -182,11 +181,11 @@
         "报告",
         "pdf",
         "第几页",
-        "page read"
+        "章节"
       ],
       "typical_queries": [
         "白皮书第五页讲得什么",
-        "详细解读这份 PDF"
+        "这份 PDF 的结论是什么"
       ],
       "safe_for_auto_route": true,
       "is_read_only": true,

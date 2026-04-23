@@ -45,10 +45,23 @@ class QueryContinuationResolver:
         if resolved is None:
             return understanding
         mode = self._select_pdf_mode(message)
+        task_kind = (
+            "document_page"
+            if mode == "page"
+            else "document_section"
+            if mode == "section"
+            else "document_read"
+        )
         return QueryUnderstanding(
-            intent="pdf_page_followup_query" if mode == "page_read" else "pdf_followup_query",
+            intent=(
+                "pdf_page_followup_query"
+                if mode == "page"
+                else "pdf_section_followup_query"
+                if mode == "section"
+                else "pdf_followup_query"
+            ),
             source_kind="document",
-            task_kind="document_page_read" if mode == "page_read" else "document_browse",
+            task_kind=task_kind,
             modality="pdf",
             route="tool",
             tool_name="pdf_analysis",
@@ -160,12 +173,16 @@ class QueryContinuationResolver:
     def _select_pdf_mode(self, message: str) -> str:
         normalized = (message or "").strip().lower()
         if re.search(r"第\s*\d+\s*页", message):
-            return "page_read"
+            return "page"
         if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message):
-            return "page_read"
+            return "page"
         if re.search(r"page\s*\d+", normalized):
-            return "page_read"
-        return "browse"
+            return "page"
+        if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)", message):
+            return "section"
+        if any(marker in message for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节")):
+            return "section"
+        return "document"
 
     def _looks_like_structured_followup(self, message: str) -> bool:
         normalized = (message or "").strip().lower()

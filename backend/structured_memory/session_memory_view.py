@@ -208,6 +208,12 @@ class SessionMemoryViewBuilder:
         items: list[str] = []
         if slots.active_pdf:
             items.append(f"当前 PDF：{slots.active_pdf}")
+        if slots.active_pdf_mode:
+            items.append(f"PDF 查询范围：{slots.active_pdf_mode}")
+        if slots.active_pdf_section:
+            items.append(f"PDF 当前章节：{slots.active_pdf_section}")
+        if slots.active_pdf_pages:
+            items.append(f"PDF 聚焦页：{', '.join(str(page) for page in slots.active_pdf_pages)}")
         if slots.active_dataset:
             items.append(f"当前数据集：{slots.active_dataset}")
         if include_debug and slots.active_binding_identity:

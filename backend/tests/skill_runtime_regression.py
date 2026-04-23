@@ -109,7 +109,7 @@ def main() -> None:
     assert pdf.skill_name == "pdf-analysis"
     assert pdf.tool_name == "pdf_analysis"
     assert pdf.target_object is None
-    assert pdf.tool_input.get("mode") == "page_read"
+    assert pdf.tool_input.get("mode") == "page"
 
     faq = analyze_query_understanding(
         "为什么我在我的帐户中找不到我的订单？",

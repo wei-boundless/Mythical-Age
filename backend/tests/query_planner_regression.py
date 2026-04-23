@@ -96,6 +96,14 @@ def main() -> None:
     assert nested_executions[1].query_understanding.tool_name == "structured_data_analysis"
     assert nested_executions[2].query_understanding.tool_name == "get_weather"
 
+    section_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="回到刚才 PDF，第二部分的结论是什么？",
+        history=[],
+    )
+    assert section_plan.query_understanding.tool_name == "pdf_analysis"
+    assert section_plan.iter_executions()[0].tool_input["mode"] == "section"
+
     history = [
         {"role": "user", "content": "请帮我详细解读 AI治理报告.pdf"},
         {"role": "assistant", "content": "已分析文件：knowledge/reports/AI治理报告.pdf"},
@@ -109,6 +117,7 @@ def main() -> None:
     assert followup_plan.query_understanding.tool_name == "pdf_analysis"
     assert "path" not in followup_plan.query_understanding.tool_input
     assert "path" not in followup_plan.iter_executions()[0].tool_input
+    assert followup_plan.iter_executions()[0].tool_input["mode"] == "section"
     assert followup_plan.subqueries == ["回到刚才 PDF，第二部分的结论是什么？"]
 
     structured_followup_history = [

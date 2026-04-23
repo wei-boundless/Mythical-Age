@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from RAG.parser_adapter import MultimodalParserAdapter
-from pdf_analysis.engine import PdfAnalysisEngine
+from pdf_agent import PDFReadAgentRuntime, PDFReadRequest
 from pdf_analysis.mineru_client import MinerUApiClient, MinerUApiConfig, MinerUBlock, MinerUParseResult
 from pdf_analysis.parser import PdfTextParser
 from tools import get_all_tools
@@ -97,14 +97,17 @@ def main() -> None:
         assert chunks[1].page == 2
         assert "Revenue" in chunks[1].text
 
-        engine = PdfAnalysisEngine(root_dir=backend_root, parser=parser)
-        output = engine.execute(
-            query="Please explain page 2 of the report.",
+        runtime = PDFReadAgentRuntime(root_dir=backend_root, parser=parser)
+        result = runtime.run(
+            request=PDFReadRequest(
+                query="Please explain page 2 of the report.",
+                mode="page",
+            ),
             file_path=pdf_path,
-            mode="page_read",
         )
-        assert "Target page: P2" in output
-        assert "Revenue table" in output or "Revenue | Margin" in output
+        assert result.effective_mode == "page"
+        assert result.pages == [2]
+        assert "Revenue table" in result.summary or "Revenue | Margin" in result.summary
 
         fallback_parser = PdfTextParser(root_dir=backend_root, mineru_client=FailingMinerUClient())
         fallback_parser._extract_pages_locally = lambda file_path: [(1, "Local fallback page content.")]

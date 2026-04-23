@@ -45,7 +45,8 @@ def main() -> None:
 
     assert "pdf-analysis" in by_name
     pdf = by_name["pdf-analysis"]
-    assert "document_page_read" in pdf.supported_task_kinds
+    assert "document_page" in pdf.supported_task_kinds
+    assert "document_read" in pdf.supported_task_kinds
     assert any(path.endswith("references/pdf_reading.md") for path in pdf.reference_paths)
 
     assert "rag-skill" in by_name

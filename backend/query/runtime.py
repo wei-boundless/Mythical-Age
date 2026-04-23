@@ -8,6 +8,7 @@ from typing import Any
 
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
+from pdf_agent import PDFCanonicalResult
 from query.answer_assembler import AnswerAssembler
 from query.binding_models import StructuredDatasetBinding
 from query.context_models import MainContextState, TaskSummaryRef
@@ -933,6 +934,13 @@ class QueryRuntime:
             key_points.append(f"page={constraints['page']}")
         if constraints.get("group_by"):
             key_points.append(f"group_by={constraints['group_by']}")
+        if constraints.get("pdf_mode"):
+            key_points.append(f"pdf_mode={constraints['pdf_mode']}")
+        if constraints.get("pdf_section"):
+            key_points.append(f"pdf_section={constraints['pdf_section']}")
+        pdf_focus_pages = list(constraints.get("pdf_focus_pages") or [])
+        if pdf_focus_pages:
+            key_points.append("pdf_pages=" + ",".join(str(item) for item in pdf_focus_pages if int(item) > 0))
         if constraints.get("active_dataset"):
             key_points.append(f"dataset={constraints['active_dataset']}")
         if constraints.get("active_pdf"):
@@ -978,6 +986,25 @@ class QueryRuntime:
                 merged["active_location"] = str(bindings["active_location"])
             if bindings.get("source_kind") and not merged.get("source_kind"):
                 merged["source_kind"] = str(bindings["source_kind"])
+            constraints_payload = item.get("context_ref")
+            if isinstance(constraints_payload, dict):
+                task_constraints = dict(constraints_payload.get("constraints") or {})
+                if task_constraints.get("page") is not None and merged.get("page") is None:
+                    merged["page"] = int(task_constraints["page"])
+                if task_constraints.get("group_by") and not merged.get("group_by"):
+                    merged["group_by"] = str(task_constraints["group_by"])
+                if task_constraints.get("pdf_mode") and not merged.get("pdf_mode"):
+                    merged["pdf_mode"] = str(task_constraints["pdf_mode"])
+                if task_constraints.get("pdf_section") and not merged.get("pdf_section"):
+                    merged["pdf_section"] = str(task_constraints["pdf_section"])
+                if task_constraints.get("pdf_focus_pages") and not merged.get("pdf_focus_pages"):
+                    merged["pdf_focus_pages"] = list(task_constraints["pdf_focus_pages"])
+                if task_constraints.get("readable_pages") is not None and merged.get("readable_pages") is None:
+                    merged["readable_pages"] = int(task_constraints["readable_pages"])
+                if task_constraints.get("usable_pages") is not None and merged.get("usable_pages") is None:
+                    merged["usable_pages"] = int(task_constraints["usable_pages"])
+                if task_constraints.get("total_pages") is not None and merged.get("total_pages") is None:
+                    merged["total_pages"] = int(task_constraints["total_pages"])
             summary_payload = item.get("summary")
             if isinstance(summary_payload, dict) and summary_payload.get("response_style") and not merged.get("response_style"):
                 merged["response_style"] = str(summary_payload["response_style"])
@@ -1014,6 +1041,8 @@ class QueryRuntime:
             merged["active_pdf"] = pdf_path
             merged["active_binding_identity"] = pdf_path.replace("\\", "/").strip().lower()
             merged.setdefault("source_kind", "pdf")
+            if str(tool_input.get("mode", "") or "").strip():
+                merged["pdf_mode"] = self._normalize_pdf_scope(str(tool_input.get("mode", "") or "").strip())
         binding = getattr(execution, "structured_binding", None)
         if binding is None:
             return merged
@@ -1055,6 +1084,21 @@ class QueryRuntime:
         page_match = re.search(r"第\s*(\d+)\s*页", message)
         if page_match:
             constraints["page"] = int(page_match.group(1))
+            constraints["pdf_mode"] = "page"
+        elif re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message):
+            constraints["pdf_mode"] = "page"
+        elif re.search(r"page\s*\d+", lowered):
+            constraints["pdf_mode"] = "page"
+        section_match = re.search(r"(第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节))", message)
+        if section_match:
+            constraints["pdf_mode"] = "section"
+            constraints["pdf_section"] = str(section_match.group(1) or "").strip()
+        else:
+            for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节"):
+                if marker in message:
+                    constraints["pdf_mode"] = "section"
+                    constraints["pdf_section"] = marker
+                    break
         if "按仓库" in message:
             constraints["group_by"] = "仓库"
         elif "按地区" in message:
@@ -1063,8 +1107,14 @@ class QueryRuntime:
             constraints["dedupe"] = True
         if "补一句" in message:
             constraints["append_mode"] = "single_sentence_append"
+        has_pdf_overview_hint = any(
+            marker in message for marker in ("全文总览", "总览", "概览", "核心结论", "行动建议", "完整总结", "详细解读")
+        )
+        if has_pdf_overview_hint and constraints.get("pdf_mode") not in {"page", "section"}:
+            constraints["pdf_mode"] = "document"
         if "pdf" in lowered:
             constraints["source_kind"] = "pdf"
+            constraints.setdefault("pdf_mode", "document")
         elif any(ext in lowered for ext in (".xlsx", ".csv", ".xls")):
             constraints["source_kind"] = "dataset"
         return constraints
@@ -1432,17 +1482,33 @@ class QueryRuntime:
             ),
         }
 
+        active_constraints = self._extract_active_constraints(execution.message)
+        raw_tool_output: Any = None
+        rendered_tool_decision = None
+
         async def invoke_tool() -> Any:
+            nonlocal raw_tool_output
             if trace is not None:
                 with trace.stage(
                     "query.direct_tool",
                     run_type="tool",
                     inputs={"tool": tool_name, "input": tool_input},
                 ):
-                    return await asyncio.to_thread(tool.invoke, tool_input)
-            return await asyncio.to_thread(tool.invoke, tool_input)
+                    raw_tool_output = await asyncio.to_thread(tool.invoke, tool_input)
+                    return raw_tool_output
+            raw_tool_output = await asyncio.to_thread(tool.invoke, tool_input)
+            return raw_tool_output
 
-        active_constraints = self._extract_active_constraints(execution.message)
+        def _render_content(output: Any) -> str:
+            nonlocal rendered_tool_decision
+            rendered_tool_decision = self._build_direct_tool_output_decision(
+                output,
+                tool_name=tool_name,
+                query=execution.message,
+                route=str(execution.query_understanding.route or "tool"),
+            )
+            return rendered_tool_decision.canonical_answer.strip()
+
         task = await self.task_coordinator.run_tool_task(
             session_id,
             tool_name,
@@ -1456,21 +1522,29 @@ class QueryRuntime:
                 group_by=str(active_constraints.get("group_by", "") or ""),
                 page=active_constraints.get("page"),
                 response_style=str(active_constraints.get("response_style", "") or ""),
+                pdf_mode=str(active_constraints.get("pdf_mode", "") or ""),
+                pdf_section=str(active_constraints.get("pdf_section", "") or ""),
             ),
-            render_content=lambda output: self._normalize_direct_tool_output(
-                output,
-                tool_name=tool_name,
-                query=execution.message,
-                route=str(execution.query_understanding.route or "tool"),
-            ),
+            render_content=_render_content,
         )
-        tool_content = task.result
-        tool_decision = self._build_direct_tool_output_decision(
-            tool_content,
+        self._enrich_direct_tool_task(
+            task,
+            raw_output=raw_tool_output,
+            tool_name=tool_name,
+        )
+        tool_decision = rendered_tool_decision or self._build_direct_tool_output_decision(
+            raw_tool_output,
             tool_name=tool_name,
             query=execution.message,
             route=str(execution.query_understanding.route or "tool"),
         )
+        self._apply_pdf_persistence_gate(
+            task=task,
+            raw_output=raw_tool_output,
+            tool_name=tool_name,
+            tool_decision=tool_decision,
+        )
+        tool_content = task.result
         binding_payload = (
             execution.structured_binding.to_dict()
             if getattr(execution, "structured_binding", None) is not None
@@ -1478,9 +1552,12 @@ class QueryRuntime:
         )
         task_summary_ref = self._task_summary_ref_from_task(task)
         yield {"type": "tool_end", "tool": tool_name, "output": tool_content, "structured_binding": binding_payload}
+        visible_content = tool_decision.canonical_answer.strip() or f"{tool_name} 已执行，但未返回可展示结果。"
+        if tool_name == "pdf_analysis" and not self._pdf_tool_decision_is_persistable(raw_tool_output, tool_decision):
+            task_summary_ref = None
         yield {
             "type": "done",
-            "content": tool_content or f"{tool_name} 已执行，但未返回可展示结果。",
+            "content": visible_content,
             "task_id": task.task_id,
             "summary": task.summary.to_dict() if task.summary is not None else None,
             "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
@@ -1521,6 +1598,7 @@ class QueryRuntime:
         tool_name: str = "",
         query: str = "",
         route: str = "tool",
+        force_allow_unlabeled: bool = False,
     ):
         normalized_text, allow_unlabeled_answer = self._prepare_direct_tool_output_candidate(output)
         candidate = classify_output_candidate(
@@ -1528,7 +1606,7 @@ class QueryRuntime:
             route=route,
             source=f"direct_tool.{tool_name or 'tool'}",
             tool_name=tool_name,
-            allow_unlabeled_answer=allow_unlabeled_answer,
+            allow_unlabeled_answer=allow_unlabeled_answer or force_allow_unlabeled,
         )
         return build_output_decision(
             candidates=[candidate] if candidate is not None else [],
@@ -1565,6 +1643,143 @@ class QueryRuntime:
             return json.dumps(list(output), ensure_ascii=False, indent=2)
         normalized = stringify_content(output)
         return sanitize_visible_assistant_content(normalized).strip() if isinstance(normalized, str) else str(output)
+
+    def _enrich_direct_tool_task(
+        self,
+        task,
+        *,
+        raw_output: Any,
+        tool_name: str,
+    ) -> None:
+        if tool_name != "pdf_analysis" or task is None:
+            return
+        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
+        if canonical is None:
+            return
+        context_ref = getattr(task, "context_ref", None)
+        summary = getattr(task, "summary", None)
+        if context_ref is None or summary is None:
+            return
+        metadata = dict(canonical.metadata or {})
+        normalized_mode = self._normalize_pdf_scope(str(canonical.effective_mode or ""))
+        if canonical.ok:
+            context_ref.constraints.pdf_mode = normalized_mode
+        context_ref.constraints.pdf_section = str(metadata.get("target_section", "") or "")
+        target_page = metadata.get("target_page")
+        if isinstance(target_page, int) and target_page > 0:
+            context_ref.constraints.page = target_page
+        context_ref.constraints.pdf_focus_pages = [int(page) for page in list(canonical.pages or []) if int(page) > 0][:5]
+        total_pages = metadata.get("document_total_pages", metadata.get("total_pages"))
+        readable_pages = metadata.get("readable_pages")
+        usable_pages = metadata.get("usable_pages")
+        if isinstance(total_pages, int) and total_pages > 0:
+            context_ref.constraints.total_pages = total_pages
+        if isinstance(readable_pages, int) and readable_pages >= 0:
+            context_ref.constraints.readable_pages = readable_pages
+            task.metadata["pdf_readable_pages"] = readable_pages
+        if isinstance(usable_pages, int) and usable_pages >= 0:
+            context_ref.constraints.usable_pages = usable_pages
+        if canonical.ok:
+            context_ref.task_kind = self._pdf_task_kind_from_mode(canonical.effective_mode)
+        task.metadata["pdf_canonical_result"] = canonical.to_payload()
+        if canonical.ok:
+            summary.key_points = self._merge_summary_key_points(
+                list(summary.key_points or []),
+                pdf_path=str(context_ref.bindings.active_pdf or ""),
+                page=context_ref.constraints.page,
+                pdf_mode=context_ref.constraints.pdf_mode,
+                pdf_section=context_ref.constraints.pdf_section,
+                pdf_pages=context_ref.constraints.pdf_focus_pages,
+                readable_pages=context_ref.constraints.readable_pages,
+                usable_pages=context_ref.constraints.usable_pages,
+            )
+            context_ref.summary = str(summary.response or "")
+
+    def _apply_pdf_persistence_gate(
+        self,
+        *,
+        task,
+        raw_output: Any,
+        tool_name: str,
+        tool_decision,
+    ) -> None:
+        if tool_name != "pdf_analysis" or task is None:
+            return
+        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
+        if canonical is None or self._pdf_tool_decision_is_persistable(raw_output, tool_decision):
+            return
+        summary = getattr(task, "summary", None)
+        context_ref = getattr(task, "context_ref", None)
+        if summary is not None:
+            summary.response = ""
+            summary.key_points = []
+        if context_ref is not None:
+            context_ref.summary = ""
+        task.metadata["skip_session_memory_projection"] = True
+        task.metadata["pdf_persistable"] = False
+
+    def _pdf_tool_decision_is_persistable(self, raw_output: Any, tool_decision) -> bool:
+        if tool_decision is None or str(getattr(tool_decision, "selected_channel", "") or "") == "fallback_answer":
+            return False
+        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
+        return canonical is not None and canonical.ok
+
+    def _merge_summary_key_points(
+        self,
+        existing: list[str],
+        *,
+        pdf_path: str = "",
+        page: int | None = None,
+        pdf_mode: str = "",
+        pdf_section: str = "",
+        pdf_pages: list[int] | None = None,
+        readable_pages: int | None = None,
+        usable_pages: int | None = None,
+    ) -> list[str]:
+        merged: list[str] = []
+        seen: set[str] = set()
+
+        def add(item: str) -> None:
+            normalized = str(item or "").strip()
+            if not normalized or normalized in seen:
+                return
+            seen.add(normalized)
+            merged.append(normalized)
+
+        for item in existing:
+            add(str(item or ""))
+        if page is not None:
+            add(f"page={page}")
+        if pdf_mode:
+            add(f"pdf_mode={pdf_mode}")
+        if pdf_section:
+            add(f"pdf_section={pdf_section}")
+        normalized_pages = [int(page_item) for page_item in list(pdf_pages or []) if int(page_item) > 0]
+        if normalized_pages:
+            add("pdf_pages=" + ",".join(str(page_item) for page_item in normalized_pages))
+        if readable_pages is not None:
+            add(f"readable_pages={readable_pages}")
+        if usable_pages is not None:
+            add(f"usable_pages={usable_pages}")
+        if pdf_path:
+            add(f"pdf={pdf_path}")
+        return merged
+
+    def _pdf_task_kind_from_mode(self, mode: str) -> str:
+        normalized = self._normalize_pdf_scope(str(mode or ""))
+        if normalized == "page":
+            return "document_page"
+        if normalized == "section":
+            return "document_section"
+        return "document_read"
+
+    def _normalize_pdf_scope(self, mode: str) -> str:
+        normalized = str(mode or "").strip().lower()
+        if normalized in {"page", "page-read", "page_read"}:
+            return "page"
+        if normalized in {"section", "section-read", "section_read"}:
+            return "section"
+        return "document"
 
     def _assemble_subtask_results(
         self,

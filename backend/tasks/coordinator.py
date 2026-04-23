@@ -225,6 +225,18 @@ class TaskCoordinator:
             key_points.append(f"top_n={context_ref.constraints.top_n}")
         if context_ref is not None and context_ref.constraints.page is not None:
             key_points.append(f"page={context_ref.constraints.page}")
+        if context_ref is not None and context_ref.constraints.pdf_mode:
+            key_points.append(f"pdf_mode={context_ref.constraints.pdf_mode}")
+        if context_ref is not None and context_ref.constraints.pdf_section:
+            key_points.append(f"pdf_section={context_ref.constraints.pdf_section}")
+        if context_ref is not None and context_ref.constraints.pdf_focus_pages:
+            pages = ",".join(str(page) for page in context_ref.constraints.pdf_focus_pages if int(page) > 0)
+            if pages:
+                key_points.append(f"pdf_pages={pages}")
+        if context_ref is not None and context_ref.constraints.readable_pages is not None:
+            key_points.append(f"readable_pages={context_ref.constraints.readable_pages}")
+        if context_ref is not None and context_ref.constraints.usable_pages is not None:
+            key_points.append(f"usable_pages={context_ref.constraints.usable_pages}")
         if context_ref is not None and context_ref.bindings.active_dataset:
             key_points.append(f"dataset={context_ref.bindings.active_dataset}")
         if context_ref is not None and context_ref.bindings.active_pdf:

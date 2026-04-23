@@ -8,7 +8,8 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from pdf_analysis import PdfAnalysisCatalog, PdfAnalysisEngine
+from pdf_agent import PDFReadAgentRuntime, PDFReadRequest
+from pdf_analysis import PdfAnalysisCatalog
 
 
 class PdfAnalysisInput(BaseModel):
@@ -21,14 +22,14 @@ class PdfAnalysisInput(BaseModel):
         description="Optional PDF path relative to the backend root. If omitted, the tool will try to resolve it from the query or session context.",
     )
     mode: str = Field(
-        default="browse",
-        description="Reading mode: browse, deep_read, or page_read.",
+        default="document",
+        description="Optional PDF query scope. Use document, section, or page; legacy values are normalized internally.",
     )
     max_chunks: int = Field(
         default=4,
         ge=1,
         le=12,
-        description="Upper bound for how many relevant pages are surfaced for browse or deep-read mode.",
+        description="Upper bound for how many relevant pages are surfaced for document or section answers.",
     )
 
 
@@ -41,18 +42,18 @@ class PdfAnalysisTool(BaseTool):
     args_schema: Type[BaseModel] = PdfAnalysisInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
     _root_dir: Path = PrivateAttr()
-    _engine: PdfAnalysisEngine = PrivateAttr()
+    _runtime: PDFReadAgentRuntime = PrivateAttr()
 
     def __init__(self, root_dir: Path, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._root_dir = root_dir.resolve()
-        self._engine = PdfAnalysisEngine(root_dir=self._root_dir)
+        self._runtime = PDFReadAgentRuntime(root_dir=self._root_dir)
 
     def _run(
         self,
         query: str,
         path: str = "",
-        mode: str = "browse",
+        mode: str = "document",
         max_chunks: int = 4,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
@@ -66,18 +67,22 @@ class PdfAnalysisTool(BaseTool):
         if file_path.is_dir():
             return "PDF analysis failed: the provided path is a directory."
 
-        return self._engine.execute(
-            query=query,
+        result = self._runtime.run(
+            request=PDFReadRequest(
+                query=query,
+                path=path,
+                mode=mode,
+                max_chunks=max_chunks,
+            ),
             file_path=file_path,
-            max_chunks=max_chunks,
-            mode=mode,
         )
+        return result.to_tool_output()
 
     async def _arun(
         self,
         query: str,
         path: str = "",
-        mode: str = "browse",
+        mode: str = "document",
         max_chunks: int = 4,
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:

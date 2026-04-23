@@ -1,6 +1,8 @@
 
 from __future__ import annotations
 
+import re
+
 from understanding.task_understanding import TaskUnderstanding
 
 from .dialogue_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
@@ -300,6 +302,9 @@ class ProcessStateEngine:
     ) -> ContextSlots:
         next_slots = ContextSlots(
             active_pdf=context_slots.active_pdf,
+            active_pdf_mode=context_slots.active_pdf_mode,
+            active_pdf_section=context_slots.active_pdf_section,
+            active_pdf_pages=list(context_slots.active_pdf_pages),
             active_dataset=context_slots.active_dataset,
             active_entity=context_slots.active_entity,
             active_rule=context_slots.active_rule,
@@ -464,6 +469,9 @@ class ProcessStateEngine:
         turn_trace: list[TurnUnderstanding],
     ) -> ContextSlots:
         active_pdf, active_dataset = self._extract_slots_from_active_goal(active_goal)
+        active_pdf_mode = self._infer_pdf_mode_from_goal(active_goal)
+        active_pdf_section = self._extract_pdf_section_from_goal(active_goal)
+        active_pdf_pages = self._extract_pdf_pages_from_goal(active_goal)
 
         active_entity = self._infer_active_entity(
             active_goal,
@@ -477,6 +485,9 @@ class ProcessStateEngine:
 
         return ContextSlots(
             active_pdf=active_pdf,
+            active_pdf_mode=active_pdf_mode if active_pdf else "",
+            active_pdf_section=active_pdf_section if active_pdf else "",
+            active_pdf_pages=active_pdf_pages if active_pdf else [],
             active_dataset=active_dataset,
             active_entity=active_entity,
             active_rule=active_rule,
@@ -496,6 +507,31 @@ class ProcessStateEngine:
             pdf_files[-1] if pdf_files else "",
             dataset_files[-1] if dataset_files else "",
         )
+
+    def _infer_pdf_mode_from_goal(self, active_goal: str) -> str:
+        normalized = normalize_storage_text(active_goal).lower()
+        if re.search(r"第\s*\d+\s*页", active_goal) or re.search(r"page\s*\d+", normalized):
+            return "page"
+        if re.search(r"第\s*[一二三四五六七八九十百千两零\d]+\s*(?:部分|章|节)", active_goal):
+            return "section"
+        if any(marker in active_goal for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节")):
+            return "section"
+        return "document" if ".pdf" in normalized or "pdf" in normalized else ""
+
+    def _extract_pdf_section_from_goal(self, active_goal: str) -> str:
+        match = re.search(r"(第\s*[一二三四五六七八九十百千两零\d]+\s*(?:部分|章|节))", active_goal)
+        if match:
+            return str(match.group(1) or "").strip()
+        for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节"):
+            if marker in active_goal:
+                return marker
+        return ""
+
+    def _extract_pdf_pages_from_goal(self, active_goal: str) -> list[int]:
+        direct = re.search(r"第\s*(\d+)\s*页", active_goal)
+        if direct:
+            return [int(direct.group(1))]
+        return []
 
     def _build_current_state(
         self,

@@ -57,7 +57,7 @@ def main() -> None:
         query_understanding=QueryUnderstanding(
             route="tool",
             tool_name="pdf_analysis",
-            tool_input={"query": explicit_message, "mode": "browse"},
+            tool_input={"query": explicit_message, "mode": "document"},
         ),
         structured_binding=None,
     )
@@ -73,7 +73,7 @@ def main() -> None:
         query_understanding=QueryUnderstanding(
             route="tool",
             tool_name="pdf_analysis",
-            tool_input={"query": "请继续解读第三页。", "mode": "page_read"},
+            tool_input={"query": "请继续解读第三页。", "mode": "page"},
         ),
         structured_binding=None,
     )

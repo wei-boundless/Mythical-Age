@@ -9,6 +9,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from pdf_agent import PDFCanonicalResult
 from query import QueryRuntime
 from query.binding_models import StructuredDatasetBinding
 from query.models import QueryExecutionPlan, QueryPlan
@@ -917,7 +918,7 @@ def test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_cont
     assert "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。" == done_text
 
 
-def test_direct_tool_pdf_raw_browse_dump_does_not_become_done_content() -> None:
+def test_direct_tool_pdf_raw_dump_does_not_become_done_content() -> None:
     raw_pdf_dump = (
         "Source: knowledge/test.pdf\n"
         "Mode: PDF browse\n"
@@ -956,8 +957,126 @@ def test_direct_tool_pdf_raw_browse_dump_does_not_become_done_content() -> None:
     done_text = str(events[-1]["content"])
     assert "Source:" not in done_text
     assert "Mode: PDF browse" not in done_text
-    assert "P12" in done_text
-    assert "P18" in done_text
+    assert "P12" not in done_text
+    assert "P18" not in done_text
+    assert done_text == "已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。"
+    assert events[-1]["answer_channel"] == "fallback_answer"
+
+
+def test_direct_tool_degraded_pdf_result_does_not_project_summary_state() -> None:
+    canonical = PDFCanonicalResult(
+        status="degraded",
+        source="test.pdf",
+        requested_mode="page",
+        effective_mode="page",
+        degraded_reason="target_page_text_quality_low",
+        pages=[8],
+        metadata={
+            "target_page": 8,
+            "document_total_pages": 16,
+            "readable_pages": 12,
+            "usable_pages": 10,
+        },
+    ).to_tool_output()
+    tool = SimpleNamespace(invoke=lambda _tool_input: canonical)
+    plan = QueryPlan(
+        session_id="pdf-degraded-session",
+        message="回到刚才 PDF，第8页讲了什么？",
+        history=[],
+        subqueries=["回到刚才 PDF，第8页讲了什么？"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="pdf_page_followup_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            task_kind="document_page",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+        tool_input={"query": "回到刚才 PDF，第8页讲了什么？", "path": "knowledge/test.pdf"},
+        execution_kind="direct_tool",
+    )
+    events, _retrieval, _model_runtime, _memory_facade = asyncio.run(
+        _collect_events(
+            plan,
+            rag_mode=False,
+            direct_tools={"pdf_analysis": tool},
+        )
+    )
+
+    done = events[-1]
+    assert done["answer_channel"] == "fallback_answer"
+    assert done["task_summary_refs"] == []
+    assert done["summary"]["response"] == ""
+    assert done["summary"]["key_points"] == []
+    assert done["context_ref"]["summary"] == ""
+    assert done["main_context"]["active_constraints"]["page"] == 8
+    assert done["main_context"]["active_constraints"]["total_pages"] == 16
+    assert done["main_context"]["active_constraints"]["readable_pages"] == 12
+    assert done["main_context"]["active_constraints"]["usable_pages"] == 10
+
+
+def test_direct_tool_pdf_canonical_result_projects_pdf_state_into_task_and_main_context() -> None:
+    canonical = PDFCanonicalResult(
+        status="ok",
+        source="test.pdf",
+        requested_mode="document",
+        effective_mode="section",
+        summary="已定位到第二部分的约束重点。",
+        pages=[8, 9],
+        metadata={
+            "target_section": "第二部分",
+            "target_page": 8,
+            "readable_pages": 14,
+            "usable_pages": 12,
+            "document_total_pages": 16,
+        },
+    ).to_tool_output()
+    tool = SimpleNamespace(invoke=lambda _tool_input: canonical)
+    plan = QueryPlan(
+        session_id="pdf-canonical-session",
+        message="回到刚才 PDF，第二部分强调的约束是什么？",
+        history=[],
+        subqueries=["回到刚才 PDF，第二部分强调的约束是什么？"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="pdf_followup_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            task_kind="document_section",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+        tool_input={"query": "回到刚才 PDF，第二部分强调的约束是什么？", "path": "knowledge/test.pdf"},
+        execution_kind="direct_tool",
+    )
+    events, _retrieval, _model_runtime, _memory_facade = asyncio.run(
+        _collect_events(
+            plan,
+            rag_mode=False,
+            direct_tools={"pdf_analysis": tool},
+        )
+    )
+
+    done = events[-1]
+    context_ref = dict(done["context_ref"])
+    constraints = dict(context_ref["constraints"])
+    main_constraints = dict(done["main_context"]["active_constraints"])
+    summary_key_points = list(done["summary"]["key_points"])
+    assert constraints["pdf_mode"] == "section"
+    assert constraints["pdf_section"] == "第二部分"
+    assert constraints["page"] == 8
+    assert constraints["pdf_focus_pages"] == [8, 9]
+    assert main_constraints["pdf_mode"] == "section"
+    assert main_constraints["pdf_section"] == "第二部分"
+    assert main_constraints["page"] == 8
+    assert main_constraints["readable_pages"] == 14
+    assert main_constraints["usable_pages"] == 12
+    assert "readable_pages=14" in summary_key_points
+    assert "pdf_mode=section" in summary_key_points
+    assert "pdf_section=第二部分" in summary_key_points
 
 
 def test_direct_tool_plain_table_dump_does_not_become_done_content() -> None:
@@ -1052,7 +1171,9 @@ def main() -> None:
     test_runtime_output_boundary_strips_inline_pseudo_tool_calls_from_visible_answer()
     test_runtime_output_boundary_salvages_nonempty_answer_when_only_procedural_text_remains()
     test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_content()
-    test_direct_tool_pdf_raw_browse_dump_does_not_become_done_content()
+    test_direct_tool_pdf_raw_dump_does_not_become_done_content()
+    test_direct_tool_degraded_pdf_result_does_not_project_summary_state()
+    test_direct_tool_pdf_canonical_result_projects_pdf_state_into_task_and_main_context()
     test_direct_tool_plain_table_dump_does_not_become_done_content()
     test_assistant_message_persistence_uses_canonical_visible_content()
     test_output_boundary_strips_search_protocol_tail_from_visible_answer()
