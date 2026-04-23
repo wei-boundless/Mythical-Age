@@ -1,0 +1,493 @@
+{
+  "doc_id": "cc81c870455957c49ed7f38dd57c11cf80e28828",
+  "collection": "session_memory",
+  "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md",
+  "source_type": "md",
+  "version_digest": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58",
+  "parser_backend": "docling",
+  "title": "summary",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:0",
+      "block_type": "heading",
+      "text": "# Session Title",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:1",
+      "block_type": "paragraph",
+      "text": "*A short and distinctive title for the session.* 你刚刚让我长期保留了哪几件事？",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:2",
+      "block_type": "heading",
+      "text": "# Active Goal",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:3",
+      "block_type": "paragraph",
+      "text": "*What is the user currently trying to achieve?*",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:4",
+      "block_type": "paragraph",
+      "text": "- 记住：我们这个项目当前主线是优化 Memory 和 RAG。",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:5",
+      "block_type": "heading",
+      "text": "# Flow State",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:6",
+      "block_type": "paragraph",
+      "text": "*What flow is currently active, and how confident is the system about it?*",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:7",
+      "block_type": "paragraph",
+      "text": "- 当前流程类型：coding\\_change\\_flow\n- 流程状态：awaiting\\_user",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:8",
+      "block_type": "heading",
+      "text": "# Warm Context",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:9",
+      "block_type": "paragraph",
+      "text": "*Still-useful prior context from earlier in this session.*",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:10",
+      "block_type": "paragraph",
+      "text": "- 此前请求：记住：以后复杂问题先给结论，再展开解释。\n- 延续状态：当前关注的用户问题：记住：以后复杂问题先给结论，再展开解释。\n- 延续状态：当前关注的用户问题：记住：我们这个项目当前主线是优化 Memory 和 RAG。\n- 近期结论：1. 已记住 好的，岩。项目主线已确认：优化 Memory 和 RAG。 2. 说明 这条主线会指导我后续的工作优先级： - 在技术选型、方案讨论时，优先考虑对 Memory 和 RAG 的优化价值 - 在阅读知识库文档时，会特别关注与 RAG 架构、记忆模块相关的内容 - 在提供建议时，会围绕这条主线来组织思路 从知识库检索结果看，已有不少 RAG 和长期记忆相关的资料（如向量数据库选型、FastGPT 的 RAG 管线优化等），后续...\n- 近期结果：1. 已记住 好的，岩。项目主线已确认：优化 Memory 和 RAG。 2. 说明 这条主线会指导我后续的工作优先级： - 在技术选型、方案讨论时，优先考虑对 Memory 和 RAG 的优化价值 - 在阅读知识库文档时，会特别关注与 RAG 架构、记忆模块相关的内容 - 在提供建议时，会围绕这条主线来组织思路 从知识库检索结果看，已有不少 RAG 和长期记忆相关的资料（如向量数据库选型、FastGPT 的 RAG 管线优化等），后续可以基于这些资料展开具体优化方\n- 此前请求：你刚刚让我长期保留了哪几件事？",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:11",
+      "block_type": "heading",
+      "text": "# Key User Requests",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:12",
+      "block_type": "paragraph",
+      "text": "*Stable instructions or constraints from the user within this session.*",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:13",
+      "block_type": "paragraph",
+      "text": "- 记住：以后复杂问题先给结论，再展开解释。\n- 记住：默认终端命令使用 PowerShell。\n- 记住：我们这个项目当前主线是优化 Memory 和 RAG。\n- 你刚刚让我长期保留了哪几件事？",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:14",
+      "block_type": "heading",
+      "text": "# Conventions and Constraints",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:15",
+      "block_type": "paragraph",
+      "text": "*Commands, operating conventions, and environment constraints that matter now.*",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:16",
+      "block_type": "paragraph",
+      "text": "- 记住：默认终端命令使用 PowerShell。\n    1. 已记住 好的，岩。这个偏好已记录：默认终端命令使用 PowerShell。 2. 说明 这条偏好会指导我以后在需要执行终端命令时，优先使用 PowerShell 语法，而不是 bash 或其他 shell。比如： - 路径分隔符用 `\\` 而非 `/` - 环境变量用 `$env:VAR` 而非 `$VAR` - 列目录用 `Get-ChildItem` 或 `dir` 而非 `ls` - 管道和对象操作遵循 PowerShell 风格 这条偏好已写入长期记忆，后续会自\n    1. 已记住 好的，岩。项目主线已确认：优化 Memory 和 RAG。 2. 说明 这条主线会指导我后续的工作优先级： - 在技术选型、方案讨论时，优先考虑对 Memory 和 RAG 的优化价值 - 在阅读知识库文档时，会特别关注与 RAG 架构、记忆模块相关的内容 - 在提供建议时，会围绕这条主线来组织思路 从知识库检索结果看，已有不少 RAG 和长期记忆相关的资料（如向量数据库选型、FastGPT 的 RAG 管线优化等），后续可以基于这些资料展开具体优化方向的讨论。\n- 根据对话记录，岩，你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令偏好：默认终端命令使用 PowerShell。 3. 项目主线：当前项目主线是优化 Memory 和 RAG。 这三条都已写入长期记忆，后续会自动生效。",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:17",
+      "block_type": "heading",
+      "text": "# Errors and Corrections",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:18",
+      "block_type": "paragraph",
+      "text": "*Failures, corrections, and approaches to avoid repeating.*",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:19",
+      "block_type": "paragraph",
+      "text": "- 低置信度流程切换已降级处理，等待进一步澄清。",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:20",
+      "block_type": "heading",
+      "text": "# Decisions and Learnings",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:21",
+      "block_type": "paragraph",
+      "text": "*Concrete conclusions, tradeoffs, and learnings established in this session.*",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:22",
+      "block_type": "paragraph",
+      "text": "1. 记住：以后复杂问题先给结论 好的，岩。这个偏好我已经记住了： 以后复杂问题先给结论，再展开解释。 这条偏好之前已经写入长期记忆，现在再次确认生效。 2. 展开解释 岩，我注意到你提到\"展开解释\"，但我需要先确认一下上下文。 从检索结果看，系统找到了几份知识库文档的相关片段，但内容比较零散。为了给你有针对性的展开解释，我需要先了解： 你希望我展开解释的具体主题是什么？ 比如： - 是关于 AI 营销趋势的某个观点？ - 是关于职业教...\n    1. 已记住 好的，岩。这个偏好已记录：默认终端命令使用 PowerShell。 2. 说明 这条偏好会指导我以后在需要执行终端命令时，优先使用 PowerShell 语法，而不是 bash 或其他 shell。比如： - 路径分隔符用 `\\` 而非 `/` - 环境变量用 `$env:VAR` 而非 `$VAR` - 列目录用 `Get-ChildItem` 或 `dir` 而非 `ls` - 管道和对象操作遵循 PowerShell...\n    1. 已记住 好的，岩。项目主线已确认：优化 Memory 和 RAG。 2. 说明 这条主线会指导我后续的工作优先级： - 在技术选型、方案讨论时，优先考虑对 Memory 和 RAG 的优化价值 - 在阅读知识库文档时，会特别关注与 RAG 架构、记忆模块相关的内容 - 在提供建议时，会围绕这条主线来组织思路 从知识库检索结果看，已有不少 RAG 和长期记忆相关的资料（如向量数据库选型、FastGPT 的 RAG 管线优化等），后续...\n- 根据对话记录，岩，你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令偏好：默认终端命令使用 PowerShell。 3. 项目主线：当前项目主线是优化 Memory 和 RAG。 这三条都已写入长期记忆，后续会自动生效。",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:23",
+      "block_type": "heading",
+      "text": "# Key Results",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:24",
+      "block_type": "paragraph",
+      "text": "*Exact outputs, conclusions, or artifacts already produced for the user.*",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    },
+    {
+      "block_id": "d01f845410ea8079b19acbba1b32ba9bcc0d9d58:25",
+      "block_type": "paragraph",
+      "text": "1. 记住：以后复杂问题先给结论 好的，岩。这个偏好我已经记住了： 以后复杂问题先给结论，再展开解释。 这条偏好之前已经写入长期记忆，现在再次确认生效。 2. 展开解释 岩，我注意到你提到\"展开解释\"，但我需要先确认一下上下文。 从检索结果看，系统找到了几份知识库文档的相关片段，但内容比较零散。为了给你有针对性的展开解释，我需要先了解： 你希望我展开解释的具体主题是什么？ 比如： - 是关于 AI 营销趋势的某个观点？ - 是关于职业教育 AI 应用的某个章节？ - 还是之前\n    1. 已记住 好的，岩。项目主线已确认：优化 Memory 和 RAG。 2. 说明 这条主线会指导我后续的工作优先级： - 在技术选型、方案讨论时，优先考虑对 Memory 和 RAG 的优化价值 - 在阅读知识库文档时，会特别关注与 RAG 架构、记忆模块相关的内容 - 在提供建议时，会围绕这条主线来组织思路 从知识库检索结果看，已有不少 RAG 和长期记忆相关的资料（如向量数据库选型、FastGPT 的 RAG 管线优化等），后续可以基于这些资料展开具体优化方向的讨论。\n- 根据对话记录，岩，你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令偏好：默认终端命令使用 PowerShell。 3. 项目主线：当前项目主线是优化 Memory 和 RAG。 这三条都已写入长期记忆，后续会自动生效。",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "session-memory/8e387e8e585143d68510359317620cce/summary.md",
+    "fallback_used": false
+  }
+}

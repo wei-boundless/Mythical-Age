@@ -1,0 +1,64 @@
+[
+  {
+    "snapshot_id": "snap:structured_data_flow:按部门汇总这些高薪员工:2026-04-23T00:08:31+00:00",
+    "flow_id": "structured_data_flow:按部门汇总这些高薪员工",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "- 当前现货黄金 XAU/USD 参考价约为 6482.612881 美元/盎司。 - 本次优先采用的来源是：XAU To CAD: Convert Gold Ounce to Canadian Dollar - Forbes。 - 使用查..."
+    },
+    "recent_results": [
+      "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。",
+      "1. 按仓库汇总前五。 数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（当前库存） 前 5 项： 仓库 当前库存 0 北京仓 10238.0 1 上海仓 10000.0 2 成都仓 9951.0 3 广州仓 9720.0 4 武汉仓 9702.0"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。"
+    ],
+    "updated_at": "2026-04-23T00:08:31+00:00"
+  },
+  {
+    "snapshot_id": "snap:structured_data_flow:knowledge-e-commerce-data-employees-xlsx:2026-04-23T00:07:25+00:00",
+    "flow_id": "structured_data_flow:knowledge-e-commerce-data-employees-xlsx",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_dataset": "Data/employees.xlsx",
+      "active_entity": "dataset"
+    },
+    "recent_results": [
+      "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。",
+      "1. 按仓库汇总前五。 数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（当前库存） 前 5 项： 仓库 当前库存 0 北京仓 10238.0 1 上海仓 10000.0 2 成都仓 9951.0 3 广州仓 9720.0 4 武汉仓 9702.0"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。"
+    ],
+    "updated_at": "2026-04-23T00:07:25+00:00"
+  },
+  {
+    "snapshot_id": "snap:structured_data_flow:knowledge-e-commerce-data-inventory-xlsx:2026-04-23T00:07:25+00:00",
+    "flow_id": "structured_data_flow:knowledge-e-commerce-data-inventory-xlsx",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "哪些仓库其实并不缺货？",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。",
+      "1. 按仓库汇总前五。 数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（当前库存） 前 5 项： 仓库 当前库存 0 北京仓 10238.0 1 上海仓 10000.0 2 成都仓 9951.0 3 广州仓 9720.0 4 武汉仓 9702.0"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：哪些仓库其实并不缺货？"
+    ],
+    "updated_at": "2026-04-23T00:07:25+00:00"
+  }
+]

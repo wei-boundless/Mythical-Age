@@ -1,0 +1,51 @@
+{
+  "collection": "session_memory",
+  "status": "ready",
+  "dense_documents": 2839,
+  "dense_documents_indexed": 2839,
+  "parser_backends": [
+    "docling"
+  ],
+  "vector_backend": "qdrant",
+  "qdrant_collection": "agent__session_memory",
+  "build_batch_size": 128,
+  "dense_status": "ready",
+  "dense_verification": {
+    "collection": "session_memory",
+    "collection_name": "agent__session_memory",
+    "vector_backend": "qdrant",
+    "available": true,
+    "query_ok": true,
+    "points_count": 2839,
+    "status": "ready"
+  },
+  "dense_vector_name": "dense",
+  "lexical_enabled": true,
+  "lexical_documents": 1434,
+  "lexical_status": "ready",
+  "strategy_name": "baseline_dense_lexical",
+  "chain_version": "baseline_dense_lexical__qdrant_dense__app_bm25__app_fusion__coalesce_v1",
+  "runtime_descriptor": {
+    "retrieval_backend": "llamaindex_v2",
+    "dense_backend": "qdrant",
+    "sparse_backend": "none",
+    "lexical_backend": "application_bm25",
+    "fusion_backend": "application_rrf_like",
+    "coalesce_backend": "application_level",
+    "strategy_name": "baseline_dense_lexical",
+    "chain_version": "baseline_dense_lexical__qdrant_dense__app_bm25__app_fusion__coalesce_v1",
+    "primary_chain": [
+      "dense_retrieval",
+      "application_lexical_retrieval",
+      "application_fusion",
+      "coalesce"
+    ]
+  },
+  "build_id": "session_memory-22f274884b1b",
+  "build_started_at_utc": "2026-04-23T11:46:15.032337Z",
+  "metadata_schema_version": "retrieval_v2_meta_v1",
+  "layout_root": "D:\\AI应用\\langchain-agent\\backend\\storage\\indexes_v2",
+  "collection_dir": "D:\\AI应用\\langchain-agent\\backend\\storage\\indexes_v2\\session_memory",
+  "metadata_path": "D:\\AI应用\\langchain-agent\\backend\\storage\\indexes_v2\\session_memory\\meta.json",
+  "written_at_utc": "2026-04-23T11:52:34.800726Z"
+}

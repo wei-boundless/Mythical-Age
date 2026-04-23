@@ -1,0 +1,493 @@
+{
+  "doc_id": "57f8fef3085bc050f47a7d7862d4923145d8a1ee",
+  "collection": "session_memory",
+  "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md",
+  "source_type": "md",
+  "version_digest": "bce91a99987f603e70a3fd998a771a3bb8035b47",
+  "parser_backend": "docling",
+  "title": "summary",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:0",
+      "block_type": "heading",
+      "text": "# Session Title",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:1",
+      "block_type": "paragraph",
+      "text": "*A short and distinctive title for the session.* 回到刚才那份 PDF，第二部分强调的约束是什么？",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:2",
+      "block_type": "heading",
+      "text": "# Active Goal",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:3",
+      "block_type": "paragraph",
+      "text": "*What is the user currently trying to achieve?*",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:4",
+      "block_type": "paragraph",
+      "text": "- 回到刚才那份 PDF，第二部分强调的约束是什么？",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:5",
+      "block_type": "heading",
+      "text": "# Flow State",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:6",
+      "block_type": "paragraph",
+      "text": "*What flow is currently active, and how confident is the system about it?*",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:7",
+      "block_type": "paragraph",
+      "text": "- 当前流程类型：pdf\\_analysis\\_flow\n- 流程状态：active\n- 最近结果：当前没有精确定位到“第二部分”，先返回最相关页面的概括：企业服务：以客户价值为核心的行业属性决定AI场景的本质需求为全周期优化 $\\spadesuit$ 在以客户价值为核心的企业服务本质驱动下，AI技术通过智能体替代大量重复劳动，更构建动态...",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:8",
+      "block_type": "heading",
+      "text": "# Warm Context",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:9",
+      "block_type": "paragraph",
+      "text": "*Still-useful prior context from earlier in this session.*",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:10",
+      "block_type": "paragraph",
+      "text": "- 上一阶段目标：把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。\n- 上一阶段状态：当前关注的用户问题：把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。\n- 上一阶段结果：工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。\n- 上一阶段目标：现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。\n- 上一阶段状态：当前关注的用户问题：现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。\n- 近期结论：- 当前现货黄金 XAU/USD 参考价约为 6482.612881 美元/盎司。 - 本次优先采用的来源是：XAU To CAD: Convert Gold Ounce to Canadian Dollar - Forbes。 - 使用查询词：spot gold price XAU/USD today USD per troy ounce - 摘要：1 XAU = 6,482.612881 CAD Apr 22, 2026 14:21...",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:11",
+      "block_type": "heading",
+      "text": "# Key User Requests",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:12",
+      "block_type": "paragraph",
+      "text": "*Stable instructions or constraints from the user within this session.*",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:13",
+      "block_type": "paragraph",
+      "text": "- 切到 knowledge/E-commerce Data/inventory.xlsx，先看哪些仓库缺货。\n- 按仓库汇总前五。\n- 哪些仓库其实并不缺货？\n- 现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。\n- 按部门汇总这些高薪员工。\n- 再回到 inventory.xlsx，哪一个仓库最该优先补货？",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:14",
+      "block_type": "heading",
+      "text": "# Files and Functions",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:15",
+      "block_type": "paragraph",
+      "text": "*Important files, modules, and functions relevant to the current work.*",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:16",
+      "block_type": "paragraph",
+      "text": "- Data/inventory.xlsx\n- inventory.xlsx\n- Data/employees.xlsx\n- employees.xlsx",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:17",
+      "block_type": "heading",
+      "text": "# Conventions and Constraints",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:18",
+      "block_type": "paragraph",
+      "text": "*Commands, operating conventions, and environment constraints that matter now.*",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:19",
+      "block_type": "paragraph",
+      "text": "- 再回到 inventory.xlsx，哪一个仓库最该优先补货？\n    - 当前现货黄金 XAU/USD 参考价约为 6482.612881 美元/盎司。 - 本次优先采用的来源是：XAU To CAD: Convert Gold Ounce to Canadian Dollar - Forbes。 - 使用查询词：spot gold price XAU/USD today USD per troy ounce - 摘要：1 XAU = 6,482.612881 CAD Apr 22, 2026 14:21 UTC ... Check the c",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:20",
+      "block_type": "heading",
+      "text": "# Decisions and Learnings",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:21",
+      "block_type": "paragraph",
+      "text": "*Concrete conclusions, tradeoffs, and learnings established in this session.*",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:22",
+      "block_type": "paragraph",
+      "text": "- 当前现货黄金 XAU/USD 参考价约为 6482.612881 美元/盎司。 - 本次优先采用的来源是：XAU To CAD: Convert Gold Ounce to Canadian Dollar - Forbes。 - 使用查询词：spot gold price XAU/USD today USD per troy ounce - 摘要：1 XAU = 6,482.612881 CAD Apr 22, 2026 14:21...",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:23",
+      "block_type": "heading",
+      "text": "# Key Results",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:24",
+      "block_type": "paragraph",
+      "text": "*Exact outputs, conclusions, or artifacts already produced for the user.*",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    },
+    {
+      "block_id": "bce91a99987f603e70a3fd998a771a3bb8035b47:25",
+      "block_type": "paragraph",
+      "text": "- 工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。\n    1. 按仓库汇总前五。 数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（当前库存） 前 5 项： 仓库 当前库存 0 北京仓 10238.0 1 上海仓 10000.0 2 成都仓 9951.0 3 广州仓 9720.0 4 武汉仓 9702.0\n    1. 哪些仓库其实并不缺货？ 数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（缺口） 当前没有完全不缺货的仓库。\n    1. 按部门汇总这些高薪员工。 数据源：employees.xlsx 筛选条件：无 查询模式：分组聚合 分组字段：部门 汇总方式：总和（薪水） 结果（前 10 项）： 部门 薪水 0 技术 1558250.0 1 人力 537000.0 2 运营 536500.0 3 财务 528250.0 4 销售 527750.0 5 产品 519250.0\n- 工具 `get_weather` 已执行，但当前结果尚未形成可直接展示的答案。",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "session-memory/c1a02ea9f9404f21b4c5d5d1ed817d72/summary.md",
+    "fallback_used": false
+  }
+}

@@ -513,10 +513,11 @@ class PDFReadAgentRuntime:
         score: float,
         snippet_chars: int = 640,
     ) -> PDFCanonicalEvidence:
+        evidence_source = self._page_evidence_source(page)
         return PDFCanonicalEvidence(
             page_number=page.page_number,
             score=round(score, 3),
-            snippet=self._snippet(page.body_text or page.text, target_length=snippet_chars),
+            snippet=self._snippet(evidence_source, target_length=snippet_chars),
         )
 
     def _summarize_text(self, text: str, *, sentence_limit: int, char_limit: int) -> str:
@@ -636,6 +637,25 @@ class PDFReadAgentRuntime:
     def _page_summary_source(self, page: PDFPreparedPage) -> str:
         return self._clean_body_text_for_summary(page.body_text or page.text)
 
+    def _page_evidence_source(self, page: PDFPreparedPage) -> str:
+        preferred = self._clean_text_for_evidence(page.body_text or page.text)
+        if preferred:
+            return preferred
+        fallback = self._collapse(page.body_text or page.text)
+        return fallback
+
+    def _clean_text_for_evidence(self, text: str) -> str:
+        normalized = normalize_storage_text(str(text or ""))
+        if not normalized:
+            return ""
+        cleaned = self._content_cleaner.clean_text(normalized, modality="text").text
+        cleaned = self._drop_suspicious_token_runs(cleaned)
+        cleaned = re.sub(r"[\u3400-\u4dbf\uf900-\ufaff]", " ", cleaned)
+        cleaned = re.sub(r"[][=<>~`|{}]+", " ", cleaned)
+        units = [self._collapse(unit) for unit in re.split(r"\n+|(?<=[\u3002\uff01\uff1f.!?；;：:])\s+", cleaned) if self._collapse(unit)]
+        kept_units = [unit for unit in units if self._evidence_unit_allowed(unit)]
+        return self._collapse(" ".join(kept_units))
+
     def _clean_body_text_for_summary(self, text: str) -> str:
         normalized = normalize_storage_text(str(text or ""))
         if not normalized:
@@ -674,11 +694,29 @@ class PDFReadAgentRuntime:
             return False
         return True
 
+    def _evidence_unit_allowed(self, text: str) -> bool:
+        normalized = self._collapse(text)
+        if not normalized:
+            return False
+        compact = re.sub(r"\s+", "", normalized)
+        if len(compact) < 4:
+            return False
+        if self._looks_reference_heavy_text(normalized):
+            return False
+        if looks_like_mojibake(compact) or count_mojibake_markers(compact) > 0:
+            return False
+        weird_symbol_ratio = len(re.findall(r"[][=<>~`|{}]+", normalized)) / max(len(normalized), 1)
+        if weird_symbol_ratio > 0.05:
+            return False
+        if not re.search(r"[\u4e00-\u9fffA-Za-z0-9]", compact):
+            return False
+        return True
+
     def _normalize_summary_unit(self, text: str) -> str:
         normalized = self._collapse(text)
         if not normalized:
             return ""
-        normalized = re.sub(r"\bAl(?=[\u4e00-\u9fff])", "AI", normalized)
+        normalized = re.sub(r"Al(?=[\u4e00-\u9fff])", "AI", normalized)
         normalized = re.sub(r"^(?:\d{4}\s+)?(?:AI|Al)\s+(?=[\u4e00-\u9fff])", "", normalized)
         normalized = re.sub(r"^(?:AI\s+)+(?=AI[\u4e00-\u9fff])", "", normalized)
         return self._collapse(normalized)

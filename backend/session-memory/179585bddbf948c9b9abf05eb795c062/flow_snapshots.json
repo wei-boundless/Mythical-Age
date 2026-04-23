@@ -1,0 +1,172 @@
+[
+  {
+    "snapshot_id": "snap:structured_data_flow:按部门汇总这些人:2026-04-23T12:28:34+00:00",
+    "flow_id": "structured_data_flow:按部门汇总这些人",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "按部门汇总这些人。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "回到 knowledge/E-commerce Data/inventory.xlsx，哪个仓库现在最需要优先补货？"
+    },
+    "recent_results": [
+      "1. 总结 PDF 第三页 已读取 P3。 2. 给我 inventory.xlsx 最缺货的前三个仓库 工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。 3. 补一句北京天气 北京，北京市，中国 当前天气： - 温度：20.",
+      "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：按部门汇总这些人。"
+    ],
+    "updated_at": "2026-04-23T12:28:34+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:pdf:2026-04-23T12:28:34+00:00",
+    "flow_id": "pdf_analysis_flow:pdf",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "结合知识库风险和 PDF 结论，给我一个一句话判断。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "回到 knowledge/E-commerce Data/inventory.xlsx，哪个仓库现在最需要优先补货？"
+    },
+    "recent_results": [
+      "我帮你长期记住了一条偏好——\"以后复杂问题先给结论\"。 展开： 这条记忆已存入 `durable_memory/`，标签为 `user, preference`，后续在相同用户/项目上下文中会优先应用。",
+      "1. 总结 PDF 第三页 已读取 P3。 2. 给我 inventory.xlsx 最缺货的前三个仓库 工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。 3. 补一句北京天气 北京，北京市，中国 当前天气： - 温度：20."
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：结合知识库风险和 PDF 结论，给我一个一句话判断。"
+    ],
+    "updated_at": "2026-04-23T12:28:34+00:00"
+  },
+  {
+    "snapshot_id": "snap:structured_data_flow:main-doc-ops-live:2026-04-23T12:28:00+00:00",
+    "flow_id": "structured_data_flow:main-doc-ops-live",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "把 main、doc、ops、live 四条线程分开总结。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "回到 knowledge/E-commerce Data/inventory.xlsx，哪个仓库现在最需要优先补货？"
+    },
+    "recent_results": [
+      "已记住。以后复杂问题先给结论，再展开解释。",
+      "已检索到相关资料，但当前模型尚未产出可直接展示的结论。"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：把 main、doc、ops、live 四条线程分开总结。"
+    ],
+    "updated_at": "2026-04-23T12:28:00+00:00"
+  },
+  {
+    "snapshot_id": "snap:structured_data_flow:你刚才帮我长期记住了什么:2026-04-23T12:26:45+00:00",
+    "flow_id": "structured_data_flow:你刚才帮我长期记住了什么",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "读取 docs/26-OpenClaw-架构改造计划.md，概括主路径分层。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "回到 knowledge/E-commerce Data/inventory.xlsx，哪个仓库现在最需要优先补货？"
+    },
+    "recent_results": [
+      "已记住。以后复杂问题先给结论，再展开解释。",
+      "已检索到相关资料，但当前模型尚未产出可直接展示的结论。"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：读取 docs/26-OpenClaw-架构改造计划.md，概括主路径分层。"
+    ],
+    "updated_at": "2026-04-23T12:26:45+00:00"
+  },
+  {
+    "snapshot_id": "snap:structured_data_flow:查询黄金价格:2026-04-23T12:17:44+00:00",
+    "flow_id": "structured_data_flow:查询黄金价格",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "把实时查询结果改写成值班提示。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "1. **战略转向：优先释放产业潜能** 调整治理重心，从防范假设性的末日风险转向释放现实的产业潜能。避免采取按下“暂停键”的保守策略，力求在技术高速行进中完成治理换挡，将产业发展置于优先位置。 2. **机制适配：关注操作性治理工具** ..."
+    },
+    "recent_results": [
+      "## 结论 AI 治理中最常见的三类风险是：技术风险、应用风险、治理风险。 --- ## 展开解释 ### 1. 技术风险 - 黑箱属性：模型决策过程不透明，难以解释和追溯。 - 不确定性：模型行为难以预测，存在幻觉、偏见等问题。 - 数据治理挑战：训练数据质量、隐私保护、版权合规等问题。 ### 2. 应用风险 - 强情境性：同一能力落入不同场景、主体与链路，会呈现不同的风险形态。 - 高风险领域：关键基础设施、教育、招聘、信贷审批、执法等场景一旦出错，影响重大。 - 全生",
+      "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：把实时查询结果改写成值班提示。"
+    ],
+    "updated_at": "2026-04-23T12:17:44+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:按部门汇总这些高薪员工:2026-04-23T12:16:50+00:00",
+    "flow_id": "pdf_analysis_flow:按部门汇总这些高薪员工",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "按部门汇总这些高薪员工。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "1. **战略转向：优先释放产业潜能** 调整治理重心，从防范假设性的末日风险转向释放现实的产业潜能。避免采取按下“暂停键”的保守策略，力求在技术高速行进中完成治理换挡，将产业发展置于优先位置。 2. **机制适配：关注操作性治理工具** ..."
+    },
+    "recent_results": [
+      "## 结论 AI 治理中最常见的三类风险是：技术风险、应用风险、治理风险。 --- ## 展开解释 ### 1. 技术风险 - 黑箱属性：模型决策过程不透明，难以解释和追溯。 - 不确定性：模型行为难以预测，存在幻觉、偏见等问题。 - 数据治理挑战：训练数据质量、隐私保护、版权合规等问题。 ### 2. 应用风险 - 强情境性：同一能力落入不同场景、主体与链路，会呈现不同的风险形态。 - 高风险领域：关键基础设施、教育、招聘、信贷审批、执法等场景一旦出错，影响重大。 - 全生",
+      "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。"
+    ],
+    "resume_hints": [
+      "先向用户澄清当前目标，再决定是否切换流程：按部门汇总这些高薪员工。"
+    ],
+    "updated_at": "2026-04-23T12:16:50+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:knowledge-e-commerce-data-employees-xlsx:2026-04-23T12:15:27+00:00",
+    "flow_id": "pdf_analysis_flow:knowledge-e-commerce-data-employees-xlsx",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_dataset": "Data/employees.xlsx",
+      "active_entity": "dataset",
+      "active_rule": "1. **战略转向：优先释放产业潜能** 调整治理重心，从防范假设性的末日风险转向释放现实的产业潜能。避免采取按下“暂停键”的保守策略，力求在技术高速行进中完成治理换挡，将产业发展置于优先位置。 2. **机制适配：关注操作性治理工具** ..."
+    },
+    "recent_results": [
+      "## 结论 AI 治理中最常见的三类风险是：技术风险、应用风险、治理风险。 --- ## 展开解释 ### 1. 技术风险 - 黑箱属性：模型决策过程不透明，难以解释和追溯。 - 不确定性：模型行为难以预测，存在幻觉、偏见等问题。 - 数据治理挑战：训练数据质量、隐私保护、版权合规等问题。 ### 2. 应用风险 - 强情境性：同一能力落入不同场景、主体与链路，会呈现不同的风险形态。 - 高风险领域：关键基础设施、教育、招聘、信贷审批、执法等场景一旦出错，影响重大。 - 全生",
+      "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。"
+    ],
+    "updated_at": "2026-04-23T12:15:27+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:knowledge-e-commerce-data-inventory-xlsx:2026-04-23T12:15:27+00:00",
+    "flow_id": "pdf_analysis_flow:knowledge-e-commerce-data-inventory-xlsx",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "哪些仓库其实并不缺货？",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "1. **战略转向：优先释放产业潜能** 调整治理重心，从防范假设性的末日风险转向释放现实的产业潜能。避免采取按下“暂停键”的保守策略，力求在技术高速行进中完成治理换挡，将产业发展置于优先位置。 2. **机制适配：关注操作性治理工具** ..."
+    },
+    "recent_results": [
+      "## 结论 AI 治理中最常见的三类风险是：技术风险、应用风险、治理风险。 --- ## 展开解释 ### 1. 技术风险 - 黑箱属性：模型决策过程不透明，难以解释和追溯。 - 不确定性：模型行为难以预测，存在幻觉、偏见等问题。 - 数据治理挑战：训练数据质量、隐私保护、版权合规等问题。 ### 2. 应用风险 - 强情境性：同一能力落入不同场景、主体与链路，会呈现不同的风险形态。 - 高风险领域：关键基础设施、教育、招聘、信贷审批、执法等场景一旦出错，影响重大。 - 全生",
+      "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：哪些仓库其实并不缺货？"
+    ],
+    "updated_at": "2026-04-23T12:15:27+00:00"
+  }
+]

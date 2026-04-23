@@ -1,0 +1,745 @@
+{
+  "doc_id": "ec921ffed007f0ef2e26b6c1a8d6279551b3c17d",
+  "collection": "session_memory",
+  "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md",
+  "source_type": "md",
+  "version_digest": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b",
+  "parser_backend": "docling",
+  "title": "debug_view",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:0",
+      "block_type": "heading",
+      "text": "# Session Title",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:1",
+      "block_type": "paragraph",
+      "text": "*A short and distinctive title for the session.* 把这份 PDF 的核心结论压成三条行动建议。",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:2",
+      "block_type": "heading",
+      "text": "# Active Goal",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:3",
+      "block_type": "paragraph",
+      "text": "*What is the user currently trying to achieve?*",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:4",
+      "block_type": "paragraph",
+      "text": "- 把这份 PDF 的核心结论压成三条行动建议。",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:5",
+      "block_type": "heading",
+      "text": "# Flow State",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:6",
+      "block_type": "paragraph",
+      "text": "*What flow is currently active, and how confident is the system about it?*",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:7",
+      "block_type": "paragraph",
+      "text": "- 当前流程类型：pdf\\_analysis\\_flow\n- 流程状态：awaiting\\_user\n- 流程置信度：0.88\n- 当前步骤：基于当前结果等待用户确认或继续下一步\n- 下一步：继续处理当前用户请求：把这份 PDF 的核心结论压成三条行动建议。",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:8",
+      "block_type": "heading",
+      "text": "# Context Slots",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:9",
+      "block_type": "paragraph",
+      "text": "*Which contextual bindings are active for the current flow?*",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:10",
+      "block_type": "heading",
+      "text": "# Current Task State",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:11",
+      "block_type": "paragraph",
+      "text": "*What is currently in progress or waiting to be done?*",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:12",
+      "block_type": "paragraph",
+      "text": "- 当前关注的用户问题：把这份 PDF 的核心结论压成三条行动建议。\n- 当前处理形态：document\\_read\n- 最近产出：1. 把这份 PDF 的核心结论压成三条行动建议。 已定位与当前问题最相关的页面：P71、P69、P5。文档要点：71. Bommasani, Rishi, et al. Considerations for Governing Open Foundation Models. Issue Brief, Human-Centered Artificial In...",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:13",
+      "block_type": "heading",
+      "text": "# Warm Context",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:14",
+      "block_type": "paragraph",
+      "text": "*Still-useful prior context from earlier in this session.*",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:15",
+      "block_type": "paragraph",
+      "text": "- 上一阶段目标：第四页如果要给业务负责人看，应该重点看哪几句？\n- 上一阶段状态：当前关注的用户问题：第四页如果要给业务负责人看，应该重点看哪几句？\n- 上一阶段结果：已检索到相关资料，但当前模型尚未产出可直接展示的结论。\n- 上一阶段目标：第三页具体讲了什么？\n- 上一阶段状态：当前关注的用户问题：第三页具体讲了什么？\n- 近期结论：已检索到相关资料，但当前模型尚未产出可直接展示的结论。",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:16",
+      "block_type": "heading",
+      "text": "# Key User Requests",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:17",
+      "block_type": "paragraph",
+      "text": "*Stable instructions or constraints from the user within this session.*",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:18",
+      "block_type": "paragraph",
+      "text": "- 基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。\n- 把刚才那三类风险压成适合管理层汇报的三条。\n- 现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。\n- 第三页具体讲了什么？\n- 第四页如果要给业务负责人看，应该重点看哪几句？\n- 把这份 PDF 的核心结论压成三条行动建议。",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:19",
+      "block_type": "heading",
+      "text": "# Files and Functions",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:20",
+      "block_type": "paragraph",
+      "text": "*Important files, modules, and functions relevant to the current work.*",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:21",
+      "block_type": "paragraph",
+      "text": "- 回归现实主义.pdf",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:22",
+      "block_type": "heading",
+      "text": "# Conventions and Constraints",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:23",
+      "block_type": "paragraph",
+      "text": "*Commands, operating conventions, and environment constraints that matter now.*",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:24",
+      "block_type": "heading",
+      "text": "# Errors and Corrections",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:25",
+      "block_type": "paragraph",
+      "text": "*Failures, corrections, and approaches to avoid repeating.*",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:26",
+      "block_type": "heading",
+      "text": "# Decisions and Learnings",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 26,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:27",
+      "block_type": "paragraph",
+      "text": "*Concrete conclusions, tradeoffs, and learnings established in this session.*",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 27,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:28",
+      "block_type": "paragraph",
+      "text": "- 已检索到相关资料，但当前模型尚未产出可直接展示的结论。\n    1. 把这份 PDF 的核心结论压成三条行动建议。 已定位与当前问题最相关的页面：P71、P69、P5。文档要点：71. Bommasani, Rishi, et al. Considerations for Governing Open Foundation Models. Issue Brief, Human-Centered Artificial Intelligence (HAI), Stanford University, 1...",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 28,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:29",
+      "block_type": "heading",
+      "text": "# Key Results",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 29,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:30",
+      "block_type": "paragraph",
+      "text": "*Exact outputs, conclusions, or artifacts already produced for the user.*",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 30,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:31",
+      "block_type": "paragraph",
+      "text": "- 已检索到相关资料，但当前模型尚未产出可直接展示的结论。\n    1. 把这份 PDF 的核心结论压成三条行动建议。 已定位与当前问题最相关的页面：P71、P69、P5。文档要点：71. Bommasani, Rishi, et al. Considerations for Governing Open Foundation Models. Issue Brief, Human-Centered Artificial Intelligence (HAI), Stanford University, 13 Dec. 2023, https:/",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 31,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:32",
+      "block_type": "heading",
+      "text": "# Risk Watch",
+      "modality": "text",
+      "section_label": "Risk Watch",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Risk Watch"
+      ],
+      "reading_order": 32,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:33",
+      "block_type": "paragraph",
+      "text": "*Known risks in current session state and active safeguards.*",
+      "modality": "text",
+      "section_label": "Risk Watch",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Risk Watch"
+      ],
+      "reading_order": 33,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:34",
+      "block_type": "heading",
+      "text": "# Next Step",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 34,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:35",
+      "block_type": "paragraph",
+      "text": "*What the assistant should most likely do next if the work continues.*",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 35,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:36",
+      "block_type": "paragraph",
+      "text": "- 继续处理当前用户请求：把这份 PDF 的核心结论压成三条行动建议。",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 36,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:37",
+      "block_type": "heading",
+      "text": "# Worklog",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 37,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:38",
+      "block_type": "paragraph",
+      "text": "*Short chronological bullets of meaningful events.*",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 38,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "eb57af7c2bcc841253dc1a76d4b1e7acf799499b:39",
+      "block_type": "paragraph",
+      "text": "- user: 第三页具体讲了什么？\n- assistant: 已读取与当前问题最相关的 PDF 页面：P3，但当前还没有形成稳定摘要。\n- user: 第四页如果要给业务负责人看，应该重点看哪几句？\n- assistant: 已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。\n- user: 把这份 PDF 的核心结论压成三条行动建议。\n- assistant: 1. 把这份 PDF 的核心结论压成三条行动建议。 已定位与当前问题最相关的页面：P71、P69、P5。文档要点：71. Bommasani, Rishi, et al. Considerations for Governing Open Foundation Models. I...",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 39,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "session-memory/5c4cce251cda4c3e9895d2282d266deb/views/debug_view.md",
+    "fallback_used": false
+  }
+}

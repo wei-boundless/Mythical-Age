@@ -1,0 +1,183 @@
+{
+  "version": 2,
+  "updated_at": "2026-04-23T00:11:03+00:00",
+  "session_title": "你刚刚让我长期保留了哪几件事？",
+  "active_goal": "记住：以后复杂问题先给结论，再展开解释。",
+  "active_goal_turn_type": "followup_request",
+  "last_turn_type": "result_delivery",
+  "flow_state": {
+    "flow_id": "pdf_analysis_flow:记住",
+    "flow_type": "pdf_analysis_flow",
+    "status": "awaiting_user",
+    "confidence": 0.45
+  },
+  "task_state": {
+    "current_step": "基于当前结果等待用户确认或继续下一步",
+    "completed_steps": [
+      "已确定：1. 记住：以后复杂问题先给结论 已记住。 以后遇到复杂问题，我会先给出结论，再展开解释。 2. 展开解释 岩，当前上下文不完整，我无法确定你要展开解释的具体内容。 检索到的知识库文件包括： - 中国AI+营销趋势洞察2026.pdf - ...",
+      "已完成：1. 记住：以后复杂问题先给结论 已记住。 以后遇到复杂问题，我会先给出结论，再展开解释。 2. 展开解释 岩，当前上下文不完整，我无法确定你要展开解释的具体内容。 检索到的知识库文件包括： - 中国AI+营销趋势洞察2026.pdf - ...",
+      "已完成：岩，根据会话记录，刚刚你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令风格：默认使用 PowerShell。 3. 项目主线：当前主线是优化 Memory 和 RAG。 这些偏好已记录在长期记..."
+    ],
+    "pending_steps": [
+      "先向用户澄清当前目标，再决定是否切换流程：记住：以后复杂问题先给结论，再展开解释。",
+      "继续处理当前用户请求：记住：以后复杂问题先给结论，再展开解释。"
+    ],
+    "next_step": "先向用户澄清当前目标，再决定是否切换流程：记住：以后复杂问题先给结论，再展开解释。"
+  },
+  "context_slots": {
+    "active_pdf": "",
+    "active_pdf_mode": "",
+    "active_pdf_section": "",
+    "active_pdf_pages": [],
+    "active_dataset": "",
+    "active_binding_kind": "",
+    "active_binding_identity": "",
+    "active_binding_owner_task_id": "",
+    "active_entity": "",
+    "active_rule": "记住：默认终端命令使用 PowerShell。"
+  },
+  "current_task_state": [
+    "当前关注的用户问题：记住：以后复杂问题先给结论，再展开解释。",
+    "最近产出：岩，根据会话记录，刚刚你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令风格：默认使用 PowerShell。 3. 项目主线：当前主线是优化 Memory 和 RAG。 这些偏好已记录在长期记忆中，后续会持续遵循。"
+  ],
+  "warm_context": [
+    "此前请求：记住：以后复杂问题先给结论，再展开解释。",
+    "延续状态：当前关注的用户问题：记住：以后复杂问题先给结论，再展开解释。",
+    "近期结论：1. 记住：以后复杂问题先给结论 已记住。 以后遇到复杂问题，我会先给出结论，再展开解释。 2. 展开解释 岩，当前上下文不完整，我无法确定你要展开解释的具体内容。 检索到的知识库文件包括： - 中国AI+营销趋势洞察2026.pdf - 2026年快消行业AI营销增长白皮书.pdf - 清华大学：职业教育人工智能应用发展报告（2024-2025）.pdf - 2025全球人工智能技术应用洞察报告.pdf 请告诉我： 1. 你想展开解释...",
+    "近期结果：1. 记住：以后复杂问题先给结论 已记住。 以后遇到复杂问题，我会先给出结论，再展开解释。 2. 展开解释 岩，当前上下文不完整，我无法确定你要展开解释的具体内容。 检索到的知识库文件包括： - 中国AI+营销趋势洞察2026.pdf - 2026年快消行业AI营销增长白皮书.pdf - 清华大学：职业教育人工智能应用发展报告（2024-2025）.pdf - 2025全球人工智能技术应用洞察报告.pdf 请告诉我： 1. 你想展开解释哪个主题或问题？ 2. 或者这",
+    "此前请求：你刚刚让我长期保留了哪几件事？"
+  ],
+  "key_user_requests": [
+    "记住：以后复杂问题先给结论，再展开解释。",
+    "记住：默认终端命令使用 PowerShell。",
+    "记住：我们这个项目当前主线是优化 Memory 和 RAG。",
+    "你刚刚让我长期保留了哪几件事？"
+  ],
+  "files_and_functions": [
+    "营销趋势洞察2026.pdf",
+    "2026年快消行业AI营销增长白皮书.pdf",
+    "2025全球人工智能技术应用洞察报告.pdf"
+  ],
+  "conventions_and_constraints": [
+    "记住：默认终端命令使用 PowerShell。",
+    "已记住。以后终端命令默认使用 PowerShell 风格。",
+    "岩，根据会话记录，刚刚你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令风格：默认使用 PowerShell。 3. 项目主线：当前主线是优化 Memory 和 RAG。 这些偏好已记录在长期记忆中，后续会持续遵循。"
+  ],
+  "errors_and_corrections": [
+    "低置信度流程切换已降级处理，等待进一步澄清。"
+  ],
+  "decisions_and_learnings": [
+    "1. 记住：以后复杂问题先给结论 已记住。 以后遇到复杂问题，我会先给出结论，再展开解释。 2. 展开解释 岩，当前上下文不完整，我无法确定你要展开解释的具体内容。 检索到的知识库文件包括： - 中国AI+营销趋势洞察2026.pdf - 2026年快消行业AI营销增长白皮书.pdf - 清华大学：职业教育人工智能应用发展报告（2024-2025）.pdf - 2025全球人工智能技术应用洞察报告.pdf 请告诉我： 1. 你想展开解释...",
+    "岩，根据会话记录，刚刚你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令风格：默认使用 PowerShell。 3. 项目主线：当前主线是优化 Memory 和 RAG。 这些偏好已记录在长期记忆中，后续会持续遵循。"
+  ],
+  "key_results": [
+    "1. 记住：以后复杂问题先给结论 已记住。 以后遇到复杂问题，我会先给出结论，再展开解释。 2. 展开解释 岩，当前上下文不完整，我无法确定你要展开解释的具体内容。 检索到的知识库文件包括： - 中国AI+营销趋势洞察2026.pdf - 2026年快消行业AI营销增长白皮书.pdf - 清华大学：职业教育人工智能应用发展报告（2024-2025）.pdf - 2025全球人工智能技术应用洞察报告.pdf 请告诉我： 1. 你想展开解释哪个主题或问题？ 2. 或者这是对之前某",
+    "岩，根据会话记录，刚刚你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令风格：默认使用 PowerShell。 3. 项目主线：当前主线是优化 Memory 和 RAG。 这些偏好已记录在长期记忆中，后续会持续遵循。"
+  ],
+  "risk_flags": [
+    "low_flow_confidence",
+    "clarification_required"
+  ],
+  "risk_notes": [
+    "Flow confidence is low; keep state conservative and verify user intent before major shifts.",
+    "Potential flow switch was downgraded because understanding confidence is too low."
+  ],
+  "next_step": [
+    "先向用户澄清当前目标，再决定是否切换流程：记住：以后复杂问题先给结论，再展开解释。",
+    "继续处理当前用户请求：记住：以后复杂问题先给结论，再展开解释。"
+  ],
+  "worklog": [
+    "user: 记住：默认终端命令使用 PowerShell。",
+    "assistant: 已记住。以后终端命令默认使用 PowerShell 风格。",
+    "user: 记住：我们这个项目当前主线是优化 Memory 和 RAG。",
+    "assistant: 已记住。项目当前主线是优化 Memory 和 RAG。",
+    "user: 你刚刚让我长期保留了哪几件事？",
+    "assistant: 岩，根据会话记录，刚刚你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令风格：默认使用 PowerShell。 3. 项目主线：当前主线是优化 Memory 和 RAG。 这些偏好已记录在长期记忆中，后续会持续遵循。"
+  ],
+  "turn_trace": [
+    {
+      "role": "user",
+      "turn_type": "followup_request",
+      "excerpt": "记住：以后复杂问题先给结论，再展开解释。",
+      "intent": "general_query",
+      "modality": "general",
+      "target_object": "",
+      "flow_hint": "knowledge_lookup_flow",
+      "constraints": [
+        "记住：以后复杂问题先给结论，再展开解释。"
+      ]
+    },
+    {
+      "role": "assistant",
+      "turn_type": "result_delivery",
+      "excerpt": "1. 记住：以后复杂问题先给结论 已记住。 以后遇到复杂问题，我会先给出结论，再展开解释。 2. 展开解释 岩，当前上下文不完整，我无法确定你要展开解释的具体内容。 检索到的知识库文件包括： - 中国AI+营销趋势洞察2026.pdf - 2026年快消行业AI营销增长白皮书.pdf - 清华大学：职业教育人工智能应用发展报告（2024-2025）.pdf ...",
+      "intent": "result_delivery",
+      "modality": "general",
+      "target_object": "",
+      "flow_hint": "assistant_support",
+      "constraints": []
+    },
+    {
+      "role": "user",
+      "turn_type": "constraint_or_preference",
+      "excerpt": "记住：默认终端命令使用 PowerShell。",
+      "intent": "general_query",
+      "modality": "general",
+      "target_object": "",
+      "flow_hint": "knowledge_lookup_flow",
+      "constraints": [
+        "记住：默认终端命令使用 PowerShell。"
+      ]
+    },
+    {
+      "role": "assistant",
+      "turn_type": "assistant_update",
+      "excerpt": "已记住。以后终端命令默认使用 PowerShell 风格。",
+      "intent": "assistant_update",
+      "modality": "general",
+      "target_object": "",
+      "flow_hint": "assistant_support",
+      "constraints": []
+    },
+    {
+      "role": "user",
+      "turn_type": "goal_request",
+      "excerpt": "记住：我们这个项目当前主线是优化 Memory 和 RAG。",
+      "intent": "general_query",
+      "modality": "general",
+      "target_object": "",
+      "flow_hint": "knowledge_lookup_flow",
+      "constraints": []
+    },
+    {
+      "role": "assistant",
+      "turn_type": "assistant_update",
+      "excerpt": "已记住。项目当前主线是优化 Memory 和 RAG。",
+      "intent": "assistant_update",
+      "modality": "general",
+      "target_object": "",
+      "flow_hint": "assistant_support",
+      "constraints": []
+    },
+    {
+      "role": "user",
+      "turn_type": "goal_request",
+      "excerpt": "你刚刚让我长期保留了哪几件事？",
+      "intent": "general_query",
+      "modality": "general",
+      "target_object": "",
+      "flow_hint": "knowledge_lookup_flow",
+      "constraints": []
+    },
+    {
+      "role": "assistant",
+      "turn_type": "result_delivery",
+      "excerpt": "岩，根据会话记录，刚刚你让我长期保留了三件事： 1. 回答格式偏好：以后复杂问题先给结论，再展开解释。 2. 终端命令风格：默认使用 PowerShell。 3. 项目主线：当前主线是优化 Memory 和 RAG。 这些偏好已记录在长期记忆中，后续会持续遵循。",
+      "intent": "result_delivery",
+      "modality": "general",
+      "target_object": "",
+      "flow_hint": "assistant_support",
+      "constraints": []
+    }
+  ]
+}

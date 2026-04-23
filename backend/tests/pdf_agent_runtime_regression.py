@@ -302,6 +302,56 @@ def test_pdf_agent_runtime_degrades_when_cleaned_document_text_is_empty() -> Non
     assert result.degraded_reason in {"no_stable_document_evidence", "document_summary_text_quality_low"}
 
 
+def test_pdf_agent_runtime_normalizes_al_residue_inside_body_text() -> None:
+    parser = _FakeParser(
+        pages=[
+            (23, "全球Al治理正在经历一场深刻的去理想化进程。Al治理主要面向三大领域：数据、模型与应用。"),
+            (24, "补充说明。"),
+        ]
+    )
+    runtime = PDFReadAgentRuntime(root_dir=ROOT, parser=parser)
+    result = runtime.run(
+        request=PDFReadRequest(
+            query="给我一个全文总览。",
+            mode="document",
+            max_chunks=3,
+        ),
+        file_path=ROOT / "knowledge" / "al-residue.pdf",
+    )
+
+    assert result.ok
+    assert "全球Al治理" not in result.summary
+    assert "Al治理主要" not in result.summary
+    assert "全球AI治理" in result.summary
+    assert "AI治理主要面向三大领域" in result.summary
+
+
+def test_pdf_agent_runtime_retains_clean_page_evidence_for_low_quality_title_page() -> None:
+    parser = _FakeParser(
+        pages=[
+            (
+                3,
+                "回归现实主义2025年AI治理报告\n\n隠㚵蔠裮䅳熱閔\n\n腾讯研究院",
+            ),
+        ]
+    )
+    runtime = PDFReadAgentRuntime(root_dir=ROOT, parser=parser)
+    result = runtime.run(
+        request=PDFReadRequest(
+            query="第三页具体讲了什么？",
+            mode="page",
+            max_chunks=2,
+        ),
+        file_path=ROOT / "knowledge" / "title-page.pdf",
+    )
+
+    assert result.status == "degraded"
+    assert result.degraded_reason == "target_page_text_quality_low"
+    assert result.evidence
+    assert "回归现实主义2025年AI治理报告" in result.evidence[0].snippet
+    assert "隠㚵" not in result.evidence[0].snippet
+
+
 def main() -> None:
     test_pdf_agent_runtime_routes_overview_query_to_document_scope()
     test_pdf_agent_runtime_routes_section_query_to_section_scope()
@@ -312,6 +362,8 @@ def main() -> None:
     test_pdf_analysis_tool_returns_canonical_protocol()
     test_pdf_agent_runtime_cleans_dirty_body_text_before_stable_summary()
     test_pdf_agent_runtime_degrades_when_cleaned_document_text_is_empty()
+    test_pdf_agent_runtime_normalizes_al_residue_inside_body_text()
+    test_pdf_agent_runtime_retains_clean_page_evidence_for_low_quality_title_page()
     print("ALL PASSED (pdf agent runtime regression)")
 
 

@@ -1,0 +1,763 @@
+{
+  "doc_id": "46b5111df37f6a97c96386d8e61872f671f600f9",
+  "collection": "session_memory",
+  "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md",
+  "source_type": "md",
+  "version_digest": "56daa473f607061bdaae89bbca0e3ff66a419ddd",
+  "parser_backend": "docling",
+  "title": "debug_view",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:0",
+      "block_type": "heading",
+      "text": "# Session Title",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:1",
+      "block_type": "paragraph",
+      "text": "*A short and distinctive title for the session.* 把这份 PDF 的核心结论压成三条行动建议。",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:2",
+      "block_type": "heading",
+      "text": "# Active Goal",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:3",
+      "block_type": "paragraph",
+      "text": "*What is the user currently trying to achieve?*",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:4",
+      "block_type": "paragraph",
+      "text": "- 把这份 PDF 的核心结论压成三条行动建议。",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:5",
+      "block_type": "heading",
+      "text": "# Flow State",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:6",
+      "block_type": "paragraph",
+      "text": "*What flow is currently active, and how confident is the system about it?*",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:7",
+      "block_type": "paragraph",
+      "text": "- 当前流程类型：pdf\\_analysis\\_flow\n- 流程状态：awaiting\\_user\n- 流程置信度：0.88\n- 当前步骤：整理结果：基于该报告的核心观点，为您提炼以下三条行动建议： 1. **调整战略重心** ：摒弃单纯的“末日恐惧”思维，将治理目标从“防范假设性风险”转向“释放产业潜能”，在技术高速迭代中寻求发展而非暂停。 2. **优化治理工具** ：从宏观宣言转向标准...",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:8",
+      "block_type": "heading",
+      "text": "# Context Slots",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:9",
+      "block_type": "paragraph",
+      "text": "*Which contextual bindings are active for the current flow?*",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:10",
+      "block_type": "paragraph",
+      "text": "- 当前 PDF：knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf\n- PDF 查询范围：document\n- PDF 聚焦页：7, 13, 23\n- 当前绑定标识：knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf\n- 当前绑定 Owner：90cef41f1dda493789360b3f369de207-tool-pdf\\_analysis-2\n- 当前实体：pdf\\_document",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:11",
+      "block_type": "heading",
+      "text": "# Current Task State",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:12",
+      "block_type": "paragraph",
+      "text": "*What is currently in progress or waiting to be done?*",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:13",
+      "block_type": "paragraph",
+      "text": "- 当前目标：把这份 PDF 的核心结论压成三条行动建议。\n- 当前约束：pdf\\_mode=document；source\\_kind=pdf；active\\_pdf=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf；active\\_binding\\_identity=knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf...\n- 最新结果摘要：基于该报告的核心观点，为您提炼以下三条行动建议： 1. **调整战略重心** ：摒弃单纯的“末日恐惧”思维，将治理目标从“防范假设性风险”转向“释放产业潜能”，在技术高速迭代中寻求发展而非暂停。 2. **优化治理工具** ：从宏观宣言转向标准制定、实施指南等操作性更强的技术工具，优先支持产业发展，以适应全球竞争加速的现实...",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:14",
+      "block_type": "heading",
+      "text": "# Warm Context",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:15",
+      "block_type": "paragraph",
+      "text": "*Still-useful prior context from earlier in this session.*",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:16",
+      "block_type": "paragraph",
+      "text": "- 上一阶段目标：第三页具体讲了什么？\n- 上一阶段目标：现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。\n- 上一阶段结果：这份《2025年AI治理报告：回归现实主义》的全局总览如下： **1. 核心风向转变：从“末日恐惧”到“产业赋能”** 2025年全球AI治理正在经历深刻的“去理想化”进程。面对技术与产业的双重压力，治理重心已从早期防范假设性的“末日风险”...\n- 当前切换后结果：基于该报告的核心观点，为您提炼以下三条行动建议： 1. **调整战略重心** ：摒弃单纯的“末日恐惧”思维，将治理目标从“防范假设性风险”转向“释放产业潜能”，在技术高速迭代中寻求发展而非暂停。 2. **优化治理工具** ：从宏观宣言转向标准...",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:17",
+      "block_type": "heading",
+      "text": "# Key User Requests",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:18",
+      "block_type": "paragraph",
+      "text": "*Stable instructions or constraints from the user within this session.*",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:19",
+      "block_type": "paragraph",
+      "text": "- 把这份 PDF 的核心结论压成三条行动建议。",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:20",
+      "block_type": "heading",
+      "text": "# Files and Functions",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:21",
+      "block_type": "paragraph",
+      "text": "*Important files, modules, and functions relevant to the current work.*",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:22",
+      "block_type": "paragraph",
+      "text": "- 回归现实主义.pdf",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:23",
+      "block_type": "heading",
+      "text": "# Conventions and Constraints",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:24",
+      "block_type": "paragraph",
+      "text": "*Commands, operating conventions, and environment constraints that matter now.*",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:25",
+      "block_type": "paragraph",
+      "text": "- pdf\\_mode=document；source\\_kind=pdf；active\\_pdf=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf；active\\_binding\\_identity=knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf；pdf\\_focus\\_pages=[7, 13, 23]；readable\\_pages=69；usable\\_pages=8；total\\_pages=72\n- pdf\\_mode=document\n- pdf\\_pages=7,13,23\n- readable\\_pages=69\n- usable\\_pages=8\n- pdf=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:26",
+      "block_type": "heading",
+      "text": "# Errors and Corrections",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 26,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:27",
+      "block_type": "paragraph",
+      "text": "*Failures, corrections, and approaches to avoid repeating.*",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 27,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:28",
+      "block_type": "heading",
+      "text": "# Decisions and Learnings",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 28,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:29",
+      "block_type": "paragraph",
+      "text": "*Concrete conclusions, tradeoffs, and learnings established in this session.*",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 29,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:30",
+      "block_type": "paragraph",
+      "text": "- 基于该报告的核心观点，为您提炼以下三条行动建议： 1. **调整战略重心** ：摒弃单纯的“末日恐惧”思维，将治理目标从“防范假设性风险”转向“释放产业潜能”，在技术高速迭代中寻求发展而非暂停。 2. **优化治理工具** ：从宏观宣言转向标准制定、实施指南等操作性更强的技术工具，优先支持产业发展，以适应全球竞争加速的现实。 3. **聚焦核心领域** ：围绕数据、模型与应用三大模块构建治理框架，分别针对生产要素、算法能力与社会落点实施精准管理。",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 30,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:31",
+      "block_type": "heading",
+      "text": "# Key Results",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 31,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:32",
+      "block_type": "paragraph",
+      "text": "*Exact outputs, conclusions, or artifacts already produced for the user.*",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 32,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:33",
+      "block_type": "paragraph",
+      "text": "- 基于该报告的核心观点，为您提炼以下三条行动建议： 1. **调整战略重心** ：摒弃单纯的“末日恐惧”思维，将治理目标从“防范假设性风险”转向“释放产业潜能”，在技术高速迭代中寻求发展而非暂停。 2. **优化治理工具** ：从宏观宣言转向标准制定、实施指南等操作性更强的技术工具，优先支持产业发展，以适应全球竞争加速的现实。 3. **聚焦核心领域** ：围绕数据、模型与应用三大模块构建治理框架，分别针对生产要素、算法能力与社会落点实施精准管理。",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 33,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:34",
+      "block_type": "heading",
+      "text": "# Risk Watch",
+      "modality": "text",
+      "section_label": "Risk Watch",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Risk Watch"
+      ],
+      "reading_order": 34,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:35",
+      "block_type": "paragraph",
+      "text": "*Known risks in current session state and active safeguards.*",
+      "modality": "text",
+      "section_label": "Risk Watch",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Risk Watch"
+      ],
+      "reading_order": 35,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:36",
+      "block_type": "heading",
+      "text": "# Next Step",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 36,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:37",
+      "block_type": "paragraph",
+      "text": "*What the assistant should most likely do next if the work continues.*",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 37,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:38",
+      "block_type": "heading",
+      "text": "# Worklog",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 38,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:39",
+      "block_type": "paragraph",
+      "text": "*Short chronological bullets of meaningful events.*",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 39,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    },
+    {
+      "block_id": "56daa473f607061bdaae89bbca0e3ff66a419ddd:40",
+      "block_type": "paragraph",
+      "text": "- user: 把这份 PDF 的核心结论压成三条行动建议。\n- assistant: 基于该报告的核心观点，为您提炼以下三条行动建议： 1. **调整战略重心** ：摒弃单纯的“末日恐惧”思维，将治理目标从“防范假设性风险”转向“释放产业潜能”，在技术高速迭代中寻求发展而非暂停。 2. **优化治理工具** ：从宏观宣言转向标准制定、实施指南等操作性更强的技术工具，优...",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 40,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "session-memory/90cef41f1dda493789360b3f369de207/views/debug_view.md",
+    "fallback_used": false
+  }
+}

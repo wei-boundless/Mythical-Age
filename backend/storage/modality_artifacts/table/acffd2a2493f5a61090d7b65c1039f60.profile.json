@@ -1,0 +1,118 @@
+{
+  "source": "knowledge/E-commerce Data/customers.xlsx",
+  "rows": 200,
+  "columns": [
+    "customer_id",
+    "name",
+    "segment",
+    "city",
+    "province",
+    "signup_date",
+    "email"
+  ],
+  "numeric_columns": [],
+  "datetime_columns": [
+    "signup_date"
+  ],
+  "categorical_columns": [
+    "customer_id",
+    "name",
+    "segment",
+    "city",
+    "province",
+    "email"
+  ],
+  "column_stats": {
+    "customer_id": {
+      "display_name": "客户编号",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 200,
+      "sample_values": [
+        "C-0001",
+        "C-0002",
+        "C-0003",
+        "C-0004",
+        "C-0005"
+      ]
+    },
+    "name": {
+      "display_name": "姓名",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 200,
+      "sample_values": [
+        "王晨",
+        "李颖",
+        "张磊",
+        "赵婷",
+        "周杰"
+      ]
+    },
+    "segment": {
+      "display_name": "客群",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 2,
+      "sample_values": [
+        "个人",
+        "企业",
+        "个人",
+        "企业",
+        "个人"
+      ]
+    },
+    "city": {
+      "display_name": "城市",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 20,
+      "sample_values": [
+        "上海",
+        "北京",
+        "深圳",
+        "广州",
+        "杭州"
+      ]
+    },
+    "province": {
+      "display_name": "省份",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 17,
+      "sample_values": [
+        "上海",
+        "北京",
+        "广东",
+        "广东",
+        "浙江"
+      ]
+    },
+    "signup_date": {
+      "display_name": "注册日期",
+      "dtype": "datetime64[ns]",
+      "non_null": 200,
+      "unique": 73,
+      "sample_values": [
+        "2024-01-06",
+        "2024-01-11",
+        "2024-01-16",
+        "2024-01-21",
+        "2024-01-26"
+      ]
+    },
+    "email": {
+      "display_name": "邮箱",
+      "dtype": "object",
+      "non_null": 200,
+      "unique": 200,
+      "sample_values": [
+        "user0001@example.com",
+        "user0002@example.com",
+        "user0003@example.com",
+        "user0004@example.com",
+        "user0005@example.com"
+      ]
+    }
+  }
+}

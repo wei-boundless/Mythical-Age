@@ -1,0 +1,22 @@
+[
+  {
+    "snapshot_id": "snap:knowledge_lookup_flow:记住:2026-04-23T12:05:54+00:00",
+    "flow_id": "knowledge_lookup_flow:记住",
+    "flow_type": "knowledge_lookup_flow",
+    "status": "suspended",
+    "goal": "记住：以后复杂问题先给结论，再展开解释。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "记住：默认终端命令使用 PowerShell。"
+    },
+    "recent_results": [
+      "1. 记住：以后复杂问题先给结论 已记住，岩。 以后遇到复杂问题，我会先给结论，再展开解释。 2. 展开解释 岩，当前会话中我没有看到之前需要\"展开解释\"的具体主题。 检索到的知识库片段比较零散（涉及可解释性、文案扩写、AI营销等），无法确定你具体想了解哪方面。 请告诉我： 1. 你想让我解释哪个具体主题或问题？ 2. 或者是针对刚才某个讨论内容的深入展开？"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：记住：以后复杂问题先给结论，再展开解释。"
+    ],
+    "updated_at": "2026-04-23T12:05:54+00:00"
+  }
+]

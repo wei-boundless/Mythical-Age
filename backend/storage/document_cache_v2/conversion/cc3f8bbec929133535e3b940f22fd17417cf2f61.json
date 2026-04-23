@@ -1,0 +1,493 @@
+{
+  "doc_id": "cc3f8bbec929133535e3b940f22fd17417cf2f61",
+  "collection": "session_memory",
+  "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md",
+  "source_type": "md",
+  "version_digest": "e071cd866b7c9dd639864373aa903a7d6bcc6194",
+  "parser_backend": "docling",
+  "title": "compaction_view",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:0",
+      "block_type": "heading",
+      "text": "# Session Title",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:1",
+      "block_type": "paragraph",
+      "text": "*A short and distinctive title for the session.* *A short and distinctive title for the session.* 如果我之后再问复杂问题，你应该先怎么回答？",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:2",
+      "block_type": "heading",
+      "text": "# Active Goal",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:3",
+      "block_type": "paragraph",
+      "text": "*What is the user currently trying to achieve?* *What is the user currently trying to achieve?*",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:4",
+      "block_type": "paragraph",
+      "text": "- 我们这个项目现在优先抓哪条主线？",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:5",
+      "block_type": "heading",
+      "text": "# Flow State",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:6",
+      "block_type": "paragraph",
+      "text": "*What flow is currently active, and how confident is the system about it?* *What flow is currently active, and how confident is the system about it?*",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:7",
+      "block_type": "paragraph",
+      "text": "- 当前流程类型：coding\\_change\\_flow\n- 流程状态：awaiting\\_user",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:8",
+      "block_type": "heading",
+      "text": "# Key User Requests",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:9",
+      "block_type": "paragraph",
+      "text": "*Stable instructions or constraints from the user within this session.* *Stable instructions or constraints from the user within this session.*",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:10",
+      "block_type": "paragraph",
+      "text": "- 我们这个项目现在优先抓哪条主线？\n- 默认终端命令应该怎么写？\n- 如果我之后再问复杂问题，你应该先怎么回答？",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:11",
+      "block_type": "heading",
+      "text": "# Files and Functions",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:12",
+      "block_type": "paragraph",
+      "text": "*Important files, modules, and functions relevant to the current work.* *Important files, modules, and functions relevant to the current work.*",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:13",
+      "block_type": "paragraph",
+      "text": "- context\\_profile/profile/project\\_profile.md",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:14",
+      "block_type": "heading",
+      "text": "# Conventions and Constraints",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:15",
+      "block_type": "paragraph",
+      "text": "*Commands, operating conventions, and environment constraints that matter now.* *Commands, operating conventions, and environment constraints that matter now.*",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:16",
+      "block_type": "paragraph",
+      "text": "- 我们这个项目现在优先抓哪条主线？\n- 岩，根据我们之前确认的工作重点： 当前主线是：优化 Memory 和 RAG 这条主线意味着我们优先关注： - Memory 层：让系统能稳定记住关键事实、用户偏好、项目约定，并在后续对话中可靠召回 - RAG 层：让知识库检索更精准、回 [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:17",
+      "block_type": "heading",
+      "text": "# Decisions and Learnings",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:18",
+      "block_type": "paragraph",
+      "text": "*Concrete conclusions, tradeoffs, and learnings established in this session.* *Concrete conclusions, tradeoffs, and learnings established in this session.*",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:19",
+      "block_type": "paragraph",
+      "text": "- 岩，根据我们之前确认的工作重点： 当前主线是：优化 Memory 和 RAG 这条主线意味着我们优先关注： - Memory 层：让系统能稳定记住关键事实、用户偏好、项目约定，并在后续对话中可靠召回 - RAG 层：让知识库检索更精准、回答更有据可依，减少幻觉和空泛输出 如果你有新的优先级调整，或者想细化这条主线下一步 [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:20",
+      "block_type": "heading",
+      "text": "# Key Results",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:21",
+      "block_type": "paragraph",
+      "text": "*Exact outputs, conclusions, or artifacts already produced for the user.* *Exact outputs, conclusions, or artifacts already produced for the user.*",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:22",
+      "block_type": "paragraph",
+      "text": "- 岩，结论如下： 默认终端命令风格：Windows PowerShell 具体约定： 1. 优先使用 PowerShell 语法，例如： - 列出文件： `Get-ChildItem` 或 `ls` （PowerShell 别名） - 查看文件内容： `Get-Content` 或 `cat` - 复制文件： `Copy-Item` 或 `cp` - 删除文件：`Remove [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:23",
+      "block_type": "heading",
+      "text": "# Warm Context",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:24",
+      "block_type": "paragraph",
+      "text": "*Still-useful prior context from earlier in this session.* *Still-useful prior context from earlier in this session.*",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "e071cd866b7c9dd639864373aa903a7d6bcc6194:25",
+      "block_type": "paragraph",
+      "text": "- 此前请求：我们这个项目现在优先抓哪条主线？\n- 延续状态：当前关注的用户问题：我们这个项目现在优先抓哪条主线？\n- 近期结论：岩，结论如下： 默认终端命令风格：Windows PowerShell 具体约定： 1. 优先使用 PowerShell 语法，例如： - 列出文件： `Get-ChildItem` 或 `ls [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "session-memory/10f8c805bd064ef08ea50c39e53829fd/views/compaction_view.md",
+    "fallback_used": false
+  }
+}

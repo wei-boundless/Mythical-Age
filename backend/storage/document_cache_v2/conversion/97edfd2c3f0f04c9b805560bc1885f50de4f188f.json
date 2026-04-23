@@ -1,0 +1,763 @@
+{
+  "doc_id": "97edfd2c3f0f04c9b805560bc1885f50de4f188f",
+  "collection": "session_memory",
+  "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md",
+  "source_type": "md",
+  "version_digest": "a787822c83853c76e8d1cc69655d064cd814ecd3",
+  "parser_backend": "docling",
+  "title": "agent_view",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:0",
+      "block_type": "heading",
+      "text": "# Session Title",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:1",
+      "block_type": "paragraph",
+      "text": "*A short and distinctive title for the session.* 第三页具体讲了什么？",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:2",
+      "block_type": "heading",
+      "text": "# Active Goal",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:3",
+      "block_type": "paragraph",
+      "text": "*What is the user currently trying to achieve?*",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:4",
+      "block_type": "paragraph",
+      "text": "- 第三页具体讲了什么？",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:5",
+      "block_type": "heading",
+      "text": "# Flow State",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:6",
+      "block_type": "paragraph",
+      "text": "*What flow is currently active, and how confident is the system about it?*",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:7",
+      "block_type": "paragraph",
+      "text": "- 当前流程类型：pdf\\_analysis\\_flow\n- 流程状态：awaiting\\_user\n- 流程置信度：0.93\n- 当前步骤：整理结果：根据提取到的信息，第三页主要展示了报告的标题“回归现实主义2025年AI治理报告”。该页面看起来像是报告的封面或扉页，未包含具体的正文内容。",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:8",
+      "block_type": "heading",
+      "text": "# Context Slots",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:9",
+      "block_type": "paragraph",
+      "text": "*Which contextual bindings are active for the current flow?*",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:10",
+      "block_type": "paragraph",
+      "text": "- 当前 PDF：knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf\n- PDF 查询范围：page\n- PDF 聚焦页：3\n- 当前绑定标识：knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf\n- 当前绑定 Owner：084c0a5daa2449f39d10ff62a0c332f7-tool-pdf\\_analysis-1\n- 当前实体：pdf\\_document",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:11",
+      "block_type": "heading",
+      "text": "# Current Task State",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:12",
+      "block_type": "paragraph",
+      "text": "*What is currently in progress or waiting to be done?*",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:13",
+      "block_type": "paragraph",
+      "text": "- 当前目标：第三页具体讲了什么？\n- 当前约束：pdf\\_mode=page；active\\_pdf=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf；active\\_binding\\_identity=knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf；source\\_kind=pdf；pag...\n- 最新结果摘要：根据提取到的信息，第三页主要展示了报告的标题“回归现实主义2025年AI治理报告”。该页面看起来像是报告的封面或扉页，未包含具体的正文内容。",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:14",
+      "block_type": "heading",
+      "text": "# Warm Context",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:15",
+      "block_type": "paragraph",
+      "text": "*Still-useful prior context from earlier in this session.*",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:16",
+      "block_type": "paragraph",
+      "text": "- 上一阶段目标：现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。\n- 上一阶段结果：这份《2025年AI治理报告：回归现实主义》对当前全球AI治理的格局与趋势进行了全面梳理，核心内容总览如下： **1. 核心风向转变：从“防范风险”转向“释放潜能”** 报告指出，2025年全球AI治理正在经历一场深刻的“去理想化”进程。与...\n- 当前切换后结果：根据提取到的信息，第三页主要展示了报告的标题“回归现实主义2025年AI治理报告”。该页面看起来像是报告的封面或扉页，未包含具体的正文内容。",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:17",
+      "block_type": "heading",
+      "text": "# Key User Requests",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:18",
+      "block_type": "paragraph",
+      "text": "*Stable instructions or constraints from the user within this session.*",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:19",
+      "block_type": "paragraph",
+      "text": "- 第三页具体讲了什么？",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:20",
+      "block_type": "heading",
+      "text": "# Files and Functions",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:21",
+      "block_type": "paragraph",
+      "text": "*Important files, modules, and functions relevant to the current work.*",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:22",
+      "block_type": "paragraph",
+      "text": "- 回归现实主义.pdf",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:23",
+      "block_type": "heading",
+      "text": "# Conventions and Constraints",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:24",
+      "block_type": "paragraph",
+      "text": "*Commands, operating conventions, and environment constraints that matter now.*",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:25",
+      "block_type": "paragraph",
+      "text": "- pdf\\_mode=page；active\\_pdf=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf；active\\_binding\\_identity=knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf；source\\_kind=pdf；page=3；pdf\\_focus\\_pages=[3]；readable\\_pages=69；usable\\_pages=8；total\\_pages=72\n- page=3\n- pdf\\_mode=page\n- pdf\\_pages=3\n- readable\\_pages=69\n- usable\\_pages=8",
+      "modality": "text",
+      "section_label": "Conventions and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Conventions and Constraints"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:26",
+      "block_type": "heading",
+      "text": "# Errors and Corrections",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 26,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:27",
+      "block_type": "paragraph",
+      "text": "*Failures, corrections, and approaches to avoid repeating.*",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 27,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:28",
+      "block_type": "heading",
+      "text": "# Decisions and Learnings",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 28,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:29",
+      "block_type": "paragraph",
+      "text": "*Concrete conclusions, tradeoffs, and learnings established in this session.*",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 29,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:30",
+      "block_type": "paragraph",
+      "text": "- 根据提取到的信息，第三页主要展示了报告的标题“回归现实主义2025年AI治理报告”。该页面看起来像是报告的封面或扉页，未包含具体的正文内容。",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 30,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:31",
+      "block_type": "heading",
+      "text": "# Key Results",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 31,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:32",
+      "block_type": "paragraph",
+      "text": "*Exact outputs, conclusions, or artifacts already produced for the user.*",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 32,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:33",
+      "block_type": "paragraph",
+      "text": "- 根据提取到的信息，第三页主要展示了报告的标题“回归现实主义2025年AI治理报告”。该页面看起来像是报告的封面或扉页，未包含具体的正文内容。",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 33,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:34",
+      "block_type": "heading",
+      "text": "# Risk Watch",
+      "modality": "text",
+      "section_label": "Risk Watch",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Risk Watch"
+      ],
+      "reading_order": 34,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:35",
+      "block_type": "paragraph",
+      "text": "*Known risks in current session state and active safeguards.*",
+      "modality": "text",
+      "section_label": "Risk Watch",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Risk Watch"
+      ],
+      "reading_order": 35,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:36",
+      "block_type": "heading",
+      "text": "# Next Step",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 36,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:37",
+      "block_type": "paragraph",
+      "text": "*What the assistant should most likely do next if the work continues.*",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 37,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:38",
+      "block_type": "heading",
+      "text": "# Worklog",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 38,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:39",
+      "block_type": "paragraph",
+      "text": "*Short chronological bullets of meaningful events.*",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 39,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    },
+    {
+      "block_id": "a787822c83853c76e8d1cc69655d064cd814ecd3:40",
+      "block_type": "paragraph",
+      "text": "- user: 第三页具体讲了什么？\n- assistant: 根据提取到的信息，第三页主要展示了报告的标题“回归现实主义2025年AI治理报告”。该页面看起来像是报告的封面或扉页，未包含具体的正文内容。",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 40,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "session-memory/084c0a5daa2449f39d10ff62a0c332f7/views/agent_view.md",
+    "fallback_used": false
+  }
+}

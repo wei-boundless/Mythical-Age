@@ -1,0 +1,87 @@
+[
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:pdf:2026-04-23T00:15:44+00:00",
+    "flow_id": "pdf_analysis_flow:pdf",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "把这份 PDF 的结论压成三条行动建议。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "1. 把这份 PDF 的结论压成三条行动建议。 35. Lukyanenko, Roman, \\\"What is Data Quality? Defining Data Quality in the Age of AI.\\\" 8 Apr. 2025, SSRN, https://ssrn.com/ abstract=5211238. 36. National Institute of Standards and Technology.\",\"pages\":[70,71,69,5"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：把这份 PDF 的结论压成三条行动建议。"
+    ],
+    "updated_at": "2026-04-23T00:15:44+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:第四页如果让我准备汇报:2026-04-23T00:15:44+00:00",
+    "flow_id": "pdf_analysis_flow:第四页如果让我准备汇报",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "第四页如果让我准备汇报，应该重点盯哪几句？",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [],
+    "resume_hints": [
+      "继续处理当前用户请求：第四页如果让我准备汇报，应该重点盯哪几句？"
+    ],
+    "updated_at": "2026-04-23T00:15:44+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:第三页具体讲了什么:2026-04-23T00:15:44+00:00",
+    "flow_id": "pdf_analysis_flow:第三页具体讲了什么",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "第三页具体讲了什么？",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [],
+    "resume_hints": [
+      "继续处理当前用户请求：第三页具体讲了什么？"
+    ],
+    "updated_at": "2026-04-23T00:15:44+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:knowledge-ai-knowledge-2025-ai-pdf:2026-04-23T00:15:44+00:00",
+    "flow_id": "pdf_analysis_flow:knowledge-ai-knowledge-2025-ai-pdf",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "现在分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，先给我全文总览。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_pdf": "回归现实主义.pdf",
+      "active_entity": "pdf_document"
+    },
+    "recent_results": [],
+    "resume_hints": [
+      "继续处理当前用户请求：现在分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，先给我全文总览。"
+    ],
+    "updated_at": "2026-04-23T00:15:44+00:00"
+  },
+  {
+    "snapshot_id": "snap:knowledge_lookup_flow:ai:2026-04-23T00:15:43+00:00",
+    "flow_id": "knowledge_lookup_flow:ai",
+    "flow_type": "knowledge_lookup_flow",
+    "status": "suspended",
+    "goal": "把这三类风险改写成适合周会汇报的三条。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [],
+    "resume_hints": [
+      "继续处理当前用户请求：把这三类风险改写成适合周会汇报的三条。"
+    ],
+    "updated_at": "2026-04-23T00:15:43+00:00"
+  }
+]

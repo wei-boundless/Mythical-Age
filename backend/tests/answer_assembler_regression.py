@@ -151,12 +151,36 @@ def test_answer_assembler_records_summary_source_ref() -> None:
     assert plan.source_refs == []
 
 
+def test_answer_assembler_renders_single_followup_segment_without_numbered_wrapper() -> None:
+    assembler = AnswerAssembler()
+    main_context = MainContextState(
+        active_goal="followup",
+        active_work_item="followup_task_result_assembly",
+        followup_target_task_ids=["t1"],
+    )
+    results = [
+        {
+            "index": 1,
+            "task_id": "t1",
+            "query": "把这份 PDF 的核心结论压成三条行动建议。",
+            "summary": {"response": "先立规则，再建审计，最后做责任归口。", "response_style": ""},
+        }
+    ]
+
+    plan = assembler.build_plan(results=results, main_context=main_context)
+    rendered = assembler.render(plan)
+
+    assert rendered == "先立规则，再建审计，最后做责任归口。"
+    assert "1. 把这份 PDF 的核心结论压成三条行动建议。" not in rendered
+
+
 def main() -> None:
     test_answer_assembler_prefers_summary_and_dedupes()
     test_answer_assembler_compresses_one_sentence_segments()
     test_answer_assembler_can_filter_to_followup_target_tasks()
     test_answer_assembler_never_falls_back_to_raw_content()
     test_answer_assembler_records_summary_source_ref()
+    test_answer_assembler_renders_single_followup_segment_without_numbered_wrapper()
     print("ALL PASSED (answer assembler regression)")
 
 

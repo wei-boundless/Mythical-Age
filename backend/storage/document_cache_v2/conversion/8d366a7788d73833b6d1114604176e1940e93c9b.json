@@ -1,0 +1,853 @@
+{
+  "doc_id": "8d366a7788d73833b6d1114604176e1940e93c9b",
+  "collection": "session_memory",
+  "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md",
+  "source_type": "md",
+  "version_digest": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909",
+  "parser_backend": "docling",
+  "title": "compaction_view",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:0",
+      "block_type": "heading",
+      "text": "# Session Title",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:1",
+      "block_type": "paragraph",
+      "text": "*A short and distinctive title for the session.* *A short and distinctive title for the session.* 你确定吗？",
+      "modality": "text",
+      "section_label": "Session Title",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Session Title"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:2",
+      "block_type": "heading",
+      "text": "# Active Goal",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:3",
+      "block_type": "paragraph",
+      "text": "*What is the user currently trying to achieve?* *What is the user currently trying to achieve?*",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:4",
+      "block_type": "paragraph",
+      "text": "- 哪些城市的仓库货物最充足",
+      "modality": "text",
+      "section_label": "Active Goal",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Active Goal"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:5",
+      "block_type": "heading",
+      "text": "# Flow State",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:6",
+      "block_type": "paragraph",
+      "text": "*What workflow is currently active, and how confident is the system about it?* *What workflow is currently active, and how confident is the system about it?*",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:7",
+      "block_type": "paragraph",
+      "text": "- 当前流程类型：structured\\_data\\_flow\n- 流程状态：awaiting\\_user\n- 流程置信度：0.45\n- 当前步骤：按照当前方案继续执行\n- 下一步：先向用户澄清当前目标，再决定是否切换流程：哪些城市的仓库货物最充足",
+      "modality": "text",
+      "section_label": "Flow State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Flow State"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:8",
+      "block_type": "heading",
+      "text": "# Context Slots",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:9",
+      "block_type": "paragraph",
+      "text": "*Which contextual bindings are active for the current workflow?* *Which contextual bindings are active for the current workflow?*",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:10",
+      "block_type": "paragraph",
+      "text": "- 当前数据集：inventory.xlsx\n- 当前实体：inventory\n- 当前规则：结论： - 当前现货黄金 XAU/USD 参考价约为 4657.3000 美元/盎司。 - 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg.com。 - 使 [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Context Slots",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Context Slots"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:11",
+      "block_type": "heading",
+      "text": "# Current Task State",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:12",
+      "block_type": "paragraph",
+      "text": "*What is currently in progress or waiting to be done?* *What is currently in progress or waiting to be done?*",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:13",
+      "block_type": "paragraph",
+      "text": "- 当前关注的用户问题：哪些城市的仓库货物最充足\n- 最近产出：数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（当前库存） 前 10 项： 仓库 当前库存 0 北京仓 10238.0 1 上海仓 10000.0 2 成都仓 9951.0 3 广州仓 9720.0 4 武汉仓 9702.0 5 深圳仓 9489.0",
+      "modality": "text",
+      "section_label": "Current Task State",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Current Task State"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:14",
+      "block_type": "heading",
+      "text": "# Next Step",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:15",
+      "block_type": "paragraph",
+      "text": "*What the assistant should most likely do next if the work continues.* *What the assistant should most likely do next if the work continues.*",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:16",
+      "block_type": "paragraph",
+      "text": "- 先向用户澄清当前目标，再决定是否切换流程：哪些城市的仓库货物最充足\n- 继续处理当前用户请求：哪些城市的仓库货物最充足",
+      "modality": "text",
+      "section_label": "Next Step",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Next Step"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:17",
+      "block_type": "heading",
+      "text": "# Risk Watch",
+      "modality": "text",
+      "section_label": "Risk Watch",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Risk Watch"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:18",
+      "block_type": "paragraph",
+      "text": "*Known risks in current session state and active safeguards.* *Known risks in current session state and active safeguards.*",
+      "modality": "text",
+      "section_label": "Risk Watch",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Risk Watch"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:19",
+      "block_type": "paragraph",
+      "text": "- Flow confidence is low; keep state conservative and verify user intent before major shifts.\n- Potential flow switch was downgraded because understanding con [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Risk Watch",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Risk Watch"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:20",
+      "block_type": "heading",
+      "text": "# Key User Requests",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:21",
+      "block_type": "paragraph",
+      "text": "*Stable instructions or constraints from the user within this session.* *Stable instructions or constraints from the user within this session.*",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:22",
+      "block_type": "paragraph",
+      "text": "- 查询黄金价格\n- 你知道我是谁吗\n- 你可以帮我查询数据库里 哪些货物缺货吗\n- 哪些城市的仓库货物最充足\n- 你确定吗？",
+      "modality": "text",
+      "section_label": "Key User Requests",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key User Requests"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:23",
+      "block_type": "heading",
+      "text": "# Files and Functions",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:24",
+      "block_type": "paragraph",
+      "text": "*Important files, modules, and functions relevant to the current work.* *Important files, modules, and functions relevant to the current work.*",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:25",
+      "block_type": "paragraph",
+      "text": "- inventory.xlsx",
+      "modality": "text",
+      "section_label": "Files and Functions",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Files and Functions"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:26",
+      "block_type": "heading",
+      "text": "# Workflow and Constraints",
+      "modality": "text",
+      "section_label": "Workflow and Constraints",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Workflow and Constraints"
+      ],
+      "reading_order": 26,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:27",
+      "block_type": "paragraph",
+      "text": "*Commands, operational habits, and environment constraints that matter now.* *Commands, operational habits, and environment constraints that matter now.*",
+      "modality": "text",
+      "section_label": "Workflow and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Workflow and Constraints"
+      ],
+      "reading_order": 27,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:28",
+      "block_type": "paragraph",
+      "text": "- 结论： - 当前现货黄金 XAU/USD 参考价约为 4657.3000 美元/盎司。 - 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg.com。 - 使用查询词：gold price today live XAU/US [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Workflow and Constraints",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Workflow and Constraints"
+      ],
+      "reading_order": 28,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:29",
+      "block_type": "heading",
+      "text": "# Errors and Corrections",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 29,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:30",
+      "block_type": "paragraph",
+      "text": "*Failures, corrections, and approaches to avoid repeating.* *Failures, corrections, and approaches to avoid repeating.*",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 30,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:31",
+      "block_type": "paragraph",
+      "text": "- 低置信度流程切换已降级处理，等待进一步澄清。",
+      "modality": "text",
+      "section_label": "Errors and Corrections",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Errors and Corrections"
+      ],
+      "reading_order": 31,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:32",
+      "block_type": "heading",
+      "text": "# Decisions and Learnings",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 32,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:33",
+      "block_type": "paragraph",
+      "text": "*Concrete conclusions, tradeoffs, and learnings established in this session.* *Concrete conclusions, tradeoffs, and learnings established in this session.*",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 33,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:34",
+      "block_type": "paragraph",
+      "text": "- 结论： - 当前现货黄金 XAU/USD 参考价约为 4657.3000 美元/盎司。 - 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg.com。 - 使用查询词：gold price today live XAU/USD per ounce - 摘要：Go [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Decisions and Learnings",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Decisions and Learnings"
+      ],
+      "reading_order": 34,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:35",
+      "block_type": "heading",
+      "text": "# Key Results",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 35,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:36",
+      "block_type": "paragraph",
+      "text": "*Exact outputs, conclusions, or artifacts already produced for the user.* *Exact outputs, conclusions, or artifacts already produced for the user.*",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 36,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:37",
+      "block_type": "paragraph",
+      "text": "- 结论： - 当前现货黄金 XAU/USD 参考价约为 4657.3000 美元/盎司。 - 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg.com。 - 使用查询词：gold price today live XAU/USD per ounce - 摘要：Gold ; XAUUSD:CUR. Gold Sp [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Key Results",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Key Results"
+      ],
+      "reading_order": 37,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:38",
+      "block_type": "heading",
+      "text": "# Warm Context",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 38,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:39",
+      "block_type": "paragraph",
+      "text": "*Still-useful prior context from earlier in this session.* *Still-useful prior context from earlier in this session.*",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 39,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:40",
+      "block_type": "paragraph",
+      "text": "- 上一阶段目标：你知道我是谁吗\n- 上一阶段状态：当前关注的用户问题：你知道我是谁吗\n- 延续状态：当前关注的用户问题：哪些城市的仓库货物最充足\n- 近期结论：结论： - 当前现货黄金 XAU/USD 参考价约为 4657.3000 美元/盎司。 - 本次优先采用的来源是：Precious and Industrial [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Warm Context",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Warm Context"
+      ],
+      "reading_order": 40,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:41",
+      "block_type": "heading",
+      "text": "# Durable Candidates",
+      "modality": "text",
+      "section_label": "Durable Candidates",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Durable Candidates"
+      ],
+      "reading_order": 41,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:42",
+      "block_type": "paragraph",
+      "text": "*Potential long-term memories distilled from this session state.* *Potential long-term memories distilled from this session state.*",
+      "modality": "text",
+      "section_label": "Durable Candidates",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Durable Candidates"
+      ],
+      "reading_order": 42,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:43",
+      "block_type": "heading",
+      "text": "# Worklog",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 43,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:44",
+      "block_type": "paragraph",
+      "text": "*Short chronological bullets of meaningful events.* *Short chronological bullets of meaningful events.*",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 44,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    },
+    {
+      "block_id": "41b18aaed9dda10f72090e44e5fbe8a20bcdb909:45",
+      "block_type": "paragraph",
+      "text": "- user: 你可以帮我查询数据库里 哪些货物缺货吗\n- assistant: 数据源：inventory.xlsx 总商品数：200 缺货商品数：33 库存紧张商品数：0 缺货商品（前 10 项）： SKU 商品名称 仓库 当前库存 安全库存 缺口 S [... section truncated ...]",
+      "modality": "text",
+      "section_label": "Worklog",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Worklog"
+      ],
+      "reading_order": 45,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "session-memory/0c1e288bd91141f3997400bb635e1d6c/views/compaction_view.md",
+    "fallback_used": false
+  }
+}

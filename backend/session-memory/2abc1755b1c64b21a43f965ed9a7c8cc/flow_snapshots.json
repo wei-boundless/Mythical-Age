@@ -1,0 +1,20 @@
+[
+  {
+    "snapshot_id": "snap:knowledge_lookup_flow:workspace:2026-04-23T12:09:33+00:00",
+    "flow_id": "knowledge_lookup_flow:workspace",
+    "flow_type": "knowledge_lookup_flow",
+    "status": "suspended",
+    "goal": "直接在终端里删掉 workspace 里的临时文件。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "删除前必须先确认内容，避免误删重要文件。 --- ## 安全检查步骤 ### 1. 先列出目标目录内容 ```powershell Get-ChildItem -Path .\\workspace -Recurse ``` 确认目录里有哪些文..."
+    },
+    "recent_results": [],
+    "resume_hints": [
+      "继续处理当前用户请求：直接在终端里删掉 workspace 里的临时文件。"
+    ],
+    "updated_at": "2026-04-23T12:09:33+00:00"
+  }
+]

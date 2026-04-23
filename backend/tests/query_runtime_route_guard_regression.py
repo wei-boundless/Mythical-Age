@@ -9,7 +9,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from pdf_agent import PDFCanonicalResult
+from pdf_agent import PDFCanonicalEvidence, PDFCanonicalResult
 from query import QueryRuntime
 from query.binding_models import StructuredDatasetBinding
 from query.models import QueryExecutionPlan, QueryPlan
@@ -109,6 +109,8 @@ class _ModelRuntimeStub:
     def __init__(self) -> None:
         self.last_tools: list[str] = []
         self.last_payload_messages: list[dict[str, str]] = []
+        self.invoke_messages_calls: list[list[dict[str, str]]] = []
+        self.invoke_messages_response: str = "模型改写答案"
 
     def create_conversation_agent(self, **kwargs):
         self.last_tools = [getattr(tool, "name", "") for tool in kwargs.get("tools", [])]
@@ -116,6 +118,10 @@ class _ModelRuntimeStub:
         agent = _FakeAgent(recorder)
         self._recorder = recorder
         return agent
+
+    async def invoke_messages(self, messages: list[dict[str, str]]):
+        self.invoke_messages_calls.append(list(messages))
+        return SimpleNamespace(content=self.invoke_messages_response)
 
 
 def _build_runtime(
@@ -301,6 +307,175 @@ def test_direct_tool_route_normalizes_final_content() -> None:
     assert events[-1]["main_context"]["active_binding_identity"].endswith("inventory.xlsx")
     assert events[-1]["task_summary_refs"]
     assert str(events[-1]["task_summary_refs"][0]["task_id"]).startswith("tool-session-tool-structured_data_analysis-")
+
+
+def test_pdf_direct_tool_route_uses_model_finalization_for_visible_answer() -> None:
+    pdf_output = PDFCanonicalResult(
+        status="ok",
+        source="AI治理报告.pdf",
+        requested_mode="document",
+        effective_mode="document",
+        summary="文档要点：先建立规则，再补审计，最后明确责任归口。",
+        pages=[3, 5],
+        evidence=[
+            PDFCanonicalEvidence(page_number=3, score=7.1, snippet="建议先建立规则边界。"),
+            PDFCanonicalEvidence(page_number=5, score=6.8, snippet="后续补充审计与责任归口。"),
+        ],
+    ).to_tool_output()
+    tool = SimpleNamespace(invoke=lambda _tool_input: pdf_output)
+    plan = QueryPlan(
+        session_id="pdf-tool-session",
+        message="把这份 PDF 的核心结论压成三条行动建议。",
+        history=[],
+        subqueries=["把这份 PDF 的核心结论压成三条行动建议。"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="tool_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            should_skip_rag=True,
+            task_kind="pdf_followup_query",
+        ),
+        active_skill=None,
+        tool_input={
+            "query": "把这份 PDF 的核心结论压成三条行动建议。",
+            "path": "knowledge/demo.pdf",
+            "mode": "document",
+        },
+        execution_kind="direct_tool",
+    )
+    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(
+        rag_mode=False,
+        direct_tools={"pdf_analysis": tool},
+    )
+    model_runtime.invoke_messages_response = "1. 先立规则。\n2. 再建审计。\n3. 最后明确责任归口。"
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = [event for event in events if event["type"] == "done"][-1]
+
+    assert len(model_runtime.invoke_messages_calls) == 1
+    assert "核心结论压成三条行动建议" in model_runtime.invoke_messages_calls[0][1]["content"]
+    assert done["content"] == "1. 先立规则。\n2. 再建审计。\n3. 最后明确责任归口。"
+    assert done["summary"]["response"].startswith("1. 先立规则。")
+    assert done["context_ref"]["summary"].startswith("1. 先立规则。")
+    assert done["task_summary_refs"][0]["summary"].startswith("1. 先立规则。")
+    assert events[-2]["output"] == "1. 先立规则。\n2. 再建审计。\n3. 最后明确责任归口。"
+
+
+def test_pdf_direct_tool_route_skips_model_finalization_for_degraded_result() -> None:
+    pdf_output = PDFCanonicalResult(
+        status="degraded",
+        source="AI治理报告.pdf",
+        requested_mode="page",
+        effective_mode="page",
+        summary="",
+        degraded_reason="target_page_has_no_stable_text",
+        pages=[9],
+    ).to_tool_output()
+    tool = SimpleNamespace(invoke=lambda _tool_input: pdf_output)
+    plan = QueryPlan(
+        session_id="pdf-degraded-session",
+        message="第九页讲了什么？",
+        history=[],
+        subqueries=["第九页讲了什么？"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="tool_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            should_skip_rag=True,
+            task_kind="pdf_followup_query",
+        ),
+        active_skill=None,
+        tool_input={"query": "第九页讲了什么？", "path": "knowledge/demo.pdf", "mode": "page"},
+        execution_kind="direct_tool",
+    )
+    events, _retrieval, model_runtime, _memory_facade = asyncio.run(
+        _collect_events(
+            plan,
+            rag_mode=False,
+            direct_tools={"pdf_analysis": tool},
+        )
+    )
+
+    done = [event for event in events if event["type"] == "done"][-1]
+    assert model_runtime.invoke_messages_calls == []
+    assert done["task_summary_refs"] == []
+    assert "已读取与当前问题最相关的 PDF 页面" in done["content"]
+
+
+def test_pdf_direct_tool_route_uses_model_finalization_for_degraded_page_evidence() -> None:
+    pdf_output = PDFCanonicalResult(
+        status="degraded",
+        source="AI治理报告.pdf",
+        requested_mode="page",
+        effective_mode="page",
+        summary="",
+        degraded_reason="target_page_text_quality_low",
+        pages=[3],
+        evidence=[
+            PDFCanonicalEvidence(
+                page_number=3,
+                score=1.0,
+                snippet="回归现实主义2025年AI治理报告 腾讯研究院",
+            )
+        ],
+    ).to_tool_output()
+    tool = SimpleNamespace(invoke=lambda _tool_input: pdf_output)
+    plan = QueryPlan(
+        session_id="pdf-page-evidence-session",
+        message="第三页具体讲了什么？",
+        history=[],
+        subqueries=["第三页具体讲了什么？"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="tool_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            should_skip_rag=True,
+            task_kind="pdf_followup_query",
+        ),
+        active_skill=None,
+        tool_input={"query": "第三页具体讲了什么？", "path": "knowledge/demo.pdf", "mode": "page"},
+        execution_kind="direct_tool",
+    )
+    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(
+        rag_mode=False,
+        direct_tools={"pdf_analysis": tool},
+    )
+    model_runtime.invoke_messages_response = "第三页基本是题名页，主要给出报告标题《2025年AI治理报告：回归现实主义》和来源腾讯研究院，没有展开正文论述。"
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = [event for event in events if event["type"] == "done"][-1]
+
+    assert len(model_runtime.invoke_messages_calls) == 1
+    assert "降级原因：target_page_text_quality_low" in model_runtime.invoke_messages_calls[0][1]["content"]
+    assert done["content"].startswith("第三页基本是题名页")
+    assert done["answer_channel"] == "answer_candidate"
+    assert done["answer_source"] == "pdf_model_finalization"
+    assert done["answer_fallback_reason"] == ""
+    assert done["summary"]["response"].startswith("第三页基本是题名页")
+    assert done["context_ref"]["summary"].startswith("第三页基本是题名页")
+    assert done["task_summary_refs"]
+    assert done["task_summary_refs"][0]["summary"].startswith("第三页基本是题名页")
+    assert events[-2]["output"].startswith("第三页基本是题名页")
 
 
 def test_semantic_memory_signal_keeps_rag_and_prefetches_durable() -> None:
@@ -1162,6 +1337,9 @@ def main() -> None:
     test_memory_route_disables_tools()
     test_rag_route_prefetches_retrieval_without_tools()
     test_direct_tool_route_normalizes_final_content()
+    test_pdf_direct_tool_route_uses_model_finalization_for_visible_answer()
+    test_pdf_direct_tool_route_skips_model_finalization_for_degraded_result()
+    test_pdf_direct_tool_route_uses_model_finalization_for_degraded_page_evidence()
     test_semantic_memory_signal_keeps_rag_and_prefetches_durable()
     test_execution_events_reuses_built_plan_for_subtasks()
     test_memory_route_does_not_promote_fake_tool_call_into_task_summary()

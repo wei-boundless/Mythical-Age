@@ -87,6 +87,24 @@ class _DummyBackend:
         }
 
 
+class _DummyRebuildBootstrapper:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def rebuild_collection(self, config):
+        self.calls += 1
+        return SimpleNamespace(
+            collection=config.name,
+            discovered_files=0,
+            converted_documents=0,
+            normalized_blocks=0,
+            normalized_objects=0,
+            indexable_units=0,
+            parser_backends=[],
+            index_payload={"status": "ready"},
+        )
+
+
 def test_retrieval_service_defaults_to_legacy_only(tmp_path: Path, monkeypatch) -> None:
     service = RetrievalService(tmp_path)
     service.router = _DummyRouter()
@@ -174,3 +192,30 @@ def test_v2_candidate_pool_stays_near_request_when_rerank_disabled(tmp_path: Pat
     service._settings = SimpleNamespace(rerank_enabled=False, rerank_top_n=12, rerank_candidate_pool=20)
 
     assert service._v2_candidate_top_k(3) == 8
+
+
+def test_retrieval_service_skips_concurrent_collection_rebuild(tmp_path: Path) -> None:
+    service = RetrievalService(tmp_path)
+    service.v2_bootstrapper = _DummyRebuildBootstrapper()
+    lock = service._collection_rebuild_lock("session_memory")
+    lock.acquire()
+    try:
+        payload = service.rebuild_collection_v2("session_memory")
+    finally:
+        lock.release()
+
+    assert payload["status"] == "rebuild_already_running"
+    assert service._collection_rebuild_pending["session_memory"] is True
+    assert service.v2_bootstrapper.calls == 0
+
+
+def test_retrieval_service_clears_pending_flag_on_next_collection_rebuild(tmp_path: Path) -> None:
+    service = RetrievalService(tmp_path)
+    service.v2_bootstrapper = _DummyRebuildBootstrapper()
+    service._collection_rebuild_pending["session_memory"] = True
+
+    payload = service.rebuild_collection_v2("session_memory")
+
+    assert payload["status"] == "ready"
+    assert service.v2_bootstrapper.calls == 1
+    assert service._collection_rebuild_pending.get("session_memory") is None

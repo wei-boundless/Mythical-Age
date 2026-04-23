@@ -82,6 +82,8 @@ class AnswerAssembler:
     def render(self, plan: AnswerAssemblyPlan) -> str:
         if not plan.segments:
             return ""
+        if len(plan.segments) == 1:
+            return plan.segments[0].body.strip()
         sections: list[str] = []
         for segment in plan.segments:
             sections.append(f"{segment.index}. {segment.title}\n{segment.body}")

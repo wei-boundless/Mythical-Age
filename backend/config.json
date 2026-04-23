@@ -1,5 +1,5 @@
 {
-  "rag_mode": true,
+  "rag_mode": false,
   "permission_mode": "default",
   "retrieval_shadow_compare": false,
   "retrieval_cutover_mode": "v2_primary"

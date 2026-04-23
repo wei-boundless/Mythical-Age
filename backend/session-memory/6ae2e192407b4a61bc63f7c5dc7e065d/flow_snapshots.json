@@ -1,0 +1,37 @@
+[
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:第三页讲了什么:2026-04-23T12:11:56+00:00",
+    "flow_id": "pdf_analysis_flow:第三页讲了什么",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "第三页讲了什么？",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [],
+    "resume_hints": [
+      "继续处理当前用户请求：第三页讲了什么？"
+    ],
+    "updated_at": "2026-04-23T12:11:56+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:knowledge-ai-knowledge-2025-ai-pdf:2026-04-23T12:11:04+00:00",
+    "flow_id": "pdf_analysis_flow:knowledge-ai-knowledge-2025-ai-pdf",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf 的核心结论。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_pdf": "回归现实主义.pdf",
+      "active_entity": "pdf_document"
+    },
+    "recent_results": [],
+    "resume_hints": [
+      "如果用户继续推进，优先沿着“请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf 的核心结论。”继续细化。"
+    ],
+    "updated_at": "2026-04-23T12:11:04+00:00"
+  }
+]

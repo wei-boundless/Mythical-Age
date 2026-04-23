@@ -484,3 +484,33 @@ class TaskCoordinator:
             },
         )
         return task
+
+    def refresh_completed_tool_task(
+        self,
+        *,
+        session_id: str,
+        task: TaskRecord,
+        content: str,
+        event_name: str = "tool_task_finalize",
+    ) -> TaskRecord:
+        normalized = str(content or "")
+        task.result = normalized
+        task.result_ref = self._persist_result_ref(
+            session_id=session_id,
+            task_id=task.task_id,
+            content=normalized,
+        )
+        task.summary = self._build_task_summary(task.query, normalized, task.context_ref)
+        if task.context_ref is not None:
+            task.context_ref.status = "completed"
+            task.context_ref.summary = task.summary.response
+            task.context_ref.result_ref_id = task.result_ref.result_id
+        task.add_event(
+            event_name,
+            payload={
+                "summary": task.summary.to_dict() if task.summary is not None else None,
+                "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
+                "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
+            },
+        )
+        return task

@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,9 @@ from retrieval_core.retrievers import RetrievalRequest
 
 class LlamaIndexRetrievalBackend:
     """Phase-2 retrieval backend with qdrant dense + application lexical BM25."""
+
+    _qdrant_local_locks: dict[str, threading.RLock] = {}
+    _qdrant_local_locks_guard = threading.Lock()
 
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
@@ -199,6 +204,29 @@ class LlamaIndexRetrievalBackend:
         embed_model: object | None = None,
         build_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if not self.settings.qdrant_url:
+            with self._qdrant_local_access(collection):
+                return self._build_collection_qdrant_locked(
+                    collection,
+                    units,
+                    embed_model=embed_model,
+                    build_meta=build_meta,
+                )
+        return self._build_collection_qdrant_locked(
+            collection,
+            units,
+            embed_model=embed_model,
+            build_meta=build_meta,
+        )
+
+    def _build_collection_qdrant_locked(
+        self,
+        collection: str,
+        units: list[IndexableUnit],
+        *,
+        embed_model: object | None = None,
+        build_meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         from qdrant_client import models as qmodels
 
         dense_dir = self.layout.dense_dir(collection)
@@ -319,6 +347,18 @@ class LlamaIndexRetrievalBackend:
         }
 
     def _retrieve_dense_qdrant(
+        self,
+        collection: str,
+        request: RetrievalRequest,
+        *,
+        embed_model: object | None = None,
+    ) -> list[object]:
+        if not self.settings.qdrant_url:
+            with self._qdrant_local_access(collection):
+                return self._retrieve_dense_qdrant_locked(collection, request, embed_model=embed_model)
+        return self._retrieve_dense_qdrant_locked(collection, request, embed_model=embed_model)
+
+    def _retrieve_dense_qdrant_locked(
         self,
         collection: str,
         request: RetrievalRequest,
@@ -585,6 +625,26 @@ class LlamaIndexRetrievalBackend:
         embed_model: object | None,
         smoke_query: str | None,
     ) -> dict[str, Any]:
+        if not self.settings.qdrant_url:
+            with self._qdrant_local_access(collection):
+                return self._verify_qdrant_collection_locked(
+                    collection,
+                    embed_model=embed_model,
+                    smoke_query=smoke_query,
+                )
+        return self._verify_qdrant_collection_locked(
+            collection,
+            embed_model=embed_model,
+            smoke_query=smoke_query,
+        )
+
+    def _verify_qdrant_collection_locked(
+        self,
+        collection: str,
+        *,
+        embed_model: object | None,
+        smoke_query: str | None,
+    ) -> dict[str, Any]:
         client = self._qdrant_client(collection)
         collection_name = self._qdrant_collection_name(collection)
         payload: dict[str, Any] = {
@@ -637,6 +697,25 @@ class LlamaIndexRetrievalBackend:
             close = getattr(client, "close", None)
             if callable(close):
                 close()
+
+    @contextmanager
+    def _qdrant_local_access(self, collection: str):
+        lock = self._qdrant_local_lock(collection)
+        lock.acquire()
+        try:
+            yield
+        finally:
+            lock.release()
+
+    def _qdrant_local_lock(self, collection: str) -> threading.RLock:
+        dense_dir = self.layout.dense_dir(collection).resolve()
+        key = str(dense_dir).lower()
+        with self._qdrant_local_locks_guard:
+            lock = self._qdrant_local_locks.get(key)
+            if lock is None:
+                lock = threading.RLock()
+                self._qdrant_local_locks[key] = lock
+            return lock
 
     @staticmethod
     def _dense_smoke_query(units: list[IndexableUnit]) -> str | None:

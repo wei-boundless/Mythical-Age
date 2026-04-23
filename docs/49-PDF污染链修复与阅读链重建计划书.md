@@ -4,7 +4,7 @@
 > 直接输入：`docs/47-长场景实测问题清单与原因定位-20260423.md`、`output/test_runs/20260423-080117-long/*`  
 > 目的：针对本轮长场景中 PDF 链路“重构后局部变得更坏”的现象，先追清污染源头，再给出必须连续推进直到收敛的修复路线。
 
-## 0. 最新推进记录（2026-04-23 13:25）
+## 0. 最新推进记录（2026-04-23 13:35）
 
 本轮已完成的正式修复，不再停留在 prompt 层，而是已经落实到 PDF 正式链路：
 
@@ -21,21 +21,95 @@
    - `backend/tests/pdf_followup_history_regression.py`
 5. 已完成长场景复测：
    - `output/test_runs/20260423-132104-long/`
+   - `output/test_runs/20260423-133221-long/`
 
 最新实测结论：
 
 1. 原先主导输出的乱码串，如 `杂芤`、`拼褒捧悼`、`唤纈=凌钨`，已经不再进入 stable summary，也不再被写入 `task_summary_refs/context_ref.summary`。
 2. 候选页选择已稳定落在正文页，而不是尾部参考文献页。
-3. 当前残余问题已经明显收缩为“版面/OCR残差”，例如：
-   - `全球Al治理`
+3. follow-up 单结果回合已经不再额外包一层 `1. 问题标题`，主线程直接消费稳定正文摘要。
+4. `全球Al治理` 这类字形级残差已经进一步收敛为 `全球AI治理`。
+5. 当前残余问题已经明显收缩为“版面/OCR残差与可读性细修”，例如：
    - `从整体方向看` 前缺少更自然的结构连接
-4. 这说明当前阶段已经从“污染链未切断”进入“正文可读性细修”阶段。
+   - 总览与“行动建议”这类 follow-up 之间仍缺真正的任务改写层
+6. 这说明当前阶段已经从“污染链未切断”进入“供给质量已基本可用，但任务适配与自然度仍需收口”的阶段。
 
 因此，后续推进重点不再是“防止脏页进入摘要”，而是：
 
-1. 收敛 `AI/Al` 这类字形级残差。
-2. 继续削减 layout residue 对句首的影响。
-3. 在不放宽稳定准入门的前提下，进一步提升 stable summary 的自然度。
+1. 继续削减 layout residue 对句首和段间连接的影响。
+2. 把“全文总览 / 行动建议 / 页级解释”之间的任务约束更明确地传给大模型，而不是继续靠规则模拟理解。
+3. 在不放宽稳定准入门的前提下，进一步提升 stable summary 的自然度与 follow-up 改写能力。
+
+### 0.1 补充推进记录（2026-04-23 15:10）
+
+本轮又完成了一次关键收口修复：
+
+1. 在 `backend/query/runtime.py` 增加了 `pdf_analysis` stable result 的主模型 finalization。
+2. PDF 工具现在只负责回传 clean canonical summary 与 evidence，最终面对用户的回答由主模型基于稳定证据做任务成形。
+3. 在 `backend/tasks/coordinator.py` 增加了 direct tool 完成后内容刷新接口，保证 finalization 后的结果会同步刷新：
+   - `task.result`
+   - `result_ref`
+   - `summary.response`
+   - `context_ref.summary`
+   - `task_summary_refs`
+4. 已补并通过回归：
+   - `backend/tests/query_runtime_route_guard_regression.py`
+   - `backend/tests/pdf_agent_runtime_regression.py`
+   - `backend/tests/pdf_followup_history_regression.py`
+   - `backend/tests/answer_assembler_regression.py`
+
+针对真实链路做了最小实测（同一 session 下连续执行“打开 PDF -> 第三页具体讲了什么 -> 压成三条行动建议”），结果如下：
+
+1. “把这份 PDF 的核心结论压成三条行动建议”已经不再返回抽取式摘要，而是返回成形后的三条建议。
+2. 该成形结果已经同步写入 `summary/context_ref/task_summary_refs`，后续追问不再回退到旧的抽取摘要。
+3. “第三页具体讲了什么”仍然走了 `pdf_canonical_missing_summary` fallback，说明页级供给层仍存在 stable summary 缺口。
+4. 因此当前阶段的边界判断进一步明确为：
+   - 展示收口层：这一轮已经修通
+   - 页级供给层：仍需继续修
+
+这也验证了当前总方向是对的：
+
+1. 不继续往 PDF 工具里塞语义理解规则是正确的。
+2. 主模型负责“任务化改写”，框架负责“供给稳定证据”，这条职责边界已经开始落地。
+3. 下一步需要集中修的是 page-level stable supply，而不是再回头修改 final answer prompt。
+
+### 0.2 补充推进记录（2026-04-23 16:35）
+
+本轮顺手把长场景中暴露出来的 `session_memory` 本地 Qdrant `.lock` 竞争问题也处理掉了，因为它会干扰 PDF/长场景实测结果判断。
+
+根因确认如下：
+
+1. `session_memory` 的 background rebuild 与 memory retrieve 都会在同一进程内打开 `storage/indexes_v2/session_memory/dense`。
+2. 本地 Qdrant 不允许同一路径被多个实例并发访问。
+3. 重建链在本地模式下会先 `_reset_dir()`，如果此时另一个线程仍持有同目录的 `QdrantClient(path=...)`，就会触发：
+   - `AlreadyLocked`
+   - `Storage folder ... is already accessed by another instance`
+   - `PermissionError: ... .lock`
+
+本轮正式修复：
+
+1. 在 `backend/retrieval_core/llamaindex_backend.py` 为本地 Qdrant 增加 collection 级串行访问锁。
+   - `build_collection_qdrant`
+   - `retrieve_dense_qdrant`
+   - `verify_qdrant_collection`
+   现在同一 collection 的本地 Qdrant 访问会被串行化，不再并发打开同一目录。
+2. 在 `backend/retrieval/service.py` 为 collection rebuild 增加运行中锁和 pending 合并。
+   - 同一 collection 已在 rebuild 时，新的 rebuild 请求不再并发进入底层构建。
+   - 当前 rebuild 完成后，如期间收到新的 rebuild 请求，只再补一次最新快照 rebuild。
+3. 已补回归：
+   - `backend/tests/retrieval_service_cutover_regression.py`
+   - `backend/tests/retrieval_bootstrap_memory_phase2_regression.py`
+   - `backend/tests/retrieval_core_phase2_regression.py`
+4. 在 `backend/query/runtime.py` 将“刷新 session memory 文件态”和“重建 session_memory 向量索引”解耦。
+   - 每轮对话后仍刷新 session memory 运行态文件。
+   - 不再每轮强制全量 rebuild `session_memory` 向量集合。
+   - 显式文件变更路径仍可通过 `AppRuntime.refresh_indexes_for_path("session-memory/...")` 触发重建。
+
+实测结果：
+
+1. 之前 smoke / long-run 末尾出现的 `.lock` / `AlreadyLocked` / `Storage folder already accessed` 已不再复现。
+2. 后续又发现自动全量 rebuild 本身会拖慢测试退出，因此已经把它从热路径移除。
+3. 因此这一项已经从“错误态/热路径性能风险”收敛为“显式索引维护任务”。
 
 ---
 

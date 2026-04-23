@@ -5,14 +5,6 @@ output/
 frontend/node_modules/
 frontend/.next/
 backend/.env
-backend/**/__pycache__/
-backend/sessions/
-backend/session-memory/
-backend/storage/indexes/
-backend/storage/modality_artifacts/
-backend/storage/rag_index/
-backend/storage/knowledge/
-backend/storage/memory_index/
 backend/durable_memory/*.md
 !backend/durable_memory/SCHEMA.md
 *.pyc

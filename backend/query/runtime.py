@@ -684,7 +684,6 @@ class QueryRuntime:
                     task_summaries=list(projection.get("task_summary_refs", []) or []),
                     corrections=list(projection.get("corrections", []) or []),
                 )
-                self.retrieval_service.rebuild_session_memory()
                 return summary
             except Exception:
                 logger.exception(
@@ -693,7 +692,6 @@ class QueryRuntime:
                 )
         messages = self.session_manager.load_session(session_id)
         summary = self.memory_facade.refresh_session_memory(session_id, messages)
-        self.retrieval_service.rebuild_session_memory()
         return summary
 
     def commit_durable_memory_extraction(self, session_id: str) -> int:
@@ -1544,7 +1542,16 @@ class QueryRuntime:
             tool_name=tool_name,
             tool_decision=tool_decision,
         )
+        visible_content = await self._finalize_pdf_direct_tool_answer(
+            session_id=session_id,
+            execution=execution,
+            task=task,
+            raw_output=raw_tool_output,
+            tool_name=tool_name,
+            tool_decision=tool_decision,
+        )
         tool_content = task.result
+        pdf_model_finalized = bool(task.metadata.get("pdf_model_finalized")) if task is not None else False
         binding_payload = (
             execution.structured_binding.to_dict()
             if getattr(execution, "structured_binding", None) is not None
@@ -1552,8 +1559,9 @@ class QueryRuntime:
         )
         task_summary_ref = self._task_summary_ref_from_task(task)
         yield {"type": "tool_end", "tool": tool_name, "output": tool_content, "structured_binding": binding_payload}
-        visible_content = tool_decision.canonical_answer.strip() or f"{tool_name} 已执行，但未返回可展示结果。"
-        if tool_name == "pdf_analysis" and not self._pdf_tool_decision_is_persistable(raw_tool_output, tool_decision):
+        if tool_name == "pdf_analysis" and not (
+            self._pdf_tool_decision_is_persistable(raw_tool_output, tool_decision) or pdf_model_finalized
+        ):
             task_summary_ref = None
         yield {
             "type": "done",
@@ -1564,9 +1572,9 @@ class QueryRuntime:
             "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
             "main_context": self._build_direct_tool_main_context(execution.message, task=task).to_dict(),
             "structured_binding": binding_payload,
-            "answer_channel": tool_decision.selected_channel,
-            "answer_source": tool_decision.selected_source,
-            "answer_fallback_reason": tool_decision.fallback_reason,
+            "answer_channel": "answer_candidate" if pdf_model_finalized else tool_decision.selected_channel,
+            "answer_source": "pdf_model_finalization" if pdf_model_finalized else tool_decision.selected_source,
+            "answer_fallback_reason": "" if pdf_model_finalized else tool_decision.fallback_reason,
             "answer_leak_flags": list(tool_decision.leak_flags),
             "task_summary_refs": (
                 [task_summary_ref.to_dict()]
@@ -1717,6 +1725,126 @@ class QueryRuntime:
             context_ref.summary = ""
         task.metadata["skip_session_memory_projection"] = True
         task.metadata["pdf_persistable"] = False
+
+    async def _finalize_pdf_direct_tool_answer(
+        self,
+        *,
+        session_id: str,
+        execution: QueryExecutionPlan,
+        task,
+        raw_output: Any,
+        tool_name: str,
+        tool_decision,
+    ) -> str:
+        fallback = tool_decision.canonical_answer.strip() or f"{tool_name} 已执行，但未返回可展示结果。"
+        if tool_name != "pdf_analysis" or task is None:
+            return fallback
+        if not self._pdf_tool_result_can_use_model_finalization(raw_output, tool_decision):
+            return fallback
+        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
+        if canonical is None:
+            return fallback
+        finalized = await self._rewrite_pdf_answer_with_model(
+            user_query=execution.message,
+            canonical=canonical,
+        )
+        if not finalized or finalized == fallback:
+            return fallback
+        self.task_coordinator.refresh_completed_tool_task(
+            session_id=session_id,
+            task=task,
+            content=finalized,
+            event_name="tool_task_llm_finalize",
+        )
+        task.metadata["pdf_model_finalized"] = True
+        task.metadata["pdf_model_finalized_answer"] = finalized
+        return finalized
+
+    async def _rewrite_pdf_answer_with_model(
+        self,
+        *,
+        user_query: str,
+        canonical: PDFCanonicalResult,
+    ) -> str:
+        messages = self._build_pdf_answer_finalization_messages(
+            user_query=user_query,
+            canonical=canonical,
+        )
+        try:
+            response = await self.model_runtime.invoke_messages(messages)
+        except ModelRuntimeError:
+            return ""
+        except Exception:
+            logger.exception("PDF answer finalization failed")
+            return ""
+        content = sanitize_visible_assistant_content(
+            stringify_content(getattr(response, "content", response))
+        ).strip()
+        if (
+            not content
+            or contains_internal_protocol(content)
+            or (canonical.summary.strip() and content == canonical.summary.strip())
+        ):
+            return ""
+        return content
+
+    def _build_pdf_answer_finalization_messages(
+        self,
+        *,
+        user_query: str,
+        canonical: PDFCanonicalResult,
+    ) -> list[dict[str, str]]:
+        source = str(canonical.source or "当前PDF").strip()
+        page_marks = [f"P{int(page)}" for page in list(canonical.pages or []) if int(page) > 0][:6]
+        evidence_lines: list[str] = []
+        for item in list(canonical.evidence or [])[:4]:
+            snippet = " ".join(str(item.snippet or "").split()).strip()
+            if not snippet:
+                continue
+            evidence_lines.append(f"- P{int(item.page_number)}: {snippet[:220]}")
+        evidence_block = "\n".join(evidence_lines) if evidence_lines else "- 无额外证据片段"
+        page_block = "、".join(page_marks) if page_marks else "未标注"
+        summary = canonical.summary.strip()
+        degraded_reason = str(canonical.degraded_reason or "").strip()
+        system_prompt = (
+            "你负责把已经清洗过的 PDF 阅读结果改写成对用户可直接展示的最终回答。"
+            "只能依据提供的摘要和证据回答，不要编造，不要输出内部协议、工具名、canonical、evidence 等词。"
+            "不要大段摘抄原文；优先直接回应用户任务。"
+            "如果用户要求总结、行动建议、解释或对比，请按该任务形态组织答案。"
+            "如果提供的页面看起来主要是封面、题名页、目录、版权页或其他非正文，请直接说明这一点，不要硬编正文结论。"
+        )
+        user_prompt = (
+            f"用户问题：{user_query.strip()}\n"
+            f"PDF：{source}\n"
+            f"相关页面：{page_block}\n"
+            f"稳定摘要：{summary or '无'}\n"
+            f"当前状态：{canonical.status}\n"
+            f"降级原因：{degraded_reason or '无'}\n"
+            f"证据片段：\n{evidence_block}\n\n"
+            "请直接回答用户，不要解释你的处理过程。"
+        )
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+    def _pdf_tool_result_can_use_model_finalization(self, raw_output: Any, tool_decision) -> bool:
+        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
+        if canonical is None:
+            return False
+        if canonical.ok:
+            return True
+        return self._pdf_canonical_has_finalizable_evidence(canonical)
+
+    def _pdf_canonical_has_finalizable_evidence(self, canonical: PDFCanonicalResult) -> bool:
+        if str(canonical.effective_mode or "") == "page" and str(canonical.degraded_reason or "") == "target_page_has_no_stable_text":
+            return False
+        for item in list(canonical.evidence or [])[:4]:
+            snippet = sanitize_visible_assistant_content(str(item.snippet or "")).strip()
+            compact = re.sub(r"\s+", "", snippet)
+            if len(compact) >= 8:
+                return True
+        return False
 
     def _pdf_tool_decision_is_persistable(self, raw_output: Any, tool_decision) -> bool:
         if tool_decision is None or str(getattr(tool_decision, "selected_channel", "") or "") == "fallback_answer":

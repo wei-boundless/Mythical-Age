@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,9 @@ class RetrievalService:
         self._settings = get_settings()
         self._router: RAGQueryRouter | Any | None = None
         self._v2_bootstrapper: RetrievalV2Bootstrapper | Any | None = None
+        self._collection_rebuild_locks: dict[str, threading.Lock] = {}
+        self._collection_rebuild_locks_guard = threading.Lock()
+        self._collection_rebuild_pending: dict[str, bool] = {}
 
     @property
     def router(self) -> Any:
@@ -136,26 +140,45 @@ class RetrievalService:
         config = build_default_collections(self.base_dir).get(name)
         if config is None:
             return {"collection": name, "status": "missing_collection"}
+        lock = self._collection_rebuild_lock(name)
+        acquired = lock.acquire(blocking=False)
+        if not acquired:
+            self._collection_rebuild_pending[name] = True
+            return {"collection": name, "status": "rebuild_already_running"}
         try:
-            result = self.v2_bootstrapper.rebuild_collection(config)
-            payload = {
-                "collection": result.collection,
-                "status": str(result.index_payload.get("status", "unknown")),
-                "discovered_files": result.discovered_files,
-                "converted_documents": result.converted_documents,
-                "normalized_blocks": result.normalized_blocks,
-                "normalized_objects": result.normalized_objects,
-                "indexable_units": result.indexable_units,
-                "parser_backends": list(result.parser_backends),
-                "index_payload": dict(result.index_payload),
-            }
-            return payload
+            self._collection_rebuild_pending.pop(name, None)
+            return self._rebuild_collection_v2_once(name, config)
         except Exception as exc:
             logger.exception("Failed to rebuild v2 collection %s", name)
             return {"collection": name, "status": "error", "error": str(exc)}
+        finally:
+            lock.release()
 
     def rebuild_knowledge_v2(self) -> dict[str, Any]:
         return self.rebuild_collection_v2("knowledge")
+
+    def _rebuild_collection_v2_once(self, name: str, config) -> dict[str, Any]:
+        result = self.v2_bootstrapper.rebuild_collection(config)
+        return {
+            "collection": result.collection,
+            "status": str(result.index_payload.get("status", "unknown")),
+            "discovered_files": result.discovered_files,
+            "converted_documents": result.converted_documents,
+            "normalized_blocks": result.normalized_blocks,
+            "normalized_objects": result.normalized_objects,
+            "indexable_units": result.indexable_units,
+            "parser_backends": list(result.parser_backends),
+            "index_payload": dict(result.index_payload),
+        }
+
+    def _collection_rebuild_lock(self, name: str) -> threading.Lock:
+        normalized = str(name or "").strip().lower()
+        with self._collection_rebuild_locks_guard:
+            lock = self._collection_rebuild_locks.get(normalized)
+            if lock is None:
+                lock = threading.Lock()
+                self._collection_rebuild_locks[normalized] = lock
+            return lock
 
     def rebuild_all_v2(self) -> dict[str, dict[str, Any]]:
         payload: dict[str, dict[str, Any]] = {}
