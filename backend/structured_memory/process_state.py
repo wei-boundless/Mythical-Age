@@ -48,6 +48,10 @@ class ContextSlots:
     active_binding_kind: str = ""
     active_binding_identity: str = ""
     active_binding_owner_task_id: str = ""
+    committed_pdf: str = ""
+    committed_pdf_owner_task_id: str = ""
+    committed_dataset: str = ""
+    committed_dataset_owner_task_id: str = ""
     active_entity: str = ""
     active_rule: str = ""
 
@@ -159,6 +163,14 @@ class ProcessState:
                 active_binding_identity=str(getattr(slots_payload, "get", lambda *_: "")("active_binding_identity", "")),
                 active_binding_owner_task_id=str(
                     getattr(slots_payload, "get", lambda *_: "")("active_binding_owner_task_id", "")
+                ),
+                committed_pdf=str(getattr(slots_payload, "get", lambda *_: "")("committed_pdf", "")),
+                committed_pdf_owner_task_id=str(
+                    getattr(slots_payload, "get", lambda *_: "")("committed_pdf_owner_task_id", "")
+                ),
+                committed_dataset=str(getattr(slots_payload, "get", lambda *_: "")("committed_dataset", "")),
+                committed_dataset_owner_task_id=str(
+                    getattr(slots_payload, "get", lambda *_: "")("committed_dataset_owner_task_id", "")
                 ),
                 active_entity=str(getattr(slots_payload, "get", lambda *_: "")("active_entity", "")),
                 active_rule=str(getattr(slots_payload, "get", lambda *_: "")("active_rule", "")),

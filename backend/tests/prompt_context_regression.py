@@ -31,10 +31,9 @@ def test_prompt_builder_splits_static_session_and_turn_layers() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         _write(root / "SKILLS_SNAPSHOT.md", "# Skills Snapshot\n\n- prompt-test")
-        _write(root / "context_profile" / "constitution" / "SOUL.md", "# Soul\n\nCalm and direct.")
-        _write(root / "context_profile" / "constitution" / "IDENTITY.md", "# Identity\n\nLocal-first agent.")
-        _write(root / "context_profile" / "profile" / "USER.md", "# User\n\nPrefer concise answers.")
-        _write(root / "context_profile" / "profile" / "AGENTS.md", "# Agents\n\nPrefer transparent execution.")
+        _write(root / "context_profile" / "agent_core" / "CORE.md", "# Agent Core\n\nCalm and direct.")
+        _write(root / "context_profile" / "agent_core" / "ACTIVE_SEED.md", "# Active Soul Seed\n\nRiver-like and restrained.")
+        _write(root / "context_profile" / "profile" / "agent.md", "# Agent Profile\n\nPrefer concise answers.")
 
         package = SimpleNamespace(
             sections={
@@ -86,6 +85,7 @@ def test_prompt_builder_splits_static_session_and_turn_layers() -> None:
 
         _assert("<!-- Skills Snapshot -->" in static_prompt, "static layer should include skills snapshot")
         _assert("<!-- Long-Term Context -->" in static_prompt, "static layer should include long-term context")
+        _assert("River-like and restrained." in static_prompt, "static layer should include active soul seed")
         _assert("<!-- Session Memory -->" in session_prompt, "session layer should include session memory")
         _assert("grounded evidence" in session_prompt, "session layer should carry summarized retrieval evidence")
         _assert("<!-- Durable Memory -->" in turn_prompt, "turn layer should include durable memory")

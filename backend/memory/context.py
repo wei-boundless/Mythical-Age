@@ -159,6 +159,8 @@ class MemoryContextLayer:
                     "context_slots": {
                         "active_pdf": session_state.context_slots.active_pdf,
                         "active_dataset": session_state.context_slots.active_dataset,
+                        "committed_pdf": getattr(session_state.context_slots, "committed_pdf", ""),
+                        "committed_dataset": getattr(session_state.context_slots, "committed_dataset", ""),
                         "active_entity": session_state.context_slots.active_entity,
                     },
                 },
@@ -167,6 +169,8 @@ class MemoryContextLayer:
                     "context_slots": {
                         "active_pdf": session_state.context_slots.active_pdf,
                         "active_dataset": session_state.context_slots.active_dataset,
+                        "committed_pdf": getattr(session_state.context_slots, "committed_pdf", ""),
+                        "committed_dataset": getattr(session_state.context_slots, "committed_dataset", ""),
                         "active_entity": session_state.context_slots.active_entity,
                         "active_rule": session_state.context_slots.active_rule,
                     },
@@ -187,6 +191,8 @@ class MemoryContextLayer:
                 "context_slots": {
                     "active_pdf": session_state.context_slots.active_pdf,
                     "active_dataset": session_state.context_slots.active_dataset,
+                    "committed_pdf": getattr(session_state.context_slots, "committed_pdf", ""),
+                    "committed_dataset": getattr(session_state.context_slots, "committed_dataset", ""),
                     "active_entity": session_state.context_slots.active_entity,
                     "active_rule": session_state.context_slots.active_rule,
                 },

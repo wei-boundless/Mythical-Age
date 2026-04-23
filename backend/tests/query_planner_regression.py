@@ -182,6 +182,20 @@ def main() -> None:
     assert followup_plan.iter_executions()[0].tool_input["mode"] == "section"
     assert followup_plan.subqueries == ["回到刚才 PDF，第二部分的结论是什么？"]
 
+    session_pdf_authority_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="回到刚才那份 PDF，第二部分的结论是什么？",
+        history=[],
+        authority_context={"active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"},
+    )
+    assert session_pdf_authority_plan.query_understanding.route == "tool"
+    assert session_pdf_authority_plan.query_understanding.tool_name == "pdf_analysis"
+    assert (
+        session_pdf_authority_plan.iter_executions()[0].tool_input["path"]
+        == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+    )
+    assert session_pdf_authority_plan.iter_executions()[0].tool_input["mode"] == "section"
+
     structured_followup_history = [
         {"role": "user", "content": "给我 inventory.xlsx 最缺货的前三个仓库"},
         {"role": "assistant", "content": "已完成 inventory 分析。"},
@@ -202,6 +216,19 @@ def main() -> None:
     structured_followup_execution = structured_followup_plan.iter_executions()[0]
     assert structured_followup_execution.structured_binding is None
     assert not structured_followup_execution.tool_input.get("path", "")
+
+    session_structured_authority_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="按仓库汇总前五。",
+        history=[],
+        authority_context={"active_dataset": "knowledge/E-commerce Data/inventory.xlsx"},
+    )
+    session_structured_execution = session_structured_authority_plan.iter_executions()[0]
+    assert session_structured_authority_plan.query_understanding.route == "tool"
+    assert session_structured_authority_plan.query_understanding.tool_name == "structured_data_analysis"
+    assert session_structured_execution.tool_input["path"] == "knowledge/E-commerce Data/inventory.xlsx"
+    assert session_structured_execution.structured_binding is not None
+    assert session_structured_execution.structured_binding.source == "compound_authority"
 
     non_structured_followup_plan = planner.build_plan(
         session_id="planner-regression",

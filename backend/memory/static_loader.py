@@ -6,14 +6,12 @@ from memory.models import StaticContextBundle, StaticContextSection
 
 
 STATIC_CONSTITUTION_COMPONENTS: tuple[StaticContextSection, ...] = (
-    StaticContextSection("Soul", ("context_profile/constitution/SOUL.md",)),
-    StaticContextSection("Identity", ("context_profile/constitution/IDENTITY.md",)),
+    StaticContextSection("Agent Core", ("context_profile/agent_core/CORE.md",)),
+    StaticContextSection("Active Soul Seed", ("context_profile/agent_core/ACTIVE_SEED.md",)),
 )
 
 STATIC_PROFILE_COMPONENTS: tuple[StaticContextSection, ...] = (
-    StaticContextSection("User Profile", ("context_profile/profile/USER.md",)),
-    StaticContextSection("Project Profile", ("context_profile/profile/PROJECT.md",)),
-    StaticContextSection("Agents Guide", ("context_profile/profile/AGENTS.md",)),
+    StaticContextSection("Agent Profile", ("context_profile/profile/agent.md",)),
 )
 
 
@@ -36,4 +34,3 @@ def load_static_context(base_dir: Path) -> StaticContextBundle:
             for section in STATIC_PROFILE_COMPONENTS
         ],
     )
-

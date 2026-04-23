@@ -1,0 +1,38 @@
+[
+  {
+    "snapshot_id": "snap:coding_change_flow:memory-rag:2026-04-23T20:34:01+00:00",
+    "flow_id": "coding_change_flow:memory-rag",
+    "flow_type": "coding_change_flow",
+    "status": "suspended",
+    "goal": "记住：我们这个项目当前主线是优化 Memory 和 RAG。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "好的，岩。已记住：我们这个项目当前主线是优化 Memory 和 RAG。 这条关键信息已写入长期记忆，后续工作会围绕这个主线展开。"
+    ],
+    "resume_hints": [
+      "近期结果：好的，岩。已记住： 以后复杂问题先给结论，再展开解释。 这条偏好已写入长期记忆，后续回答会遵循这个格式。",
+      "此前结果：好的，岩。已记住： 以后复杂问题先给结论，再展开解释。 这条偏好已写入长期记忆，后续回答会遵循这个格式。"
+    ],
+    "updated_at": "2026-04-23T20:34:01+00:00"
+  },
+  {
+    "snapshot_id": "snap:knowledge_lookup_flow:记住:2026-04-23T20:33:43+00:00",
+    "flow_id": "knowledge_lookup_flow:记住",
+    "flow_type": "knowledge_lookup_flow",
+    "status": "suspended",
+    "goal": "记住：默认终端命令使用 PowerShell。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [],
+    "resume_hints": [
+      "近期结果：好的，岩。已记住： 以后复杂问题先给结论，再展开解释。 这条偏好已写入长期记忆，后续回答会遵循这个格式。",
+      "此前结果：好的，岩。已记住： 以后复杂问题先给结论，再展开解释。 这条偏好已写入长期记忆，后续回答会遵循这个格式。"
+    ],
+    "updated_at": "2026-04-23T20:33:43+00:00"
+  }
+]

@@ -1,21 +1,31 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
 import re
+from dataclasses import replace
 from typing import Any
 
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
 from pdf_agent import PDFCanonicalResult
 from query.answer_assembler import AnswerAssembler
+from query.answer_finalizer import (
+    RAGEvidencePack,
+    answer_looks_like_snippet_dump,
+    build_rag_answer_finalization_messages,
+    build_rag_evidence_pack,
+    normalize_finalized_answer,
+    total_compact_chars,
+)
 from query.binding_models import StructuredDatasetBinding
 from query.context_models import MainContextState, TaskSummaryRef
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryContext, QueryExecutionPlan, QueryPlan, QueryRequest
-from query.output_classifier import build_output_decision, classify_output_candidate
+from query.output_classifier import build_output_decision, classify_output_candidate, looks_like_progress_text
 from query.output_boundary import AssistantOutputBoundary, contains_internal_protocol, sanitize_visible_assistant_content
 from query.prompt_builder import build_system_prompt
 from query.planner import QueryPlanner
@@ -56,7 +66,10 @@ class QueryRuntime:
         self.permission_service = permission_service
         self.model_runtime = model_runtime
         self.task_coordinator = task_coordinator
-        self.followup_resolver = QueryFollowupResolver(task_coordinator)
+        self.followup_resolver = QueryFollowupResolver(
+            task_coordinator,
+            session_state_loader=self._load_session_binding_snapshot,
+        )
         self.answer_assembler = AnswerAssembler()
         self._session_memory_projection: dict[str, dict[str, Any]] = {}
         self.max_tool_steps = 8
@@ -274,6 +287,7 @@ class QueryRuntime:
         *,
         trace=None,
     ):
+        authority_context = self._load_session_authoritative_context(session_id)
         followup_resolution = self.followup_resolver.resolve(session_id=session_id, message=message)
         followup_results = self._followup_results_from_resolution(session_id, followup_resolution)
         if trace is not None:
@@ -348,9 +362,19 @@ class QueryRuntime:
                 inputs={"message": message, "history_length": len(history)},
                 metadata={"session_id": session_id},
             ):
-                plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
+                plan = self._planner_build_plan(
+                    session_id=session_id,
+                    message=message,
+                    history=history,
+                    authority_context=authority_context,
+                )
         else:
-            plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
+            plan = self._planner_build_plan(
+                session_id=session_id,
+                message=message,
+                history=history,
+                authority_context=authority_context,
+            )
         executions = plan.iter_executions()
         if trace is not None:
             trace.annotate(
@@ -410,7 +434,12 @@ class QueryRuntime:
         *,
         trace=None,
     ):
-        plan = self.planner.build_plan(session_id=session_id, message=message, history=history)
+        plan = self._planner_build_plan(
+            session_id=session_id,
+            message=message,
+            history=history,
+            authority_context=self._load_session_authoritative_context(session_id),
+        )
         executions = plan.iter_executions()
         execution = executions[0]
         async for event in self._stream_planned_execution(session_id, execution, trace=trace):
@@ -637,6 +666,19 @@ class QueryRuntime:
                 tool_name=str(execution.query_understanding.tool_name or ""),
                 retrieval_results=context.retrieval_results,
             )
+            output_response = self._maybe_gate_memory_output(
+                execution=execution,
+                output_response=output_response,
+            )
+            output_response = await self._maybe_finalize_rag_output(
+                execution=execution,
+                retrieval_results=context.retrieval_results,
+                output_response=output_response,
+            )
+            output_response = await self._maybe_finalize_pdf_output(
+                execution=execution,
+                output_response=output_response,
+            )
             final_content = output_response.canonical_answer.strip()
             if trace is not None:
                 trace.annotate(
@@ -733,6 +775,31 @@ class QueryRuntime:
 
     async def summarize_history(self, messages: list[dict[str, Any]]) -> str:
         return await self.model_runtime.summarize_history(messages)
+
+    def _planner_build_plan(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        history: list[dict[str, Any]],
+        authority_context: dict[str, Any] | None,
+    ) -> QueryPlan:
+        try:
+            parameters = inspect.signature(self.planner.build_plan).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        if "authority_context" in parameters:
+            return self.planner.build_plan(
+                session_id=session_id,
+                message=message,
+                history=history,
+                authority_context=authority_context,
+            )
+        return self.planner.build_plan(
+            session_id=session_id,
+            message=message,
+            history=history,
+        )
 
     def _build_agent_messages(self, context: QueryContext) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
@@ -1022,6 +1089,49 @@ class QueryRuntime:
             "task_summary_refs": task_summaries,
             "corrections": corrections,
         }
+
+    def _load_session_binding_snapshot(self, session_id: str) -> dict[str, Any]:
+        session_memory = getattr(self.memory_facade, "session_memory", None)
+        if session_memory is None or not hasattr(session_memory, "manager"):
+            return {}
+        try:
+            manager = session_memory.manager(session_id)
+            state = manager.load_state()
+        except Exception:
+            logger.exception("Failed to load session binding snapshot for %s", session_id)
+            return {}
+        slots = getattr(state, "context_slots", None)
+        if slots is None:
+            return {}
+        committed_pdf = str(getattr(slots, "committed_pdf", "") or getattr(slots, "active_pdf", "") or "").strip()
+        committed_dataset = str(
+            getattr(slots, "committed_dataset", "") or getattr(slots, "active_dataset", "") or ""
+        ).strip()
+        return {
+            "committed_pdf": committed_pdf,
+            "committed_pdf_owner_task_id": str(
+                getattr(slots, "committed_pdf_owner_task_id", "")
+                or (getattr(slots, "active_binding_owner_task_id", "") if committed_pdf else "")
+                or ""
+            ).strip(),
+            "committed_dataset": committed_dataset,
+            "committed_dataset_owner_task_id": str(
+                getattr(slots, "committed_dataset_owner_task_id", "")
+                or (getattr(slots, "active_binding_owner_task_id", "") if committed_dataset else "")
+                or ""
+            ).strip(),
+        }
+
+    def _load_session_authoritative_context(self, session_id: str) -> dict[str, Any]:
+        snapshot = self._load_session_binding_snapshot(session_id)
+        context: dict[str, Any] = {}
+        committed_pdf = str(snapshot.get("committed_pdf", "") or "").strip()
+        if committed_pdf:
+            context["active_pdf"] = committed_pdf
+        committed_dataset = str(snapshot.get("committed_dataset", "") or "").strip()
+        if committed_dataset:
+            context["active_dataset"] = committed_dataset
+        return context
 
     def _apply_execution_binding_to_constraints(
         self,
@@ -1997,10 +2107,287 @@ class QueryRuntime:
         if (
             not content
             or contains_internal_protocol(content)
+            or self._looks_like_pdf_procedural_answer(content)
             or (canonical.summary.strip() and content == canonical.summary.strip())
         ):
             return ""
         return content
+
+    async def _maybe_finalize_rag_output(
+        self,
+        *,
+        execution: QueryExecutionPlan,
+        retrieval_results: list[dict[str, Any]] | None,
+        output_response,
+    ):
+        if str(execution.query_understanding.route or "") != "rag":
+            return output_response
+        unstable_visible_answer = self._rag_output_needs_finalization(output_response)
+        if (
+            str(output_response.fallback_reason or "") != "rag_missing_answer"
+            and not unstable_visible_answer
+        ):
+            return output_response
+        evidence_pack = build_rag_evidence_pack(
+            user_query=execution.message,
+            retrieval_results=retrieval_results,
+            max_items=3,
+        )
+        if not self._rag_evidence_pack_can_finalize(evidence_pack):
+            return self._fallback_rag_output_response(output_response) if unstable_visible_answer else output_response
+        finalized = await self._rewrite_rag_answer_with_model(evidence_pack=evidence_pack)
+        if not finalized:
+            return self._fallback_rag_output_response(output_response) if unstable_visible_answer else output_response
+        return replace(
+            output_response,
+            canonical_answer=finalized,
+            selected_channel="answer_candidate",
+            selected_source="rag_answer_finalization",
+            fallback_reason="",
+        )
+
+    async def _rewrite_rag_answer_with_model(
+        self,
+        *,
+        evidence_pack: RAGEvidencePack,
+    ) -> str:
+        messages = build_rag_answer_finalization_messages(evidence_pack=evidence_pack)
+        try:
+            response = await self.model_runtime.invoke_messages(messages)
+        except ModelRuntimeError:
+            return ""
+        except Exception:
+            logger.exception("RAG answer finalization failed")
+            return ""
+        content = normalize_finalized_answer(stringify_content(getattr(response, "content", response)))
+        if (
+            not content
+            or contains_internal_protocol(content)
+            or self._looks_like_rag_procedural_answer(content)
+            or answer_looks_like_snippet_dump(content, evidence_pack)
+        ):
+            return ""
+        return content
+
+    def _rag_evidence_pack_can_finalize(self, evidence_pack: RAGEvidencePack | None) -> bool:
+        if evidence_pack is None:
+            return False
+        if len(list(evidence_pack.items or [])) < 2:
+            return False
+        return total_compact_chars(evidence_pack) >= 60
+
+    def _rag_output_needs_finalization(self, output_response) -> bool:
+        selected_source = str(getattr(output_response, "selected_source", "") or "")
+        if not selected_source.startswith("segment."):
+            return False
+        answer = sanitize_visible_assistant_content(
+            str(getattr(output_response, "canonical_answer", "") or "")
+        ).strip()
+        if not answer:
+            return False
+        if self._looks_like_rag_procedural_answer(answer):
+            return True
+        leak_flags = {str(flag or "").strip() for flag in list(getattr(output_response, "leak_flags", []) or [])}
+        if not leak_flags:
+            return False
+        return self._looks_like_rag_procedural_answer(answer)
+
+    def _fallback_rag_output_response(self, output_response):
+        return replace(
+            output_response,
+            canonical_answer="已检索到相关资料，但当前模型尚未产出可直接展示的结论。",
+            selected_channel="fallback_answer",
+            selected_source="fallback_policy",
+            fallback_reason="rag_missing_answer",
+        )
+
+    def _maybe_gate_memory_output(
+        self,
+        *,
+        execution: QueryExecutionPlan,
+        output_response,
+    ):
+        if str(execution.query_understanding.route or "") != "memory":
+            return output_response
+        if str(getattr(output_response, "selected_channel", "") or "") == "fallback_answer":
+            return output_response
+        if not self._memory_output_needs_gate(output_response):
+            return output_response
+        return self._fallback_memory_output_response(output_response)
+
+    def _memory_output_needs_gate(self, output_response) -> bool:
+        selected_source = str(getattr(output_response, "selected_source", "") or "")
+        if not selected_source.startswith("segment."):
+            return False
+        answer = sanitize_visible_assistant_content(
+            str(getattr(output_response, "canonical_answer", "") or "")
+        ).strip()
+        if not answer:
+            return False
+        if looks_like_progress_text(answer):
+            return True
+        leak_flags = {str(flag or "").strip() for flag in list(getattr(output_response, "leak_flags", []) or [])}
+        if not leak_flags:
+            return False
+        compact = re.sub(r"\s+", "", answer)
+        if not compact.startswith(("我来先", "我先来", "我先", "我来", "我将", "我会", "让我", "接下来我")):
+            return False
+        return any(
+            token in answer
+            for token in (
+                "检查",
+                "查看",
+                "读取",
+                "分析",
+                "确认",
+                "整理",
+                "梳理",
+                "回顾",
+                "回忆",
+                "目录结构",
+                "知识库",
+            )
+        )
+
+    def _fallback_memory_output_response(self, output_response):
+        return replace(
+            output_response,
+            canonical_answer="当前没有足够稳定的会话内容可直接回答这个问题。",
+            selected_channel="fallback_answer",
+            selected_source="fallback_policy",
+            fallback_reason="memory_visible_pollution",
+        )
+
+    async def _maybe_finalize_pdf_output(
+        self,
+        *,
+        execution: QueryExecutionPlan,
+        output_response,
+    ):
+        canonical = self._extract_pdf_canonical_from_output_response(output_response)
+        if canonical is None:
+            return output_response
+        unstable_visible_answer = self._pdf_output_needs_finalization(output_response)
+        if (
+            str(output_response.fallback_reason or "") not in {"pdf_missing_summary", "pdf_canonical_missing_summary"}
+            and not unstable_visible_answer
+        ):
+            return output_response
+        if not self._pdf_canonical_can_finalize(canonical):
+            return self._fallback_pdf_output_response(output_response, canonical) if unstable_visible_answer else output_response
+        finalized = await self._rewrite_pdf_answer_with_model(
+            user_query=execution.message,
+            canonical=canonical,
+        )
+        if not finalized:
+            return self._fallback_pdf_output_response(output_response, canonical) if unstable_visible_answer else output_response
+        return replace(
+            output_response,
+            canonical_answer=finalized,
+            selected_channel="answer_candidate",
+            selected_source="pdf_answer_finalization",
+            fallback_reason="",
+        )
+
+    def _extract_pdf_canonical_from_output_response(self, output_response) -> PDFCanonicalResult | None:
+        for item in reversed(list(getattr(output_response, "tool_calls", []) or [])):
+            if str(item.get("tool", "") or "") != "pdf_analysis":
+                continue
+            output = str(item.get("output", "") or "").strip()
+            if not output:
+                continue
+            canonical = PDFCanonicalResult.from_tool_output(output)
+            if canonical is not None:
+                return canonical
+        return None
+
+    def _pdf_output_needs_finalization(self, output_response) -> bool:
+        if str(getattr(output_response, "selected_source", "") or "").startswith("segment."):
+            answer = sanitize_visible_assistant_content(
+                str(getattr(output_response, "canonical_answer", "") or "")
+            ).strip()
+            return self._looks_like_pdf_procedural_answer(answer)
+        return False
+
+    def _pdf_canonical_can_finalize(self, canonical: PDFCanonicalResult) -> bool:
+        if canonical.ok and canonical.summary.strip():
+            return True
+        return self._pdf_canonical_has_finalizable_evidence(canonical)
+
+    def _fallback_pdf_output_response(self, output_response, canonical: PDFCanonicalResult):
+        pages = [int(page) for page in list(canonical.pages or []) if int(page) > 0][:3]
+        if pages:
+            selected = "、".join(f"P{page}" for page in pages)
+            message = f"已读取与当前问题最相关的 PDF 页面：{selected}，但当前还没有形成稳定摘要。"
+            reason = "pdf_canonical_missing_summary"
+        else:
+            message = "已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。"
+            reason = "pdf_missing_summary"
+        return replace(
+            output_response,
+            canonical_answer=message,
+            selected_channel="fallback_answer",
+            selected_source="fallback_policy",
+            fallback_reason=reason,
+        )
+
+    def _looks_like_rag_procedural_answer(self, answer: str) -> bool:
+        normalized = sanitize_visible_assistant_content(str(answer or "")).strip()
+        if not normalized:
+            return False
+        normalized = re.sub(r"^(?:岩[，,\s]*)+", "", normalized).strip()
+        if not normalized:
+            return False
+        if looks_like_progress_text(normalized):
+            return True
+        compact = re.sub(r"\s+", "", normalized)
+        if not compact.startswith(("我来先", "我先来", "我先", "我来", "我将", "我会", "让我", "接下来我")):
+            return False
+        return any(
+            token in normalized
+            for token in (
+                "检索",
+                "搜索",
+                "查看",
+                "检查",
+                "读取",
+                "分析",
+                "确认",
+                "整理",
+                "改写",
+                "根据这些证据",
+                "整理答案",
+            )
+        )
+
+    def _looks_like_pdf_procedural_answer(self, answer: str) -> bool:
+        normalized = sanitize_visible_assistant_content(str(answer or "")).strip()
+        if not normalized:
+            return False
+        normalized = re.sub(r"^(?:岩[，,\s]*)+", "", normalized).strip()
+        if not normalized:
+            return False
+        if looks_like_progress_text(normalized):
+            return True
+        compact = re.sub(r"\s+", "", normalized)
+        if not compact.startswith(("我来先", "我先来", "我先", "我来", "我将", "我会", "让我", "接下来我")):
+            return False
+        return any(
+            token in normalized
+            for token in (
+                "PDF",
+                "页面",
+                "页",
+                "文档",
+                "章节",
+                "读取",
+                "查看",
+                "分析",
+                "整理",
+                "提炼",
+                "总结",
+            )
+        )
 
     def _build_pdf_answer_finalization_messages(
         self,

@@ -13,6 +13,8 @@ INTERNAL_PROTOCOL_MARKERS = (
     "</tool_call>",
     "**工具调用:**",
     "**工具输出:**",
+    "此工具调用为系统自动补全示例",
+    "\\end{invoke",
 )
 
 _TOOL_CALL_XML_RE = re.compile(r"<tool_call[^>]*>.*?(?:</tool_call>)?", re.IGNORECASE | re.DOTALL)
@@ -27,6 +29,20 @@ _TOOL_OUTPUT_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 _FENCED_JSON_RE = re.compile(r"```json\s*.*?```", re.IGNORECASE | re.DOTALL)
+_TOOL_ARG_JSON_OBJECT_RE = re.compile(
+    r"\{[\s\S]{0,240}?(?:\"(?:query|top_k|page|path|mode|section)\"\s*:)[\s\S]{0,240}?\}",
+    re.IGNORECASE,
+)
+_TOOL_AUTOFILL_NOTE_RE = re.compile(
+    r"注[:：]\s*此工具调用为系统自动补全示例[^\n]*",
+    re.IGNORECASE,
+)
+_PROTO_ARG_LINE_RE = re.compile(
+    r"^(?:query|top_k|page|path|mode|section)\s*:\s*.+$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_INVOKE_TAIL_RE = re.compile(r"\\end\{invoke[^\n]*", re.IGNORECASE)
+_FENCE_LINE_RE = re.compile(r"^```(?:json)?\s*$", re.IGNORECASE)
 _SEARCH_PROTOCOL_BLOCK_RE = re.compile(
     r"(?:现在)?(?:我)?(?:再)?(?:检索|搜索|看|查看)[^\n]{0,120}?(?:search_knowledge|searchKnowledge|web_search|retrieve)[^\n{]*\{[\s\S]{0,240}?\}",
     re.IGNORECASE,
@@ -41,18 +57,30 @@ _INTERNAL_STATUS_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 _PROCEDURAL_LINE_RE = re.compile(
-    r"^(?:我(?:来|将|会|先|需要先|先来|准备|打算)|让我|接下来(?:我)?)(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|改写|整理).+"
+    r"^(?:岩[，,\s]*)?(?:我(?:来|将|会|先|需要先|先来|准备|打算)|让我|接下来(?:我)?)(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|改写|整理).+"
     r"|^(?:知识库检索(?:未返回结果|失败)。?(?:让我|我将).+)$",
     re.IGNORECASE,
 )
 _EXCESS_SEPARATOR_RE = re.compile(r"(?:\n\s*---\s*\n){2,}", re.DOTALL)
 _BLANK_LINE_RE = re.compile(r"\n{3,}")
+_TRAILING_PROCEDURAL_TAIL_RE = re.compile(
+    r"(?:\n\s*---\s*\n)(?:(?:让我|我来|我先|我将|我会|接下来(?:我)?)[^\n]{0,80})\s*$",
+    re.IGNORECASE,
+)
+_TRAILING_SEPARATOR_RE = re.compile(r"(?:\n\s*---\s*)+\Z", re.DOTALL)
 
 
 def contains_internal_protocol(text: str) -> bool:
     normalized = str(text or "")
     lowered = normalized.lower()
-    return any(marker.lower() in lowered for marker in INTERNAL_PROTOCOL_MARKERS)
+    return (
+        any(marker.lower() in lowered for marker in INTERNAL_PROTOCOL_MARKERS)
+        or bool(_TOOL_AUTOFILL_NOTE_RE.search(normalized))
+        or bool(_SEARCH_PROTOCOL_BLOCK_RE.search(normalized))
+        or bool(_TOOL_ARG_JSON_OBJECT_RE.search(normalized))
+        or bool(_PROTO_ARG_LINE_RE.search(normalized))
+        or bool(_INVOKE_TAIL_RE.search(normalized))
+    )
 
 
 def sanitize_visible_assistant_content(text: str) -> str:
@@ -87,6 +115,10 @@ def _sanitize_visible_assistant_content(
     cleaned = _NO_NEWLINE_MARKER_RE.sub("", cleaned)
     cleaned = _TOOL_CALL_BLOCK_RE.sub("", cleaned)
     cleaned = _TOOL_OUTPUT_BLOCK_RE.sub("", cleaned)
+    cleaned = _TOOL_AUTOFILL_NOTE_RE.sub("", cleaned)
+    cleaned = _TOOL_ARG_JSON_OBJECT_RE.sub("", cleaned)
+    cleaned = _PROTO_ARG_LINE_RE.sub("", cleaned)
+    cleaned = _INVOKE_TAIL_RE.sub("", cleaned)
     if contains_internal_protocol(normalized):
         cleaned = _FENCED_JSON_RE.sub("", cleaned)
     cleaned = _SEARCH_PROTOCOL_BLOCK_RE.sub("", cleaned)
@@ -97,6 +129,8 @@ def _sanitize_visible_assistant_content(
         line = raw_line.strip()
         if not line:
             kept_lines.append("")
+            continue
+        if _FENCE_LINE_RE.match(line):
             continue
         if drop_internal_status and (
             _INTERNAL_STATUS_LINE_RE.match(line)
@@ -111,6 +145,8 @@ def _sanitize_visible_assistant_content(
     collapsed = "\n".join(trimmed_lines)
     collapsed = _EXCESS_SEPARATOR_RE.sub("\n\n", collapsed)
     collapsed = _BLANK_LINE_RE.sub("\n\n", collapsed)
+    collapsed = _TRAILING_PROCEDURAL_TAIL_RE.sub("", collapsed)
+    collapsed = _TRAILING_SEPARATOR_RE.sub("", collapsed)
     return collapsed.strip()
 
 

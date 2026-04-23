@@ -1,0 +1,23 @@
+[
+  {
+    "snapshot_id": "snap:structured_data_flow:knowledge-e-commerce-data-inventory-xlsx:2026-04-23T19:01:35+00:00",
+    "flow_id": "structured_data_flow:knowledge-e-commerce-data-inventory-xlsx",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "库存告急，武汉仓需立即补货；高薪员工分布均衡；金价处于高位；北京天气适宜出行。 --- ### 一、库存状况 缺货风险（前五）： | 仓库 | 缺口 | |------|------| | 武汉仓 | 404 | | 上海仓 | 392 |..."
+    },
+    "recent_results": [
+      "数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（缺口） 前 10 项： 仓库 缺口 0 武汉仓 404.0 1 上海仓 392.0 2 深圳仓 392.0 3 广州仓 360.0 4 成都仓 350.0 5 北京仓 280.0",
+      "数据源：employees.xlsx 筛选条件：无 查询模式：记录排序 排序字段：薪水 前 5 条记录： 员工编号 姓名 部门 职位 城市 薪水 E-0074 罗凯 运营 运营专员 北京 34900 E-0148 唐琳 技术 后端工程师 杭州 34800 E-0073 许晨 销售 大客户经理 上海 34550 E-0147 杨乐 产品 产品助理 深圳 34450 E-0072 朱敏 人力 招聘专员 南京 34200"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。"
+    ],
+    "updated_at": "2026-04-23T19:01:35+00:00"
+  }
+]

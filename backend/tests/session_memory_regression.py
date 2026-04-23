@@ -962,6 +962,122 @@ def test_summary_first_projection_clears_binding_owner_when_no_committed_handle_
         )
 
 
+def test_summary_first_projection_preserves_committed_dataset_binding_across_external_lookup() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "切到 knowledge/E-commerce Data/inventory.xlsx，先看哪些仓库缺货。",
+                "active_work_item": "structured_data_analysis",
+                "active_constraints": {
+                    "source_kind": "dataset",
+                    "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                },
+                "followup_target_task_id": "dataset-task",
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "dataset-task",
+                    "query": "切到 knowledge/E-commerce Data/inventory.xlsx，先看哪些仓库缺货。",
+                    "summary": "inventory.xlsx 里武汉仓缺口最高。",
+                    "key_points": ["dataset=knowledge/E-commerce Data/inventory.xlsx"],
+                }
+            ],
+        )
+        manager.update_from_context_state(
+            {
+                "active_goal": "顺便查一下黄金价格。",
+                "active_work_item": "gold_price_query",
+                "active_constraints": {"source_kind": "web"},
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "gold-task",
+                    "query": "顺便查一下黄金价格。",
+                    "summary": "现货黄金处于高位。",
+                }
+            ],
+        )
+
+        state = manager.load_state()
+
+        _assert(
+            not state.context_slots.active_dataset,
+            "cross-flow projection should stop exposing the dataset as the active slot after switching to external lookup",
+        )
+        _assert(
+            state.context_slots.committed_dataset == "knowledge/E-commerce Data/inventory.xlsx",
+            "cross-flow projection should retain the latest committed dataset binding for later follow-up recovery",
+        )
+        _assert(
+            state.context_slots.committed_dataset_owner_task_id == "dataset-task",
+            "cross-flow projection should retain the committed dataset owner task for later follow-up recovery",
+        )
+
+
+def test_summary_first_projection_preserves_committed_pdf_binding_across_summary_turn() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "请分析 report.pdf 第二部分的约束。",
+                "active_work_item": "pdf_analysis",
+                "active_constraints": {
+                    "source_kind": "pdf",
+                    "active_pdf": "knowledge/reports/report.pdf",
+                    "pdf_mode": "section",
+                    "pdf_section": "第二部分",
+                },
+                "followup_target_task_id": "pdf-task",
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "pdf-task",
+                    "query": "请分析 report.pdf 第二部分的约束。",
+                    "summary": "第二部分强调了权限边界和审计责任。",
+                    "key_points": [
+                        "pdf=knowledge/reports/report.pdf",
+                        "pdf_mode=section",
+                        "pdf_section=第二部分",
+                    ],
+                }
+            ],
+        )
+        manager.update_from_context_state(
+            {
+                "active_goal": "把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。",
+                "active_work_item": "session_summary",
+                "active_constraints": {"response_style": "brief"},
+                "next_step": "answer_current_request",
+            },
+            task_summaries=[
+                {
+                    "task_id": "summary-task",
+                    "query": "把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。",
+                    "summary": "已整理为四块运营摘要。",
+                }
+            ],
+        )
+
+        state = manager.load_state()
+
+        _assert(
+            not state.context_slots.active_pdf,
+            "summary projection should not keep the PDF as the active slot when the current turn is no longer reading the document",
+        )
+        _assert(
+            state.context_slots.committed_pdf == "knowledge/reports/report.pdf",
+            "summary projection should retain the latest committed PDF binding for later follow-up recovery",
+        )
+        _assert(
+            state.context_slots.committed_pdf_owner_task_id == "pdf-task",
+            "summary projection should retain the committed PDF owner task for later follow-up recovery",
+        )
+
+
 def main() -> None:
     tests = [
         test_session_memory_hygiene,
@@ -987,6 +1103,8 @@ def main() -> None:
         test_low_confidence_flow_switch_stays_on_previous_flow_until_clarified,
         test_corrected_assistant_reply_can_reenter_state_after_user_correction,
         test_summary_first_projection_clears_binding_owner_when_no_committed_handle_survives,
+        test_summary_first_projection_preserves_committed_dataset_binding_across_external_lookup,
+        test_summary_first_projection_preserves_committed_pdf_binding_across_summary_turn,
     ]
     for test in tests:
         test()

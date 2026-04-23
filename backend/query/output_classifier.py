@@ -7,7 +7,7 @@ from query.output_models import OutputCandidate, OutputDecision
 
 
 _PROCEDURAL_PREFIX_RE = re.compile(
-    r"^(?:我(?:来|将|会|先|需要先|准备|打算)|让我|接下来(?:我)?)"
+    r"^(?:岩[，,\s]*)?(?:我(?:(?:来|将|会|准备|打算)(?:先)?|先(?:来)?|需要先)|让我|接下来(?:我)?)"
     r"(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|整理|改写).+",
     re.IGNORECASE,
 )

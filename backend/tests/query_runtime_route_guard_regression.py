@@ -13,6 +13,7 @@ from pdf_agent import PDFCanonicalEvidence, PDFCanonicalResult
 from query import QueryRuntime
 from query.binding_models import StructuredDatasetBinding
 from query.followup_models import FollowupResolution
+from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryExecutionPlan, QueryPlan
 from tasks import TaskCoordinator
 from understanding import MemoryIntent, QueryUnderstanding
@@ -46,10 +47,29 @@ class _SettingsStub:
         return self._rag_mode
 
 
+class _SessionStateStub:
+    def __init__(self, **context_slots: object) -> None:
+        defaults = {
+            "active_pdf": "",
+            "active_dataset": "",
+            "active_binding_owner_task_id": "",
+            "committed_pdf": "",
+            "committed_pdf_owner_task_id": "",
+            "committed_dataset": "",
+            "committed_dataset_owner_task_id": "",
+        }
+        defaults.update(context_slots)
+        self.context_slots = SimpleNamespace(**defaults)
+
+
 class _MemoryFacadeStub:
-    def __init__(self) -> None:
+    def __init__(self, *, session_state: _SessionStateStub | None = None) -> None:
         self.prefetch_queries: list[str] = []
         self.persistent_queries: list[str] = []
+        self._session_state = session_state or _SessionStateStub()
+        self.session_memory = SimpleNamespace(
+            manager=lambda _session_id: SimpleNamespace(load_state=lambda: self._session_state)
+        )
 
     def compact_history_for_query(self, _session_id: str, history: list[dict[str, object]]):
         return history, {"pressure_level": "normal"}
@@ -97,6 +117,12 @@ class _SkillRegistryStub:
     def format_active_skill_block(self, _active_skill):
         return None
 
+    def get_by_name(self, _name):
+        return None
+
+    def match_for_query(self, **_kwargs):
+        return None
+
 
 class _PermissionStub:
     def allowed_tool_names(self, *, allowed_tools=None):
@@ -130,10 +156,11 @@ def _build_runtime(
     rag_mode: bool,
     direct_tools: dict[str, object] | None = None,
     task_coordinator=None,
+    session_state: _SessionStateStub | None = None,
 ) -> tuple[QueryRuntime, _RetrievalStub, _ModelRuntimeStub, _MemoryFacadeStub]:
     retrieval = _RetrievalStub()
     model_runtime = _ModelRuntimeStub()
-    memory_facade = _MemoryFacadeStub()
+    memory_facade = _MemoryFacadeStub(session_state=session_state)
     runtime = QueryRuntime(
         base_dir=Path("."),
         settings_service=_SettingsStub(rag_mode=rag_mode),
@@ -364,6 +391,76 @@ def test_direct_tool_route_normalizes_final_content() -> None:
     assert events[-1]["main_context"]["active_binding_identity"].endswith("inventory.xlsx")
     assert events[-1]["task_summary_refs"]
     assert str(events[-1]["task_summary_refs"][0]["task_id"]).startswith("tool-session-tool-structured_data_analysis-")
+
+
+def test_runtime_uses_session_committed_dataset_binding_for_tool_promotion() -> None:
+    tool = SimpleNamespace(invoke=lambda _tool_input: {"answer": "已按仓库汇总前五。"})
+    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(
+        rag_mode=False,
+        direct_tools={"structured_data_analysis": tool},
+        session_state=_SessionStateStub(
+            committed_dataset="knowledge/E-commerce Data/inventory.xlsx",
+            committed_dataset_owner_task_id="dataset-task",
+        ),
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._execution_events("session-1", "按仓库汇总前五。", []):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    tool_start = next(event for event in events if event.get("type") == "tool_start")
+    done = events[-1]
+
+    assert tool_start["tool"] == "structured_data_analysis"
+    assert str(tool_start["input"]["path"]).endswith("inventory.xlsx")
+    assert done["answer_fallback_reason"] == ""
+    assert done["content"] == "已按仓库汇总前五。"
+    assert model_runtime.last_tools == []
+
+
+def test_runtime_uses_session_committed_pdf_binding_for_tool_promotion() -> None:
+    pdf_output = PDFCanonicalResult(
+        status="ok",
+        source="AI治理报告.pdf",
+        requested_mode="section",
+        effective_mode="section",
+        summary="第二部分强调权限边界和审计归口。",
+        pages=[3, 4],
+        evidence=[
+            PDFCanonicalEvidence(page_number=3, score=7.2, snippet="先划清权限边界。"),
+            PDFCanonicalEvidence(page_number=4, score=6.9, snippet="再明确审计归口。"),
+        ],
+    ).to_tool_output()
+    tool = SimpleNamespace(invoke=lambda _tool_input: pdf_output)
+    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(
+        rag_mode=False,
+        direct_tools={"pdf_analysis": tool},
+        session_state=_SessionStateStub(
+            committed_pdf="knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+            committed_pdf_owner_task_id="pdf-task",
+        ),
+    )
+    model_runtime.invoke_messages_response = "第二部分强调先划清权限边界，再明确审计归口。"
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._execution_events("session-1", "回到刚才那份 PDF，第二部分强调的约束是什么？", []):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    tool_start = next(event for event in events if event.get("type") == "tool_start")
+    done = events[-1]
+
+    assert tool_start["tool"] == "pdf_analysis"
+    assert str(tool_start["input"]["path"]).endswith(".pdf")
+    assert done["answer_source"] == "pdf_model_finalization"
+    assert done["answer_fallback_reason"] == ""
+    assert "权限边界" in str(done["content"])
+    assert len(model_runtime.invoke_messages_calls) == 1
 
 
 def test_pdf_direct_tool_route_uses_model_finalization_for_visible_answer() -> None:
@@ -988,6 +1085,46 @@ def test_ambiguous_binding_followup_requests_clarification_without_replanning() 
     assert done["task_summary_refs"] == []
 
 
+def test_session_committed_pdf_binding_breaks_registry_ambiguity() -> None:
+    def _task(task_id: str, pdf_path: str):
+        return SimpleNamespace(
+            task_id=task_id,
+            query=f"read {pdf_path}",
+            context_ref=SimpleNamespace(
+                task_kind="pdf_followup_query",
+                bindings=SimpleNamespace(
+                    active_pdf=pdf_path,
+                    active_dataset="",
+                ),
+            ),
+        )
+
+    resolver = QueryFollowupResolver(
+        SimpleNamespace(
+            list_tasks=lambda session_id: [
+                _task("task-a", "knowledge/reports/a.pdf"),
+                _task("task-b", "knowledge/reports/b.pdf"),
+            ]
+        ),
+        session_state_loader=lambda session_id: {
+            "committed_pdf": "knowledge/reports/b.pdf",
+            "committed_pdf_owner_task_id": "task-b",
+            "committed_dataset": "",
+            "committed_dataset_owner_task_id": "",
+        },
+    )
+
+    resolution = resolver.resolve(
+        session_id="ambiguous-pdf-session",
+        message="把这份 PDF 的核心结论压成三条行动建议。",
+    )
+
+    assert resolution.mode == "binding_ref"
+    assert resolution.resolution_source == "session_committed_binding"
+    assert resolution.resolved_binding_identity.endswith("b.pdf")
+    assert resolution.resolved_binding_owner_task_id == "task-b"
+
+
 def test_runtime_output_boundary_strips_internal_protocol_from_streamed_answer() -> None:
     plan = QueryPlan(
         session_id="protocol-session",
@@ -1206,6 +1343,633 @@ def test_runtime_output_boundary_salvages_nonempty_answer_when_only_procedural_t
     assert "**工具调用:**" not in done_text
     assert "我来检索本地知识库中关于 AI 治理风险的相关内容" not in done_text
     assert "已检索到相关资料，但当前模型尚未产出可直接展示的结论。" == done_text
+
+
+def test_runtime_memory_visible_gate_rejects_procedural_segment_answer() -> None:
+    plan = QueryPlan(
+        session_id="memory-visible-pollution",
+        message="回忆一下我们刚才的推进情况。",
+        history=[],
+        subqueries=["回忆一下我们刚才的推进情况。"],
+        memory_intent=MemoryIntent(
+            intent="session_continuity_query",
+            memory_read_mode="session_state",
+            should_skip_rag=True,
+        ),
+        query_understanding=QueryUnderstanding(
+            intent="session_summary_query",
+            route="memory",
+            modality="memory",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, _model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "messages",
+                (
+                    SimpleNamespace(
+                        content="让我先回顾一下之前的会话内容，再整理一个正式回答。</think>"
+                    ),
+                    {},
+                ),
+            )
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_channel"] == "fallback_answer"
+    assert done["answer_source"] == "fallback_policy"
+    assert done["answer_fallback_reason"] == "memory_visible_pollution"
+    assert str(done["content"]) == "当前没有足够稳定的会话内容可直接回答这个问题。"
+
+
+def test_runtime_memory_visible_gate_keeps_stable_memory_answer() -> None:
+    plan = QueryPlan(
+        session_id="memory-visible-stable",
+        message="回忆一下我们刚才的推进情况。",
+        history=[],
+        subqueries=["回忆一下我们刚才的推进情况。"],
+        memory_intent=MemoryIntent(
+            intent="session_continuity_query",
+            memory_read_mode="session_state",
+            should_skip_rag=True,
+        ),
+        query_understanding=QueryUnderstanding(
+            intent="session_summary_query",
+            route="memory",
+            modality="memory",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, _model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "messages",
+                (
+                    SimpleNamespace(
+                        content="我们刚才主要推进了三件事：收紧 follow-up 边界、补齐 RAG 收口、开始处理输出层稳定化。"
+                    ),
+                    {},
+                ),
+            )
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_channel"] == "answer_candidate"
+    assert done["answer_source"] == "segment.visible_text"
+    assert done["answer_fallback_reason"] == ""
+    assert "收紧 follow-up 边界" in str(done["content"])
+
+
+def test_runtime_rag_answer_finalizer_rewrites_missing_answer_from_evidence_pack() -> None:
+    plan = QueryPlan(
+        session_id="rag-finalizer-success",
+        message="基于本地知识库，告诉我 AI 治理里最常见的三类风险。",
+        history=[],
+        subqueries=["基于本地知识库，告诉我 AI 治理里最常见的三类风险。"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(
+            intent="knowledge_lookup_query",
+            route="rag",
+            modality="general",
+            should_skip_rag=False,
+        ),
+        active_skill=None,
+    )
+    runtime, retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=True)
+    retrieval.retrieve = lambda query, *, top_k=5: [  # type: ignore[method-assign]
+        {
+            "text": "常见风险一是数据质量与口径不一致，导致模型输入失真，进而带来业务判断偏差和治理失真。",
+            "source": "knowledge/ai_governance.md",
+            "page": 3,
+            "score": 0.92,
+        },
+        {
+            "text": "常见风险二是责任边界不清，模型出错后缺少明确的审批、复核、归责与升级机制。",
+            "source": "knowledge/ai_governance.md",
+            "page": 5,
+            "score": 0.88,
+        },
+        {
+            "text": "常见风险三是监控和审计不足，系统上线后无法持续发现漂移、误用以及合规异常。",
+            "source": "knowledge/ai_governance.md",
+            "page": 7,
+            "score": 0.85,
+        },
+    ]
+    model_runtime.invoke_messages_response = (
+        "最常见的三类风险可以概括为三点："
+        "一是数据质量与口径失真，二是责任边界不清，三是监控和审计不足。"
+    )
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "messages",
+                (
+                    SimpleNamespace(
+                        content="我来先检索本地知识库，再整理答案。</think>"
+                    ),
+                    {},
+                ),
+            )
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_source"] == "rag_answer_finalization"
+    assert done["answer_channel"] == "answer_candidate"
+    assert done["answer_fallback_reason"] == ""
+    assert "数据质量与口径失真" in str(done["content"])
+    assert len(model_runtime.invoke_messages_calls) == 1
+    assert "ai_governance.md P3" in model_runtime.invoke_messages_calls[0][1]["content"]
+
+
+def test_runtime_rag_output_boundary_trims_trailing_protocol_tail_from_visible_answer() -> None:
+    plan = QueryPlan(
+        session_id="rag-tail-trim",
+        message="基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。",
+        history=[],
+        subqueries=["基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(
+            intent="knowledge_lookup_query",
+            route="rag",
+            modality="general",
+            should_skip_rag=False,
+        ),
+        active_skill=None,
+    )
+    runtime, retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=True)
+    retrieval.retrieve = lambda query, *, top_k=5: [  # type: ignore[method-assign]
+        {
+            "text": "常见风险一是数据质量与口径不一致，导致模型输入失真，进而带来业务判断偏差和治理失真。",
+            "source": "knowledge/ai_governance.md",
+            "page": 3,
+            "score": 0.92,
+        },
+        {
+            "text": "常见风险二是责任边界不清，模型出错后缺少明确的审批、复核、归责与升级机制。",
+            "source": "knowledge/ai_governance.md",
+            "page": 5,
+            "score": 0.88,
+        },
+        {
+            "text": "常见风险三是监控和审计不足，系统上线后无法持续发现漂移、误用以及合规异常。",
+            "source": "knowledge/ai_governance.md",
+            "page": 7,
+            "score": 0.85,
+        },
+    ]
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "messages",
+                (
+                    SimpleNamespace(
+                        content="根据检索到的知识库内容，我先用业务语言给出结论：AI 治理中最常见的三类风险是：合规风险、应用风险、安全风险。\n\n---\n\n让我进一步)"
+                    ),
+                    {},
+                ),
+            )
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_source"] == "segment.visible_text"
+    assert done["answer_fallback_reason"] == ""
+    assert str(done["content"]) == "根据检索到的知识库内容，我先用业务语言给出结论：AI 治理中最常见的三类风险是：合规风险、应用风险、安全风险。"
+    assert "让我进一步" not in str(done["content"])
+    assert len(model_runtime.invoke_messages_calls) == 0
+
+
+def test_runtime_rag_output_boundary_rejects_tool_arg_json_and_uses_finalizer() -> None:
+    plan = QueryPlan(
+        session_id="rag-json-protocol",
+        message="基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。",
+        history=[],
+        subqueries=["基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(
+            intent="knowledge_lookup_query",
+            route="rag",
+            modality="general",
+            should_skip_rag=False,
+        ),
+        active_skill=None,
+    )
+    runtime, retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=True)
+    retrieval.retrieve = lambda query, *, top_k=5: [  # type: ignore[method-assign]
+        {
+            "text": "常见风险一是数据质量与口径不一致，导致模型输入失真，进而带来业务判断偏差和治理失真。",
+            "source": "knowledge/ai_governance.md",
+            "page": 3,
+            "score": 0.92,
+        },
+        {
+            "text": "常见风险二是责任边界不清，模型出错后缺少明确的审批、复核、归责与升级机制。",
+            "source": "knowledge/ai_governance.md",
+            "page": 5,
+            "score": 0.88,
+        },
+        {
+            "text": "常见风险三是监控和审计不足，系统上线后无法持续发现漂移、误用以及合规异常。",
+            "source": "knowledge/ai_governance.md",
+            "page": 7,
+            "score": 0.85,
+        },
+    ]
+    model_runtime.invoke_messages_response = (
+        "AI 治理里最常见的三类风险可以概括为："
+        "合规风险、应用风险和安全风险。"
+    )
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "messages",
+                (
+                    SimpleNamespace(
+                        content=(
+                            '{"query": "AI治理 风险类型 分类 三类", "top_k": 10}\n```\n\n'
+                            '{"query": "人工智能 风险 类型 常见", "top_k": 10}\n```\n\n'
+                            "注：此工具调用为系统自动补全示例，实际调用参数以模型生成的为准。"
+                        )
+                    ),
+                    {},
+                ),
+            )
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_source"] == "rag_answer_finalization"
+    assert done["answer_fallback_reason"] == ""
+    assert "合规风险、应用风险和安全风险" in str(done["content"])
+    assert "top_k" not in str(done["content"])
+    assert len(model_runtime.invoke_messages_calls) == 1
+
+
+def test_runtime_rag_output_boundary_rejects_invoke_tail_protocol_and_uses_finalizer() -> None:
+    plan = QueryPlan(
+        session_id="rag-invoke-protocol",
+        message="基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。",
+        history=[],
+        subqueries=["基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(
+            intent="knowledge_lookup_query",
+            route="rag",
+            modality="general",
+            should_skip_rag=False,
+        ),
+        active_skill=None,
+    )
+    runtime, retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=True)
+    retrieval.retrieve = lambda query, *, top_k=5: [  # type: ignore[method-assign]
+        {
+            "text": "常见风险一是数据质量与口径不一致，导致模型输入失真，进而带来业务判断偏差和治理失真。",
+            "source": "knowledge/ai_governance.md",
+            "page": 3,
+            "score": 0.92,
+        },
+        {
+            "text": "常见风险二是责任边界不清，模型出错后缺少明确的审批、复核、归责与升级机制。",
+            "source": "knowledge/ai_governance.md",
+            "page": 5,
+            "score": 0.88,
+        },
+        {
+            "text": "常见风险三是监控和审计不足，系统上线后无法持续发现漂移、误用以及合规异常。",
+            "source": "knowledge/ai_governance.md",
+            "page": 7,
+            "score": 0.85,
+        },
+    ]
+    model_runtime.invoke_messages_response = (
+        "AI 治理里最常见的三类风险是："
+        "合规风险、应用风险和安全风险。"
+    )
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "messages",
+                (
+                    SimpleNamespace(
+                        content=(
+                            "岩，我先检索一下本地知识库中关于 AI 治理风险分类的具体内容。\n"
+                            "query: AI治理 风险类型 分类 三类\n"
+                            "top_k: 10\n"
+                            "\\end{invoke>"
+                        )
+                    ),
+                    {},
+                ),
+            )
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_source"] == "rag_answer_finalization"
+    assert done["answer_fallback_reason"] == ""
+    assert "合规风险、应用风险和安全风险" in str(done["content"])
+    assert "query:" not in str(done["content"])
+    assert "top_k" not in str(done["content"])
+    assert len(model_runtime.invoke_messages_calls) == 1
+
+
+def test_runtime_rag_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallback() -> None:
+    plan = QueryPlan(
+        session_id="rag-finalizer-reject",
+        message="基于本地知识库，告诉我 AI 治理里最常见的三类风险。",
+        history=[],
+        subqueries=["基于本地知识库，告诉我 AI 治理里最常见的三类风险。"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(
+            intent="knowledge_lookup_query",
+            route="rag",
+            modality="general",
+            should_skip_rag=False,
+        ),
+        active_skill=None,
+    )
+    runtime, retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=True)
+    retrieval.retrieve = lambda query, *, top_k=5: [  # type: ignore[method-assign]
+        {
+            "text": "常见风险一是数据质量与口径不一致，导致模型输入失真，进而带来业务判断偏差和治理失真。",
+            "source": "knowledge/ai_governance.md",
+            "page": 3,
+            "score": 0.92,
+        },
+        {
+            "text": "常见风险二是责任边界不清，模型出错后缺少明确的审批、复核、归责与升级机制。",
+            "source": "knowledge/ai_governance.md",
+            "page": 5,
+            "score": 0.88,
+        },
+    ]
+    model_runtime.invoke_messages_response = "我来先根据这些证据整理答案。"
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "messages",
+                (
+                    SimpleNamespace(
+                        content="我来先检索本地知识库，再整理答案。</think>"
+                    ),
+                    {},
+                ),
+            )
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_source"] == "fallback_policy"
+    assert done["answer_fallback_reason"] == "rag_missing_answer"
+    assert str(done["content"]) == "已检索到相关资料，但当前模型尚未产出可直接展示的结论。"
+    assert len(model_runtime.invoke_messages_calls) == 1
+
+
+def test_runtime_pdf_answer_finalizer_rewrites_canonical_tool_output() -> None:
+    plan = QueryPlan(
+        session_id="pdf-finalizer-success",
+        message="第三页具体讲了什么？",
+        history=[],
+        subqueries=["第三页具体讲了什么？"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="pdf_page_followup_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    canonical = PDFCanonicalResult(
+        status="degraded",
+        source="AI治理报告.pdf",
+        requested_mode="page",
+        effective_mode="page",
+        summary="",
+        degraded_reason="target_page_text_quality_low",
+        pages=[3],
+        evidence=[
+            PDFCanonicalEvidence(page_number=3, score=1.0, snippet="回归现实主义2025年AI治理报告 腾讯研究院"),
+        ],
+    ).to_tool_output()
+    model_runtime.invoke_messages_response = "第三页目前更像题名页，能确认的信息主要是报告标题和机构，暂时看不出正文论证。"
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "updates",
+                {
+                    "node": {
+                        "messages": [
+                            SimpleNamespace(
+                                type="ai",
+                                content="我先读取第三页，再给你结论。",
+                                tool_calls=[
+                                    {
+                                        "id": "call-1",
+                                        "name": "pdf_analysis",
+                                        "args": {"path": "knowledge/demo.pdf", "page": 3},
+                                    }
+                                ],
+                            )
+                        ]
+                    }
+                },
+            ),
+            (
+                "updates",
+                {
+                    "node": {
+                        "messages": [
+                            SimpleNamespace(
+                                type="tool",
+                                tool_call_id="call-1",
+                                name="pdf_analysis",
+                                content=canonical,
+                            )
+                        ]
+                    }
+                },
+            ),
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_channel"] == "answer_candidate"
+    assert done["answer_source"] == "pdf_answer_finalization"
+    assert done["answer_fallback_reason"] == ""
+    assert "题名页" in str(done["content"])
+    assert len(model_runtime.invoke_messages_calls) == 1
+    assert "AI治理报告.pdf" in model_runtime.invoke_messages_calls[0][1]["content"]
+
+
+def test_runtime_pdf_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallback() -> None:
+    plan = QueryPlan(
+        session_id="pdf-finalizer-reject",
+        message="第三页具体讲了什么？",
+        history=[],
+        subqueries=["第三页具体讲了什么？"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="pdf_page_followup_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    canonical = PDFCanonicalResult(
+        status="degraded",
+        source="AI治理报告.pdf",
+        requested_mode="page",
+        effective_mode="page",
+        summary="",
+        degraded_reason="target_page_text_quality_low",
+        pages=[3],
+        evidence=[
+            PDFCanonicalEvidence(page_number=3, score=1.0, snippet="回归现实主义2025年AI治理报告 腾讯研究院"),
+        ],
+    ).to_tool_output()
+    model_runtime.invoke_messages_response = "我先根据第三页整理一下答案。"
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "updates",
+                {
+                    "node": {
+                        "messages": [
+                            SimpleNamespace(
+                                type="ai",
+                                content="我先读取第三页，再给你结论。",
+                                tool_calls=[
+                                    {
+                                        "id": "call-1",
+                                        "name": "pdf_analysis",
+                                        "args": {"path": "knowledge/demo.pdf", "page": 3},
+                                    }
+                                ],
+                            )
+                        ]
+                    }
+                },
+            ),
+            (
+                "updates",
+                {
+                    "node": {
+                        "messages": [
+                            SimpleNamespace(
+                                type="tool",
+                                tool_call_id="call-1",
+                                name="pdf_analysis",
+                                content=canonical,
+                            )
+                        ]
+                    }
+                },
+            ),
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_channel"] == "fallback_answer"
+    assert done["answer_source"] == "fallback_policy"
+    assert done["answer_fallback_reason"] == "pdf_canonical_missing_summary"
+    assert "已读取与当前问题最相关的 PDF 页面：P3" in str(done["content"])
+    assert len(model_runtime.invoke_messages_calls) == 1
 
 
 def test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_content() -> None:
@@ -1524,6 +2288,8 @@ def main() -> None:
     test_memory_route_disables_tools()
     test_rag_route_prefetches_retrieval_without_tools()
     test_direct_tool_route_normalizes_final_content()
+    test_runtime_uses_session_committed_dataset_binding_for_tool_promotion()
+    test_runtime_uses_session_committed_pdf_binding_for_tool_promotion()
     test_pdf_direct_tool_route_uses_model_finalization_for_visible_answer()
     test_pdf_direct_tool_route_skips_model_finalization_for_degraded_result()
     test_pdf_direct_tool_route_uses_model_finalization_for_degraded_page_evidence()
@@ -1534,10 +2300,17 @@ def main() -> None:
     test_binding_followup_executes_from_owner_task_without_replanning()
     test_binding_followup_candidate_yields_to_memory_plan_when_route_conflicts()
     test_ambiguous_binding_followup_requests_clarification_without_replanning()
+    test_session_committed_pdf_binding_breaks_registry_ambiguity()
     test_runtime_output_boundary_strips_internal_protocol_from_streamed_answer()
     test_runtime_output_boundary_keeps_final_stream_answer_when_ai_update_is_partial()
     test_runtime_output_boundary_strips_inline_pseudo_tool_calls_from_visible_answer()
     test_runtime_output_boundary_salvages_nonempty_answer_when_only_procedural_text_remains()
+    test_runtime_memory_visible_gate_rejects_procedural_segment_answer()
+    test_runtime_memory_visible_gate_keeps_stable_memory_answer()
+    test_runtime_rag_answer_finalizer_rewrites_missing_answer_from_evidence_pack()
+    test_runtime_rag_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallback()
+    test_runtime_pdf_answer_finalizer_rewrites_canonical_tool_output()
+    test_runtime_pdf_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallback()
     test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_content()
     test_direct_tool_pdf_raw_dump_does_not_become_done_content()
     test_direct_tool_degraded_pdf_result_does_not_project_summary_state()

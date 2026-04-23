@@ -27,10 +27,9 @@ def _write(path: Path, content: str) -> None:
 def test_long_term_context_bundle_layers_workspace_and_memory() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        _write(root / "context_profile" / "constitution" / "SOUL.md", "# Soul\n\nCalm and direct.")
-        _write(root / "context_profile" / "constitution" / "IDENTITY.md", "# Identity\n\nLocal-first agent.")
-        _write(root / "context_profile" / "profile" / "USER.md", "# User\n\nPrefer Chinese.")
-        _write(root / "context_profile" / "profile" / "AGENTS.md", "# Agents\n\nPrefer transparent execution.")
+        _write(root / "context_profile" / "agent_core" / "CORE.md", "# Agent Core\n\nCalm and direct.")
+        _write(root / "context_profile" / "agent_core" / "ACTIVE_SEED.md", "# Active Soul Seed\n\nRiver-like and restrained.")
+        _write(root / "context_profile" / "profile" / "agent.md", "# Agent Profile\n\nPrefer Chinese.")
         _write(root / "durable_memory" / "index" / "MEMORY.md", "# Memory Index\n\n- [PowerShell](powershell.md) - Prefer PowerShell.")
 
         bundle = build_long_term_context_bundle(root)
@@ -39,10 +38,9 @@ def test_long_term_context_bundle_layers_workspace_and_memory() -> None:
         _assert("## Constitution" in rendered, "bundle should render constitution section")
         _assert("## Profile" in rendered, "bundle should render profile section")
         _assert("## Dynamic Long-Term Memory" in rendered, "bundle should render dynamic memory section")
-        _assert("### Soul" in rendered and "Calm and direct." in rendered, "soul should map into constitution")
-        _assert("### Identity" in rendered and "Local-first agent." in rendered, "identity should map into constitution")
-        _assert("### User Profile" in rendered and "Prefer Chinese." in rendered, "user should map into profile")
-        _assert("### Agents Guide" in rendered and "Prefer transparent execution." in rendered, "agents guide should map into profile")
+        _assert("### Agent Core" in rendered and "Calm and direct." in rendered, "agent core should map into constitution")
+        _assert("### Active Soul Seed" in rendered and "River-like and restrained." in rendered, "active seed should map into constitution")
+        _assert("### Agent Profile" in rendered and "Prefer Chinese." in rendered, "agent profile should map into profile")
         _assert("PowerShell" in rendered, "durable memory should be included as dynamic memory")
 
 
@@ -50,10 +48,9 @@ def test_system_prompt_uses_unified_long_term_context_block() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         _write(root / "SKILLS_SNAPSHOT.md", "# Skills Snapshot\n\n- structured-data-analysis")
-        _write(root / "context_profile" / "constitution" / "SOUL.md", "# Soul\n\nCalm and direct.")
-        _write(root / "context_profile" / "constitution" / "IDENTITY.md", "# Identity\n\nLocal-first agent.")
-        _write(root / "context_profile" / "profile" / "USER.md", "# User\n\nPrefer Chinese.")
-        _write(root / "context_profile" / "profile" / "AGENTS.md", "# Agents\n\nPrefer transparent execution.")
+        _write(root / "context_profile" / "agent_core" / "CORE.md", "# Agent Core\n\nCalm and direct.")
+        _write(root / "context_profile" / "agent_core" / "ACTIVE_SEED.md", "# Active Soul Seed\n\nRiver-like and restrained.")
+        _write(root / "context_profile" / "profile" / "agent.md", "# Agent Profile\n\nPrefer Chinese.")
         _write(root / "durable_memory" / "index" / "MEMORY.md", "# Memory Index\n\n- [PowerShell](powershell.md) - Prefer PowerShell.")
 
         prompt = build_system_prompt(

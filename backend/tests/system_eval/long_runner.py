@@ -185,11 +185,10 @@ def _ensure_session(client: TestClient, session_ids: dict[str, str], alias: str,
 
 
 def _sync_memory(runtime, session_id: str, *, durable: bool = False) -> dict[str, Any]:
-    messages = runtime.session_manager.load_session(session_id)
-    session_summary = runtime.memory_facade.refresh_session_memory(session_id, messages)
+    session_summary = runtime.query_runtime.refresh_session_memory(session_id)
     durable_saved = 0
     if durable:
-        durable_saved = runtime.memory_facade.commit_durable_memory_extraction(session_id, messages)
+        durable_saved = runtime.query_runtime.commit_durable_memory_extraction(session_id)
     return {
         "session_summary_chars": len(str(session_summary or "").strip()),
         "durable_saved": durable_saved,
@@ -287,10 +286,11 @@ def _execute_user_turn(
         session_id,
         include_compressed_context=False,
     )
-    plan = runtime.query_runtime.planner.build_plan(
+    plan = runtime.query_runtime._planner_build_plan(
         session_id=session_id,
         message=turn.content,
         history=history,
+        authority_context=runtime.query_runtime._load_session_authoritative_context(session_id),
     )
 
     request_started = time.perf_counter()

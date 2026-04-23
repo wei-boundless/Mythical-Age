@@ -1,0 +1,18 @@
+[
+  {
+    "snapshot_id": "snap:coding_change_flow:我们这个项目现在优先抓哪:2026-04-23T20:09:31+00:00",
+    "flow_id": "coding_change_flow:我们这个项目现在优先抓哪",
+    "flow_type": "coding_change_flow",
+    "status": "suspended",
+    "goal": "我们这个项目现在优先抓哪条主线？",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "岩，根据我们之前确认并记录的长期记忆： 当前项目主线：优化 Memory 和 RAG 这条主线已经作为稳定的项目事实沉淀下来了。如果你有新的调整或想重新评估优先级，我们可以再讨论并更新记录。"
+    ],
+    "resume_hints": [],
+    "updated_at": "2026-04-23T20:09:31+00:00"
+  }
+]

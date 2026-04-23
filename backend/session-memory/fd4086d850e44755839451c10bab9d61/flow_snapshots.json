@@ -1,0 +1,22 @@
+[
+  {
+    "snapshot_id": "snap:knowledge_lookup_flow:记住:2026-04-23T19:04:49+00:00",
+    "flow_id": "knowledge_lookup_flow:记住",
+    "flow_type": "knowledge_lookup_flow",
+    "status": "suspended",
+    "goal": "记住：以后复杂问题先给结论，再展开解释。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "记住：默认终端命令使用 PowerShell。"
+    },
+    "recent_results": [
+      "1. 记住：以后复杂问题先给结论 好的，岩。已记住：以后复杂问题先给结论，再展开解释。 这条偏好已写入长期记忆，后续回答会遵循这个原则。 2. 展开解释 岩，我需要确认一下上下文——你希望我展开解释哪个具体话题？ 从当前检索到的知识库内容来看，涉及以下几个方向： 1. AI营销趋势（中国AI+营销趋势洞察2026） 2. 快消行业AI营销增长（2026年白皮书） 3. 职业教育AI应用（清华大学报告） 4. 全球AI技术应用洞察（2025报告） 请告诉我你想深入了解哪个主题，"
+    ],
+    "resume_hints": [
+      "继续处理当前用户请求：记住：以后复杂问题先给结论，再展开解释。"
+    ],
+    "updated_at": "2026-04-23T19:04:49+00:00"
+  }
+]

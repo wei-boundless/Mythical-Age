@@ -1,0 +1,107 @@
+[
+  {
+    "snapshot_id": "snap:external_lookup_flow:顺便查一下黄金价格:2026-04-23T19:55:03+00:00",
+    "flow_id": "external_lookup_flow:顺便查一下黄金价格",
+    "flow_type": "external_lookup_flow",
+    "status": "suspended",
+    "goal": "把库存、员工、黄金和天气这四块信息分开给我一个运营摘要。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [],
+    "resume_hints": [
+      "上一阶段目标：再回到 inventory.xlsx，哪一个仓库最该优先补货？",
+      "上一阶段结果：数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（缺口） 前 10 项： 仓库 缺口 0 武汉仓 404.0 1 上海仓 392.0 2 深圳仓 392.0 3 广州仓 360.0 ..."
+    ],
+    "updated_at": "2026-04-23T19:55:03+00:00"
+  },
+  {
+    "snapshot_id": "snap:structured_data_flow:inventory-xlsx:2026-04-23T19:54:26+00:00",
+    "flow_id": "structured_data_flow:inventory-xlsx",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "再回到 inventory.xlsx，哪一个仓库最该优先补货？",
+    "binding_kind": "active_dataset",
+    "binding_identity": "knowledge/e-commerce data/inventory.xlsx",
+    "binding_owner_task_id": "6024d78e958a462e82c9407a986035d2-tool-structured_data_analysis-10",
+    "key_slots": {
+      "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+      "active_entity": "dataset"
+    },
+    "recent_results": [
+      "数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（缺口） 前 10 项： 仓库 缺口 0 武汉仓 404.0 1 上海仓 392.0 2 深圳仓 392.0 3 广州仓 360.0 4 成都仓 350.0 5 北京仓 280.0"
+    ],
+    "resume_hints": [
+      "上一阶段目标：按部门汇总这些高薪员工。",
+      "上一阶段结果：数据源：employees.xlsx 筛选条件：无 查询模式：分组聚合 分组字段：部门 汇总方式：总和（薪水） 结果（前 10 项）： 部门 薪水 0 技术 1558250.0 1 人力 537000.0 2 运营 536500.0 3 财..."
+    ],
+    "updated_at": "2026-04-23T19:54:26+00:00"
+  },
+  {
+    "snapshot_id": "snap:structured_data_flow:按部门汇总这些高薪员工:2026-04-23T19:54:22+00:00",
+    "flow_id": "structured_data_flow:按部门汇总这些高薪员工",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "按部门汇总这些高薪员工。",
+    "binding_kind": "active_dataset",
+    "binding_identity": "knowledge/e-commerce data/employees.xlsx",
+    "binding_owner_task_id": "6024d78e958a462e82c9407a986035d2-tool-structured_data_analysis-8",
+    "key_slots": {
+      "active_dataset": "knowledge/E-commerce Data/employees.xlsx",
+      "active_entity": "dataset"
+    },
+    "recent_results": [
+      "数据源：employees.xlsx 筛选条件：无 查询模式：分组聚合 分组字段：部门 汇总方式：总和（薪水） 结果（前 10 项）： 部门 薪水 0 技术 1558250.0 1 人力 537000.0 2 运营 536500.0 3 财务 528250.0 4 销售 527750.0 5 产品 519250.0"
+    ],
+    "resume_hints": [
+      "上一阶段目标：现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。",
+      "上一阶段结果：数据源：employees.xlsx 筛选条件：无 查询模式：记录排序 排序字段：薪水 前 5 条记录： 员工编号 姓名 部门 职位 城市 薪水 E-0074 罗凯 运营 运营专员 北京 34900 E-0148 唐琳 技术 后端工程师 杭..."
+    ],
+    "updated_at": "2026-04-23T19:54:22+00:00"
+  },
+  {
+    "snapshot_id": "snap:structured_data_flow:knowledge-e-commerce-data-employees-xlsx:2026-04-23T19:54:22+00:00",
+    "flow_id": "structured_data_flow:knowledge-e-commerce-data-employees-xlsx",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。",
+    "binding_kind": "active_dataset",
+    "binding_identity": "knowledge/e-commerce data/employees.xlsx",
+    "binding_owner_task_id": "6024d78e958a462e82c9407a986035d2-tool-structured_data_analysis-8",
+    "key_slots": {
+      "active_dataset": "knowledge/E-commerce Data/employees.xlsx",
+      "active_entity": "dataset"
+    },
+    "recent_results": [
+      "数据源：employees.xlsx 筛选条件：无 查询模式：记录排序 排序字段：薪水 前 5 条记录： 员工编号 姓名 部门 职位 城市 薪水 E-0074 罗凯 运营 运营专员 北京 34900 E-0148 唐琳 技术 后端工程师 杭州 34800 E-0073 许晨 销售 大客户经理 上海 34550 E-0147 杨乐 产品 产品助理 深圳 34450 E-0072 朱敏 人力 招聘专员 南京 34200"
+    ],
+    "resume_hints": [
+      "上一阶段目标：哪些仓库其实并不缺货？",
+      "上一阶段结果：数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（缺口） 当前没有完全不缺货的仓库。"
+    ],
+    "updated_at": "2026-04-23T19:54:22+00:00"
+  },
+  {
+    "snapshot_id": "snap:structured_data_flow:knowledge-e-commerce-data-inventory-xlsx:2026-04-23T19:54:22+00:00",
+    "flow_id": "structured_data_flow:knowledge-e-commerce-data-inventory-xlsx",
+    "flow_type": "structured_data_flow",
+    "status": "suspended",
+    "goal": "哪些仓库其实并不缺货？",
+    "binding_kind": "active_dataset",
+    "binding_identity": "knowledge/e-commerce data/inventory.xlsx",
+    "binding_owner_task_id": "6024d78e958a462e82c9407a986035d2-tool-structured_data_analysis-6",
+    "key_slots": {
+      "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+      "active_entity": "dataset"
+    },
+    "recent_results": [
+      "数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（缺口） 当前没有完全不缺货的仓库。"
+    ],
+    "resume_hints": [
+      "此前结果：数据源：inventory.xlsx 筛选条件：无 查询模式：分组聚合排名 排名维度：仓库 排序依据：总和（缺口） 前 10 项： 仓库 缺口 0 武汉仓 404.0 1 上海仓 392.0 2 深圳仓 392.0 3 广州仓 360.0 ...",
+      "此前请求：切到 knowledge/E-commerce Data/inventory.xlsx，先看哪些仓库缺货。"
+    ],
+    "updated_at": "2026-04-23T19:54:22+00:00"
+  }
+]

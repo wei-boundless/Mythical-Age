@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import re
+from typing import Any, Callable
 
 from query.followup_models import FollowupResolution
 from tasks import TaskCoordinator
 
 
 class QueryFollowupResolver:
-    def __init__(self, task_coordinator: TaskCoordinator) -> None:
+    def __init__(
+        self,
+        task_coordinator: TaskCoordinator,
+        *,
+        session_state_loader: Callable[[str], dict[str, Any] | None] | None = None,
+    ) -> None:
         self.task_coordinator = task_coordinator
+        self.session_state_loader = session_state_loader
 
     def resolve(self, *, session_id: str, message: str) -> FollowupResolution:
         normalized = (message or "").strip()
@@ -83,6 +90,12 @@ class QueryFollowupResolver:
                 resolved_task_ids=[binding_target.task_id],
             )
         if len(binding_targets) > 1:
+            committed_resolution = self._resolve_registry_ambiguity_with_session_binding(
+                session_id=session_id,
+                binding_targets=binding_targets,
+            )
+            if committed_resolution.mode == "binding_ref":
+                return committed_resolution
             return FollowupResolution(
                 mode="clarify",
                 target_kind="binding",
@@ -97,7 +110,7 @@ class QueryFollowupResolver:
                 source_query=" | ".join(task.query for task in binding_targets),
             )
 
-        return FollowupResolution()
+        return self._resolve_session_binding(session_id=session_id, message=normalized)
 
     def _looks_explicit(self, message: str) -> bool:
         lowered = message.lower()
@@ -184,6 +197,130 @@ class QueryFollowupResolver:
                 }
             )
         return collapsed
+
+    def _resolve_session_binding(self, *, session_id: str, message: str) -> FollowupResolution:
+        candidates = self._session_binding_candidates(session_id)
+        if not candidates:
+            return FollowupResolution()
+        binding_kind = self._binding_hint_kind(message)
+        if binding_kind:
+            filtered = [
+                candidate
+                for candidate in candidates
+                if str(candidate.get("binding_kind", "") or "") == binding_kind
+            ]
+            if len(filtered) == 1:
+                return self._session_binding_resolution(filtered[0])
+            if len(filtered) > 1 and self._contains_generic_object_reference(message):
+                return FollowupResolution(
+                    mode="clarify",
+                    target_kind="binding",
+                    resolved_target_kind="binding",
+                    resolution_source="session_committed_binding",
+                    confidence=0.0,
+                    reason="ambiguous_session_binding_reference",
+                    requires_clarification=True,
+                    clarification_prompt="你提到的是哪一个对象？请直接说文件名、任务名，或显式路径。",
+                    task_ids=[
+                        str(candidate.get("binding_owner_task_id", "") or "")
+                        for candidate in filtered
+                        if str(candidate.get("binding_owner_task_id", "") or "").strip()
+                    ],
+                    resolved_task_ids=[
+                        str(candidate.get("binding_owner_task_id", "") or "")
+                        for candidate in filtered
+                        if str(candidate.get("binding_owner_task_id", "") or "").strip()
+                    ],
+                )
+            return FollowupResolution()
+        if self._looks_like_generic_followup_hint(message) and len(candidates) == 1:
+            return self._session_binding_resolution(candidates[0])
+        return FollowupResolution()
+
+    def _resolve_registry_ambiguity_with_session_binding(
+        self,
+        *,
+        session_id: str,
+        binding_targets: list[object],
+    ) -> FollowupResolution:
+        session_candidates = self._session_binding_candidates(session_id)
+        if not session_candidates:
+            return FollowupResolution()
+        registry_identities = {
+            (
+                str(self._binding_key(task) or "").strip(),
+                str(self._binding_identity(task) or "").strip(),
+            )
+            for task in binding_targets
+        }
+        for candidate in session_candidates:
+            dedupe_key = (
+                str(candidate.get("binding_kind", "") or "").strip(),
+                str(candidate.get("binding_identity", "") or "").strip(),
+            )
+            if dedupe_key in registry_identities:
+                return self._session_binding_resolution(candidate)
+        return FollowupResolution()
+
+    def _session_binding_candidates(self, session_id: str) -> list[dict[str, object]]:
+        if self.session_state_loader is None:
+            return []
+        try:
+            payload = self.session_state_loader(session_id) or {}
+        except Exception:
+            return []
+        if not isinstance(payload, dict):
+            return []
+        candidates: list[dict[str, object]] = []
+        committed_pdf = str(payload.get("committed_pdf", "") or "").strip()
+        if committed_pdf:
+            candidates.append(
+                {
+                    "binding_kind": "active_pdf",
+                    "binding_identity": committed_pdf.replace("\\", "/").lower(),
+                    "binding_owner_task_id": str(payload.get("committed_pdf_owner_task_id", "") or "").strip(),
+                    "task_kind": "pdf_followup_query",
+                }
+            )
+        committed_dataset = str(payload.get("committed_dataset", "") or "").strip()
+        if committed_dataset:
+            candidates.append(
+                {
+                    "binding_kind": "active_dataset",
+                    "binding_identity": committed_dataset.replace("\\", "/").lower(),
+                    "binding_owner_task_id": str(payload.get("committed_dataset_owner_task_id", "") or "").strip(),
+                    "task_kind": "structured_followup_query",
+                }
+            )
+        return candidates
+
+    def _session_binding_resolution(self, candidate: dict[str, object]) -> FollowupResolution:
+        binding_kind = str(candidate.get("binding_kind", "") or "")
+        binding_identity = str(candidate.get("binding_identity", "") or "")
+        binding_owner_task_id = str(candidate.get("binding_owner_task_id", "") or "")
+        task_kind = str(candidate.get("task_kind", "") or "")
+        resolved_task_ids = [binding_owner_task_id] if binding_owner_task_id else []
+        return FollowupResolution(
+            mode="binding_ref",
+            target_kind="binding",
+            resolved_target_kind="binding",
+            task_id=binding_owner_task_id,
+            resolved_task_id=binding_owner_task_id,
+            resolved_task_kind=task_kind,
+            binding_owner_task_id=binding_owner_task_id,
+            resolved_binding_owner_task_id=binding_owner_task_id,
+            binding_key=binding_kind,
+            binding_kind=binding_kind,
+            resolved_binding_kind=binding_kind,
+            binding_identity=binding_identity,
+            resolved_binding_identity=binding_identity,
+            resolved_binding_ref=binding_identity,
+            resolution_source="session_committed_binding",
+            confidence=0.82,
+            reason="session_committed_binding_reference",
+            task_ids=resolved_task_ids,
+            resolved_task_ids=resolved_task_ids,
+        )
 
     def _match_explicit_binding_candidates(
         self,

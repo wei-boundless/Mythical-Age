@@ -41,8 +41,13 @@ class QueryPlanner:
         session_id: str,
         message: str,
         history: list[dict[str, Any]],
+        authority_context: dict[str, Any] | None = None,
     ) -> QueryPlan:
-        root_execution = self._build_execution(message=message, history=history)
+        root_execution = self._build_execution(
+            message=message,
+            history=history,
+            authority_context=authority_context,
+        )
         memory_intent = root_execution.memory_intent
         query_understanding = root_execution.query_understanding
         subqueries = self.subtask_planner.plan(message=message, understanding=query_understanding)

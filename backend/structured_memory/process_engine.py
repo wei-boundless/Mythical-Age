@@ -472,6 +472,21 @@ class ProcessStateEngine:
         active_pdf_mode = self._infer_pdf_mode_from_goal(active_goal)
         active_pdf_section = self._extract_pdf_section_from_goal(active_goal)
         active_pdf_pages = self._extract_pdf_pages_from_goal(active_goal)
+        previous_slots = previous_state.context_slots
+        previous_committed_pdf = normalize_storage_text(
+            getattr(previous_slots, "committed_pdf", "") or previous_slots.active_pdf
+        ).strip()
+        previous_committed_pdf_owner_task_id = normalize_storage_text(
+            getattr(previous_slots, "committed_pdf_owner_task_id", "")
+            or (previous_slots.active_binding_owner_task_id if previous_slots.active_pdf else "")
+        ).strip()
+        previous_committed_dataset = normalize_storage_text(
+            getattr(previous_slots, "committed_dataset", "") or previous_slots.active_dataset
+        ).strip()
+        previous_committed_dataset_owner_task_id = normalize_storage_text(
+            getattr(previous_slots, "committed_dataset_owner_task_id", "")
+            or (previous_slots.active_binding_owner_task_id if previous_slots.active_dataset else "")
+        ).strip()
 
         active_entity = self._infer_active_entity(
             active_goal,
@@ -482,6 +497,22 @@ class ProcessStateEngine:
             task_switch=task_switch,
         )
         active_rule = self._extract_constraint_slot(turn_trace, convention_hints, previous_state, task_switch=task_switch)
+        committed_pdf = active_pdf or previous_committed_pdf
+        committed_pdf_owner_task_id = (
+            previous_committed_pdf_owner_task_id
+            if normalize_storage_text(active_pdf).strip() == previous_committed_pdf
+            else ""
+        )
+        if not active_pdf:
+            committed_pdf_owner_task_id = previous_committed_pdf_owner_task_id
+        committed_dataset = active_dataset or previous_committed_dataset
+        committed_dataset_owner_task_id = (
+            previous_committed_dataset_owner_task_id
+            if normalize_storage_text(active_dataset).strip() == previous_committed_dataset
+            else ""
+        )
+        if not active_dataset:
+            committed_dataset_owner_task_id = previous_committed_dataset_owner_task_id
 
         return ContextSlots(
             active_pdf=active_pdf,
@@ -489,6 +520,10 @@ class ProcessStateEngine:
             active_pdf_section=active_pdf_section if active_pdf else "",
             active_pdf_pages=active_pdf_pages if active_pdf else [],
             active_dataset=active_dataset,
+            committed_pdf=committed_pdf,
+            committed_pdf_owner_task_id=committed_pdf_owner_task_id,
+            committed_dataset=committed_dataset,
+            committed_dataset_owner_task_id=committed_dataset_owner_task_id,
             active_entity=active_entity,
             active_rule=active_rule,
         )

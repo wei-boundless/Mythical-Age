@@ -450,6 +450,21 @@ class SessionMemoryManager:
         task_switch: bool,
         flow_type: str,
     ) -> ContextSlots:
+        previous_slots = previous_state.context_slots
+        committed_pdf = self._coerce_text(
+            getattr(previous_slots, "committed_pdf", "") or previous_slots.active_pdf
+        )
+        committed_pdf_owner_task_id = self._coerce_text(
+            getattr(previous_slots, "committed_pdf_owner_task_id", "")
+            or (previous_slots.active_binding_owner_task_id if previous_slots.active_pdf else "")
+        )
+        committed_dataset = self._coerce_text(
+            getattr(previous_slots, "committed_dataset", "") or previous_slots.active_dataset
+        )
+        committed_dataset_owner_task_id = self._coerce_text(
+            getattr(previous_slots, "committed_dataset_owner_task_id", "")
+            or (previous_slots.active_binding_owner_task_id if previous_slots.active_dataset else "")
+        )
         active_pdf = self._coerce_text(active_constraints.get("active_pdf"))
         active_dataset = self._coerce_text(active_constraints.get("active_dataset"))
         active_pdf_mode = self._normalize_pdf_scope(self._coerce_text(active_constraints.get("pdf_mode")))
@@ -531,6 +546,14 @@ class SessionMemoryManager:
             active_pdf_mode = ""
             active_pdf_section = ""
             active_pdf_pages = []
+        if active_pdf:
+            committed_pdf = active_pdf
+            if active_binding_owner_task_id:
+                committed_pdf_owner_task_id = active_binding_owner_task_id
+        if active_dataset:
+            committed_dataset = active_dataset
+            if active_binding_owner_task_id:
+                committed_dataset_owner_task_id = active_binding_owner_task_id
         return ContextSlots(
             active_pdf=active_pdf,
             active_pdf_mode=active_pdf_mode,
@@ -540,6 +563,10 @@ class SessionMemoryManager:
             active_binding_kind=active_binding_kind,
             active_binding_identity=active_binding_identity,
             active_binding_owner_task_id=active_binding_owner_task_id,
+            committed_pdf=committed_pdf,
+            committed_pdf_owner_task_id=committed_pdf_owner_task_id,
+            committed_dataset=committed_dataset,
+            committed_dataset_owner_task_id=committed_dataset_owner_task_id,
             active_entity=active_entity,
             active_rule="",
         )
