@@ -1,0 +1,38 @@
+[
+  {
+    "snapshot_id": "snap:coding_change_flow:memory-rag:2026-04-24T03:22:10+00:00",
+    "flow_id": "coding_change_flow:memory-rag",
+    "flow_type": "coding_change_flow",
+    "status": "suspended",
+    "goal": "记住：我们这个项目当前主线是优化 Memory 和 RAG。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "好，岩。我已经记住：我们这个项目当前主线是优化 Memory 和 RAG。 后续讨论和决策会围绕这个主线展开。"
+    ],
+    "resume_hints": [
+      "近期结果：好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。",
+      "此前结果：好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。"
+    ],
+    "updated_at": "2026-04-24T03:22:10+00:00"
+  },
+  {
+    "snapshot_id": "snap:general:active:2026-04-24T03:21:44+00:00",
+    "flow_id": "general:active",
+    "flow_type": "general_problem_solving_flow",
+    "status": "suspended",
+    "goal": "记住：默认终端命令使用 PowerShell。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [],
+    "resume_hints": [
+      "近期结果：好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。",
+      "此前结果：好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。"
+    ],
+    "updated_at": "2026-04-24T03:21:44+00:00"
+  }
+]

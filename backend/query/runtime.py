@@ -25,7 +25,13 @@ from query.binding_models import StructuredDatasetBinding
 from query.context_models import MainContextState, TaskSummaryRef
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryContext, QueryExecutionPlan, QueryPlan, QueryRequest
-from query.output_classifier import build_output_decision, classify_output_candidate, looks_like_progress_text
+from query.output_classifier import (
+    build_output_decision,
+    classify_output_candidate,
+    looks_like_progress_text,
+    looks_like_procedural_promise_text,
+    looks_like_tool_claim_without_receipt,
+)
 from query.output_boundary import AssistantOutputBoundary, contains_internal_protocol, sanitize_visible_assistant_content
 from query.prompt_builder import build_system_prompt
 from query.planner import QueryPlanner
@@ -391,8 +397,11 @@ class QueryRuntime:
             trace.annotate(
                 {
                     "app.route": plan.query_understanding.route,
+                    "app.execution_posture": str(getattr(plan.query_understanding, "execution_posture", "") or ""),
+                    "app.direct_route_reason": str(getattr(plan.query_understanding, "direct_route_reason", "") or ""),
                     "app.tool_name": plan.query_understanding.tool_name or "",
                     "app.skill_name": plan.query_understanding.skill_name or "",
+                    "app.bound_candidate_tools": ",".join(list(getattr(plan.query_understanding, "candidate_tools", []) or [])),
                     "app.subquery_count": len(executions),
                 }
             )
@@ -589,7 +598,14 @@ class QueryRuntime:
                 trace.annotate(
                     {
                         "app.route": execution.query_understanding.route,
+                        "app.execution_posture": str(
+                            execution.execution_posture or getattr(execution.query_understanding, "execution_posture", "") or ""
+                        ),
+                        "app.direct_route_reason": str(
+                            getattr(execution.query_understanding, "direct_route_reason", "") or ""
+                        ),
                         "app.tool_count": len(tools),
+                        "app.bound_candidate_tools": ",".join(list(getattr(execution.query_understanding, "candidate_tools", []) or [])),
                     }
                 )
             stream_context = (
@@ -676,6 +692,7 @@ class QueryRuntime:
             output_boundary.finalize_segment(fallback_content=last_ai_message)
             output_response = output_boundary.build_response(
                 route=str(execution.query_understanding.route or ""),
+                execution_posture=str(execution.execution_posture or execution.query_understanding.execution_posture or ""),
                 user_message=execution.message,
                 tool_name=str(execution.query_understanding.tool_name or ""),
                 retrieval_results=context.retrieval_results,
@@ -702,6 +719,7 @@ class QueryRuntime:
                         "app.answer_source": output_response.selected_source,
                         "app.answer_fallback_reason": output_response.fallback_reason,
                         "app.output_leak_flags": ",".join(output_response.leak_flags),
+                        "app.tool_receipt_count": len(list(getattr(output_response, "tool_receipts", []) or [])),
                     }
                 )
             task_summary_refs = self._build_single_execution_task_summaries(
@@ -1417,6 +1435,8 @@ class QueryRuntime:
                 task_kind=context_ref.task_kind or "pdf",
                 modality="pdf",
                 route="tool",
+                execution_posture="direct_tool",
+                direct_route_reason="binding_owner_pdf",
                 tool_name=tool_name,
                 tool_input=dict(tool_input),
                 should_skip_rag=True,
@@ -1440,6 +1460,8 @@ class QueryRuntime:
                 task_kind=context_ref.task_kind or "structured_data",
                 modality="table",
                 route="tool",
+                execution_posture="direct_tool",
+                direct_route_reason="binding_owner_dataset",
                 tool_name=tool_name,
                 tool_input=dict(tool_input),
                 should_skip_rag=True,
@@ -1453,6 +1475,8 @@ class QueryRuntime:
                 task_kind=context_ref.task_kind or "weather",
                 modality="realtime",
                 route="tool",
+                execution_posture="direct_tool",
+                direct_route_reason="binding_owner_weather",
                 tool_name=tool_name,
                 tool_input=dict(tool_input),
                 should_skip_rag=True,
@@ -1465,6 +1489,8 @@ class QueryRuntime:
                 task_kind=context_ref.task_kind or "finance",
                 modality="realtime",
                 route="tool",
+                execution_posture="direct_tool",
+                direct_route_reason="binding_owner_finance",
                 tool_name=tool_name,
                 tool_input=dict(tool_input),
                 should_skip_rag=True,
@@ -1638,10 +1664,21 @@ class QueryRuntime:
 
     def _allowed_tool_names_for_execution(self, execution: QueryExecutionPlan) -> set[str]:
         route = str(execution.query_understanding.route or "").strip()
+        execution_posture = str(
+            execution.execution_posture or getattr(execution.query_understanding, "execution_posture", "") or ""
+        ).strip()
         skill_scope = self._skill_allowed_tool_scope(execution.active_skill)
 
-        if route in {"memory", "rag"}:
+        if route == "memory":
             return set()
+        if route == "rag" and execution_posture != "bounded_agent":
+            return set()
+
+        if execution_posture == "bounded_agent":
+            requested = list(getattr(execution.query_understanding, "candidate_tools", []) or [])
+            if not requested and skill_scope:
+                requested.extend(skill_scope)
+            return set(self.permission_service.allowed_tool_names(allowed_tools=requested or None))
 
         if route == "tool":
             requested: list[str] = []
@@ -1958,13 +1995,16 @@ class QueryRuntime:
             source=f"direct_tool.{tool_name or 'tool'}",
             tool_name=tool_name,
             allow_unlabeled_answer=allow_unlabeled_answer or force_allow_unlabeled,
+            has_tool_receipt=True,
         )
         return build_output_decision(
             candidates=[candidate] if candidate is not None else [],
             route=route,
+            execution_posture="direct_tool",
             user_message=query,
             tool_name=tool_name,
             retrieval_results=None,
+            has_tool_receipt=True,
         )
 
     def _prepare_direct_tool_output_candidate(self, output: Any) -> tuple[str, bool]:
@@ -2142,8 +2182,11 @@ class QueryRuntime:
         if str(execution.query_understanding.route or "") != "rag":
             return output_response
         unstable_visible_answer = self._rag_output_needs_finalization(output_response)
+        fallback_reason = str(output_response.fallback_reason or "")
+        receipt_blocked_fallback = fallback_reason in {"no_receipt_tool_claim", "no_receipt_query_promise"}
         if (
-            str(output_response.fallback_reason or "") != "rag_missing_answer"
+            fallback_reason != "rag_missing_answer"
+            and not receipt_blocked_fallback
             and not unstable_visible_answer
         ):
             return output_response
@@ -2153,10 +2196,12 @@ class QueryRuntime:
             max_items=3,
         )
         if not self._rag_evidence_pack_can_finalize(evidence_pack):
+            if receipt_blocked_fallback:
+                return output_response
             return self._fallback_rag_output_response(output_response) if unstable_visible_answer else output_response
         finalized = await self._rewrite_rag_answer_with_model(evidence_pack=evidence_pack)
         if not finalized:
-            return self._fallback_rag_output_response(output_response) if unstable_visible_answer else output_response
+            return self._fallback_rag_output_response(output_response)
         return replace(
             output_response,
             canonical_answer=finalized,
@@ -2623,6 +2668,7 @@ class QueryRuntime:
                 if sanitized is not None
             ]
             content = sanitize_visible_assistant_content(canonical_content)
+            content = self._apply_assistant_persistence_gate(content, filtered_tool_calls)
             if self._looks_like_skill_document(content) and not filtered_tool_calls:
                 return []
             if not content.strip() and not filtered_tool_calls:
@@ -2644,6 +2690,7 @@ class QueryRuntime:
                 if sanitized is not None
             ]
             content = sanitize_visible_assistant_content(str(segment.get("content", "") or ""))
+            content = self._apply_assistant_persistence_gate(content, filtered_tool_calls)
             if self._looks_like_skill_document(content) and not filtered_tool_calls:
                 continue
             if not content.strip() and not filtered_tool_calls:
@@ -2656,3 +2703,20 @@ class QueryRuntime:
                 }
             )
         return persisted
+
+    def _apply_assistant_persistence_gate(
+        self,
+        content: str,
+        tool_calls: list[dict[str, Any]],
+    ) -> str:
+        normalized = sanitize_visible_assistant_content(str(content or "")).strip()
+        if not normalized:
+            return ""
+        if self._has_completed_tool_receipt(tool_calls):
+            return normalized
+        if looks_like_procedural_promise_text(normalized) or looks_like_tool_claim_without_receipt(normalized):
+            return "当前还没有形成真实查询结果。"
+        return normalized
+
+    def _has_completed_tool_receipt(self, tool_calls: list[dict[str, Any]]) -> bool:
+        return any(str(tool_call.get("output", "") or "").strip() for tool_call in list(tool_calls or []))

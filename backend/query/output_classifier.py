@@ -8,7 +8,18 @@ from query.output_models import OutputCandidate, OutputDecision
 
 _PROCEDURAL_PREFIX_RE = re.compile(
     r"^(?:岩[，,\s]*)?(?:我(?:(?:来|将|会|准备|打算)(?:先)?|先(?:来)?|需要先)|让我|接下来(?:我)?)"
-    r"(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|整理|改写).+",
+    r"(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|核实|整理|改写|查询).+",
+    re.IGNORECASE,
+)
+_PROCEDURAL_PROMISE_RE = re.compile(
+    r"^(?:岩[，,\s]*)?(?:我(?:(?:来|将|会|准备|打算)(?:先)?|先(?:来)?|需要先)|让我|接下来(?:我)?|稍等(?:我)?)(?:去)?"
+    r"(?:检索|搜索|查看|检查|读取|确认|核实|查询)(?:一下|一遍|下)?(?:最新状态|最新情况)?[\s。.!！…]*$"
+    r"|^(?:岩[，,\s]*)?(?:我(?:(?:来|将|会|准备|打算)(?:先)?|先(?:来)?|需要先)|让我|接下来(?:我)?|稍等(?:我)?)"
+    r".{0,24}(?:检索|搜索|查看|检查|读取|确认|核实|查询)(?:一下|一遍|下)?(?:最新状态|最新情况)?.*$",
+    re.IGNORECASE,
+)
+_TOOL_CLAIM_WITHOUT_RECEIPT_RE = re.compile(
+    r"^(?:岩[，,\s]*)?(?:我(?:已经|刚刚|刚才)?(?:查到|查询了|检索了|搜索了|确认了|核实了)|我这边(?:已经)?(?:查到|确认到|核实到)).+",
     re.IGNORECASE,
 )
 _SEARCH_CALL_RE = re.compile(
@@ -33,6 +44,8 @@ def normalize_candidate_text(text: str) -> str:
 
 
 def looks_like_progress_text(text: str) -> bool:
+    if looks_like_procedural_promise_text(text):
+        return True
     normalized = normalize_candidate_text(text)
     if not normalized:
         return False
@@ -44,6 +57,56 @@ def looks_like_progress_text(text: str) -> bool:
         if not any(item for item in non_search if item and not _PROCEDURAL_PREFIX_RE.match(item)):
             return True
     return all(_PROCEDURAL_PREFIX_RE.match(line) for line in lines)
+
+
+def looks_like_procedural_promise_text(text: str) -> bool:
+    normalized = normalize_candidate_text(text)
+    if not normalized:
+        return False
+    lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+    if not lines:
+        return False
+    action_tokens = ("查询", "检索", "搜索", "查看", "检查", "读取", "确认", "核实")
+    promise_tokens = ("我", "现在", "立即", "马上", "这就", "稍等", "接下来", "让我")
+    for line in lines:
+        if _PROCEDURAL_PROMISE_RE.match(line):
+            continue
+        compact = re.sub(r"\s+", "", line)
+        compact = re.sub(r"^岩[，,]*", "", compact)
+        if not any(token in compact for token in action_tokens):
+            return False
+        if not any(token in compact for token in promise_tokens):
+            return False
+    return True
+
+
+def looks_like_tool_claim_without_receipt(text: str) -> bool:
+    normalized = normalize_candidate_text(text)
+    if not normalized:
+        return False
+    first_line = next((line.strip() for line in normalized.splitlines() if line.strip()), "")
+    if not first_line:
+        return False
+    compact = re.sub(r"\s+", "", first_line)
+    compact = re.sub(r"^岩[，,]*", "", compact)
+    if bool(_TOOL_CLAIM_WITHOUT_RECEIPT_RE.match(first_line)):
+        return True
+    return any(
+        compact.startswith(prefix)
+        for prefix in (
+            "我已经查到",
+            "我刚刚查到",
+            "我刚才查到",
+            "我已经查询了",
+            "我刚刚查询了",
+            "我已经检索了",
+            "我刚刚检索了",
+            "我已经确认了",
+            "我刚刚确认了",
+            "我已经核实了",
+            "我刚刚核实了",
+        )
+    )
 
 
 def extract_explicit_answer(text: str) -> str:
@@ -97,10 +160,29 @@ def classify_output_candidate(
     source: str,
     tool_name: str = "",
     allow_unlabeled_answer: bool = True,
+    has_tool_receipt: bool = True,
 ) -> OutputCandidate | None:
     normalized = normalize_candidate_text(text)
     if not normalized:
         return None
+    if looks_like_procedural_promise_text(normalized):
+        return OutputCandidate(
+            channel="progress_text" if has_tool_receipt else "procedural_promise",
+            text=normalized,
+            source=source,
+            route=route,
+            tool_name=tool_name,
+            priority_hint=0,
+        )
+    if not has_tool_receipt and looks_like_tool_claim_without_receipt(normalized):
+        return OutputCandidate(
+            channel="tool_claim_without_receipt",
+            text=normalized,
+            source=source,
+            route=route,
+            tool_name=tool_name,
+            priority_hint=0,
+        )
     explicit_answer = extract_explicit_answer(normalized)
     if explicit_answer:
         return OutputCandidate(
@@ -179,10 +261,12 @@ def build_output_decision(
     *,
     candidates: list[OutputCandidate],
     route: str,
+    execution_posture: str,
     user_message: str,
     tool_name: str = "",
     retrieval_results: list[dict[str, object]] | None = None,
     leak_flags: list[str] | None = None,
+    has_tool_receipt: bool = False,
 ) -> OutputDecision:
     leak_flags = list(leak_flags or [])
     ranked = sorted(
@@ -210,10 +294,12 @@ def build_output_decision(
         )
     fallback = build_route_fallback(
         route=route,
+        execution_posture=execution_posture,
         user_message=user_message,
         tool_name=tool_name,
         retrieval_results=retrieval_results,
         rejected_candidates=ranked,
+        has_tool_receipt=has_tool_receipt,
     )
     return OutputDecision(
         canonical_answer=fallback[0],
@@ -228,12 +314,22 @@ def build_output_decision(
 def build_route_fallback(
     *,
     route: str,
+    execution_posture: str,
     user_message: str,
     tool_name: str,
     retrieval_results: list[dict[str, object]] | None,
     rejected_candidates: list[OutputCandidate],
+    has_tool_receipt: bool,
 ) -> tuple[str, str]:
     has_retrieval = bool(list(retrieval_results or []))
+    has_no_receipt_promise = any(
+        item.channel in {"procedural_promise", "tool_claim_without_receipt"}
+        for item in rejected_candidates
+    )
+    if has_no_receipt_promise and not has_tool_receipt:
+        if execution_posture == "bounded_agent" or route == "agent":
+            return ("当前还没有形成真实查询结果。", "no_receipt_query_promise")
+        return ("当前没有可验证的执行结果。", "no_receipt_tool_claim")
     if route == "rag":
         if not has_retrieval:
             return ("当前本地知识库没有检到足够相关材料，无法可靠回答这个问题。", "rag_no_retrieval")

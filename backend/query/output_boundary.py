@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 import re
 
 from query.output_classifier import build_output_decision, classify_output_candidate
@@ -57,7 +58,8 @@ _INTERNAL_STATUS_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 _PROCEDURAL_LINE_RE = re.compile(
-    r"^(?:岩[，,\s]*)?(?:我(?:来|将|会|先|需要先|先来|准备|打算)|让我|接下来(?:我)?)(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|改写|整理).+"
+    r"^(?:岩[，,\s]*)?(?:我(?:来|将|会|先|需要先|先来|准备|打算)|让我|接下来(?:我)?|稍等(?:我)?)"
+    r"(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|核实|改写|整理|查询).+"
     r"|^(?:知识库检索(?:未返回结果|失败)。?(?:让我|我将).+)$",
     re.IGNORECASE,
 )
@@ -192,6 +194,7 @@ class AssistantOutputResponse:
     selected_source: str
     segments: list[AssistantOutputSegment]
     tool_calls: list[dict[str, str]]
+    tool_receipts: list[dict[str, object]]
     raw_debug_text: str
     leak_flags: list[str]
     fallback_reason: str = ""
@@ -236,9 +239,18 @@ class AssistantOutputBoundary:
         )
 
     def ingest_tool_result(self, tool_name: str, tool_output: str) -> None:
+        normalized_tool = str(tool_name or "tool")
+        for index in range(len(self._current.tool_calls) - 1, -1, -1):
+            candidate = self._current.tool_calls[index]
+            if str(candidate.get("tool", "") or "") != normalized_tool:
+                continue
+            if str(candidate.get("output", "") or "").strip():
+                continue
+            candidate["output"] = str(tool_output or "")
+            return
         self._current.tool_calls.append(
             {
-                "tool": str(tool_name or "tool"),
+                "tool": normalized_tool,
                 "output": str(tool_output or ""),
             }
         )
@@ -271,6 +283,7 @@ class AssistantOutputBoundary:
         self,
         *,
         route: str = "",
+        execution_posture: str = "",
         user_message: str = "",
         tool_name: str = "",
         retrieval_results: list[dict[str, object]] | None = None,
@@ -280,16 +293,20 @@ class AssistantOutputBoundary:
         all_tool_calls: list[dict[str, str]] = []
         raw_parts: list[str] = []
         leak_flags: list[str] = []
-        candidates: list[OutputCandidate] = []
         for segment in segments:
             raw_parts.append(segment.raw_text)
             all_tool_calls.extend(list(segment.tool_calls))
+        tool_receipts = self._build_tool_receipts(all_tool_calls)
+        has_tool_receipt = bool(tool_receipts)
+        candidates: list[OutputCandidate] = []
+        for segment in segments:
             if segment.visible_text.strip():
                 candidate = classify_output_candidate(
                     text=segment.visible_text,
                     route=route,
                     source="segment.visible_text",
                     tool_name=tool_name,
+                    has_tool_receipt=has_tool_receipt,
                 )
                 if candidate is not None:
                     candidates.append(candidate)
@@ -302,6 +319,7 @@ class AssistantOutputBoundary:
                     route=route,
                     source="segment.ai_update_visible_text",
                     tool_name=tool_name,
+                    has_tool_receipt=has_tool_receipt,
                 )
                 if candidate is not None:
                     candidates.append(candidate)
@@ -315,6 +333,7 @@ class AssistantOutputBoundary:
                     source=f"tool.{tool_call.get('tool', tool_name or 'tool')}.output",
                     tool_name=str(tool_call.get("tool", "") or tool_name or ""),
                     allow_unlabeled_answer=False,
+                    has_tool_receipt=True,
                 )
                 if candidate is not None:
                     candidates.append(candidate)
@@ -324,10 +343,12 @@ class AssistantOutputBoundary:
         decision = build_output_decision(
             candidates=candidates,
             route=route,
+            execution_posture=execution_posture,
             user_message=user_message,
             tool_name=tool_name,
             retrieval_results=retrieval_results,
             leak_flags=leak_flags,
+            has_tool_receipt=has_tool_receipt,
         )
         return AssistantOutputResponse(
             visible_text="\n\n".join(visible_parts).strip(),
@@ -336,6 +357,7 @@ class AssistantOutputBoundary:
             selected_source=decision.selected_source,
             segments=segments,
             tool_calls=all_tool_calls,
+            tool_receipts=tool_receipts,
             raw_debug_text="\n\n".join(part for part in raw_parts if part.strip()).strip(),
             leak_flags=leak_flags,
             fallback_reason=decision.fallback_reason,
@@ -344,3 +366,20 @@ class AssistantOutputBoundary:
     def _add_flag(self, flag: str) -> None:
         if flag not in self._current.debug_flags:
             self._current.debug_flags.append(flag)
+
+    def _build_tool_receipts(self, tool_calls: list[dict[str, str]]) -> list[dict[str, object]]:
+        receipts: list[dict[str, object]] = []
+        for tool_call in tool_calls:
+            output = str(tool_call.get("output", "") or "").strip()
+            if not output:
+                continue
+            input_text = str(tool_call.get("input", "") or "")
+            receipt = {
+                "tool_name": str(tool_call.get("tool", "tool") or "tool"),
+                "status": "completed",
+                "input_digest": hashlib.sha1(input_text.encode("utf-8")).hexdigest()[:12] if input_text else "",
+                "canonical_summary_available": bool(sanitize_visible_assistant_content(output).strip()),
+                "evidence_ref": f"tool_output:{str(tool_call.get('tool', 'tool') or 'tool')}",
+            }
+            receipts.append(receipt)
+        return receipts

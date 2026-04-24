@@ -1,0 +1,19 @@
+[
+  {
+    "snapshot_id": "snap:general:active:2026-04-24T10:08:36+00:00",
+    "flow_id": "general:active",
+    "flow_type": "general_problem_solving_flow",
+    "status": "suspended",
+    "goal": "记住：如果信息不足，先明确告诉我缺什么，不要直接猜。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [],
+    "resume_hints": [
+      "近期结果：好的，岩。我已经记住了：以后遇到复杂问题，我会先给出结论，再展开解释。 这个偏好会在我处理复杂任务时持续生效。简单问题则保持自然流畅，不刻意套用结构。",
+      "此前结果：好的，岩。我已经记住了：以后遇到复杂问题，我会先给出结论，再展开解释。 这个偏好会在我处理复杂任务时持续生效。简单问题则保持自然流畅，不刻意套用结构。"
+    ],
+    "updated_at": "2026-04-24T10:08:36+00:00"
+  }
+]

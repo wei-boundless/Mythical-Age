@@ -76,6 +76,8 @@ class QueryContinuationResolver:
             task_kind=task_kind,
             modality="pdf",
             route="tool",
+            execution_posture="direct_tool",
+            direct_route_reason="pdf_followup_context",
             tool_name="pdf_analysis",
             tool_input={
                 "query": message,
@@ -110,6 +112,8 @@ class QueryContinuationResolver:
             intent="structured_followup_query",
             modality="table",
             route="tool",
+            execution_posture="direct_tool",
+            direct_route_reason="structured_explicit_context",
             tool_name="structured_data_analysis",
             tool_input={
                 "query": message,
@@ -137,6 +141,8 @@ class QueryContinuationResolver:
             task_kind="session_summary",
             modality="memory",
             route="memory",
+            execution_posture="direct_memory",
+            direct_route_reason="session_summary_context",
             should_skip_rag=True,
             confidence=max(float(getattr(understanding, "confidence", 0.0) or 0.0), 0.9),
             reasons=[*list(getattr(understanding, "reasons", []) or []), "session_summary_context"],
@@ -350,6 +356,8 @@ class QueryContinuationResolver:
             ),
             modality="pdf",
             route="tool",
+            execution_posture="direct_tool",
+            direct_route_reason="compound_authoritative_pdf_context",
             tool_name="pdf_analysis",
             tool_input={
                 **existing_tool_input,
@@ -388,6 +396,8 @@ class QueryContinuationResolver:
             task_kind="structured_data",
             modality="table",
             route="tool",
+            execution_posture="direct_tool",
+            direct_route_reason="compound_authoritative_dataset_context",
             tool_name="structured_data_analysis",
             tool_input={
                 **existing_tool_input,

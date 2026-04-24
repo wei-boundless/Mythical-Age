@@ -15,9 +15,11 @@ def main() -> None:
     assert shortage.source_kind == "knowledge_base"
     assert shortage.task_kind == "knowledge_lookup"
     assert shortage.target_object is None
-    assert shortage.route_hint == "rag"
-    assert shortage.preferred_skill == "rag-skill"
-    assert shortage.parameters == {}
+    assert shortage.route_hint == "agent"
+    assert shortage.execution_posture == "bounded_agent"
+    assert shortage.candidate_tools == ["search_knowledge"]
+    assert shortage.preferred_skill is None
+    assert shortage.parameters == {"query": "从我的数据库中，查询有哪些货物缺货"}
 
     explicit_dataset = analyze_task_understanding("帮我看一下 inventory.xlsx 里哪些货物缺货")
     assert explicit_dataset.source_kind == "dataset"
@@ -57,7 +59,14 @@ def main() -> None:
     assert knowledge.task_kind == "knowledge_lookup"
     assert knowledge.target_object is None
     assert knowledge.route_hint == "rag"
+    assert knowledge.execution_posture == "direct_rag"
     assert knowledge.preferred_skill == "rag-skill"
+
+    freshness = analyze_task_understanding("他今年还在打比赛吗")
+    assert freshness.route_hint == "agent"
+    assert freshness.execution_posture == "bounded_agent"
+    assert freshness.candidate_tools == ["search_knowledge", "web_search"]
+    assert freshness.preferred_skill is None
 
     weather = analyze_task_understanding("北京今天天气怎么样")
     assert weather.source_kind == "external_web"

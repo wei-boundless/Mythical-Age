@@ -1,0 +1,70 @@
+{
+  "version": 2,
+  "updated_at": "2026-04-24T10:08:36+00:00",
+  "session_title": "你刚刚让我长期保留了哪几件事？",
+  "active_goal": "你刚刚让我长期保留了哪几件事？",
+  "active_goal_turn_type": "task_switch",
+  "last_turn_type": "task_switch",
+  "flow_state": {
+    "flow_id": "general_problem_solving_flow:你刚刚让我长期保留了哪几",
+    "flow_type": "general_problem_solving_flow",
+    "status": "active",
+    "confidence": 0.72
+  },
+  "task_state": {
+    "current_step": "当前目标：你刚刚让我长期保留了哪几件事？",
+    "completed_steps": [],
+    "pending_steps": [],
+    "next_step": ""
+  },
+  "context_slots": {
+    "active_pdf": "",
+    "active_pdf_mode": "",
+    "active_pdf_section": "",
+    "active_pdf_pages": [],
+    "active_dataset": "",
+    "active_binding_kind": "",
+    "active_binding_identity": "",
+    "active_binding_owner_task_id": "",
+    "committed_pdf": "",
+    "committed_pdf_owner_task_id": "",
+    "committed_dataset": "",
+    "committed_dataset_owner_task_id": "",
+    "active_entity": "",
+    "active_rule": ""
+  },
+  "current_task_state": [
+    "当前目标：你刚刚让我长期保留了哪几件事？"
+  ],
+  "warm_context": [
+    "上一阶段目标：记住：如果信息不足，先明确告诉我缺什么，不要直接猜。",
+    "近期结果：好的，岩。我已经记住了：以后遇到复杂问题，我会先给出结论，再展开解释。 这个偏好会在我处理复杂任务时持续生效。简单问题则保持自然流畅，不刻意套用结构。",
+    "此前结果：好的，岩。我已经记住了：以后遇到复杂问题，我会先给出结论，再展开解释。 这个偏好会在我处理复杂任务时持续生效。简单问题则保持自然流畅，不刻意套用结构。"
+  ],
+  "key_user_requests": [
+    "你刚刚让我长期保留了哪几件事？"
+  ],
+  "files_and_functions": [],
+  "conventions_and_constraints": [],
+  "errors_and_corrections": [],
+  "decisions_and_learnings": [],
+  "key_results": [],
+  "risk_flags": [],
+  "risk_notes": [],
+  "next_step": [],
+  "worklog": [
+    "user: 你刚刚让我长期保留了哪几件事？"
+  ],
+  "turn_trace": [
+    {
+      "role": "user",
+      "turn_type": "task_switch",
+      "excerpt": "你刚刚让我长期保留了哪几件事？",
+      "intent": "durable_memory_query",
+      "modality": "general",
+      "target_object": "",
+      "flow_hint": "general_problem_solving_flow",
+      "constraints": []
+    }
+  ]
+}

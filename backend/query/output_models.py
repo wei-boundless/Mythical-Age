@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 OutputChannel = Literal[
     "progress_text",
+    "procedural_promise",
+    "tool_claim_without_receipt",
     "tool_raw_output",
     "tool_visible_summary",
     "answer_candidate",

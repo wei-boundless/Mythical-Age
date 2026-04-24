@@ -1291,7 +1291,8 @@ def test_runtime_output_boundary_strips_inline_pseudo_tool_calls_from_visible_an
     assert done_text
     assert "search_knowledge(" not in done_text
     assert "我需要先检索本地知识库中关于 AI 治理风险的内容" not in done_text
-    assert "已检索到相关资料，但当前模型尚未产出可直接展示的结论。" == done_text
+    assert "当前没有可验证的执行结果。" == done_text
+    assert events[-1]["answer_fallback_reason"] == "no_receipt_tool_claim"
 
 
 def test_runtime_output_boundary_salvages_nonempty_answer_when_only_procedural_text_remains() -> None:
@@ -1342,7 +1343,8 @@ def test_runtime_output_boundary_salvages_nonempty_answer_when_only_procedural_t
     assert "</think>" not in done_text
     assert "**工具调用:**" not in done_text
     assert "我来检索本地知识库中关于 AI 治理风险的相关内容" not in done_text
-    assert "已检索到相关资料，但当前模型尚未产出可直接展示的结论。" == done_text
+    assert "当前没有可验证的执行结果。" == done_text
+    assert events[-1]["answer_fallback_reason"] == "no_receipt_tool_claim"
 
 
 def test_runtime_memory_visible_gate_rejects_procedural_segment_answer() -> None:

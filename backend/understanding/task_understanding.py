@@ -19,6 +19,8 @@ class TaskUnderstanding:
     preferred_skill: str | None = None
     candidate_tools: list[str] = field(default_factory=list)
     parameters: dict[str, Any] = field(default_factory=dict)
+    execution_posture: str = "direct_rag"
+    direct_route_reason: str = ""
     should_skip_rag: bool = False
     confidence: float = 0.0
     reasons: list[str] = field(default_factory=list)
@@ -38,6 +40,8 @@ def analyze_task_understanding(
             task_kind="memory_lookup",
             modality="memory",
             route_hint="memory",
+            execution_posture="direct_memory",
+            direct_route_reason="memory_intent",
             should_skip_rag=True,
             confidence=1.0,
             reasons=["memory_intent"],
@@ -50,13 +54,14 @@ def analyze_task_understanding(
         or _detect_faq_task(normalized, lowered)
         or _detect_structured_data_task(normalized, lowered)
         or _detect_knowledge_task(normalized, lowered)
-        or TaskUnderstanding(
+        or _build_bounded_lookup_task(
+            message=normalized,
+            lowered=lowered,
             source_kind="knowledge_base",
             task_kind="knowledge_lookup",
-            preferred_skill="rag-skill",
-            candidate_tools=["search_knowledge"],
-            reasons=["fallback_knowledge_lookup"],
+            modality="general",
             confidence=0.35,
+            reasons=["fallback_bounded_lookup"],
         )
     )
 
@@ -91,6 +96,8 @@ def _detect_realtime_task(message: str, lowered: str) -> TaskUnderstanding | Non
             preferred_skill="get-weather",
             candidate_tools=["get_weather"],
             parameters={"query": message},
+            execution_posture="direct_tool",
+            direct_route_reason="weather_markers",
             should_skip_rag=True,
             confidence=0.98,
             reasons=["weather_markers"],
@@ -116,6 +123,8 @@ def _detect_realtime_task(message: str, lowered: str) -> TaskUnderstanding | Non
             preferred_skill="gold-price",
             candidate_tools=["get_gold_price"],
             parameters={"query": message},
+            execution_posture="direct_tool",
+            direct_route_reason="gold_markers",
             should_skip_rag=True,
             confidence=0.97,
             reasons=["gold_markers"],
@@ -126,30 +135,17 @@ def _detect_realtime_task(message: str, lowered: str) -> TaskUnderstanding | Non
 def _detect_web_task(message: str, lowered: str) -> TaskUnderstanding | None:
     explicit_web_markers = (
         "联网",
-        "搜索",
         "查官网",
         "官网",
         "look it up",
-        "search",
         "official docs",
         "news",
         "web search",
         "上网",
         "网上查",
     )
-    freshness_markers = (
-        "最新",
-        "最新消息",
-        "新闻",
-        "实时",
-        "recent",
-        "latest",
-        "today",
-    )
-    lookup_verbs = ("查", "搜", "搜索", "看看", "检索", "了解", "查询", "look up", "search")
     has_explicit_web_marker = _contains_any(lowered, explicit_web_markers)
-    has_fresh_lookup = _contains_any(lowered, freshness_markers) and _contains_any(lowered, lookup_verbs)
-    if not has_explicit_web_marker and not has_fresh_lookup:
+    if not has_explicit_web_marker:
         return None
     return TaskUnderstanding(
         intent="web_search_query",
@@ -160,9 +156,11 @@ def _detect_web_task(message: str, lowered: str) -> TaskUnderstanding | None:
         preferred_skill="web-search",
         candidate_tools=["web_search"],
         parameters={"query": message},
+        execution_posture="direct_tool",
+        direct_route_reason="explicit_web_request",
         should_skip_rag=True,
         confidence=0.92,
-        reasons=["web_markers" if has_explicit_web_marker else "fresh_lookup_markers"],
+        reasons=["explicit_web_markers"],
     )
 
 
@@ -232,6 +230,8 @@ def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
         preferred_skill="pdf-analysis",
         candidate_tools=["pdf_analysis"],
         parameters=parameters,
+        execution_posture="direct_tool",
+        direct_route_reason="explicit_pdf_reference" if explicit_references else "pdf_markers",
         should_skip_rag=True,
         confidence=0.93 if mode in {"page", "section"} else 0.88,
         reasons=reasons,
@@ -286,6 +286,8 @@ def _detect_faq_task(message: str, lowered: str) -> TaskUnderstanding | None:
         preferred_skill="rag-skill",
         candidate_tools=["search_knowledge"],
         parameters={"query": message},
+        execution_posture="direct_rag",
+        direct_route_reason="faq_explanation_markers",
         should_skip_rag=False,
         confidence=0.9,
         reasons=["faq_explanation_markers"],
@@ -395,6 +397,8 @@ def _detect_structured_data_task(message: str, lowered: str) -> TaskUnderstandin
         preferred_skill="structured-data-analysis",
         candidate_tools=["structured_data_analysis"],
         parameters=parameters,
+        execution_posture="direct_tool",
+        direct_route_reason="explicit_dataset_reference" if explicit_dataset_path else "explicit_dataset_source",
         should_skip_rag=True,
         confidence=0.9 if explicit_dataset_path else 0.76,
         reasons=reasons,
@@ -418,6 +422,16 @@ def _detect_knowledge_task(message: str, lowered: str) -> TaskUnderstanding | No
     )
     if not _contains_any(lowered, knowledge_markers):
         return None
+    if _has_freshness_signal(lowered):
+        return _build_bounded_lookup_task(
+            message=message,
+            lowered=lowered,
+            source_kind="knowledge_base",
+            task_kind="knowledge_lookup",
+            modality="general",
+            confidence=0.68,
+            reasons=["knowledge_markers", "freshness_signal"],
+        )
     return TaskUnderstanding(
         intent="knowledge_lookup_query",
         source_kind="knowledge_base",
@@ -427,6 +441,8 @@ def _detect_knowledge_task(message: str, lowered: str) -> TaskUnderstanding | No
         preferred_skill="rag-skill",
         candidate_tools=["search_knowledge"],
         parameters={"query": message},
+        execution_posture="direct_rag",
+        direct_route_reason="explicit_knowledge_scope",
         should_skip_rag=False,
         confidence=0.78,
         reasons=["knowledge_markers"],
@@ -443,6 +459,58 @@ def _extract_explicit_dataset_reference(message: str) -> str:
         flags=re.IGNORECASE,
     )
     return match.group(1).strip() if match is not None else ""
+
+
+def _build_bounded_lookup_task(
+    *,
+    message: str,
+    lowered: str,
+    source_kind: str,
+    task_kind: str,
+    modality: str,
+    confidence: float,
+    reasons: list[str],
+) -> TaskUnderstanding:
+    candidate_tools = ["search_knowledge"]
+    direct_route_reason = "unresolved_lookup"
+    if _has_freshness_signal(lowered):
+        candidate_tools.append("web_search")
+        direct_route_reason = "freshness_aware_lookup"
+    return TaskUnderstanding(
+        intent="general_query",
+        source_kind=source_kind,
+        task_kind=task_kind,
+        modality=modality,
+        route_hint="agent",
+        preferred_skill=None,
+        candidate_tools=candidate_tools,
+        parameters={"query": message},
+        execution_posture="bounded_agent",
+        direct_route_reason=direct_route_reason,
+        should_skip_rag=False,
+        confidence=confidence,
+        reasons=reasons,
+    )
+
+
+def _has_freshness_signal(lowered: str) -> bool:
+    freshness_markers = (
+        "今年",
+        "现在",
+        "目前",
+        "还在",
+        "最新",
+        "最新状态",
+        "实时",
+        "today",
+        "latest",
+        "current",
+        "currently",
+        "recent",
+    )
+    return _contains_any(lowered, freshness_markers)
+
+
 def _looks_generic_dataset_followup(message: str, lowered: str) -> bool:
     starter_markers = ("再", "继续", "然后", "接着", "那就", "再来", "回到刚才", "刚才那个")
     generic_reference_markers = (

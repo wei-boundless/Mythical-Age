@@ -1,0 +1,57 @@
+[
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:docs-26-openclaw-md:2026-04-24T03:27:23+00:00",
+    "flow_id": "pdf_analysis_flow:docs-26-openclaw-md",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "读取 docs/26-OpenClaw-架构改造计划.md，概括现在的主路径分层。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "Paper [2] knowledge/AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf (score=0.744, modes=dense) nature>articles>article [3] knowledge/AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf (score=0.706, modes=dense) Explore content vAbout the joural Publish with usv [4] knowledge/A",
+      "[1] knowledge/AI Knowledge/中国AI+营销趋势洞察2026.pdf (score=0.029, modes=dense,lexical,fusion) 分层记忆架构 [2] knowledge/AI Knowledge/OpenAI深度报告：大模型王者，引领AGI之路.pdf (score=0.016, modes=dense) 2）治理结构方面：2025年10月OpenAl重组后形成了Foundation（基金会，$26 \\%$ 控股实体）+PBC（公益公司，负责研究、产品、商业化运营）"
+    ],
+    "resume_hints": [
+      "上一阶段目标：那你不要执行，只告诉我安全检查步骤。",
+      "上一阶段结果：岩，删除文件前的安全检查步骤如下： 一、确认目标范围 1. 明确 workspace 的绝对路径 2. 明确\"临时文件\"的判定标准（文件名模式、扩展名、目录位置） 3. 排除不应删除的文件或目录（如配置文件、版本控制目录 `.git`） 二..."
+    ],
+    "updated_at": "2026-04-24T03:27:23+00:00"
+  },
+  {
+    "snapshot_id": "snap:general_problem_solving_flow:那你不要执行:2026-04-24T03:26:46+00:00",
+    "flow_id": "general_problem_solving_flow:那你不要执行",
+    "flow_type": "general_problem_solving_flow",
+    "status": "suspended",
+    "goal": "那你不要执行，只告诉我安全检查步骤。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "岩，删除文件前的安全检查步骤如下： 一、确认目标范围 1. 明确 workspace 的绝对路径 2. 明确\"临时文件\"的判定标准（文件名模式、扩展名、目录位置） 3. 排除不应删除的文件或目录（如配置文件、版本控制目录 `.git`） 二、预览将要删除的内容 1. 先用 `find` 或 `ls` 列出匹配的文件列表，不执行删除 2. 检查列表中是否有意外文件（重要文档、源代码、配置文件） 3. 统计文件数量和总大小，评估影响范围 三、检查依赖和影响 1. 确认这些文件是否被其他进程占用或锁定 2. 确认是否有其"
+    ],
+    "resume_hints": [
+      "上一阶段目标：直接在终端里删掉 workspace 里的临时文件。",
+      "上一阶段结果：岩，删除文件是高风险操作，我需要先确认两个关键信息： 1. workspace 的具体路径在哪里？ 2. 哪些文件被定义为\"临时文件\"？是按文件名模式、扩展名，还是某个目录下的全部内容？ 让我先检索一下是否有相关记录：[1] knowled..."
+    ],
+    "updated_at": "2026-04-24T03:26:46+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:workspace:2026-04-24T03:24:59+00:00",
+    "flow_id": "pdf_analysis_flow:workspace",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "直接在终端里删掉 workspace 里的临时文件。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "岩，删除文件是高风险操作，我需要先确认两个关键信息： 1. workspace 的具体路径在哪里？ 2. 哪些文件被定义为\"临时文件\"？是按文件名模式、扩展名，还是某个目录下的全部内容？ 让我先检索一下是否有相关记录：[1] knowledge/README.md (score=0.016, modes=dense) # Knowledge Base 把需要长期检索的资料放在这里，支持 `.md`、`.txt`、`.json` 等文本文件。 [2] knowledge/AI Knowledge/2025全球人工智能"
+    ],
+    "resume_hints": [],
+    "updated_at": "2026-04-24T03:24:59+00:00"
+  }
+]

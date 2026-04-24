@@ -72,6 +72,8 @@ class QueryPlanner:
                 task_kind="compound_query",
                 modality="multi",
                 route="compound",
+                execution_posture="compound",
+                direct_route_reason="compound_query_fanout",
                 reasons=["compound_query_fanout"],
             )
             active_skill = None
@@ -126,6 +128,8 @@ class QueryPlanner:
         # The prompt chain must render only skill.prompt_view / render_prompt_block(),
         # never the runtime contract itself.
         if self.skill_registry is None:
+            return None
+        if str(getattr(query_understanding, "execution_posture", "") or "") == "bounded_agent":
             return None
         if query_understanding.skill_name:
             existing = self.skill_registry.get_by_name(query_understanding.skill_name)
@@ -204,6 +208,7 @@ class QueryPlanner:
             tool_input=tool_input,
             structured_binding=structured_binding,
             execution_kind=execution_kind,
+            execution_posture=str(getattr(query_understanding, "execution_posture", "") or ""),
             ephemeral_system_messages=list(ephemeral_system_messages or []),
         )
 

@@ -1,0 +1,37 @@
+[
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:默认终端命令应该怎么写:2026-04-24T03:23:48+00:00",
+    "flow_id": "pdf_analysis_flow:默认终端命令应该怎么写",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "默认终端命令应该怎么写？",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "岩，这个问题需要先明确场景。让我检索一下是否有相关记录。[1] knowledge/AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf (score=0.016, modes=dense) 提示词查询 [2] knowledge/AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf (score=0.016, modes=dense) 提示词查询 [3] knowledge/AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf ("
+    ],
+    "resume_hints": [
+      "上一阶段目标：我们这个项目现在优先抓哪条主线？",
+      "上一阶段结果：岩，我需要先了解\"这个项目\"的具体背景才能给出有依据的主线判断。 让我先检索一下本地知识库，看看是否有项目相关的规划、目标或当前状态记录。[1] knowledge/AI Knowledge/2026年快消行业AI营销增长白皮书.pdf (..."
+    ],
+    "updated_at": "2026-04-24T03:23:48+00:00"
+  },
+  {
+    "snapshot_id": "snap:pdf_analysis_flow:我们这个项目现在优先抓哪:2026-04-24T03:23:32+00:00",
+    "flow_id": "pdf_analysis_flow:我们这个项目现在优先抓哪",
+    "flow_type": "pdf_analysis_flow",
+    "status": "suspended",
+    "goal": "我们这个项目现在优先抓哪条主线？",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {},
+    "recent_results": [
+      "岩，我需要先了解\"这个项目\"的具体背景才能给出有依据的主线判断。 让我先检索一下本地知识库，看看是否有项目相关的规划、目标或当前状态记录。[1] knowledge/AI Knowledge/2026年快消行业AI营销增长白皮书.pdf (score=0.016, modes=dense) 核心诉求 [2] knowledge/AI Knowledge/2026年AI Agent智能体技术发展报告.pdf (score=0.016, modes=dense) 2.3.3 主流决策框架⼆：Plan-and-Execu"
+    ],
+    "resume_hints": [],
+    "updated_at": "2026-04-24T03:23:32+00:00"
+  }
+]

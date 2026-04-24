@@ -19,6 +19,8 @@ class QueryUnderstanding:
     target_object: str | None = None
     modality: str = "general"
     route: str = "rag"
+    execution_posture: str = "direct_rag"
+    direct_route_reason: str = ""
     skill_name: str | None = None
     tool_name: str | None = None
     candidate_tools: list[str] = field(default_factory=list)
@@ -54,6 +56,8 @@ def _from_task(task: TaskUnderstanding) -> QueryUnderstanding:
         target_object=None,
         modality=task.modality,
         route=task.route_hint,
+        execution_posture=task.execution_posture,
+        direct_route_reason=task.direct_route_reason,
         skill_name=task.preferred_skill,
         candidate_tools=list(task.candidate_tools),
         tool_input=dict(task.parameters),
@@ -75,6 +79,8 @@ def _apply_skill_tool_routing(
     # skill text stays inside SkillPromptView and is assembled later in prompt
     # building, not here.
     if understanding.route == "memory":
+        return
+    if understanding.execution_posture == "bounded_agent":
         return
 
     if skill_registry is not None:

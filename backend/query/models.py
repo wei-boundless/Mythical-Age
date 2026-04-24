@@ -36,6 +36,7 @@ class QueryExecutionPlan:
     tool_input: dict[str, Any] = field(default_factory=dict)
     structured_binding: StructuredDatasetBinding | None = None
     execution_kind: Literal["agent", "direct_tool"] = "agent"
+    execution_posture: str = ""
     ephemeral_system_messages: list[str] = field(default_factory=list)
 
 
@@ -68,6 +69,7 @@ class QueryPlan:
                 tool_input=dict(self.tool_input or self.query_understanding.tool_input or {}),
                 structured_binding=self.structured_binding,
                 execution_kind=self.execution_kind,
+                execution_posture=str(getattr(self.query_understanding, "execution_posture", "") or ""),
             )
         ]
 
