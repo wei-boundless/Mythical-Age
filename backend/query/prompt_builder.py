@@ -104,7 +104,7 @@ def build_static_prompt(
 
     for label, relative_path in STATIC_COMPONENTS:
         content = _read_component(base_dir, relative_path, settings.component_char_limit)
-        parts.append(f"<!-- {label} -->\n{content}")
+        parts.append(f"## 当前可用能力摘要\n{content}")
 
     long_term_context = long_term_context_bundle or build_long_term_context_bundle(base_dir)
     static_context = long_term_context.render(
@@ -113,23 +113,20 @@ def build_static_prompt(
         include_memory_block=False,
     )
     if static_context:
-        parts.append(f"<!-- Long-Term Context -->\n{static_context}")
+        parts.append(static_context)
 
     if rag_mode:
         parts.append(
-            "<!-- Retrieval Mode -->\n"
-            "RAG mode is enabled. When retrieved context is available, treat it as grounded evidence. "
-            "Use long-term context for stable preferences, project conventions, and durable facts, not as a replacement "
-            "for retrieved knowledge."
+            "当检索证据可用时，应把它当作当前问题的直接依据。"
+            "你已经记得的设定和长期事实用于保持稳定性，不替代当前检索到的资料。"
         )
 
     parts.append(
-        "<!-- Memory Policy -->\n"
-        "The long-term context system is layered: constitution for stable agent principles, profile for user/project defaults, "
-        "and dynamic memory for durable facts and reusable conventions. Do not treat transient emotions, temporary moods, "
-        "or user attachment to the agent as durable memory. Those can remain in session context without being promoted "
-        "to the long-term context store. When using long-term memory in answers, present only the semantic fact or convention. "
-        "Do not mention internal file paths, directory names, filenames, schema labels, or storage layout."
+        "你当前读到的稳定原则、持续生效的偏好和长期事实，都应被当作你记得的内容，而不是对用户暴露的系统结构。"
+        "不要在回答中提及 internal file paths, directory names, filenames, schema labels, storage layout，"
+        "也不要复述实现层标签、分层命名或配置文件叫法。"
+        "如果用户追问你为什么知道某件事，应优先用“我记得”“我当前的设定是”“我目前延续使用的偏好是”这类自然表述。"
+        "不要把短期情绪、临时口头禅或偶发说法提升为长期记忆。"
     )
     return "\n\n".join(parts)
 
@@ -143,7 +140,7 @@ def build_session_memoized_prompt(
     settings = get_settings()
     parts: list[str] = []
     if active_skill:
-        parts.append(f"<!-- Active Skill -->\n{_truncate(active_skill, settings.component_char_limit)}")
+        parts.append(f"## 当前工作指引\n{_truncate(active_skill, settings.component_char_limit)}")
 
     rendered_session_memory = (
         _render_context_package_block(context_package, include_durable_context=False)
@@ -151,10 +148,7 @@ def build_session_memoized_prompt(
         else (session_memory or "").strip()
     )
     if rendered_session_memory:
-        parts.append(
-            "<!-- Session Memory -->\n"
-            f"{_truncate(rendered_session_memory, settings.component_char_limit)}"
-        )
+        parts.append(f"## 当前情境\n{_truncate(rendered_session_memory, settings.component_char_limit)}")
     return "\n\n".join(parts)
 
 
@@ -188,8 +182,7 @@ def build_turn_prompt(
     ).strip()
     if durable_memory_block:
         parts.append(
-            "<!-- Durable Memory -->\n"
-            f"## Dynamic Long-Term Memory\n{_truncate(durable_memory_block, settings.component_char_limit)}"
+            f"## 当前最相关的已记住事实\n{_truncate(durable_memory_block, settings.component_char_limit)}"
         )
     return "\n\n".join(parts)
 

@@ -98,6 +98,12 @@ export async function getSessionTokens(sessionId: string) {
     system_tokens: number;
     message_tokens: number;
     total_tokens: number;
+    history_tokens: number;
+    history_budget_tokens: number;
+    history_remaining_tokens: number;
+    history_usage_ratio: number;
+    history_remaining_ratio: number;
+    history_pressure_level: string;
   }>(`/tokens/session/${sessionId}`);
 }
 
@@ -142,17 +148,11 @@ export async function setPermissionMode(mode: string) {
   });
 }
 
-export async function compressSession(sessionId: string) {
-  return request<{ archived_count: number; remaining_count: number }>(
-    `/sessions/${sessionId}/compress`,
-    { method: "POST" }
-  );
-}
-
 export async function streamChat(
   payload: {
     message: string;
     session_id: string;
+    ephemeral_system_messages?: string[];
   },
   handlers: StreamHandlers
 ) {

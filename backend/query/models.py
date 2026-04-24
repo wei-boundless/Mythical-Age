@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from query.binding_models import StructuredDatasetBinding
 from query.context_models import EvidenceSummary, MainContextState, TaskSummaryRef
+from skill_system import SkillDefinition
 from understanding import MemoryIntent, QueryUnderstanding
 
 
@@ -22,6 +23,7 @@ class QueryRequest:
     session_id: str
     message: str
     history: list[dict[str, Any]] | None = None
+    ephemeral_system_messages: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -30,10 +32,11 @@ class QueryExecutionPlan:
     history: list[dict[str, Any]]
     memory_intent: MemoryIntent
     query_understanding: QueryUnderstanding
-    active_skill: Any | None = None
+    active_skill: SkillDefinition | None = None
     tool_input: dict[str, Any] = field(default_factory=dict)
     structured_binding: StructuredDatasetBinding | None = None
     execution_kind: Literal["agent", "direct_tool"] = "agent"
+    ephemeral_system_messages: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -44,11 +47,12 @@ class QueryPlan:
     subqueries: list[str]
     memory_intent: MemoryIntent
     query_understanding: QueryUnderstanding
-    active_skill: Any | None = None
+    active_skill: SkillDefinition | None = None
     tool_input: dict[str, Any] = field(default_factory=dict)
     structured_binding: StructuredDatasetBinding | None = None
     execution_kind: Literal["agent", "direct_tool"] = "agent"
     executions: list[QueryExecutionPlan] = field(default_factory=list)
+    ephemeral_system_messages: list[str] = field(default_factory=list)
 
     def iter_executions(self) -> list[QueryExecutionPlan]:
         if self.executions:
@@ -57,6 +61,7 @@ class QueryPlan:
             QueryExecutionPlan(
                 message=self.message,
                 history=list(self.history),
+                ephemeral_system_messages=list(self.ephemeral_system_messages),
                 memory_intent=self.memory_intent,
                 query_understanding=self.query_understanding,
                 active_skill=self.active_skill,
@@ -78,6 +83,7 @@ class QueryContext:
     context_compaction: dict[str, Any] | None = None
     retrieval_results: list[dict[str, Any]] = field(default_factory=list)
     relevant_memory_notes: list[Any] | None = None
+    ephemeral_system_messages: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

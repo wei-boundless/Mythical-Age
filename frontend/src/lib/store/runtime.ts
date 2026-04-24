@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  compressSession,
+  loadFile,
   createSession,
   deleteSession,
   getRagMode,
@@ -9,12 +9,19 @@ import {
   getSessionTokens,
   listSessions,
   listSkills,
-  loadFile,
   renameSession,
   saveFile,
   setRagMode,
   streamChat
 } from "@/lib/api";
+import {
+  ACTIVE_SOUL_PATH,
+  SOUL_SEED_PATHS,
+  inferSoulKey,
+  parseSoulSeed,
+  type SoulKey,
+  type SoulSummary
+} from "@/lib/souls";
 
 import type { Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
@@ -42,6 +49,9 @@ export class WorkspaceRuntime {
       toggleRagMode: async () => {
         await this.toggleRagMode();
       },
+      switchSoul: async (key) => {
+        await this.switchSoul(key);
+      },
       renameCurrentSession: async (title) => {
         await this.renameCurrentSession(title);
       },
@@ -57,9 +67,6 @@ export class WorkspaceRuntime {
       saveInspector: async () => {
         await this.saveInspector();
       },
-      compressCurrentSession: async () => {
-        await this.compressCurrentSession();
-      },
       setSidebarWidth: (width) => {
         this.setSidebarWidth(width);
       },
@@ -70,17 +77,20 @@ export class WorkspaceRuntime {
   }
 
   async initialize() {
-    const [sessions, rag, skills] = await Promise.all([
+    const [sessions, rag, skills, souls] = await Promise.all([
       listSessions(),
       getRagMode(),
-      listSkills()
+      listSkills(),
+      this.loadSouls()
     ]);
 
     this.store.setState((prev) => ({
       ...prev,
       sessions,
       ragMode: rag.enabled,
-      skills
+      skills,
+      soulOptions: souls.options,
+      activeSoulKey: souls.activeSoulKey
     }));
 
     const currentSessionId = this.store.getState().currentSessionId;
@@ -131,6 +141,15 @@ export class WorkspaceRuntime {
   private async refreshSkills() {
     const skills = await listSkills();
     this.store.setState((prev) => ({ ...prev, skills }));
+  }
+
+  private async refreshSouls() {
+    const souls = await this.loadSouls();
+    this.store.setState((prev) => ({
+      ...prev,
+      soulOptions: souls.options,
+      activeSoulKey: souls.activeSoulKey
+    }));
   }
 
   private async refreshSessionDetails(sessionId: string) {
@@ -206,12 +225,18 @@ export class WorkspaceRuntime {
     }
 
     const sessionId = await this.ensureSession();
+    const ephemeralSystemMessages = [...(state.pendingEphemeralSystemMessages ?? [])];
+    let consumedEphemeralSystemMessages = false;
     let transition = startStreamingTurn(this.store.getState(), trimmed);
     this.store.setState(() => transition.state);
 
     try {
       await streamChat(
-        { message: trimmed, session_id: sessionId },
+        {
+          message: trimmed,
+          session_id: sessionId,
+          ephemeral_system_messages: ephemeralSystemMessages
+        },
         {
           onEvent: (event, data) => {
             transition = reduceStreamEvent(this.store.getState(), transition.session, event, data);
@@ -219,6 +244,7 @@ export class WorkspaceRuntime {
           }
         }
       );
+      consumedEphemeralSystemMessages = true;
     } catch (error) {
       transition = reduceStreamEvent(
         this.store.getState(),
@@ -228,7 +254,24 @@ export class WorkspaceRuntime {
       );
       this.store.setState(() => transition.state);
     } finally {
-      this.store.setState((prev) => ({ ...prev, isStreaming: false }));
+      this.store.setState((prev) => {
+        const next = { ...prev, isStreaming: false };
+        if (
+          consumedEphemeralSystemMessages
+          && ephemeralSystemMessages.length > 0
+          && prev.pendingEphemeralSystemMessages.join("\n") === ephemeralSystemMessages.join("\n")
+        ) {
+          next.pendingEphemeralSystemMessages = [];
+        }
+        if (
+          !consumedEphemeralSystemMessages
+          && ephemeralSystemMessages.length > 0
+          && !prev.pendingEphemeralSystemMessages.length
+        ) {
+          next.pendingEphemeralSystemMessages = ephemeralSystemMessages;
+        }
+        return next;
+      });
       if (this.store.getState().currentSessionId === sessionId) {
         await this.refreshSessionDetails(sessionId);
       }
@@ -245,6 +288,34 @@ export class WorkspaceRuntime {
     } catch (error) {
       this.store.setState((prev) => ({ ...prev, ragMode: !next }));
       throw error;
+    }
+  }
+
+  private async switchSoul(key: SoulKey) {
+    const previousKey = this.store.getState().activeSoulKey;
+    if (previousKey === key) {
+      return;
+    }
+    const path = SOUL_SEED_PATHS[key];
+    const file = await loadFile(path);
+    await saveFile(ACTIVE_SOUL_PATH, file.content);
+    const souls = await this.loadSouls();
+    const activeSoul = souls.options.find((item) => item.key === souls.activeSoulKey) ?? null;
+    const switchNotice = activeSoul ? this.buildSoulSwitchNotice(activeSoul) : "";
+    this.store.setState((prev) => ({
+      ...prev,
+      soulOptions: souls.options,
+      activeSoulKey: souls.activeSoulKey,
+      pendingEphemeralSystemMessages: switchNotice ? [switchNotice] : prev.pendingEphemeralSystemMessages
+    }));
+
+    const state = this.store.getState();
+    if (state.inspectorPath === ACTIVE_SOUL_PATH) {
+      this.store.setState((prev) => ({
+        ...prev,
+        inspectorContent: file.content,
+        inspectorDirty: false
+      }));
     }
   }
 
@@ -294,6 +365,25 @@ export class WorkspaceRuntime {
     }));
   }
 
+  private async loadSouls(): Promise<{ options: SoulSummary[]; activeSoulKey: SoulKey }> {
+    const [activeSeed, ...seedFiles] = await Promise.all([
+      loadFile(ACTIVE_SOUL_PATH),
+      ...Object.values(SOUL_SEED_PATHS).map((path) => loadFile(path))
+    ]);
+    const options = seedFiles.map((file) => parseSoulSeed(file.path, file.content));
+    const activeSoulKey = inferSoulKey(activeSeed.path, parseSoulSeed(activeSeed.path, activeSeed.content).name);
+    return { options, activeSoulKey };
+  }
+
+  private buildSoulSwitchNotice(soul: SoulSummary): string {
+    return [
+      `处理风格已切换为「${soul.name}」。`,
+      "从本轮开始采用新的表达风格与语气。",
+      "这只是风格切换，不代表任务目标、事实标准、工具权限或工作边界发生变化。",
+      "不要主动向用户解释内部切换过程，除非用户明确询问。"
+    ].join("");
+  }
+
   private updateInspectorContent(value: string) {
     this.store.setState((prev) => ({
       ...prev,
@@ -307,16 +397,6 @@ export class WorkspaceRuntime {
     await saveFile(state.inspectorPath, state.inspectorContent);
     this.store.setState((prev) => ({ ...prev, inspectorDirty: false }));
     await this.refreshSkills();
-  }
-
-  private async compressCurrentSession() {
-    const currentSessionId = this.store.getState().currentSessionId;
-    if (!currentSessionId) {
-      return;
-    }
-    await compressSession(currentSessionId);
-    await this.refreshSessionDetails(currentSessionId);
-    await this.refreshSessions();
   }
 
   private setSidebarWidth(width: number) {

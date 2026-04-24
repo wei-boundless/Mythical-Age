@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, FileStack, Plus, Sparkles, Wrench } from "lucide-react";
+import { Database, Gauge, Plus, Sparkles } from "lucide-react";
 
 import { useAppStore } from "@/lib/store";
 
@@ -9,75 +9,56 @@ export function Navbar() {
     createNewSession,
     ragMode,
     toggleRagMode,
-    compressCurrentSession,
-    renameCurrentSession,
-    sessions,
-    currentSessionId
+    tokenStats
   } = useAppStore();
-
-  const currentTitle =
-    sessions.find((session) => session.id === currentSessionId)?.title ?? "新会话";
+  const remainingPercent = tokenStats
+    ? Math.max(0, Math.min(100, Math.round(tokenStats.history_remaining_ratio * 100)))
+    : null;
+  const pressureLevel = tokenStats?.history_pressure_level ?? "normal";
 
   return (
-    <header className="panel flex items-center justify-between rounded-[30px] px-5 py-4">
-      <div className="flex items-center gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[rgba(15,139,141,0.14)] text-ocean">
-          <Sparkles size={20} />
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.32em] text-[var(--color-ink-soft)]">
-            Mini-OpenClaw
-          </p>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold tracking-[-0.04em]">{currentTitle}</h1>
-            <button
-              className="rounded-full border border-[var(--color-line)] px-3 py-1 text-xs text-[var(--color-ink-soft)]"
-              onClick={() => {
-                const next = window.prompt("重命名当前会话", currentTitle);
-                if (next) {
-                  void renameCurrentSession(next);
-                }
-              }}
-              type="button"
-            >
-              Rename
-            </button>
+    <header className="panel flex flex-col gap-5 rounded-[34px] px-5 py-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="brand-mark">
+            <Sparkles size={20} />
+          </div>
+          <div className="min-w-0">
+            <p className="section-kicker">Mythic Local Agent Workbench</p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-[var(--color-text)]">
+              河图工作台
+            </h1>
           </div>
         </div>
-      </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          className="flex items-center gap-2 rounded-full border border-[var(--color-line)] bg-white/60 px-4 py-2 text-sm"
-          onClick={() => void createNewSession()}
-          type="button"
-        >
-          <Plus size={16} />
-          新会话
-        </button>
-        <button
-          className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm ${
-            ragMode
-              ? "bg-ocean text-white"
-              : "border border-[var(--color-line)] bg-white/60 text-ink"
-          }`}
-          onClick={() => void toggleRagMode()}
-          type="button"
-        >
-          <Database size={16} />
-          {ragMode ? "RAG 已开" : "RAG 已关"}
-        </button>
-        <button
-          className="flex items-center gap-2 rounded-full border border-[var(--color-line)] bg-white/60 px-4 py-2 text-sm"
-          onClick={() => void compressCurrentSession()}
-          type="button"
-        >
-          <Wrench size={16} />
-          压缩
-        </button>
-        <div className="hidden items-center gap-2 rounded-full bg-[rgba(212,106,74,0.12)] px-4 py-2 text-sm text-[var(--color-ember)] md:flex">
-          <FileStack size={16} />
-          File-first Memory
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            className="action-button action-button--muted"
+            onClick={() => void createNewSession()}
+            type="button"
+          >
+            <Plus size={16} />
+            新会话
+          </button>
+          <button
+            className={`action-button ${
+              ragMode ? "action-button--primary" : "action-button--muted"
+            }`}
+            onClick={() => void toggleRagMode()}
+            type="button"
+          >
+            <Database size={16} />
+            {ragMode ? "检索模式 开" : "检索模式 关"}
+          </button>
+          {tokenStats ? (
+            <div
+              className={`status-pill status-pill--context status-pill--${pressureLevel}`}
+              title={`当前历史上下文 ${tokenStats.history_tokens}/${tokenStats.history_budget_tokens} tokens，余量 ${remainingPercent}%`}
+            >
+              <Gauge size={16} />
+              {`上下文余量 ${remainingPercent}%`}
+            </div>
+          ) : null}
         </div>
       </div>
     </header>

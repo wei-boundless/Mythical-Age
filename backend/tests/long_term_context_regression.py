@@ -35,12 +35,11 @@ def test_long_term_context_bundle_layers_workspace_and_memory() -> None:
         bundle = build_long_term_context_bundle(root)
         rendered = bundle.render(truncate=lambda text, _limit: text, limit=9999)
 
-        _assert("## Constitution" in rendered, "bundle should render constitution section")
-        _assert("## Profile" in rendered, "bundle should render profile section")
-        _assert("## Dynamic Long-Term Memory" in rendered, "bundle should render dynamic memory section")
-        _assert("### Agent Core" in rendered and "Calm and direct." in rendered, "agent core should map into constitution")
-        _assert("### Active Soul Seed" in rendered and "River-like and restrained." in rendered, "active seed should map into constitution")
-        _assert("### Agent Profile" in rendered and "Prefer Chinese." in rendered, "agent profile should map into profile")
+        _assert("## 当前延续生效的设定" in rendered, "bundle should render semantic stable-settings section")
+        _assert("## 你记得的长期事实" in rendered, "bundle should render semantic remembered-facts section")
+        _assert("### 稳定原则" in rendered and "Calm and direct." in rendered, "agent core should map into semantic stable-principles label")
+        _assert("### 当前风格" in rendered and "River-like and restrained." in rendered, "active seed should map into semantic current-style label")
+        _assert("### 用户与项目偏好" in rendered and "Prefer Chinese." in rendered, "agent profile should map into semantic preferences label")
         _assert("PowerShell" in rendered, "durable memory should be included as dynamic memory")
 
 
@@ -61,13 +60,10 @@ def test_system_prompt_uses_unified_long_term_context_block() -> None:
             active_skill="Structured data analysis is active.",
         )
 
-        _assert("<!-- Long-Term Context -->" in prompt, "prompt should include unified long-term context block")
-        _assert("## Constitution" in prompt, "prompt should include constitution subsection")
-        _assert("## Profile" in prompt, "prompt should include profile subsection")
-        _assert("## Dynamic Long-Term Memory" in prompt, "prompt should include dynamic memory subsection")
-        _assert("<!-- Durable Memory -->" in prompt, "prompt should expose durable memory as its own ordered block")
+        _assert("## 当前延续生效的设定" in prompt, "prompt should include semantic stable-settings block")
+        _assert("## 当前最相关的已记住事实" in prompt, "prompt should expose turn-relevant remembered facts")
         _assert(
-            prompt.index("<!-- Session Memory -->") < prompt.index("<!-- Durable Memory -->"),
+            prompt.index("## 当前情境") < prompt.index("## 当前最相关的已记住事实"),
             "session runtime context should appear before durable memory in the final prompt",
         )
         _assert("<!-- Soul -->" not in prompt, "legacy separate soul injection should be removed")
@@ -75,6 +71,9 @@ def test_system_prompt_uses_unified_long_term_context_block() -> None:
         _assert("<!-- User Profile -->" not in prompt, "legacy separate user profile injection should be removed")
         _assert("<!-- Agents Guide -->" not in prompt, "legacy separate agents guide injection should be removed")
         _assert("Prefer PowerShell syntax." in prompt, "persistent memory override should flow into unified long-term context")
+        _assert("constitution" not in prompt.lower(), "prompt should not expose constitution implementation term")
+        _assert("profile" not in prompt.lower(), "prompt should not expose profile implementation term")
+        _assert("long-term context" not in prompt.lower(), "prompt should not expose long-term-context implementation term")
 
 
 def test_system_prompt_can_render_context_package_directly() -> None:
@@ -121,13 +120,13 @@ def test_system_prompt_can_render_context_package_directly() -> None:
             active_skill="Memory architecture refinement is active.",
         )
 
-        _assert("<!-- Session Memory -->" in prompt, "prompt should render session memory from the context package")
+        _assert("## 当前情境" in prompt, "prompt should render current situation from the context package")
         _assert("Keep the memory refactor moving." in prompt, "active process context should render into the prompt")
         _assert("## Retrieval Evidence" in prompt, "retrieval section should render from the context package")
         _assert("Battery chemistry affects energy density." in prompt, "retrieval evidence should survive direct package rendering")
         _assert("<!-- Context Management -->" not in prompt, "context-management notes should stay out of the model-visible prompt")
         _assert("Pressure Level: warning" not in prompt, "prompt should not expose package pressure notes")
-        _assert("## Dynamic Long-Term Memory" in prompt, "durable memory section should still render")
+        _assert("## 当前最相关的已记住事实" in prompt, "durable memory section should still render with semantic heading")
         _assert("Prefer PowerShell commands in this repo." in prompt, "package durable context should be usable as a fallback durable block")
 
 

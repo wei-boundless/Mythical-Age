@@ -33,6 +33,17 @@ class SkillRecord:
     reference_paths: list[str] = field(default_factory=list)
 
 
+@dataclass
+class SkillPromptView:
+    name: str
+    title: str
+    description: str
+    use_when: str = ""
+    output_rule: str = (
+        "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
+    )
+
+
 def _parse_frontmatter(text: str) -> dict[str, Any]:
     match = FRONTMATTER_PATTERN.match(text)
     if not match:
@@ -143,38 +154,49 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
 def build_snapshot(skills: list[SkillRecord]) -> str:
     lines = [
         "<skills>",
-        "  <summary>Available local workflow contracts. Skills constrain which task kinds they serve and which tools they may invoke.</summary>",
+        "  <summary>Available local capabilities. Use the most appropriate capability for the user's task without exposing internal tool or routing protocol.</summary>",
     ]
     for skill in skills:
+        view = _build_prompt_view(skill)
         lines.extend(
             [
-                f'  <skill name="{skill.title}" id="{skill.name}" path="{skill.path}">',
-                f"    <description>{skill.description}</description>",
-                f"    <preferred_route>{skill.preferred_route}</preferred_route>",
+                f'  <skill name="{view.title}">',
+                f"    <description>{view.description}</description>",
             ]
         )
-        if skill.supported_modalities:
-            lines.append(f"    <modalities>{', '.join(skill.supported_modalities)}</modalities>")
-        if skill.supported_source_kinds:
-            lines.append(f"    <source_kinds>{', '.join(skill.supported_source_kinds)}</source_kinds>")
-        if skill.supported_task_kinds:
-            lines.append(f"    <task_kinds>{', '.join(skill.supported_task_kinds)}</task_kinds>")
-        if skill.allowed_tools:
-            lines.append(f"    <allowed_tools>{', '.join(skill.allowed_tools)}</allowed_tools>")
-        if skill.capability_tags:
-            lines.append(f"    <capability_tags>{', '.join(skill.capability_tags)}</capability_tags>")
-        lines.append(f"    <activation_policy>{skill.activation_policy}</activation_policy>")
-        lines.append(f"    <context_mode>{skill.context_mode}</context_mode>")
-        lines.append(f"    <route_authority>{skill.route_authority}</route_authority>")
-        if skill.routing_hints:
-            lines.append(f"    <routing_hints>{', '.join(skill.routing_hints[:6])}</routing_hints>")
-        if skill.forbidden_routes:
-            lines.append(f"    <forbidden_routes>{', '.join(skill.forbidden_routes)}</forbidden_routes>")
-        if skill.reference_paths:
-            lines.append(f"    <references>{', '.join(skill.reference_paths)}</references>")
+        if view.use_when:
+            lines.append(f"    <use_when>{view.use_when}</use_when>")
+        lines.append(f"    <output_rule>{view.output_rule}</output_rule>")
         lines.append("  </skill>")
     lines.append("</skills>")
     return "\n".join(lines) + "\n"
+
+
+def _build_skill_use_when(skill: SkillRecord) -> str:
+    source_kinds = set(skill.supported_source_kinds)
+    modalities = set(skill.supported_modalities)
+    task_kinds = set(skill.supported_task_kinds)
+
+    if "knowledge_base" in source_kinds:
+        return "Use for local knowledge-base lookup, factual explanation, and questions that should be answered from local materials."
+    if "document" in source_kinds or "pdf" in modalities or "document" in modalities:
+        return "Use for reading local documents or PDFs, including whole-document, section-level, and page-level questions."
+    if "dataset" in source_kinds or modalities & {"table", "spreadsheet", "csv", "json"}:
+        return "Use for structured data questions such as filtering, ranking, grouping, summary statistics, and record lookup."
+    if "external_web" in source_kinds or modalities & {"realtime", "web", "finance"}:
+        return "Use when the user needs current external information, real-time lookup, or official web sources."
+    if "workflow" in source_kinds or "workflow_lesson_capture" in task_kinds:
+        return "Use for workflow reflection and reusable lesson capture after a failed-then-corrected attempt."
+    return ""
+
+
+def _build_prompt_view(skill: SkillRecord) -> SkillPromptView:
+    return SkillPromptView(
+        name=skill.name,
+        title=skill.title,
+        description=skill.description,
+        use_when=_build_skill_use_when(skill),
+    )
 
 
 def build_registry(skills: list[SkillRecord]) -> dict[str, Any]:

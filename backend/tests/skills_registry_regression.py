@@ -5,9 +5,12 @@ import json
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCANNER_PATH = ROOT / "tools" / "skills_scanner.py"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from skill_system import SkillRegistry
 
 
 def load_scanner_module():
@@ -75,12 +78,23 @@ def main() -> None:
     assert registry["version"] == 2
     assert registry["skill_count"] == len(skills)
 
+    skill_registry = SkillRegistry(ROOT)
+    weather = skill_registry.get_by_name("get-weather")
+    assert weather is not None
+    assert weather.allowed_tools == ["get_weather"]
+    assert weather.allowed_tool_scope() == ["get_weather"]
+    assert weather.prompt_view.title == "天气查询"
+    assert weather.prompt_view.capability == weather.description
+    assert "Use When:" in weather.prompt_view.render_block()
+    assert "<allowed_tools>" not in weather.prompt_view.render_block()
+
     snapshot_text = (ROOT / "SKILLS_SNAPSHOT.md").read_text(encoding="utf-8")
-    assert "<task_kinds>realtime_lookup</task_kinds>" in snapshot_text
-    assert "<allowed_tools>get_weather</allowed_tools>" in snapshot_text
-    assert "<source_kinds>dataset</source_kinds>" in snapshot_text
-    assert "<context_mode>isolated</context_mode>" in snapshot_text
-    assert "<route_authority>candidate_only</route_authority>" in snapshot_text
+    assert "<use_when>" in snapshot_text
+    assert "<output_rule>" in snapshot_text
+    assert "<allowed_tools>" not in snapshot_text
+    assert "<preferred_route>" not in snapshot_text
+    assert "<route_authority>" not in snapshot_text
+    assert 'path="' not in snapshot_text
 
     print(f"ALL PASSED ({len(skills)} skills)")
 

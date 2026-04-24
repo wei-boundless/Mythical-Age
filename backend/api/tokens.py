@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import tiktoken
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
@@ -22,7 +22,7 @@ def _count_tokens(text: str) -> int:
 
 
 @router.get("/tokens/session/{session_id}")
-async def session_tokens(session_id: str) -> dict[str, int]:
+async def session_tokens(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
 
     record = runtime.session_manager.get_history(session_id)
@@ -35,10 +35,33 @@ async def session_tokens(session_id: str) -> dict[str, int]:
 
     system_tokens = _count_tokens(system_prompt)
     message_tokens = _count_tokens("\n".join(message_text))
+    adapter = runtime.memory_facade.adapter
+    py_messages = adapter.to_messages(record.get("messages", []), session_id=session_id)
+    compactor = runtime.memory_facade.session_memory.compactor(session_id)
+    history_tokens = compactor.conversation_tokens(py_messages)
+    history_budget_tokens = int(compactor.effective_history_token_budget)
+    history_remaining_tokens = max(history_budget_tokens - history_tokens, 0)
+    history_usage_ratio = (
+        min(history_tokens / history_budget_tokens, 1.0)
+        if history_budget_tokens > 0
+        else 0.0
+    )
+    history_remaining_ratio = (
+        max(history_remaining_tokens / history_budget_tokens, 0.0)
+        if history_budget_tokens > 0
+        else 0.0
+    )
+    history_pressure_level = compactor.pressure_level(history_tokens, len(py_messages))
     return {
         "system_tokens": system_tokens,
         "message_tokens": message_tokens,
         "total_tokens": system_tokens + message_tokens,
+        "history_tokens": history_tokens,
+        "history_budget_tokens": history_budget_tokens,
+        "history_remaining_tokens": history_remaining_tokens,
+        "history_usage_ratio": round(history_usage_ratio, 4),
+        "history_remaining_ratio": round(history_remaining_ratio, 4),
+        "history_pressure_level": history_pressure_level,
     }
 
 

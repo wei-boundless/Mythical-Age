@@ -33,10 +33,10 @@ export function ResizeHandle({
   return (
     <div
       aria-hidden
-      className="group flex w-3 cursor-col-resize items-center justify-center"
+      className="group hidden w-4 cursor-col-resize items-center justify-center xl:flex"
       onMouseDown={() => setDragging(true)}
     >
-      <div className="h-20 w-[2px] rounded-full bg-[rgba(13,37,48,0.14)] transition group-hover:h-28 group-hover:bg-[rgba(15,139,141,0.45)]" />
+      <div className="h-24 w-[2px] rounded-full bg-[var(--color-border-strong)] transition group-hover:h-32 group-hover:bg-[var(--color-soul)]" />
     </div>
   );
 }

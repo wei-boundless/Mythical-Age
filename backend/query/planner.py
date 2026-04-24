@@ -41,11 +41,13 @@ class QueryPlanner:
         session_id: str,
         message: str,
         history: list[dict[str, Any]],
+        ephemeral_system_messages: list[str] | None = None,
         authority_context: dict[str, Any] | None = None,
     ) -> QueryPlan:
         root_execution = self._build_execution(
             message=message,
             history=history,
+            ephemeral_system_messages=ephemeral_system_messages,
             authority_context=authority_context,
         )
         memory_intent = root_execution.memory_intent
@@ -88,6 +90,7 @@ class QueryPlanner:
             structured_binding=structured_binding,
             execution_kind=execution_kind,
             executions=executions,
+            ephemeral_system_messages=list(ephemeral_system_messages or []),
         )
 
     def _build_compound_executions(
@@ -103,6 +106,7 @@ class QueryPlanner:
             execution = self._build_execution(
                 message=subquery,
                 history=history,
+                ephemeral_system_messages=root_execution.ephemeral_system_messages,
                 authority_context=authority_context,
             )
             executions.append(execution)
@@ -117,6 +121,10 @@ class QueryPlanner:
         message: str,
         query_understanding: QueryUnderstanding,
     ) -> SkillDefinition | None:
+        # Planning carries the full SkillDefinition so later phases can use the
+        # runtime contract (tool scope, route restrictions, permission checks).
+        # The prompt chain must render only skill.prompt_view / render_prompt_block(),
+        # never the runtime contract itself.
         if self.skill_registry is None:
             return None
         if query_understanding.skill_name:
@@ -141,6 +149,7 @@ class QueryPlanner:
         *,
         message: str,
         history: list[dict[str, Any]],
+        ephemeral_system_messages: list[str] | None = None,
         authority_context: dict[str, Any] | None = None,
     ) -> QueryExecutionPlan:
         memory_intent = analyze_memory_intent(message)
@@ -195,6 +204,7 @@ class QueryPlanner:
             tool_input=tool_input,
             structured_binding=structured_binding,
             execution_kind=execution_kind,
+            ephemeral_system_messages=list(ephemeral_system_messages or []),
         )
 
     def _authoritative_context_from_execution(

@@ -1,0 +1,20 @@
+[
+  {
+    "snapshot_id": "snap:knowledge_lookup_flow:记住:2026-04-23T22:21:08+00:00",
+    "flow_id": "knowledge_lookup_flow:记住",
+    "flow_type": "knowledge_lookup_flow",
+    "status": "suspended",
+    "goal": "记住：以后复杂问题先给结论，再展开解释。",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "记住：默认终端命令使用 PowerShell。"
+    },
+    "recent_results": [],
+    "resume_hints": [
+      "继续处理当前用户请求：记住：以后复杂问题先给结论，再展开解释。"
+    ],
+    "updated_at": "2026-04-23T22:21:08+00:00"
+  }
+]

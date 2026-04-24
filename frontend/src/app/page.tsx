@@ -1,31 +1,34 @@
 "use client";
 
+import { useEffect } from "react";
+
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { InspectorPanel } from "@/components/editor/InspectorPanel";
 import { Navbar } from "@/components/layout/Navbar";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AppProvider, useAppStore } from "@/lib/store";
 
 function Workspace() {
-  const { sidebarWidth, inspectorWidth, setSidebarWidth, setInspectorWidth } = useAppStore();
+  const { sidebarWidth, setSidebarWidth, activeSoulKey } = useAppStore();
+
+  useEffect(() => {
+    if (activeSoulKey) {
+      document.documentElement.dataset.soul = activeSoulKey;
+      return;
+    }
+    delete document.documentElement.dataset.soul;
+  }, [activeSoulKey]);
 
   return (
-    <main className="min-h-screen p-4 md:p-6">
-      <div className="mx-auto flex max-w-[1800px] flex-col gap-4">
+    <main className="workspace-shell min-h-screen px-3 py-4 md:px-6 md:py-6">
+      <div className="workspace-grid mx-auto flex max-w-[1820px] flex-col gap-4">
         <Navbar />
-        <div className="flex min-h-[calc(100vh-146px)] gap-0">
-          <div style={{ width: sidebarWidth }}>
+        <div className="workspace-frame flex min-h-[calc(100vh-144px)] flex-col gap-4 xl:flex-row xl:gap-0">
+          <div className="w-full xl:shrink-0" style={{ width: `min(100%, ${sidebarWidth}px)` }}>
             <Sidebar />
           </div>
-          <ResizeHandle onResize={(delta) => setSidebarWidth(Math.max(260, sidebarWidth + delta))} />
+          <ResizeHandle onResize={(delta) => setSidebarWidth(Math.max(280, sidebarWidth + delta))} />
           <ChatPanel />
-          <ResizeHandle
-            onResize={(delta) => setInspectorWidth(Math.max(320, inspectorWidth - delta))}
-          />
-          <div style={{ width: inspectorWidth }}>
-            <InspectorPanel />
-          </div>
         </div>
       </div>
     </main>

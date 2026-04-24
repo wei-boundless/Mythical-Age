@@ -5,8 +5,32 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+DEFAULT_SKILL_OUTPUT_RULE = (
+    "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
+)
+
+
 @dataclass(slots=True)
-class SkillDefinition:
+class SkillPromptView:
+    name: str
+    title: str
+    capability: str
+    use_when: str = ""
+    output_rule: str = DEFAULT_SKILL_OUTPUT_RULE
+
+    def render_block(self) -> str:
+        lines = [
+            f"Skill: {self.title or self.name}",
+            f"Capability: {self.capability}",
+        ]
+        if self.use_when:
+            lines.append(f"Use When: {self.use_when}")
+        lines.append(f"Output Rule: {self.output_rule}")
+        return "\n".join(lines)
+
+
+@dataclass(slots=True)
+class SkillRuntimeContract:
     name: str
     title: str
     description: str
@@ -24,6 +48,50 @@ class SkillDefinition:
     context_mode: str = "inline"
     route_authority: str = "candidate_only"
     reference_paths: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class SkillDefinition:
+    runtime: SkillRuntimeContract
+    prompt_view: SkillPromptView
+
+    def __getattr__(self, attr: str):
+        return getattr(self.runtime, attr)
+
+    def render_prompt_block(self) -> str:
+        return self.prompt_view.render_block()
+
+    def allowed_tool_scope(self) -> list[str]:
+        return list(self.runtime.allowed_tools)
+
+    @classmethod
+    def from_payload(cls, item: dict[str, object]) -> "SkillDefinition":
+        runtime = SkillRuntimeContract(
+            name=str(item.get("name", "")).strip(),
+            title=str(item.get("title", "")).strip(),
+            description=str(item.get("description", "")).strip(),
+            path=str(item.get("path", "")).strip(),
+            allowed_tools=[str(v) for v in item.get("allowed_tools", []) if str(v).strip()],
+            supported_modalities=[str(v) for v in item.get("supported_modalities", []) if str(v).strip()],
+            supported_task_kinds=[str(v) for v in item.get("supported_task_kinds", []) if str(v).strip()],
+            supported_source_kinds=[str(v) for v in item.get("supported_source_kinds", []) if str(v).strip()],
+            capability_tags=[str(v) for v in item.get("capability_tags", []) if str(v).strip()],
+            preferred_route=str(item.get("preferred_route", "rag") or "rag").strip(),
+            forbidden_routes=[str(v) for v in item.get("forbidden_routes", []) if str(v).strip()],
+            routing_hints=[str(v) for v in item.get("routing_hints", []) if str(v).strip()],
+            examples=[str(v) for v in item.get("examples", []) if str(v).strip()],
+            activation_policy=str(item.get("activation_policy", "model_visible") or "model_visible").strip(),
+            context_mode=str(item.get("context_mode", "inline") or "inline").strip(),
+            route_authority=str(item.get("route_authority", "candidate_only") or "candidate_only").strip(),
+            reference_paths=[str(v) for v in item.get("reference_paths", []) if str(v).strip()],
+        )
+        prompt_view = SkillPromptView(
+            name=runtime.name,
+            title=runtime.title,
+            capability=runtime.description,
+            use_when=_build_skill_use_when(runtime),
+        )
+        return cls(runtime=runtime, prompt_view=prompt_view)
 
 
 class SkillRegistry:
@@ -46,27 +114,7 @@ class SkillRegistry:
         for item in payload.get("skills", []):
             if not isinstance(item, dict):
                 continue
-            skills.append(
-                SkillDefinition(
-                    name=str(item.get("name", "")).strip(),
-                    title=str(item.get("title", "")).strip(),
-                    description=str(item.get("description", "")).strip(),
-                    path=str(item.get("path", "")).strip(),
-                    allowed_tools=[str(v) for v in item.get("allowed_tools", []) if str(v).strip()],
-                    supported_modalities=[str(v) for v in item.get("supported_modalities", []) if str(v).strip()],
-                    supported_task_kinds=[str(v) for v in item.get("supported_task_kinds", []) if str(v).strip()],
-                    supported_source_kinds=[str(v) for v in item.get("supported_source_kinds", []) if str(v).strip()],
-                    capability_tags=[str(v) for v in item.get("capability_tags", []) if str(v).strip()],
-                    preferred_route=str(item.get("preferred_route", "rag") or "rag").strip(),
-                    forbidden_routes=[str(v) for v in item.get("forbidden_routes", []) if str(v).strip()],
-                    routing_hints=[str(v) for v in item.get("routing_hints", []) if str(v).strip()],
-                    examples=[str(v) for v in item.get("examples", []) if str(v).strip()],
-                    activation_policy=str(item.get("activation_policy", "model_visible") or "model_visible").strip(),
-                    context_mode=str(item.get("context_mode", "inline") or "inline").strip(),
-                    route_authority=str(item.get("route_authority", "candidate_only") or "candidate_only").strip(),
-                    reference_paths=[str(v) for v in item.get("reference_paths", []) if str(v).strip()],
-                )
-            )
+            skills.append(SkillDefinition.from_payload(item))
         self._skills = skills
 
     @property
@@ -142,23 +190,22 @@ class SkillRegistry:
     def format_active_skill_block(self, skill: SkillDefinition | None) -> str | None:
         if skill is None:
             return None
-        lines = [
-            f"Skill: {skill.title or skill.name}",
-            f"Skill ID: {skill.name}",
-            f"Preferred Route: {skill.preferred_route}",
-            f"Activation Policy: {skill.activation_policy}",
-            f"Context Mode: {skill.context_mode}",
-            f"Route Authority: {skill.route_authority}",
-            f"Description: {skill.description}",
-        ]
-        if skill.supported_source_kinds:
-            lines.append(f"Supported Sources: {', '.join(skill.supported_source_kinds)}")
-        if skill.supported_task_kinds:
-            lines.append(f"Supported Tasks: {', '.join(skill.supported_task_kinds)}")
-        if skill.allowed_tools:
-            lines.append(f"Allowed Tools: {', '.join(skill.allowed_tools)}")
-        if skill.supported_modalities:
-            lines.append(f"Modalities: {', '.join(skill.supported_modalities)}")
-        if skill.routing_hints:
-            lines.append(f"Routing Hints: {', '.join(skill.routing_hints[:6])}")
-        return "\n".join(lines)
+        return skill.render_prompt_block()
+
+
+def _build_skill_use_when(skill: SkillRuntimeContract) -> str:
+    source_kinds = set(skill.supported_source_kinds)
+    modalities = set(skill.supported_modalities)
+    task_kinds = set(skill.supported_task_kinds)
+
+    if "knowledge_base" in source_kinds:
+        return "Use for local knowledge-base lookup, factual explanation, and questions that should be answered from local materials."
+    if "document" in source_kinds or "pdf" in modalities or "document" in modalities:
+        return "Use for reading local documents or PDFs, including whole-document, section-level, and page-level questions."
+    if "dataset" in source_kinds or modalities & {"table", "spreadsheet", "csv", "json"}:
+        return "Use for structured data questions such as filtering, ranking, grouping, summary statistics, and record lookup."
+    if "external_web" in source_kinds or modalities & {"realtime", "web", "finance"}:
+        return "Use when the user needs current external information, real-time lookup, or official web sources."
+    if "workflow" in source_kinds or "workflow_lesson_capture" in task_kinds:
+        return "Use for workflow reflection and reusable lesson capture after a failed-then-corrected attempt."
+    return ""

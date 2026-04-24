@@ -8,6 +8,17 @@ from memory.static_loader import load_static_context
 from memory_layout import DurableMemoryLayout
 
 
+def _strip_leading_markdown_title(content: str) -> str:
+    lines = content.splitlines()
+    if not lines:
+        return content
+    if lines[0].lstrip().startswith("#"):
+        lines = lines[1:]
+        while lines and not lines[0].strip():
+            lines = lines[1:]
+    return "\n".join(lines).strip()
+
+
 @dataclass(slots=True)
 class LongTermContextBundle:
     constitution_sections: list[tuple[str, str]]
@@ -22,20 +33,42 @@ class LongTermContextBundle:
         include_memory_block: bool = True,
     ) -> str:
         sections: list[str] = []
+        visible_label_map = {
+            "Agent Core": "稳定原则",
+            "Active Soul Seed": "当前风格",
+            "Agent Profile": "用户与项目偏好",
+        }
 
         if self.constitution_sections:
-            sections.append("## Constitution")
+            sections.append("## 当前延续生效的设定")
             for label, content in self.constitution_sections:
-                sections.extend(["", f"### {label}", truncate(content, limit)])
+                sections.extend(
+                    [
+                        "",
+                        f"### {visible_label_map.get(label, label)}",
+                        truncate(_strip_leading_markdown_title(content), limit),
+                    ]
+                )
 
         if self.profile_sections:
             sections.append("")
-            sections.append("## Profile")
             for label, content in self.profile_sections:
-                sections.extend(["", f"### {label}", truncate(content, limit)])
+                sections.extend(
+                    [
+                        "",
+                        f"### {visible_label_map.get(label, label)}",
+                        truncate(_strip_leading_markdown_title(content), limit),
+                    ]
+                )
 
         if include_memory_block and self.memory_block.strip():
-            sections.extend(["", "## Dynamic Long-Term Memory", truncate(self.memory_block.strip(), limit)])
+            sections.extend(
+                [
+                    "",
+                    "## 你记得的长期事实",
+                    truncate(_strip_leading_markdown_title(self.memory_block.strip()), limit),
+                ]
+            )
 
         return "\n".join(section for section in sections if section is not None).strip()
 

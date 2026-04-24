@@ -39,11 +39,14 @@ export function getDefaultState(): StoreState {
     isStreaming: false,
     ragMode: false,
     skills: [],
+    soulOptions: [],
+    activeSoulKey: null,
+    pendingEphemeralSystemMessages: [],
     inspectorPath: "durable_memory/MEMORY.md",
     inspectorContent: "",
     inspectorDirty: false,
     sidebarWidth: 308,
-    inspectorWidth: 360,
+    inspectorWidth: 300,
     tokenStats: null
   };
 }

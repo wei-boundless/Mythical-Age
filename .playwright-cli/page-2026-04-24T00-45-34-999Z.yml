@@ -1,0 +1,54 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - img [ref=e8]
+          - generic [ref=e10]:
+            - paragraph [ref=e11]: Mythic Local Agent Workbench
+            - heading "河图工作台" [level=1] [ref=e12]
+        - generic [ref=e13]:
+          - button "新会话" [ref=e14] [cursor=pointer]:
+            - img [ref=e15]
+            - text: 新会话
+          - button "RAG 已关" [ref=e16] [cursor=pointer]:
+            - img [ref=e17]
+            - text: RAG 已关
+          - button "压缩" [ref=e21] [cursor=pointer]:
+            - img [ref=e22]
+            - text: 压缩
+          - generic [ref=e24]:
+            - img [ref=e25]
+            - text: File-first Memory
+      - generic [ref=e30]:
+        - complementary [ref=e32]:
+          - generic [ref=e34]:
+            - generic [ref=e35]:
+              - generic [ref=e36]:
+                - paragraph [ref=e37]: Sessions
+                - heading "会话与消息轨迹" [level=2] [ref=e38]
+              - button [ref=e39] [cursor=pointer]:
+                - img [ref=e40]
+            - paragraph [ref=e42]: Raw Messages
+        - generic [ref=e45]:
+          - generic [ref=e46]:
+            - generic [ref=e48]: No metrics yet
+            - generic [ref=e52]:
+              - paragraph [ref=e53]: Ready
+              - heading "正等待您的询问。" [level=3] [ref=e54]
+              - paragraph [ref=e55]: 帷幕已启，直接写下你的问题即可。
+          - generic [ref=e56]:
+            - generic [ref=e57]:
+              - generic [ref=e58]:
+                - paragraph [ref=e59]: Compose
+                - paragraph [ref=e60]: 输入问题并开始当前会话。
+              - generic [ref=e61]:
+                - img [ref=e62]
+                - text: Cmd/Ctrl + Enter
+            - textbox "输入你的问题，Cmd/Ctrl + Enter 发送" [ref=e65]
+            - generic [ref=e66]:
+              - paragraph [ref=e67]: 直接提问即可，支持工具调用、检索和流式响应。
+              - button "发送" [disabled] [ref=e68]:
+                - img [ref=e69]
+                - text: 发送
+  - alert [ref=e71]

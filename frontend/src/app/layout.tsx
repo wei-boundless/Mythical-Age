@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { IBM_Plex_Mono, Noto_Serif_SC } from "next/font/google";
 
 import "./globals.css";
 
-const displayFont = Space_Grotesk({
+const displayFont = Noto_Serif_SC({
   subsets: ["latin"],
+  weight: ["400", "600", "700"],
   variable: "--font-display"
 });
 

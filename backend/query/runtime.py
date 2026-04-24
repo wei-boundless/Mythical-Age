@@ -30,6 +30,7 @@ from query.output_boundary import AssistantOutputBoundary, contains_internal_pro
 from query.prompt_builder import build_system_prompt
 from query.planner import QueryPlanner
 from runtime.model_runtime import ModelRuntime, ModelRuntimeError, stringify_content
+from skill_system import SkillDefinition
 from tasks.context_models import TaskConstraints
 from tasks.coordinator import TaskCoordinator
 from tools.contracts import ToolContractDecision, ToolContractGate
@@ -89,7 +90,7 @@ class QueryRuntime:
         pending_user_message: str | None = None,
         memory_intent: Any | None = None,
         relevant_memory_notes: list[Any] | None = None,
-        active_skill: Any | None = None,
+        active_skill: SkillDefinition | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
     ) -> str:
         context_package = None
@@ -115,9 +116,7 @@ class QueryRuntime:
             persistent_memory=persistent_memory,
             session_memory=None,
             context_package=context_package,
-            active_skill=self.skill_registry.format_active_skill_block(active_skill)
-            if self.skill_registry is not None and active_skill is not None
-            else None,
+            active_skill=self._render_active_skill_prompt(active_skill),
         )
 
     async def abuild_system_prompt_for_session(
@@ -127,7 +126,7 @@ class QueryRuntime:
         pending_user_message: str | None = None,
         memory_intent: Any | None = None,
         relevant_memory_notes: list[Any] | None = None,
-        active_skill: Any | None = None,
+        active_skill: SkillDefinition | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
     ) -> str:
         context_package = None
@@ -161,10 +160,18 @@ class QueryRuntime:
             persistent_memory=persistent_memory,
             session_memory=None,
             context_package=context_package,
-            active_skill=self.skill_registry.format_active_skill_block(active_skill)
-            if self.skill_registry is not None and active_skill is not None
-            else None,
+            active_skill=self._render_active_skill_prompt(active_skill),
         )
+
+    def _render_active_skill_prompt(self, active_skill: SkillDefinition | None) -> str | None:
+        if active_skill is None:
+            return None
+        return active_skill.render_prompt_block()
+
+    def _skill_allowed_tool_scope(self, active_skill: SkillDefinition | None) -> list[str]:
+        if active_skill is None:
+            return []
+        return active_skill.allowed_tool_scope()
 
     async def astream(self, request: QueryRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
@@ -199,6 +206,7 @@ class QueryRuntime:
                     request.session_id,
                     request.message,
                     history,
+                    ephemeral_system_messages=request.ephemeral_system_messages,
                     trace=trace,
                 ):
                     event_type = event["type"]
@@ -285,6 +293,7 @@ class QueryRuntime:
         message: str,
         history: list[dict[str, Any]],
         *,
+        ephemeral_system_messages: list[str] | None = None,
         trace=None,
     ):
         authority_context = self._load_session_authoritative_context(session_id)
@@ -366,6 +375,7 @@ class QueryRuntime:
                     session_id=session_id,
                     message=message,
                     history=history,
+                    ephemeral_system_messages=ephemeral_system_messages,
                     authority_context=authority_context,
                 )
         else:
@@ -373,6 +383,7 @@ class QueryRuntime:
                 session_id=session_id,
                 message=message,
                 history=history,
+                ephemeral_system_messages=ephemeral_system_messages,
                 authority_context=authority_context,
             )
         executions = plan.iter_executions()
@@ -432,12 +443,14 @@ class QueryRuntime:
         message: str,
         history: list[dict[str, Any]],
         *,
+        ephemeral_system_messages: list[str] | None = None,
         trace=None,
     ):
         plan = self._planner_build_plan(
             session_id=session_id,
             message=message,
             history=history,
+            ephemeral_system_messages=ephemeral_system_messages,
             authority_context=self._load_session_authoritative_context(session_id),
         )
         executions = plan.iter_executions()
@@ -469,6 +482,7 @@ class QueryRuntime:
                 history=list(execution.history),
                 augmented_history=list(execution.history),
                 main_context=self._build_main_working_context(execution),
+                ephemeral_system_messages=list(execution.ephemeral_system_messages),
             )
 
             if trace is not None:
@@ -782,33 +796,38 @@ class QueryRuntime:
         session_id: str,
         message: str,
         history: list[dict[str, Any]],
+        ephemeral_system_messages: list[str] | None = None,
         authority_context: dict[str, Any] | None,
     ) -> QueryPlan:
         try:
             parameters = inspect.signature(self.planner.build_plan).parameters
         except (TypeError, ValueError):
             parameters = {}
+        kwargs: dict[str, Any] = {
+            "session_id": session_id,
+            "message": message,
+            "history": history,
+        }
+        if "ephemeral_system_messages" in parameters:
+            kwargs["ephemeral_system_messages"] = ephemeral_system_messages
         if "authority_context" in parameters:
-            return self.planner.build_plan(
-                session_id=session_id,
-                message=message,
-                history=history,
-                authority_context=authority_context,
-            )
-        return self.planner.build_plan(
-            session_id=session_id,
-            message=message,
-            history=history,
-        )
+            kwargs["authority_context"] = authority_context
+        return self.planner.build_plan(**kwargs)
 
     def _build_agent_messages(self, context: QueryContext) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
         working_block = context.main_context.to_prompt_block().strip()
         if working_block:
             messages.append({"role": "system", "content": working_block})
+        for content in context.ephemeral_system_messages:
+            normalized = str(content or "").strip()
+            if normalized:
+                messages.append({"role": "system", "content": normalized})
         for item in context.augmented_history:
             role = item.get("role")
             if role not in {"system", "user", "assistant"}:
+                continue
+            if role == "system":
                 continue
             messages.append({"role": role, "content": str(item.get("content", ""))})
         return messages
@@ -1619,7 +1638,7 @@ class QueryRuntime:
 
     def _allowed_tool_names_for_execution(self, execution: QueryExecutionPlan) -> set[str]:
         route = str(execution.query_understanding.route or "").strip()
-        skill_scope = list(getattr(execution.active_skill, "allowed_tools", None) or [])
+        skill_scope = self._skill_allowed_tool_scope(execution.active_skill)
 
         if route in {"memory", "rag"}:
             return set()
@@ -1674,7 +1693,7 @@ class QueryRuntime:
             return
         decision = self.permission_service.can_invoke_tool(
             tool_name,
-            allowed_tools=getattr(execution.active_skill, "allowed_tools", None),
+            allowed_tools=self._skill_allowed_tool_scope(execution.active_skill),
             direct_route=True,
             tool_input=tool_input,
         )
@@ -1872,7 +1891,7 @@ class QueryRuntime:
             tool_name=tool_name,
             contract=contract,
             tool_input=tool_input,
-            skill_allowed_tools=getattr(execution.active_skill, "allowed_tools", None),
+            skill_allowed_tools=self._skill_allowed_tool_scope(execution.active_skill),
             binding_context=binding_context,
         )
 

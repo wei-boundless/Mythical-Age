@@ -70,6 +70,10 @@ def _apply_skill_tool_routing(
     skill_registry: SkillRegistry | None,
     tool_registry: ToolRegistry | None,
 ) -> None:
+    # Skill matching is a control-plane decision. At this stage we only borrow
+    # the runtime tool scope needed for routing/tool selection. Model-visible
+    # skill text stays inside SkillPromptView and is assembled later in prompt
+    # building, not here.
     if understanding.route == "memory":
         return
 
@@ -91,8 +95,9 @@ def _apply_skill_tool_routing(
             )
         if matched_skill is not None:
             understanding.skill_name = matched_skill.name
-            if matched_skill.allowed_tools:
-                understanding.candidate_tools = list(matched_skill.allowed_tools)
+            skill_scope = matched_skill.allowed_tool_scope()
+            if skill_scope:
+                understanding.candidate_tools = skill_scope
 
     if understanding.route != "tool":
         return

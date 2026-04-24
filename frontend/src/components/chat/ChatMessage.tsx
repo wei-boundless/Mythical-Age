@@ -11,23 +11,41 @@ export function ChatMessage({
   role,
   content,
   toolCalls,
-  retrievals
+  retrievals,
+  assistantName = "河伯"
 }: {
   role: "user" | "assistant";
   content: string;
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
+  assistantName?: string;
 }) {
   const isUser = role === "user";
+  const assistantMark = assistantName.slice(0, 1) || "灵";
 
   return (
     <article
-      className={`max-w-[90%] rounded-[28px] px-5 py-4 ${
+      className={`message-shell max-w-[94%] rounded-[30px] px-5 py-4 ${
         isUser
-          ? "ml-auto bg-[rgba(13,37,48,0.92)] text-white"
-          : "panel mr-auto text-[var(--color-ink)]"
+          ? "message-shell--user ml-auto text-white"
+          : "message-shell--assistant mr-auto text-[var(--color-text)]"
       }`}
     >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`message-emblem ${isUser ? "message-emblem--user" : ""}`}>
+            {isUser ? "你" : assistantMark}
+          </div>
+          <div>
+            <p className="text-sm font-medium">
+              {isUser ? "用户输入" : assistantName}
+            </p>
+            <p className="text-xs uppercase tracking-[0.24em] text-[var(--color-text-soft)]">
+              {isUser ? "User" : "Current Style"}
+            </p>
+          </div>
+        </div>
+      </div>
       {!isUser && <RetrievalCard results={retrievals} />}
       {!isUser && <ThoughtChain toolCalls={toolCalls} />}
       <div className={isUser ? "whitespace-pre-wrap leading-7" : "markdown"}>

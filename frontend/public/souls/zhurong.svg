@@ -1,0 +1,23 @@
+<svg width="640" height="840" viewBox="0 0 640 840" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="90" y1="28" x2="550" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#47120D"/>
+      <stop offset="1" stop-color="#180A09"/>
+    </linearGradient>
+    <linearGradient id="cloak" x1="173" y1="256" x2="488" y2="736" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB068"/>
+      <stop offset="1" stop-color="#A6271D"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="840" rx="40" fill="url(#bg)"/>
+  <path d="M130 702C178 562 242 490 320 490C398 490 464 562 510 702C422 760 219 760 130 702Z" fill="url(#cloak)"/>
+  <path d="M246 212C246 162 281 124 321 124C361 124 396 162 396 212V315H246V212Z" fill="#FFE1C8"/>
+  <path d="M223 347C244 307 279 286 320 286C361 286 396 307 417 347L448 413H192L223 347Z" fill="#FFF0E2"/>
+  <path d="M250 172C264 133 287 108 320 108C353 108 376 133 390 172C369 150 347 143 320 143C293 143 271 150 250 172Z" fill="#300F0C"/>
+  <path d="M274 220C287 212 304 208 320 208C336 208 353 212 366 220" stroke="#300F0C" stroke-width="8" stroke-linecap="round"/>
+  <path d="M293 245C301 252 310 255 320 255C330 255 339 252 347 245" stroke="#300F0C" stroke-width="8" stroke-linecap="round"/>
+  <path d="M238 127C260 81 291 58 320 58C349 58 379 81 401 127L367 111C354 129 338 138 320 138C302 138 286 129 273 111L238 127Z" fill="#FF7B32"/>
+  <path d="M176 617C220 571 269 548 320 548C371 548 420 571 464 617" stroke="#FFCC8A" stroke-opacity=".55" stroke-width="12" stroke-linecap="round"/>
+  <path d="M157 676C208 649 262 635 320 635C378 635 432 649 483 676" stroke="#FF9D5D" stroke-opacity=".38" stroke-width="14" stroke-linecap="round"/>
+  <text x="52" y="784" fill="#FFE4C7" fill-opacity=".88" font-family="serif" font-size="42" letter-spacing="10">祝融</text>
+</svg>

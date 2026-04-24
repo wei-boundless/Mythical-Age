@@ -1,0 +1,24 @@
+{
+  "id": "75b659b1d3574435864fb4ee5b8e0bf4",
+  "title": "查询本地数据库缺货",
+  "created_at": 1776992713.4960349,
+  "updated_at": 1776993089.7090063,
+  "compressed_context": "",
+  "messages": [
+    {
+      "role": "user",
+      "content": "为我搜索本地的数据库，看看有没有缺货情况"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "tool": "web_search",
+          "input": "{'query': '为我搜索本地的数据库，看看有没有缺货情况'}",
+          "output": "工具 `web_search` 已执行，但当前结果尚未形成可直接展示的答案。"
+        }
+      ]
+    }
+  ]
+}

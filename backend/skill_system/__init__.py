@@ -1,3 +1,3 @@
-from .registry import SkillDefinition, SkillRegistry
+from .registry import SkillDefinition, SkillPromptView, SkillRegistry, SkillRuntimeContract
 
-__all__ = ["SkillDefinition", "SkillRegistry"]
+__all__ = ["SkillDefinition", "SkillPromptView", "SkillRegistry", "SkillRuntimeContract"]

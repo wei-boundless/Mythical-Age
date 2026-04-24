@@ -5,6 +5,11 @@ import { Save } from "lucide-react";
 
 import { useAppStore } from "@/lib/store";
 
+function labelFromPath(path: string) {
+  const chunks = path.split("/");
+  return chunks[chunks.length - 1] || path;
+}
+
 export function InspectorPanel() {
   const {
     editableFiles,
@@ -17,16 +22,13 @@ export function InspectorPanel() {
   } = useAppStore();
 
   return (
-    <aside className="panel flex h-full flex-col rounded-[30px] p-4">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.28em] text-[var(--color-ink-soft)]">
-            Inspector
-          </p>
-          <h2 className="text-lg font-semibold tracking-[-0.04em]">Memory / Skills / Prompt</h2>
-        </div>
+    <aside className="panel flex h-full flex-col rounded-[34px] p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="section-kicker">Inspector</p>
         <button
-          className="flex items-center gap-2 rounded-full bg-[rgba(15,139,141,0.12)] px-4 py-2 text-sm text-ocean"
+          className={`action-button ${
+            inspectorDirty ? "action-button--primary" : "action-button--muted"
+          }`}
           onClick={() => void saveInspector()}
           type="button"
         >
@@ -38,24 +40,24 @@ export function InspectorPanel() {
       <div className="mb-4 flex flex-wrap gap-2">
         {editableFiles.map((path) => (
           <button
-            className={`rounded-full px-3 py-1 text-xs ${
+            className={`rounded-full border px-3 py-2 text-xs transition ${
               path === inspectorPath
-                ? "bg-[rgba(13,37,48,0.92)] text-white"
-                : "border border-[var(--color-line)] bg-white/55 text-[var(--color-ink-soft)]"
+                ? "border-[var(--color-soul)] bg-[var(--color-soul-soft)] text-[var(--color-text)]"
+                : "border-[var(--color-border)] bg-[var(--color-panel-soft)] text-[var(--color-text-soft)]"
             }`}
             key={path}
             onClick={() => void loadInspectorFile(path)}
             type="button"
           >
-            {path}
+            {labelFromPath(path)}
           </button>
         ))}
       </div>
 
-      <div className="overflow-hidden rounded-[26px] border border-[var(--color-line)]">
+      <div className="overflow-hidden rounded-[28px] border border-[var(--color-border)]">
         <Editor
           defaultLanguage="markdown"
-          height="calc(100vh - 270px)"
+          height="calc(100vh - 210px)"
           onChange={(value) => updateInspectorContent(value ?? "")}
           options={{
             fontFamily: "var(--font-mono)",
@@ -65,7 +67,7 @@ export function InspectorPanel() {
             wordWrap: "on"
           }}
           path={inspectorPath}
-          theme="vs-light"
+          theme="vs-dark"
           value={inspectorContent}
         />
       </div>

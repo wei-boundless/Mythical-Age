@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     session_id: str
     stream: bool = True
+    ephemeral_system_messages: list[str] = Field(default_factory=list)
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -30,7 +31,11 @@ async def chat(payload: ChatRequest):
 
     async def event_generator():
         async for event in runtime.query_runtime.astream(
-            QueryRequest(session_id=payload.session_id, message=payload.message)
+            QueryRequest(
+                session_id=payload.session_id,
+                message=payload.message,
+                ephemeral_system_messages=list(payload.ephemeral_system_messages or []),
+            )
         ):
             event_type = str(event.get("type", "message"))
             data = {key: value for key, value in event.items() if key != "type"}
