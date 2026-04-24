@@ -14,6 +14,7 @@ metadata:
   supported_source_kinds:
     - document
   capability_tags:
+    - document_analysis
     - pdf
     - document
     - section

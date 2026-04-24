@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
+
+from tools.contracts import SkillToolScope
 
 
 DEFAULT_SKILL_OUTPUT_RULE = (
@@ -63,6 +66,18 @@ class SkillDefinition:
 
     def allowed_tool_scope(self) -> list[str]:
         return list(self.runtime.allowed_tools)
+
+    def tool_scope(self) -> SkillToolScope:
+        return SkillToolScope(
+            source="skill",
+            allowed_tools=tuple(self.allowed_tool_scope()),
+            capability_constraints=tuple(self.runtime.capability_tags),
+            trust_level="project",
+            reason="skill_runtime_contract",
+            skill_name=self.runtime.name,
+            activation_policy=self.runtime.activation_policy,
+            context_mode=self.runtime.context_mode,
+        )
 
     @classmethod
     def from_payload(cls, item: dict[str, object]) -> "SkillDefinition":
@@ -150,42 +165,21 @@ class SkillRegistry:
         tool_name: str | None = None,
         candidate_tools: list[str] | None = None,
     ) -> SkillDefinition | None:
-        if tool_name:
-            tool_skill = self.get_for_tool(tool_name)
-            if tool_skill is not None:
-                return tool_skill
+        from .policy import SkillPolicyResolver
 
-        best_skill: SkillDefinition | None = None
-        best_score = float("-inf")
-
-        for skill in self._skills:
-            score = 0.0
-            if route and route in skill.forbidden_routes:
-                score -= 100.0
-
-            if task_kind and task_kind in skill.supported_task_kinds:
-                score += 8.0
-            if source_kind and source_kind in skill.supported_source_kinds:
-                score += 7.0
-            if modality and modality in skill.supported_modalities:
-                score += 2.0
-
-            if candidate_tools and skill.allowed_tools:
-                overlap = set(candidate_tools) & set(skill.allowed_tools)
-                score += float(len(overlap)) * 2.5
-
-            if score > best_score:
-                best_score = score
-                best_skill = skill
-
-        if best_skill is not None and best_score > 0:
-            return best_skill
-
-        if task_kind in {"knowledge_lookup", "faq_explanation"}:
-            return self.get_by_name("rag-skill")
-        if route == "rag":
-            return self.get_by_name("rag-skill")
-        return None
+        task_frame = SimpleNamespace(
+            route=route,
+            modality=modality,
+            task_kind=task_kind,
+            source_kind=source_kind,
+            tool_name=tool_name,
+            candidate_tools=list(candidate_tools or []),
+            capability_requests=[],
+            execution_posture="",
+            skill_name=None,
+        )
+        frame = SkillPolicyResolver(self).resolve(task_frame=task_frame)
+        return frame.skill if frame is not None else None
 
     def format_active_skill_block(self, skill: SkillDefinition | None) -> str | None:
         if skill is None:

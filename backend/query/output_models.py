@@ -58,3 +58,15 @@ class OutputDecision:
     rejected_candidates: list[OutputCandidate] = field(default_factory=list)
     leak_flags: list[str] = field(default_factory=list)
     fallback_reason: str = ""
+
+
+@dataclass(slots=True)
+class ToolResultEnvelope:
+    tool_name: str
+    raw_text: str
+    display_text: str
+    display_mode: str
+    finalization_policy: str = "none"
+    persistence_policy: str = "persist_canonical"
+    allow_unlabeled_answer: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)

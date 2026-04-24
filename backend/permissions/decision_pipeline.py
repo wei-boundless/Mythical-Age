@@ -5,6 +5,7 @@ from typing import Any
 
 from permissions.models import PermissionDecision
 from permissions.policy import mode_allows_tool, normalize_permission_mode
+from tools.contracts import ToolScope, coerce_tool_scope
 from tools.definitions import ToolDefinition
 
 
@@ -12,9 +13,10 @@ def list_allowed_tool_names(
     definitions: list[ToolDefinition],
     *,
     mode: str,
-    allowed_tools: Iterable[str] | None = None,
+    allowed_tools: Iterable[str] | ToolScope | None = None,
 ) -> list[str]:
-    requested = {item.strip() for item in (allowed_tools or []) if item and item.strip()}
+    scope = coerce_tool_scope(allowed_tools, reason="permission_list_allowed_tool_names")
+    requested = set(scope.allowed_tools)
     names: list[str] = []
     for definition in definitions:
         if requested and definition.name not in requested:
@@ -29,7 +31,7 @@ def decide_tool_permission(
     definition: ToolDefinition,
     *,
     mode: str,
-    allowed_tools: Iterable[str] | None = None,
+    allowed_tools: Iterable[str] | ToolScope | None = None,
     direct_route: bool = False,
     tool_input: Any | None = None,
     tool_instance: Any | None = None,
@@ -40,7 +42,8 @@ def decide_tool_permission(
         mode=normalized_mode,
         allowed_tools=allowed_tools,
     )
-    requested = {item.strip() for item in (allowed_tools or []) if item and item.strip()}
+    scope = coerce_tool_scope(allowed_tools, reason="permission_decision")
+    requested = set(scope.allowed_tools)
     risk_tags = sorted(set(definition.safety_tags))
     checks: list[str] = []
 
@@ -55,17 +58,17 @@ def decide_tool_permission(
         )
     checks.append("route_eligibility")
 
-    if requested and definition.name not in requested:
+    if not scope.allows(definition.name):
         return PermissionDecision(
             False,
             "tool_not_allowed_by_scope",
             allowed_tools=sorted(requested),
             tool_name=definition.name,
             mode=normalized_mode,
-            checks=[*checks, "skill_scope"],
+            checks=[*checks, f"{scope.source}_scope"],
             risk_tags=risk_tags,
         )
-    checks.append("skill_scope")
+    checks.append(f"{scope.source}_scope")
 
     allowed, reason = mode_allows_tool(definition, mode=normalized_mode)
     if not allowed:

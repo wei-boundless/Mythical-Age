@@ -9,6 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from skill_system import SkillRegistry
+from skill_system.policy import SkillPolicyResolver
 from understanding.query_understanding import analyze_query_understanding
 
 
@@ -22,6 +23,18 @@ def _load_module(path: Path, module_name: str):
     return module
 
 
+def _assert_bounded_lookup(result, query: str) -> None:
+    assert result.route == "agent"
+    assert result.execution_posture == "bounded_agent"
+    assert result.skill_name is None
+    assert result.tool_name is None
+    assert result.task_kind == "knowledge_lookup"
+    assert result.target_object is None
+    assert result.candidate_tools == ["search_knowledge"]
+    assert result.tool_input == {"query": query}
+    assert "fallback_bounded_lookup" in result.reasons
+
+
 def main() -> None:
     scanner = _load_module(ROOT / "tools" / "skills_scanner.py", "skills_scanner_runtime_test")
     tool_registry_module = _load_module(ROOT / "tools" / "tool_registry.py", "tool_registry_runtime_test")
@@ -29,6 +42,7 @@ def main() -> None:
     tool_registry_module.refresh_tool_registry(ROOT)
 
     skill_registry = SkillRegistry(ROOT)
+    skill_resolver = SkillPolicyResolver(skill_registry)
     tool_registry = tool_registry_module.ToolRegistry(ROOT)
 
     weather = analyze_query_understanding(
@@ -37,7 +51,8 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert weather.route == "tool"
-    assert weather.skill_name == "get-weather"
+    assert weather.skill_name is None
+    assert skill_resolver.resolve(task_frame=weather).name == "get-weather"
     assert weather.tool_name == "get_weather"
     assert weather.target_object is None
     assert weather.candidate_tools == ["get_weather"]
@@ -47,9 +62,7 @@ def main() -> None:
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert structured.route == "rag"
-    assert structured.skill_name == "rag-skill"
-    assert structured.tool_name is None
+    _assert_bounded_lookup(structured, "销售前五的有哪些")
 
     shortage = analyze_query_understanding(
         "从我的数据库中，查询有哪些货物缺货",
@@ -57,47 +70,43 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert shortage.route == "rag"
-    assert shortage.skill_name == "rag-skill"
+    assert shortage.execution_posture == "direct_rag"
+    assert shortage.skill_name is None
+    assert skill_resolver.resolve(task_frame=shortage).name == "rag-skill"
     assert shortage.tool_name is None
-    assert shortage.task_kind == "knowledge_lookup"
-    assert shortage.target_object is None
-    assert shortage.tool_input == {}
+    assert shortage.candidate_tools == ["search_knowledge"]
+
+    local_database = analyze_query_understanding(
+        "为我搜索本地的数据库，看看有没有缺货情况",
+        skill_registry=skill_registry,
+        tool_registry=tool_registry,
+    )
+    assert local_database.route == "rag"
+    assert local_database.execution_posture == "direct_rag"
+    assert skill_resolver.resolve(task_frame=local_database).name == "rag-skill"
+    assert local_database.tool_name is None
+    assert local_database.candidate_tools == ["search_knowledge"]
 
     abundance = analyze_query_understanding(
         "我不是要知道缺货情况，我要你分析哪些地方货物最充足",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert abundance.route == "rag"
-    assert abundance.skill_name == "rag-skill"
-    assert abundance.tool_name is None
-    assert abundance.task_kind == "knowledge_lookup"
-    assert abundance.target_object is None
-    assert abundance.tool_input == {}
+    _assert_bounded_lookup(abundance, "我不是要知道缺货情况，我要你分析哪些地方货物最充足")
 
     shortage_places = analyze_query_understanding(
         "哪些地方货物不够",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert shortage_places.route == "rag"
-    assert shortage_places.skill_name == "rag-skill"
-    assert shortage_places.tool_name is None
-    assert shortage_places.task_kind == "knowledge_lookup"
-    assert shortage_places.target_object is None
-    assert shortage_places.tool_input == {}
+    _assert_bounded_lookup(shortage_places, "哪些地方货物不够")
 
     non_shortage_places = analyze_query_understanding(
         "哪些地方不缺货",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert non_shortage_places.route == "rag"
-    assert non_shortage_places.skill_name == "rag-skill"
-    assert non_shortage_places.tool_name is None
-    assert non_shortage_places.task_kind == "knowledge_lookup"
-    assert non_shortage_places.target_object is None
-    assert non_shortage_places.tool_input == {}
+    _assert_bounded_lookup(non_shortage_places, "哪些地方不缺货")
 
     explicit_structured = analyze_query_understanding(
         "帮我看一下 inventory.xlsx 里销量前五的有哪些",
@@ -105,7 +114,8 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert explicit_structured.route == "tool"
-    assert explicit_structured.skill_name == "structured-data-analysis"
+    assert explicit_structured.skill_name is None
+    assert skill_resolver.resolve(task_frame=explicit_structured).name == "structured-data-analysis"
     assert explicit_structured.tool_name == "structured_data_analysis"
     assert explicit_structured.tool_input == {
         "query": "帮我看一下 inventory.xlsx 里销量前五的有哪些",
@@ -118,7 +128,8 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert pdf.route == "tool"
-    assert pdf.skill_name == "pdf-analysis"
+    assert pdf.skill_name is None
+    assert skill_resolver.resolve(task_frame=pdf).name == "pdf-analysis"
     assert pdf.tool_name == "pdf_analysis"
     assert pdf.target_object is None
     assert pdf.tool_input.get("mode") == "page"
@@ -129,7 +140,8 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert faq.route == "rag"
-    assert faq.skill_name == "rag-skill"
+    assert faq.skill_name is None
+    assert skill_resolver.resolve(task_frame=faq).name == "rag-skill"
     assert faq.task_kind == "faq_explanation"
     assert faq.target_object is None
     assert faq.tool_name is None
@@ -141,7 +153,8 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert rag.route == "rag"
-    assert rag.skill_name == "rag-skill"
+    assert rag.skill_name is None
+    assert skill_resolver.resolve(task_frame=rag).name == "rag-skill"
     assert rag.target_object is None
     assert rag.tool_name is None
 
@@ -151,7 +164,8 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert web.route == "tool"
-    assert web.skill_name == "web-search"
+    assert web.skill_name is None
+    assert skill_resolver.resolve(task_frame=web).name == "web-search"
     assert web.target_object is None
     assert web.tool_name == "web_search"
 
@@ -161,10 +175,24 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert gold.route == "tool"
-    assert gold.skill_name == "gold-price"
+    assert gold.skill_name is None
+    assert skill_resolver.resolve(task_frame=gold).name == "gold-price"
     assert gold.tool_name == "get_gold_price"
     assert gold.target_object is None
     assert gold.candidate_tools == ["get_gold_price"]
+
+    workspace_read = analyze_query_understanding(
+        "打开 backend/understanding/task_understanding.py 给我看看源码",
+        skill_registry=skill_registry,
+        tool_registry=tool_registry,
+    )
+    assert workspace_read.route == "tool"
+    assert workspace_read.skill_name is None
+    assert workspace_read.tool_name == "read_file"
+    assert workspace_read.task_kind == "workspace_file_read"
+    assert workspace_read.tool_input == {
+        "path": "backend/understanding/task_understanding.py",
+    }
 
     print("ALL PASSED (skill runtime)")
 

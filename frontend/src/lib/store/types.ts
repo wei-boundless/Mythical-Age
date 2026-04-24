@@ -13,12 +13,17 @@ export type TokenStats = {
   system_tokens: number;
   message_tokens: number;
   total_tokens: number;
+  raw_history_tokens: number;
   history_tokens: number;
   history_budget_tokens: number;
   history_remaining_tokens: number;
   history_usage_ratio: number;
   history_remaining_ratio: number;
   history_pressure_level: string;
+  history_compaction_strategy: string;
+  history_did_compact: boolean;
+  history_did_microcompact: boolean;
+  history_did_full_compact: boolean;
 };
 
 export type SkillSummary = {

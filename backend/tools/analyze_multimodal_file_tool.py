@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Type
 
@@ -18,6 +19,10 @@ class AnalyzeMultimodalFileInput(BaseModel):
     path: str = Field(
         ...,
         description="Relative path inside the backend project, for example knowledge/foo.pdf or RAG/data/example.png",
+    )
+    query: str = Field(
+        default="",
+        description="Optional user question used to focus the returned file summary.",
     )
     max_chunks: int = Field(
         default=8,
@@ -72,9 +77,60 @@ class AnalyzeMultimodalFileTool(BaseTool):
             header += " " + ", ".join(labels)
         return f"{header}\n{chunk_text}"
 
+    def _query_terms(self, query: str) -> list[str]:
+        tokens = re.findall(r"[\u4e00-\u9fffA-Za-z0-9]{2,}", str(query or ""))
+        blocked = {"这个", "那个", "一下", "文件", "文档", "内容", "读取", "分析", "总结", "看看"}
+        terms: list[str] = []
+        seen: set[str] = set()
+        for token in tokens:
+            lowered = token.lower()
+            if lowered in blocked or lowered in seen:
+                continue
+            seen.add(lowered)
+            terms.append(token)
+        return terms[:8]
+
+    def _chunk_score(self, chunk, terms: list[str]) -> tuple[int, int]:
+        text = str(chunk.text or "")
+        lowered_text = text.lower()
+        hits = 0
+        for term in terms:
+            hits += lowered_text.count(term.lower())
+        section_bonus = 1 if str(chunk.section or "").strip() else 0
+        return hits, section_bonus
+
+    def _select_chunks(self, chunks: list, *, query: str, max_chunks: int) -> list:
+        if not chunks:
+            return []
+        terms = self._query_terms(query)
+        if not terms:
+            return list(chunks[:max_chunks])
+        ranked = sorted(chunks, key=lambda item: self._chunk_score(item, terms), reverse=True)
+        if self._chunk_score(ranked[0], terms)[0] <= 0:
+            return list(chunks[:max_chunks])
+        return ranked[:max_chunks]
+
+    def _chunk_locator(self, chunk) -> str:
+        labels: list[str] = []
+        if chunk.page not in (None, ""):
+            labels.append(f"P{chunk.page}")
+        if str(chunk.section or "").strip():
+            labels.append(str(chunk.section).strip())
+        modality = str(chunk.modality or "").strip()
+        if modality and modality not in {"text", "table"}:
+            labels.append(modality)
+        return " / ".join(labels)
+
+    def _preview_text(self, text: str, *, limit: int) -> str:
+        normalized = " ".join(str(text or "").split()).strip()
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[:limit].rstrip() + "..."
+
     def _run(
         self,
         path: str,
+        query: str = "",
         max_chunks: int = 8,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
@@ -94,55 +150,49 @@ class AnalyzeMultimodalFileTool(BaseTool):
         if not chunks:
             return "No parsable multimodal content was extracted from this file."
 
-        summary_lines = [
-            f"Source: {path}",
-            f"Extracted chunks: {len(chunks)}",
-        ]
+        selected_chunks = self._select_chunks(chunks, query=query, max_chunks=min(max_chunks, 4))
 
         modality_counts: dict[str, int] = {}
-        xlsx_summaries: list[str] = []
         for chunk in chunks:
             modality_counts[chunk.modality] = modality_counts.get(chunk.modality, 0) + 1
-            if chunk.metadata.get("format") == "xlsx":
-                total_rows = chunk.metadata.get("total_rows")
-                section = chunk.section or "sheet"
-                summary = f"{section} rows={total_rows}"
-                if summary not in xlsx_summaries:
-                    xlsx_summaries.append(summary)
-        summary_lines.append(
-            "Modalities: "
-            + ", ".join(f"{key}={value}" for key, value in sorted(modality_counts.items()))
-        )
-        if xlsx_summaries:
-            summary_lines.append("Sheets: " + ", ".join(xlsx_summaries))
+        modality_summary = ", ".join(f"{key}={value}" for key, value in sorted(modality_counts.items()))
+        file_type = file_path.suffix.lower().lstrip(".") or "file"
+        intro = f"结论：已读取本地文件 {path}。"
+        if query.strip():
+            intro += f" 围绕“{query.strip()}”，当前能直接确认的内容如下。"
+        else:
+            intro += " 当前可以给出文件概览。"
+        summary_lines = [
+            intro,
+            f"文件类型：{file_type}；解析片段：{len(chunks)}；模态分布：{modality_summary}。",
+        ]
 
-        rendered_chunks: list[str] = []
-        for idx, chunk in enumerate(chunks[:max_chunks], start=1):
-            metadata = {
-                "modality": chunk.modality,
-                "page": chunk.page,
-                "section": chunk.section,
-                "row_start": chunk.metadata.get("row_start"),
-                "row_end": chunk.metadata.get("row_end"),
-                "total_rows": chunk.metadata.get("total_rows"),
-            }
-            preview_limit = 2400 if chunk.modality == "table" else 1800
-            preview_text = chunk.text[:preview_limit]
-            if len(chunk.text) > preview_limit:
-                preview_text += "\n...[chunk preview truncated]"
-            rendered_chunks.append(
-                self._format_chunk(idx, preview_text, metadata)
-            )
+        if not selected_chunks:
+            summary_lines.append("当前没有提取到可展示的正文片段。")
+            return "\n".join(summary_lines)
 
-        if len(chunks) > max_chunks:
-            rendered_chunks.append(f"... {len(chunks) - max_chunks} more chunks omitted.")
+        summary_lines.append("关键片段：")
+        for idx, chunk in enumerate(selected_chunks, start=1):
+            locator = self._chunk_locator(chunk)
+            preview_limit = 420 if chunk.modality == "table" else 280
+            preview = self._preview_text(chunk.text, limit=preview_limit)
+            line = f"{idx}. "
+            if locator:
+                line += f"{locator}："
+            line += preview
+            summary_lines.append(line)
 
-        return "\n\n".join(summary_lines + [""] + rendered_chunks)[:20000]
+        remaining = max(0, len(chunks) - len(selected_chunks))
+        if remaining:
+            summary_lines.append(f"其余还有 {remaining} 个片段未展开。")
+
+        return "\n".join(summary_lines)[:20000]
 
     async def _arun(
         self,
         path: str,
+        query: str = "",
         max_chunks: int = 8,
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
-        return await asyncio.to_thread(self._run, path, max_chunks, None)
+        return await asyncio.to_thread(self._run, path, query, max_chunks, None)

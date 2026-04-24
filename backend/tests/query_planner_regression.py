@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from query.continuation_resolver import QueryContinuationResolver
 from query.planner import QueryPlanner
+from tools.tool_registry import ToolRegistry
 from understanding.query_understanding import QueryUnderstanding
 
 
@@ -18,7 +19,7 @@ def main() -> None:
     planner = QueryPlanner(
         base_dir=ROOT,
         skill_registry=None,
-        tool_runtime=SimpleNamespace(registry=None),
+        tool_runtime=SimpleNamespace(registry=ToolRegistry(ROOT)),
     )
 
     pdf_plan = planner.build_plan(
@@ -46,6 +47,17 @@ def main() -> None:
     assert structured_plan.iter_executions()[0].structured_binding.dataset_path.endswith("inventory.xlsx")
     assert structured_plan.iter_executions()[0].structured_binding.source == "prebound_tool_input"
     assert structured_plan.iter_executions()[0].structured_binding.explicit_switch is True
+
+    workspace_read_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="打开 backend/understanding/task_understanding.py 给我看看源码",
+        history=[],
+    )
+    assert workspace_read_plan.query_understanding.route == "tool"
+    assert workspace_read_plan.query_understanding.tool_name == "read_file"
+    assert workspace_read_plan.iter_executions()[0].execution_kind == "direct_tool"
+    assert workspace_read_plan.iter_executions()[0].tool_input["path"] == "understanding/task_understanding.py"
+    assert workspace_read_plan.iter_executions()[0].structured_binding is None
 
     structured_compound_plan = planner.build_plan(
         session_id="planner-regression",

@@ -6,6 +6,7 @@ from permissions.decision_pipeline import decide_tool_permission, list_allowed_t
 from permissions.models import PermissionDecision
 from permissions.policy import PERMISSION_MODES, normalize_permission_mode
 from runtime.settings import AppSettingsService
+from tools.contracts import ToolScope
 from tools.runtime import ToolRuntime
 
 
@@ -20,7 +21,7 @@ class PermissionService:
     def supported_modes(self) -> list[str]:
         return list(PERMISSION_MODES)
 
-    def allowed_tool_names(self, *, allowed_tools: Iterable[str] | None = None) -> list[str]:
+    def allowed_tool_names(self, *, allowed_tools: Iterable[str] | ToolScope | None = None) -> list[str]:
         return list_allowed_tool_names(
             self.tool_runtime.definitions,
             mode=self.current_mode(),
@@ -31,7 +32,7 @@ class PermissionService:
         self,
         tool_name: str | None,
         *,
-        allowed_tools: Iterable[str] | None = None,
+        allowed_tools: Iterable[str] | ToolScope | None = None,
         direct_route: bool = False,
         tool_input: object | None = None,
     ) -> PermissionDecision:

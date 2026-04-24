@@ -21,6 +21,7 @@ metadata:
   supported_source_kinds:
     - dataset
   capability_tags:
+    - dataset_analysis
     - analytics
     - top-n
     - group-by

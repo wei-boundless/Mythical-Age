@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Iterable, Literal
 
 
 def _is_blank(value: Any) -> bool:
@@ -12,6 +12,97 @@ def _is_blank(value: Any) -> bool:
     if isinstance(value, (list, tuple, set, dict)):
         return len(value) == 0
     return False
+
+
+ToolScopeSource = Literal["global", "skill", "agent", "session", "explicit_user", "legacy"]
+ToolScopeTrustLevel = Literal["system", "project", "user", "external", "unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolScope:
+    """Typed tool scope for permission/contract layers.
+
+    A scope is a narrowing constraint, not an allow-by-itself permission.
+    """
+
+    source: ToolScopeSource = "global"
+    allowed_tools: tuple[str, ...] = ()
+    denied_tools: tuple[str, ...] = ()
+    capability_constraints: tuple[str, ...] = ()
+    trust_level: ToolScopeTrustLevel = "unknown"
+    reason: str = ""
+
+    @classmethod
+    def from_allowed_tools(
+        cls,
+        allowed_tools: Iterable[str] | None,
+        *,
+        source: ToolScopeSource = "legacy",
+        trust_level: ToolScopeTrustLevel = "unknown",
+        reason: str = "",
+    ) -> "ToolScope":
+        return cls(
+            source=source,
+            allowed_tools=_normalize_names(allowed_tools),
+            trust_level=trust_level,
+            reason=reason,
+        )
+
+    @property
+    def has_allowed_filter(self) -> bool:
+        return bool(self.allowed_tools)
+
+    def allows(self, tool_name: str | None) -> bool:
+        normalized = str(tool_name or "").strip()
+        if not normalized:
+            return False
+        if normalized in set(self.denied_tools):
+            return False
+        if self.allowed_tools and normalized not in set(self.allowed_tools):
+            return False
+        return True
+
+    def to_allowed_tools(self) -> list[str]:
+        return list(self.allowed_tools)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SkillToolScope(ToolScope):
+    skill_name: str = ""
+    activation_policy: str = "model_visible"
+    context_mode: str = "inline"
+
+
+def _normalize_names(values: Iterable[str] | None) -> tuple[str, ...]:
+    names = []
+    seen = set()
+    for value in values or []:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        names.append(normalized)
+    return tuple(names)
+
+
+def coerce_tool_scope(
+    scope: ToolScope | Iterable[str] | None,
+    *,
+    source: ToolScopeSource = "legacy",
+    trust_level: ToolScopeTrustLevel = "unknown",
+    reason: str = "",
+) -> ToolScope:
+    if isinstance(scope, ToolScope):
+        return scope
+    return ToolScope.from_allowed_tools(
+        scope,
+        source=source,
+        trust_level=trust_level,
+        reason=reason,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +116,37 @@ class ToolExecutionContract:
     missing_binding_behavior: str = "clarify"
     context_policy: str = "inline"
     result_channel: str = "canonical"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResolutionContract:
+    path_field: str = ""
+    path_kind: str = ""
+    binding_field: str = ""
+    allow_message_extraction: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolOutputContract:
+    display_mode: str = "summary_text"
+    finalization_policy: str = "none"
+    persistence_policy: str = "persist_canonical"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolProjectionContract:
+    task_summary_policy: str = "canonical_only"
+    result_ref_policy: str = "default"
+    memory_projection_policy: str = "canonical_only"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -65,14 +187,18 @@ class ToolContractGate:
         tool_name: str,
         contract: ToolExecutionContract,
         tool_input: dict[str, Any] | None,
-        skill_allowed_tools: list[str] | None = None,
+        tool_scope: ToolScope | Iterable[str] | None = None,
         binding_context: dict[str, Any] | None = None,
     ) -> ToolContractDecision:
         normalized_input = dict(tool_input or {})
         normalized_bindings = dict(binding_context or {})
         normalized_mode = (self.mode or "shadow").strip().lower() or "shadow"
-        allowed_scope = [item.strip() for item in (skill_allowed_tools or []) if str(item).strip()]
-        if allowed_scope and tool_name not in allowed_scope:
+        effective_scope = coerce_tool_scope(
+            tool_scope,
+            source="legacy",
+            reason="tool_contract_gate",
+        )
+        if not effective_scope.allows(tool_name):
             return ToolContractDecision(
                 tool_name=tool_name,
                 mode=normalized_mode,

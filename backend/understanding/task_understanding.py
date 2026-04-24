@@ -8,6 +8,85 @@ from pdf_analysis.catalog import PdfAnalysisCatalog
 from understanding.memory_intent import MemoryIntent
 
 
+DATASET_PATH_PATTERN = re.compile(
+    r"([^\s,，;；:：\"'“”‘’]+?\.(?:xlsx|csv|xls|json|parquet))",
+    flags=re.IGNORECASE,
+)
+WORKSPACE_FILE_PATH_PATTERN = re.compile(
+    r"([^\s,，;；:：\"'“”‘’]+?\.(?:md|txt|py|toml|ya?ml|ini|cfg|ts|tsx|js|jsx|css|html|sql|log|sh|ps1))",
+    flags=re.IGNORECASE,
+)
+URL_PATTERN = re.compile(r"https?://[^\s]+", flags=re.IGNORECASE)
+
+PAGE_REFERENCE_PATTERN = re.compile(
+    r"(?:第\s*\d+\s*页|第\s*[零一二三四五六七八九十百千两\d]+\s*页|page\s*\d+)",
+    flags=re.IGNORECASE,
+)
+SECTION_REFERENCE_PATTERN = re.compile(
+    r"(?:第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)|这一部分|那一部分|这一章|那一章|这一节|那一节)",
+    flags=re.IGNORECASE,
+)
+LOCAL_SOURCE_ANCHOR_PATTERN = re.compile(
+    r"(?P<qualifier>本地|本机|当前|项目(?:内)?|我的|我们(?:的)?|咱们(?:的)?|你(?:这边|这里|的)?|系统(?:内)?|库内)"
+    r"(?:\s*的|\s*)"
+    r"(?P<container>知识库|资料库|数据库|文档库|本地库|资料|文档)",
+    flags=re.IGNORECASE,
+)
+SOURCE_LOCATIVE_ANCHOR_PATTERN = re.compile(
+    r"(?P<container>知识库|资料库|数据库|文档库|本地库|资料|文档)"
+    r"(?:里|中|内|里面|当中)",
+    flags=re.IGNORECASE,
+)
+
+
+@dataclass(slots=True)
+class TaskSignals:
+    explicit_dataset_path: str = ""
+    explicit_pdf_path: str = ""
+    explicit_workspace_path: str = ""
+    explicit_urls: list[str] = field(default_factory=list)
+    anchor_kinds: list[str] = field(default_factory=list)
+    page_reference: bool = False
+    section_reference: bool = False
+    document_reference: bool = False
+    document_read_intent: bool = False
+    local_knowledge_scope: bool = False
+    knowledge_source_anchor: str = ""
+    knowledge_source_anchor_kind: str = ""
+    workspace_read_request: bool = False
+    faq_shape: bool = False
+    external_requirement: bool = False
+    official_source_requirement: bool = False
+    freshness_requirement: bool = False
+    weather_domain: bool = False
+    gold_price_domain: bool = False
+    mixed_direct_capabilities: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "explicit_dataset_path": self.explicit_dataset_path,
+            "explicit_pdf_path": self.explicit_pdf_path,
+            "explicit_workspace_path": self.explicit_workspace_path,
+            "explicit_urls": list(self.explicit_urls),
+            "anchor_kinds": list(self.anchor_kinds),
+            "page_reference": self.page_reference,
+            "section_reference": self.section_reference,
+            "document_reference": self.document_reference,
+            "document_read_intent": self.document_read_intent,
+            "local_knowledge_scope": self.local_knowledge_scope,
+            "knowledge_source_anchor": self.knowledge_source_anchor,
+            "knowledge_source_anchor_kind": self.knowledge_source_anchor_kind,
+            "workspace_read_request": self.workspace_read_request,
+            "faq_shape": self.faq_shape,
+            "external_requirement": self.external_requirement,
+            "official_source_requirement": self.official_source_requirement,
+            "freshness_requirement": self.freshness_requirement,
+            "weather_domain": self.weather_domain,
+            "gold_price_domain": self.gold_price_domain,
+            "mixed_direct_capabilities": self.mixed_direct_capabilities,
+        }
+
+
 @dataclass(slots=True)
 class TaskUnderstanding:
     intent: str = "general_query"
@@ -17,6 +96,7 @@ class TaskUnderstanding:
     modality: str = "general"
     route_hint: str = "rag"
     preferred_skill: str | None = None
+    capability_requests: list[str] = field(default_factory=list)
     candidate_tools: list[str] = field(default_factory=list)
     parameters: dict[str, Any] = field(default_factory=dict)
     execution_posture: str = "direct_rag"
@@ -24,6 +104,7 @@ class TaskUnderstanding:
     should_skip_rag: bool = False
     confidence: float = 0.0
     reasons: list[str] = field(default_factory=list)
+    structural_signals: dict[str, Any] = field(default_factory=dict)
 
 
 def analyze_task_understanding(
@@ -45,142 +126,276 @@ def analyze_task_understanding(
             should_skip_rag=True,
             confidence=1.0,
             reasons=["memory_intent"],
+            capability_requests=[],
         )
 
-    return (
-        _detect_mixed_capability_task(normalized, lowered)
-        or _detect_realtime_task(normalized, lowered)
-        or _detect_web_task(normalized, lowered)
-        or _detect_pdf_task(normalized, lowered)
-        or _detect_faq_task(normalized, lowered)
-        or _detect_structured_data_task(normalized, lowered)
-        or _detect_knowledge_task(normalized, lowered)
-        or _build_bounded_lookup_task(
+    signals = _collect_task_signals(normalized, lowered)
+
+    if signals.mixed_direct_capabilities:
+        return _build_bounded_lookup_task(
             message=normalized,
-            lowered=lowered,
-            source_kind="knowledge_base",
-            task_kind="knowledge_lookup",
-            modality="general",
-            confidence=0.35,
-            reasons=["fallback_bounded_lookup"],
+            source_kind="mixed_sources",
+            task_kind="multi_capability_request",
+            modality="multi",
+            confidence=0.78,
+            reasons=["mixed_direct_capabilities"],
+            signals=signals,
         )
-    )
 
+    direct = (
+        _build_direct_dataset_task(normalized, signals)
+        or _build_direct_pdf_task(normalized, signals)
+        or _build_direct_workspace_read_task(normalized, signals)
+        or _build_direct_weather_task(normalized, signals)
+        or _build_direct_gold_task(normalized, signals)
+        or _build_direct_web_task(normalized, signals)
+        or _build_direct_faq_task(normalized, signals)
+        or _build_direct_knowledge_task(normalized, signals)
+    )
+    if direct is not None:
+        return direct
 
-def _detect_mixed_capability_task(message: str, lowered: str) -> TaskUnderstanding | None:
-    explicit_pdf_references = PdfAnalysisCatalog.extract_explicit_pdf_references(message)
-    explicit_dataset_reference = _extract_explicit_dataset_reference(message)
-    has_document_signal = bool(explicit_pdf_references) or (
-        ("pdf" in lowered or "报告" in lowered or "文档" in lowered)
-        and bool(re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message))
-    )
-    has_dataset_signal = bool(explicit_dataset_reference)
-    has_realtime_signal = _contains_any(
-        lowered,
-        (
-            "weather",
-            "forecast",
-            "天气",
-            "气温",
-            "黄金",
-            "金价",
-            "现货黄金",
-        ),
-    )
-    signal_count = sum(1 for signal in (has_document_signal, has_dataset_signal, has_realtime_signal) if signal)
-    if signal_count < 2:
-        return None
     return _build_bounded_lookup_task(
-        message=message,
-        lowered=lowered,
-        source_kind="mixed_sources",
-        task_kind="multi_capability_request",
-        modality="multi",
-        confidence=0.72,
-        reasons=["mixed_capability_signals"],
+        message=normalized,
+        source_kind="knowledge_base",
+        task_kind="knowledge_lookup",
+        modality="general",
+        confidence=0.42,
+        reasons=["fallback_bounded_lookup"],
+        signals=signals,
     )
 
 
-def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
-    return any(marker in text for marker in markers)
-
-
-def _detect_realtime_task(message: str, lowered: str) -> TaskUnderstanding | None:
-    weather_markers = (
-        "weather",
-        "forecast",
-        "temperature",
-        "rain",
-        "wind",
-        "天气",
-        "气温",
-        "温度",
-        "降雨",
-        "下雨",
-        "风速",
-        "风向",
-        "预报",
+def _collect_task_signals(message: str, lowered: str) -> TaskSignals:
+    explicit_dataset_path = _extract_explicit_dataset_reference(message)
+    explicit_pdf_references = PdfAnalysisCatalog.extract_explicit_pdf_references(message)
+    explicit_pdf_path = explicit_pdf_references[0] if explicit_pdf_references else ""
+    explicit_workspace_path = _extract_explicit_workspace_file_reference(
+        message,
+        explicit_dataset_path=explicit_dataset_path,
+        explicit_pdf_path=explicit_pdf_path,
     )
-    if _contains_any(lowered, weather_markers):
-        return TaskUnderstanding(
-            intent="weather_query",
-            source_kind="external_web",
-            task_kind="realtime_lookup",
-            modality="realtime",
-            route_hint="tool",
-            preferred_skill="get-weather",
-            candidate_tools=["get_weather"],
-            parameters={"query": message},
-            execution_posture="direct_tool",
-            direct_route_reason="weather_markers",
-            should_skip_rag=True,
-            confidence=0.98,
-            reasons=["weather_markers"],
-        )
+    explicit_urls = URL_PATTERN.findall(message)
 
-    gold_markers = (
-        "gold price",
-        "spot gold",
-        "xau",
-        "xauusd",
-        "黄金",
-        "金价",
-        "现货黄金",
-        "黄金价格",
+    page_reference = bool(PAGE_REFERENCE_PATTERN.search(message))
+    section_reference = bool(SECTION_REFERENCE_PATTERN.search(message))
+    document_reference = _contains_any(lowered, ("pdf", "白皮书", "报告", "report"))
+    document_read_intent = page_reference or section_reference or _contains_any(
+        lowered,
+        ("解读", "总结", "通读", "逐页", "总览", "讲得什么", "讲什么", "看一下", "看看"),
     )
-    if _contains_any(lowered, gold_markers):
-        return TaskUnderstanding(
-            intent="gold_price_query",
-            source_kind="external_web",
-            task_kind="realtime_lookup",
-            modality="realtime",
-            route_hint="tool",
-            preferred_skill="gold-price",
-            candidate_tools=["get_gold_price"],
-            parameters={"query": message},
-            execution_posture="direct_tool",
-            direct_route_reason="gold_markers",
-            should_skip_rag=True,
-            confidence=0.97,
-            reasons=["gold_markers"],
-        )
-    return None
 
-
-def _detect_web_task(message: str, lowered: str) -> TaskUnderstanding | None:
-    explicit_web_markers = (
-        "联网",
-        "查官网",
-        "官网",
-        "look it up",
-        "official docs",
-        "news",
-        "web search",
-        "上网",
-        "网上查",
+    knowledge_source_anchor, knowledge_source_anchor_kind = _extract_knowledge_source_anchor(message)
+    local_knowledge_scope = bool(knowledge_source_anchor)
+    workspace_read_request = explicit_workspace_path != "" and _looks_like_workspace_read_request(lowered)
+    faq_shape = _looks_like_faq_problem(lowered)
+    external_requirement = bool(explicit_urls) or _contains_any(
+        lowered,
+        ("联网", "官网", "官方文档", "official docs", "web search", "上网", "网上查", "look it up", "news"),
     )
-    has_explicit_web_marker = _contains_any(lowered, explicit_web_markers)
-    if not has_explicit_web_marker:
+    official_source_requirement = bool(explicit_urls) or _contains_any(
+        lowered,
+        ("官网", "官方文档", "official docs", "official"),
+    )
+    freshness_requirement = _contains_any(
+        lowered,
+        ("今年", "现在", "目前", "还在", "最新", "最新状态", "实时", "today", "latest", "current", "currently", "recent"),
+    )
+    weather_domain = _contains_any(
+        lowered,
+        ("weather", "forecast", "temperature", "天气", "气温", "温度", "降雨", "下雨", "风速", "风向", "预报"),
+    )
+    gold_price_domain = _contains_any(
+        lowered,
+        ("gold price", "spot gold", "xau", "xauusd", "黄金", "金价", "现货黄金", "黄金价格"),
+    )
+
+    anchor_kinds: list[str] = []
+    if explicit_dataset_path:
+        anchor_kinds.append("dataset_path")
+    if explicit_pdf_path:
+        anchor_kinds.append("pdf_path")
+    if explicit_workspace_path:
+        anchor_kinds.append("workspace_path")
+    elif document_reference:
+        anchor_kinds.append("document_reference")
+    if page_reference:
+        anchor_kinds.append("page_reference")
+    if section_reference:
+        anchor_kinds.append("section_reference")
+    if explicit_urls:
+        anchor_kinds.append("url")
+    if external_requirement:
+        anchor_kinds.append("external_requirement")
+    if official_source_requirement:
+        anchor_kinds.append("official_source_requirement")
+    if freshness_requirement:
+        anchor_kinds.append("freshness_requirement")
+    if local_knowledge_scope:
+        anchor_kinds.append("knowledge_scope")
+    if faq_shape:
+        anchor_kinds.append("faq_shape")
+    if weather_domain:
+        anchor_kinds.append("weather_domain")
+    if gold_price_domain:
+        anchor_kinds.append("gold_price_domain")
+
+    signals = TaskSignals(
+        explicit_dataset_path=explicit_dataset_path,
+        explicit_pdf_path=explicit_pdf_path,
+        explicit_workspace_path=explicit_workspace_path,
+        explicit_urls=explicit_urls,
+        anchor_kinds=anchor_kinds,
+        page_reference=page_reference,
+        section_reference=section_reference,
+        document_reference=document_reference or bool(explicit_pdf_path),
+        document_read_intent=document_read_intent,
+        local_knowledge_scope=local_knowledge_scope,
+        knowledge_source_anchor=knowledge_source_anchor,
+        knowledge_source_anchor_kind=knowledge_source_anchor_kind,
+        workspace_read_request=workspace_read_request,
+        faq_shape=faq_shape,
+        external_requirement=external_requirement,
+        official_source_requirement=official_source_requirement,
+        freshness_requirement=freshness_requirement,
+        weather_domain=weather_domain,
+        gold_price_domain=gold_price_domain,
+    )
+    signals.mixed_direct_capabilities = _has_mixed_direct_capabilities(signals)
+    return signals
+
+
+def _build_direct_dataset_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if not signals.explicit_dataset_path:
+        return None
+    parameters: dict[str, Any] = {
+        "query": message,
+        "path": signals.explicit_dataset_path,
+    }
+    return TaskUnderstanding(
+        intent="structured_dataset_query",
+        source_kind="dataset",
+        task_kind="dataset_query",
+        modality="table",
+        route_hint="tool",
+        preferred_skill="structured-data-analysis",
+        capability_requests=["dataset_analysis"],
+        parameters=parameters,
+        execution_posture="direct_tool",
+        direct_route_reason="explicit_dataset_anchor",
+        should_skip_rag=True,
+        confidence=0.96,
+        reasons=["explicit_dataset_anchor"],
+        structural_signals=signals.to_dict(),
+    )
+
+
+def _build_direct_pdf_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    has_document_anchor = bool(signals.explicit_pdf_path) or (
+        signals.document_reference and (signals.page_reference or signals.section_reference or signals.document_read_intent)
+    )
+    if not has_document_anchor or signals.external_requirement:
+        return None
+    if signals.page_reference:
+        task_kind = "document_page"
+        mode = "page"
+    elif signals.section_reference:
+        task_kind = "document_section"
+        mode = "section"
+    else:
+        task_kind = "document_read"
+        mode = "document"
+    parameters: dict[str, Any] = {"query": message, "mode": mode}
+    reasons = ["document_scope_anchor"]
+    if signals.explicit_pdf_path:
+        parameters["path"] = signals.explicit_pdf_path
+        reasons.append("explicit_pdf_anchor")
+    return TaskUnderstanding(
+        intent=f"pdf_{task_kind}",
+        source_kind="document",
+        task_kind=task_kind,
+        modality="pdf",
+        route_hint="tool",
+        preferred_skill="pdf-analysis",
+        capability_requests=["document_analysis"],
+        parameters=parameters,
+        execution_posture="direct_tool",
+        direct_route_reason="explicit_pdf_anchor" if signals.explicit_pdf_path else "document_scope_anchor",
+        should_skip_rag=True,
+        confidence=0.94 if signals.explicit_pdf_path else 0.87,
+        reasons=reasons,
+        structural_signals=signals.to_dict(),
+    )
+
+
+def _build_direct_workspace_read_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if not signals.explicit_workspace_path or not signals.workspace_read_request:
+        return None
+    lowered_path = signals.explicit_workspace_path.lower()
+    modality = "code" if lowered_path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".sh", ".ps1", ".sql")) else "text"
+    return TaskUnderstanding(
+        intent="workspace_file_read_query",
+        source_kind="workspace",
+        task_kind="workspace_file_read",
+        modality=modality,
+        route_hint="tool",
+        preferred_skill=None,
+        capability_requests=["workspace_read"],
+        candidate_tools=["read_file"],
+        parameters={"path": signals.explicit_workspace_path},
+        execution_posture="direct_tool",
+        direct_route_reason="explicit_workspace_file_anchor",
+        should_skip_rag=True,
+        confidence=0.95,
+        reasons=["explicit_workspace_file_anchor"],
+        structural_signals=signals.to_dict(),
+    )
+
+
+def _build_direct_weather_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if not signals.weather_domain or signals.explicit_dataset_path or signals.explicit_pdf_path:
+        return None
+    return TaskUnderstanding(
+        intent="weather_query",
+        source_kind="external_web",
+        task_kind="realtime_lookup",
+        modality="realtime",
+        route_hint="tool",
+        preferred_skill="get-weather",
+        capability_requests=["weather"],
+        parameters={"query": message},
+        execution_posture="direct_tool",
+        direct_route_reason="dedicated_weather_capability",
+        should_skip_rag=True,
+        confidence=0.98,
+        reasons=["dedicated_weather_capability"],
+        structural_signals=signals.to_dict(),
+    )
+
+
+def _build_direct_gold_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if not signals.gold_price_domain or signals.explicit_dataset_path or signals.explicit_pdf_path:
+        return None
+    return TaskUnderstanding(
+        intent="gold_price_query",
+        source_kind="external_web",
+        task_kind="realtime_lookup",
+        modality="realtime",
+        route_hint="tool",
+        preferred_skill="gold-price",
+        capability_requests=["gold_price"],
+        parameters={"query": message},
+        execution_posture="direct_tool",
+        direct_route_reason="dedicated_gold_price_capability",
+        should_skip_rag=True,
+        confidence=0.97,
+        reasons=["dedicated_gold_price_capability"],
+        structural_signals=signals.to_dict(),
+    )
+
+
+def _build_direct_web_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if not signals.external_requirement:
         return None
     return TaskUnderstanding(
         intent="web_search_query",
@@ -189,91 +404,167 @@ def _detect_web_task(message: str, lowered: str) -> TaskUnderstanding | None:
         modality="web",
         route_hint="tool",
         preferred_skill="web-search",
-        candidate_tools=["web_search"],
+        capability_requests=["latest_information"],
         parameters={"query": message},
         execution_posture="direct_tool",
-        direct_route_reason="explicit_web_request",
+        direct_route_reason="explicit_external_constraint",
         should_skip_rag=True,
-        confidence=0.92,
-        reasons=["explicit_web_markers"],
+        confidence=0.93,
+        reasons=["explicit_external_constraint"],
+        structural_signals=signals.to_dict(),
     )
 
 
-def _detect_pdf_task(message: str, lowered: str) -> TaskUnderstanding | None:
-    explicit_pdf_markers = ("pdf", "白皮书")
-    contextual_doc_markers = ("报告", "文档")
-    page_markers = (
-        bool(re.search(r"第\s*\d+\s*页", message)),
-        bool(re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message)),
-        bool(re.search(r"page\s*\d+", lowered)),
-    )
-    section_markers = (
-        bool(re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)", message)),
-        any(marker in message for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节")),
-    )
-    document_action_markers = (
-        "分析",
-        "解读",
-        "总结",
-        "详细解读",
-        "通读",
-        "逐页",
-        "完整总结",
-        "总览",
-        "看一下",
-        "看看",
-        "讲得什么",
-        "讲什么",
-    )
-    explicit_references = PdfAnalysisCatalog.extract_explicit_pdf_references(message)
-    has_explicit_pdf_marker = _contains_any(lowered, explicit_pdf_markers) or bool(explicit_references)
-    has_contextual_document_signal = _contains_any(lowered, contextual_doc_markers) and (
-        any(page_markers) or _contains_any(lowered, document_action_markers)
-    )
-
-    if not has_explicit_pdf_marker and not any(page_markers) and not has_contextual_document_signal:
+def _build_direct_faq_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if not signals.faq_shape or signals.external_requirement or signals.explicit_dataset_path or signals.explicit_pdf_path:
         return None
-
-    if any(page_markers):
-        task_kind = "document_page"
-        mode = "page"
-    elif any(section_markers):
-        task_kind = "document_section"
-        mode = "section"
-    else:
-        task_kind = "document_read"
-        mode = "document"
-
-    reasons = ["pdf_markers"] if has_explicit_pdf_marker or has_contextual_document_signal else []
-    if any(page_markers):
-        reasons.append("page_markers")
-    if any(section_markers):
-        reasons.append("section_markers")
-    if mode == "document" and _contains_any(lowered, ("详细解读", "通读", "逐页", "完整总结")):
-        reasons.append("document_read_markers")
-    parameters = {"query": message, "mode": mode}
-    if explicit_references:
-        parameters["path"] = explicit_references[0]
-        reasons.append("explicit_pdf_reference")
-
     return TaskUnderstanding(
-        intent=f"pdf_{task_kind}",
-        source_kind="document",
-        task_kind=task_kind,
-        modality="pdf",
-        route_hint="tool",
-        preferred_skill="pdf-analysis",
-        candidate_tools=["pdf_analysis"],
-        parameters=parameters,
-        execution_posture="direct_tool",
-        direct_route_reason="explicit_pdf_reference" if explicit_references else "pdf_markers",
-        should_skip_rag=True,
-        confidence=0.93 if mode in {"page", "section"} else 0.88,
-        reasons=reasons,
+        intent="faq_explanation_query",
+        source_kind="knowledge_base",
+        task_kind="faq_explanation",
+        modality="general",
+        route_hint="rag",
+        preferred_skill="rag-skill",
+        capability_requests=["faq"],
+        parameters={"query": message},
+        execution_posture="direct_rag",
+        direct_route_reason="faq_problem_shape",
+        should_skip_rag=False,
+        confidence=0.9,
+        reasons=["faq_problem_shape"],
+        structural_signals=signals.to_dict(),
     )
 
 
-def _detect_faq_task(message: str, lowered: str) -> TaskUnderstanding | None:
+def _build_direct_knowledge_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if not signals.local_knowledge_scope or signals.freshness_requirement:
+        return None
+    return TaskUnderstanding(
+        intent="knowledge_lookup_query",
+        source_kind="knowledge_base",
+        task_kind="knowledge_lookup",
+        modality="general",
+        route_hint="rag",
+        preferred_skill="rag-skill",
+        capability_requests=["knowledge_lookup"],
+        parameters={"query": message},
+        execution_posture="direct_rag",
+        direct_route_reason="explicit_knowledge_scope",
+        should_skip_rag=False,
+        confidence=0.8,
+        reasons=["explicit_knowledge_scope"],
+        structural_signals=signals.to_dict(),
+    )
+
+
+def _build_bounded_lookup_task(
+    *,
+    message: str,
+    source_kind: str,
+    task_kind: str,
+    modality: str,
+    confidence: float,
+    reasons: list[str],
+    signals: TaskSignals,
+) -> TaskUnderstanding:
+    capability_requests = _build_capability_requests(
+        signals,
+        include_default_knowledge=True,
+    )
+    direct_route_reason = "unresolved_lookup"
+    if "latest_information" in capability_requests:
+        direct_route_reason = "freshness_aware_lookup"
+    return TaskUnderstanding(
+        intent="general_query",
+        source_kind=source_kind,
+        task_kind=task_kind,
+        modality=modality,
+        route_hint="agent",
+        preferred_skill=None,
+        capability_requests=capability_requests,
+        parameters={"query": message},
+        execution_posture="bounded_agent",
+        direct_route_reason=direct_route_reason,
+        should_skip_rag=False,
+        confidence=confidence,
+        reasons=reasons,
+        structural_signals=signals.to_dict(),
+    )
+
+
+def _extract_explicit_dataset_reference(message: str) -> str:
+    normalized = (message or "").strip()
+    if not normalized:
+        return ""
+    match = DATASET_PATH_PATTERN.search(normalized)
+    return match.group(1).strip() if match is not None else ""
+
+
+def _extract_explicit_workspace_file_reference(
+    message: str,
+    *,
+    explicit_dataset_path: str,
+    explicit_pdf_path: str,
+) -> str:
+    normalized = (message or "").strip()
+    if not normalized or explicit_dataset_path or explicit_pdf_path:
+        return ""
+    match = WORKSPACE_FILE_PATH_PATTERN.search(normalized)
+    if match is None:
+        return ""
+    return match.group(1).strip()
+
+
+def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
+    return any(marker in text for marker in markers)
+
+
+def _extract_knowledge_source_anchor(message: str) -> tuple[str, str]:
+    normalized = (message or "").strip()
+    if not normalized:
+        return "", ""
+
+    match = LOCAL_SOURCE_ANCHOR_PATTERN.search(normalized)
+    if match is not None:
+        return match.group(0).strip(), "qualified_local_source"
+
+    match = SOURCE_LOCATIVE_ANCHOR_PATTERN.search(normalized)
+    if match is not None:
+        return match.group(0).strip(), "locative_source"
+
+    # In this product, an unqualified "知识库" names the local RAG corpus, not a
+    # task domain. Keep this as a source anchor, but do not extend it to business
+    # nouns such as "库存/缺货".
+    if "知识库" in normalized:
+        return "知识库", "named_knowledge_base"
+
+    return "", ""
+
+
+def _looks_like_workspace_read_request(lowered: str) -> bool:
+    return _contains_any(
+        lowered,
+        (
+            "读取",
+            "读一下",
+            "读这个",
+            "打开",
+            "看一下",
+            "看看",
+            "内容",
+            "原文",
+            "源码",
+            "文件",
+            "read ",
+            "open ",
+            "show ",
+            "file",
+            "source",
+        ),
+    )
+
+
+def _looks_like_faq_problem(lowered: str) -> bool:
     explanation_markers = (
         "为什么",
         "为啥",
@@ -285,9 +576,6 @@ def _detect_faq_task(message: str, lowered: str) -> TaskUnderstanding | None:
         "无法",
         "不能",
         "失败",
-        "收不到",
-        "没收到",
-        "没有显示",
         "why",
         "can't",
         "cannot",
@@ -310,291 +598,65 @@ def _detect_faq_task(message: str, lowered: str) -> TaskUnderstanding | None:
         "payment",
         "refund",
     )
-    if not (_contains_any(lowered, explanation_markers) and _contains_any(lowered, faq_domain_markers)):
-        return None
-    return TaskUnderstanding(
-        intent="faq_explanation_query",
-        source_kind="knowledge_base",
-        task_kind="faq_explanation",
-        modality="general",
-        route_hint="rag",
-        preferred_skill="rag-skill",
-        candidate_tools=["search_knowledge"],
-        parameters={"query": message},
-        execution_posture="direct_rag",
-        direct_route_reason="faq_explanation_markers",
-        should_skip_rag=False,
-        confidence=0.9,
-        reasons=["faq_explanation_markers"],
-    )
+    return _contains_any(lowered, explanation_markers) and _contains_any(lowered, faq_domain_markers)
 
 
-def _detect_structured_data_task(message: str, lowered: str) -> TaskUnderstanding | None:
-    explicit_dataset_path = _extract_explicit_dataset_reference(message)
-    explicit_dataset_markers = (
-        "excel",
-        "csv",
-        "json",
-        "parquet",
-        "spreadsheet",
-        "workbook",
-        "工作簿",
-    )
-    weak_dataset_reference_markers = (
-        "这个表",
-        "这张表",
-        "那个表",
-        "那张表",
-        "刚才那个表",
-        "刚才的数据表",
-        "这份表格",
-        "这个数据表",
-    )
-
-    schema_markers = ("schema", "columns", "row count", "列名", "字段", "结构", "表头", "总行数")
-    row_count_markers = ("总数", "总行数", "多少条", "几条", "多少人", "多少商品", "row count")
-    shortage_markers = ("缺货", "库存不足", "补货", "安全库存", "reorder")
-    shortage_location_markers = (
-        "不够",
-        "不足",
-        "缺少",
-        "不太够",
-        "紧张",
-    )
-    non_shortage_markers = (
-        "不缺货",
-        "不缺",
-        "没有缺货",
-        "无缺货",
-        "不短缺",
-        "不紧张",
-    )
-    abundance_markers = (
-        "充足",
-        "最充足",
-        "最足",
-        "最丰富",
-        "库存最高",
-        "货物最充足",
-        "most stock",
-        "highest stock",
-        "stockiest",
-    )
-    ranking_markers = ("top 5", "top5", "top 10", "top10", "前三", "前五", "前十", "排名", "排行")
-    extreme_markers = ("最高", "最大", "最低", "最小", "谁", "哪个")
-    grouping_markers = ("group", "sum", "mean", "avg", "按地区", "按仓库", "按部门", "按品类", "汇总", "分布", "平均")
-    query_markers = ("查询", "查找", "找出", "有哪些", "筛选", "统计", "分析")
-    explanation_markers = ("为什么", "怎么回事", "找不到", "无法", "不能", "失败")
-    structured_operation_markers = (
-        *schema_markers,
-        *row_count_markers,
-        *shortage_markers,
-        *shortage_location_markers,
-        *non_shortage_markers,
-        *abundance_markers,
-        *ranking_markers,
-        *extreme_markers,
-        *grouping_markers,
-        *query_markers,
-    )
-
-    has_explicit_dataset_source = bool(explicit_dataset_path) or _contains_any(lowered, explicit_dataset_markers)
-    has_weak_dataset_reference = _contains_any(lowered, weak_dataset_reference_markers)
-    has_generic_dataset_followup = _looks_generic_dataset_followup(message, lowered)
-    has_structured_operation = _contains_any(lowered, structured_operation_markers)
-    if _contains_any(lowered, explanation_markers) and not has_explicit_dataset_source:
-        return None
-    if (has_weak_dataset_reference or has_generic_dataset_followup) and not has_explicit_dataset_source:
-        return None
-    if not has_explicit_dataset_source:
-        return None
-    if not has_explicit_dataset_source and not has_structured_operation:
-        return None
-
-    reasons: list[str] = []
-    if explicit_dataset_path:
-        reasons.append("explicit_dataset_reference")
-    elif has_explicit_dataset_source:
-        reasons.append("explicit_dataset_source")
-    if has_structured_operation:
-        reasons.append("structured_operation_markers")
-
-    parameters: dict[str, Any] = {"query": message}
-    if explicit_dataset_path:
-        parameters["path"] = explicit_dataset_path
-
-    return TaskUnderstanding(
-        intent="structured_dataset_query",
-        source_kind="dataset",
-        task_kind="dataset_query",
-        modality="table",
-        route_hint="tool",
-        preferred_skill="structured-data-analysis",
-        candidate_tools=["structured_data_analysis"],
-        parameters=parameters,
-        execution_posture="direct_tool",
-        direct_route_reason="explicit_dataset_reference" if explicit_dataset_path else "explicit_dataset_source",
-        should_skip_rag=True,
-        confidence=0.9 if explicit_dataset_path else 0.76,
-        reasons=reasons,
-    )
+def _has_mixed_direct_capabilities(signals: TaskSignals) -> bool:
+    families: list[str] = []
+    if signals.explicit_dataset_path:
+        families.append("dataset")
+    if signals.explicit_pdf_path or (
+        signals.document_reference and (signals.page_reference or signals.section_reference)
+    ):
+        families.append("document")
+    if signals.external_requirement:
+        families.append("external")
+    if signals.weather_domain:
+        families.append("weather")
+    if signals.gold_price_domain:
+        families.append("finance")
+    return len(set(families)) > 1
 
 
-def _detect_knowledge_task(message: str, lowered: str) -> TaskUnderstanding | None:
-    knowledge_markers = (
-        "知识库",
-        "本地资料",
-        "查资料",
-        "文档里",
-        "资料里",
-        "讲讲",
-        "介绍",
-        "总结",
-        "股东",
-        "报告",
-        "白皮书",
-        "数据库里有不少",
-    )
-    if not _contains_any(lowered, knowledge_markers):
-        return None
-    if _has_freshness_signal(lowered):
-        return _build_bounded_lookup_task(
-            message=message,
-            lowered=lowered,
-            source_kind="knowledge_base",
-            task_kind="knowledge_lookup",
-            modality="general",
-            confidence=0.68,
-            reasons=["knowledge_markers", "freshness_signal"],
-        )
-    return TaskUnderstanding(
-        intent="knowledge_lookup_query",
-        source_kind="knowledge_base",
-        task_kind="knowledge_lookup",
-        modality="general",
-        route_hint="rag",
-        preferred_skill="rag-skill",
-        candidate_tools=["search_knowledge"],
-        parameters={"query": message},
-        execution_posture="direct_rag",
-        direct_route_reason="explicit_knowledge_scope",
-        should_skip_rag=False,
-        confidence=0.78,
-        reasons=["knowledge_markers"],
-    )
-
-
-def _extract_explicit_dataset_reference(message: str) -> str:
-    normalized = (message or "").strip()
-    if not normalized:
-        return ""
-    match = re.search(
-        r"([^\s,，;；:：\"'“”‘’]+?\.(?:xlsx|csv|xls|json|parquet))",
-        normalized,
-        flags=re.IGNORECASE,
-    )
-    return match.group(1).strip() if match is not None else ""
-
-
-def _build_bounded_lookup_task(
+def _build_capability_requests(
+    signals: TaskSignals,
     *,
-    message: str,
-    lowered: str,
-    source_kind: str,
-    task_kind: str,
-    modality: str,
-    confidence: float,
-    reasons: list[str],
-) -> TaskUnderstanding:
-    candidate_tools = ["search_knowledge"]
-    direct_route_reason = "unresolved_lookup"
-    if _has_freshness_signal(lowered):
-        candidate_tools.append("web_search")
-        direct_route_reason = "freshness_aware_lookup"
-    return TaskUnderstanding(
-        intent="general_query",
-        source_kind=source_kind,
-        task_kind=task_kind,
-        modality=modality,
-        route_hint="agent",
-        preferred_skill=None,
-        candidate_tools=candidate_tools,
-        parameters={"query": message},
-        execution_posture="bounded_agent",
-        direct_route_reason=direct_route_reason,
-        should_skip_rag=False,
-        confidence=confidence,
-        reasons=reasons,
-    )
-
-
-def _has_freshness_signal(lowered: str) -> bool:
-    freshness_markers = (
-        "今年",
-        "现在",
-        "目前",
-        "还在",
-        "最新",
-        "最新状态",
-        "实时",
-        "today",
-        "latest",
-        "current",
-        "currently",
-        "recent",
-    )
-    return _contains_any(lowered, freshness_markers)
-
-
-def _looks_generic_dataset_followup(message: str, lowered: str) -> bool:
-    starter_markers = ("再", "继续", "然后", "接着", "那就", "再来", "回到刚才", "刚才那个")
-    generic_reference_markers = (
-        "这个表",
-        "这张表",
-        "那个表",
-        "那张表",
-        "刚才那个表",
-        "刚才的数据表",
-        "这份表格",
-        "这个数据表",
-    )
-    continuation_actions = (
-        "展开一下",
-        "展开",
-        "看一下",
-        "看下",
-        "列一下",
-        "整理一下",
-        "再按",
-    )
-    grouping_markers = ("按仓库", "按地区", "按部门", "按品类")
-    domain_markers = (
-        "缺货",
-        "库存",
-        "商品",
-        "员工",
-        "薪水",
-        "工资",
-        "订单",
-        "客户",
-        "销售",
-        "总数",
-        "多少",
-        "均值",
-        "平均",
-        "统计",
-        "汇总",
-        "筛选",
-        "排序",
-        "top",
-        "前",
-    )
-    if any(marker in message for marker in generic_reference_markers):
-        return True
-    if not any(lowered.startswith(marker) for marker in starter_markers):
-        return (
-            any(marker in message for marker in grouping_markers)
-            and any(marker in message for marker in continuation_actions)
-            and not any(marker in message for marker in domain_markers)
+    include_default_knowledge: bool,
+) -> list[str]:
+    requests: list[str] = []
+    if signals.explicit_dataset_path:
+        requests.append("dataset_analysis")
+    if signals.explicit_pdf_path or (
+        signals.document_reference and (signals.page_reference or signals.section_reference or signals.document_read_intent)
+    ):
+        requests.append("document_analysis")
+    if signals.explicit_workspace_path and signals.workspace_read_request:
+        requests.append("workspace_read")
+    if signals.weather_domain:
+        requests.append("weather")
+    if signals.gold_price_domain:
+        requests.append("gold_price")
+    if signals.external_requirement or signals.official_source_requirement or signals.freshness_requirement:
+        requests.append("latest_information")
+    if signals.faq_shape:
+        requests.append("faq")
+    if signals.local_knowledge_scope:
+        requests.append("knowledge_lookup")
+    if (
+        include_default_knowledge
+        and "knowledge_lookup" not in requests
+        and not any(
+            item in requests
+            for item in ("dataset_analysis", "document_analysis", "workspace_read", "weather", "gold_price")
         )
-    return any(marker in message for marker in continuation_actions)
+    ):
+        requests.insert(0, "knowledge_lookup")
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in requests:
+        normalized = str(item or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped

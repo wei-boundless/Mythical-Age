@@ -15,6 +15,10 @@ export function Navbar() {
     ? Math.max(0, Math.min(100, Math.round(tokenStats.history_remaining_ratio * 100)))
     : null;
   const pressureLevel = tokenStats?.history_pressure_level ?? "normal";
+  const contextTitle = tokenStats
+    ? `有效历史上下文 ${tokenStats.history_tokens}/${tokenStats.history_budget_tokens} tokens，余量 ${remainingPercent}%`
+      + (tokenStats.history_did_compact ? `；已自动压缩，原始历史 ${tokenStats.raw_history_tokens} tokens` : "")
+    : "";
 
   return (
     <header className="panel flex flex-col gap-5 rounded-[34px] px-5 py-5">
@@ -53,7 +57,7 @@ export function Navbar() {
           {tokenStats ? (
             <div
               className={`status-pill status-pill--context status-pill--${pressureLevel}`}
-              title={`当前历史上下文 ${tokenStats.history_tokens}/${tokenStats.history_budget_tokens} tokens，余量 ${remainingPercent}%`}
+              title={contextTitle}
             >
               <Gauge size={16} />
               {`上下文余量 ${remainingPercent}%`}

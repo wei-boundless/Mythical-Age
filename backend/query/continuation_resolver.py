@@ -8,6 +8,12 @@ from pdf_analysis import PdfAnalysisCatalog
 from structured_data import StructuredDataCatalog
 from understanding.query_understanding import QueryUnderstanding
 
+_PAGE_RE = re.compile(r"(?:第\s*\d+\s*页|第\s*[零一二三四五六七八九十百千两\d]+\s*页|page\s*\d+)", flags=re.IGNORECASE)
+_SECTION_RE = re.compile(
+    r"(?:第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)|这一部分|那一部分|这一章|那一章|这一节|那一节)",
+    flags=re.IGNORECASE,
+)
+
 
 class QueryContinuationResolver:
     def __init__(self, *, base_dir: Path) -> None:
@@ -42,7 +48,7 @@ class QueryContinuationResolver:
         history: list[dict[str, Any]],
         understanding: QueryUnderstanding,
     ) -> QueryUnderstanding:
-        if "mixed_capability_signals" in list(getattr(understanding, "reasons", []) or []):
+        if self._has_mixed_capability_reason(understanding):
             return understanding
         existing_tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
         existing_tool_input = dict(getattr(understanding, "tool_input", {}) or {})
@@ -97,7 +103,7 @@ class QueryContinuationResolver:
         history: list[dict[str, Any]],
         understanding: QueryUnderstanding,
     ) -> QueryUnderstanding:
-        if "mixed_capability_signals" in list(getattr(understanding, "reasons", []) or []):
+        if self._has_mixed_capability_reason(understanding):
             return understanding
         if understanding.route == "tool":
             return understanding
@@ -137,9 +143,9 @@ class QueryContinuationResolver:
     ) -> QueryUnderstanding:
         if not history:
             return understanding
-        if self._should_preserve_orchestration_understanding(understanding):
-            return understanding
         if not self._looks_like_session_summary(message):
+            if self._should_preserve_orchestration_understanding(understanding):
+                return understanding
             return understanding
         return QueryUnderstanding(
             intent="session_summary_query",
@@ -162,7 +168,7 @@ class QueryContinuationResolver:
         if task_kind == "multi_capability_request":
             return True
         reasons = set(str(reason or "").strip() for reason in list(getattr(understanding, "reasons", []) or []))
-        return "mixed_capability_signals" in reasons
+        return bool(reasons & {"mixed_capability_signals", "mixed_direct_capabilities"})
 
     def _extract_explicit_pdf_reference(self, message: str) -> str:
         normalized = (message or "").strip()
@@ -182,6 +188,14 @@ class QueryContinuationResolver:
         if self._has_explicit_pdf_object_reference(message):
             return True
         return False
+
+    def _has_mixed_capability_reason(self, understanding: QueryUnderstanding) -> bool:
+        reasons = {
+            str(reason or "").strip()
+            for reason in list(getattr(understanding, "reasons", []) or [])
+            if str(reason or "").strip()
+        }
+        return bool(reasons & {"mixed_capability_signals", "mixed_direct_capabilities"})
 
     def _select_pdf_mode(self, message: str) -> str:
         normalized = (message or "").strip().lower()
@@ -272,6 +286,14 @@ class QueryContinuationResolver:
         normalized = (message or "").strip().lower()
         if not normalized:
             return False
+        has_explicit_execution_anchor = bool(
+            PdfAnalysisCatalog.extract_explicit_pdf_references(message)
+            or _PAGE_RE.search(message)
+            or _SECTION_RE.search(message)
+            or self._extract_explicit_dataset_reference(message)
+        )
+        if has_explicit_execution_anchor:
+            return False
         summary_markers = (
             "总结",
             "摘要",
@@ -342,7 +364,7 @@ class QueryContinuationResolver:
         authority_pdf = str(authority_context.get("active_pdf", "") or "").strip()
         if not authority_pdf:
             return understanding
-        if understanding.route in {"memory", "compound"} or "mixed_capability_signals" in list(getattr(understanding, "reasons", []) or []):
+        if understanding.route in {"memory", "compound"} or self._has_mixed_capability_reason(understanding):
             return understanding
         existing_tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
         existing_tool_input = dict(getattr(understanding, "tool_input", {}) or {})
@@ -395,7 +417,7 @@ class QueryContinuationResolver:
         authority_dataset = str(authority_context.get("active_dataset", "") or "").strip()
         if not authority_dataset:
             return understanding
-        if understanding.route in {"memory", "compound"} or "mixed_capability_signals" in list(getattr(understanding, "reasons", []) or []):
+        if understanding.route in {"memory", "compound"} or self._has_mixed_capability_reason(understanding):
             return understanding
         existing_tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
         existing_tool_input = dict(getattr(understanding, "tool_input", {}) or {})

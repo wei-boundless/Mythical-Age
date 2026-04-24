@@ -38,7 +38,16 @@ async def session_tokens(session_id: str) -> dict[str, Any]:
     adapter = runtime.memory_facade.adapter
     py_messages = adapter.to_messages(record.get("messages", []), session_id=session_id)
     compactor = runtime.memory_facade.session_memory.compactor(session_id)
-    history_tokens = compactor.conversation_tokens(py_messages)
+    raw_history_tokens = compactor.conversation_tokens(py_messages)
+    context_compaction: dict[str, Any] = {}
+    try:
+        _compacted_history, context_compaction = runtime.memory_facade.compact_history_for_query(
+            session_id,
+            record.get("messages", []),
+        )
+    except Exception:
+        context_compaction = {}
+    history_tokens = int(context_compaction.get("estimated_tokens_after") or raw_history_tokens)
     history_budget_tokens = int(compactor.effective_history_token_budget)
     history_remaining_tokens = max(history_budget_tokens - history_tokens, 0)
     history_usage_ratio = (
@@ -51,17 +60,25 @@ async def session_tokens(session_id: str) -> dict[str, Any]:
         if history_budget_tokens > 0
         else 0.0
     )
-    history_pressure_level = compactor.pressure_level(history_tokens, len(py_messages))
+    history_pressure_level = str(
+        context_compaction.get("pressure_level")
+        or compactor.pressure_level(raw_history_tokens, len(py_messages))
+    )
     return {
         "system_tokens": system_tokens,
         "message_tokens": message_tokens,
         "total_tokens": system_tokens + message_tokens,
+        "raw_history_tokens": raw_history_tokens,
         "history_tokens": history_tokens,
         "history_budget_tokens": history_budget_tokens,
         "history_remaining_tokens": history_remaining_tokens,
         "history_usage_ratio": round(history_usage_ratio, 4),
         "history_remaining_ratio": round(history_remaining_ratio, 4),
         "history_pressure_level": history_pressure_level,
+        "history_compaction_strategy": str(context_compaction.get("strategy") or "none"),
+        "history_did_compact": bool(context_compaction.get("did_compact", False)),
+        "history_did_microcompact": bool(context_compaction.get("did_microcompact", False)),
+        "history_did_full_compact": bool(context_compaction.get("did_full_compact", False)),
     }
 
 

@@ -6,10 +6,6 @@ import { SoulPortrait } from "@/components/soul/SoulPortrait";
 import { SoulSwitcher } from "@/components/soul/SoulSwitcher";
 import { useAppStore } from "@/lib/store";
 
-function preview(text: string) {
-  return text.length > 72 ? `${text.slice(0, 72)}...` : text;
-}
-
 export function Sidebar() {
   const {
     sessions,
@@ -17,7 +13,6 @@ export function Sidebar() {
     selectSession,
     createNewSession,
     removeSession,
-    messages,
     soulOptions,
     activeSoulKey,
     switchSoul
@@ -97,28 +92,6 @@ export function Sidebar() {
               </button>
             </div>
           ))}
-        </div>
-
-        <div className="mt-4 flex min-h-0 flex-1 flex-col rounded-[24px] border border-[var(--color-border)] bg-[var(--color-panel-strong)] p-3">
-          <p className="section-kicker">Raw Messages</p>
-          <div className="mt-3 space-y-3 overflow-y-auto pr-1">
-            {messages.map((message) => (
-              <div
-                className="rounded-[22px] border border-[var(--color-border)] bg-[var(--color-panel-soft)] px-3 py-3"
-                key={message.id}
-              >
-                <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.24em] text-[var(--color-text-soft)]">
-                  <span>
-                    {message.role === "assistant" ? activeSoul?.name ?? "助手" : "你"}
-                  </span>
-                  <span>{message.toolCalls.length} tools</span>
-                </div>
-                <p className="text-sm leading-6 text-[var(--color-text-soft)]">
-                  {preview(message.content)}
-                </p>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
     </aside>

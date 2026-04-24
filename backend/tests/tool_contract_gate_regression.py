@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from tools.contracts import ToolContractGate
+from tools.contracts import SkillToolScope, ToolContractGate
 from tools.runtime import ToolRuntime
 
 
@@ -70,7 +70,12 @@ def test_skill_scope_is_checked_by_contract_gate() -> None:
             tool_name="pdf_analysis",
             contract=runtime.get_contract("pdf_analysis"),
             tool_input={"query": "第四页讲了什么", "path": "knowledge/report.pdf"},
-            skill_allowed_tools=["get_weather"],
+            tool_scope=SkillToolScope(
+                source="skill",
+                allowed_tools=("get_weather",),
+                skill_name="get-weather",
+                reason="regression_scope",
+            ),
             binding_context={"active_pdf": ""},
         )
 

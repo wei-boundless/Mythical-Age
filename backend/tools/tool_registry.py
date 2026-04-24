@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
-
 from tools.definitions import ToolDefinition, build_tool_registry_payload, get_tool_definition_map, get_tool_definitions
 
 
@@ -39,6 +37,38 @@ class ToolRegistry:
             results.append(tool)
         return results
 
+    def resolve_candidate_names(
+        self,
+        *,
+        capability_requests: list[str] | None = None,
+        route: str | None = None,
+        modality: str | None = None,
+        safe_only: bool = True,
+    ) -> list[str]:
+        requested = [str(item or "").strip().lower() for item in list(capability_requests or []) if str(item or "").strip()]
+        if not requested:
+            return []
+        scored: list[tuple[float, str]] = []
+        for tool in self._tools:
+            if safe_only and not tool.safe_for_auto_route:
+                continue
+            metadata_terms = {
+                *(str(item or "").strip().lower() for item in tool.route_hints),
+                *(str(item or "").strip().lower() for item in tool.capability_tags),
+                *(str(item or "").strip().lower() for item in tool.supported_modalities),
+            }
+            overlap = {item for item in requested if item in metadata_terms}
+            if not overlap:
+                continue
+            score = float(len(overlap)) * 10.0
+            if route and str(route).strip().lower() in {str(item).lower() for item in tool.route_hints}:
+                score += 2.0
+            if modality and str(modality).strip().lower() in {str(item).lower() for item in tool.supported_modalities}:
+                score += 1.0
+            scored.append((score, tool.name))
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        return [name for _score, name in scored]
+
     def select_best(
         self,
         message: str,
@@ -46,6 +76,7 @@ class ToolRegistry:
         candidate_names: list[str] | None = None,
         modality: str | None = None,
         route: str | None = None,
+        capability_requests: list[str] | None = None,
         safe_only: bool = True,
     ) -> ToolDefinition | None:
         candidates = self.filter_names(candidate_names, safe_only=safe_only) if candidate_names else [
@@ -56,32 +87,70 @@ class ToolRegistry:
         if len(candidates) == 1:
             return candidates[0]
 
-        normalized = (message or "").strip().lower()
+        requested = {
+            str(item or "").strip().lower()
+            for item in list(capability_requests or [])
+            if str(item or "").strip()
+        }
+        candidate_order = {
+            tool.name: index
+            for index, tool in enumerate(candidates)
+        }
         best_tool: ToolDefinition | None = None
         best_score = float("-inf")
 
         for tool in candidates:
-            score = 0.0
-            if modality and modality in tool.supported_modalities:
-                score += 4.0
-            if route == "tool" and tool.safe_for_auto_route:
-                score += 1.0
-            for query in tool.typical_queries:
-                if query and query.lower() in normalized:
-                    score += 5.0
-            for term in tool.search_terms:
-                if term and term.lower() in normalized:
-                    score += 3.0
-            for tag in tool.capability_tags:
-                if tag and tag.lower() in normalized:
-                    score += 2.0
+            score = self._selection_score(
+                tool=tool,
+                requested=requested,
+                modality=modality,
+                route=route,
+            )
             if score > best_score:
                 best_score = score
                 best_tool = tool
+                continue
+            if score == best_score and best_tool is not None:
+                if candidate_order.get(tool.name, 0) < candidate_order.get(best_tool.name, 0):
+                    best_tool = tool
 
         if best_score <= 0:
             return None
         return best_tool
+
+    def _selection_score(
+        self,
+        *,
+        tool: ToolDefinition,
+        requested: set[str],
+        modality: str | None,
+        route: str | None,
+    ) -> float:
+        metadata_terms = {
+            *(str(item or "").strip().lower() for item in tool.route_hints),
+            *(str(item or "").strip().lower() for item in tool.capability_tags),
+            *(str(item or "").strip().lower() for item in tool.supported_modalities),
+        }
+        score = 0.0
+        overlap = requested & metadata_terms
+        if overlap:
+            score += float(len(overlap)) * 12.0
+
+        normalized_modality = str(modality or "").strip().lower()
+        if normalized_modality and normalized_modality in {
+            str(item or "").strip().lower() for item in tool.supported_modalities
+        }:
+            score += 6.0
+            score += 1.0 / max(len(tool.supported_modalities), 1)
+
+        normalized_route = str(route or "").strip().lower()
+        if normalized_route and normalized_route in {
+            str(item or "").strip().lower() for item in tool.route_hints
+        }:
+            score += 3.0
+            score += 1.0 / max(len(tool.route_hints), 1)
+
+        return score
 
 
 def build_tool_registry() -> dict[str, Any]:

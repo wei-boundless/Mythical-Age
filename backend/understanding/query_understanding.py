@@ -23,11 +23,13 @@ class QueryUnderstanding:
     direct_route_reason: str = ""
     skill_name: str | None = None
     tool_name: str | None = None
+    capability_requests: list[str] = field(default_factory=list)
     candidate_tools: list[str] = field(default_factory=list)
     tool_input: dict[str, Any] = field(default_factory=dict)
     should_skip_rag: bool = False
     confidence: float = 0.0
     reasons: list[str] = field(default_factory=list)
+    structural_signals: dict[str, Any] = field(default_factory=dict)
 
 
 def analyze_query_understanding(
@@ -58,12 +60,14 @@ def _from_task(task: TaskUnderstanding) -> QueryUnderstanding:
         route=task.route_hint,
         execution_posture=task.execution_posture,
         direct_route_reason=task.direct_route_reason,
-        skill_name=task.preferred_skill,
+        skill_name=None,
+        capability_requests=list(task.capability_requests),
         candidate_tools=list(task.candidate_tools),
         tool_input=dict(task.parameters),
         should_skip_rag=task.should_skip_rag,
         confidence=task.confidence,
         reasons=list(task.reasons),
+        structural_signals=dict(task.structural_signals),
     )
 
 
@@ -74,36 +78,26 @@ def _apply_skill_tool_routing(
     skill_registry: SkillRegistry | None,
     tool_registry: ToolRegistry | None,
 ) -> None:
-    # Skill matching is a control-plane decision. At this stage we only borrow
-    # the runtime tool scope needed for routing/tool selection. Model-visible
-    # skill text stays inside SkillPromptView and is assembled later in prompt
-    # building, not here.
+    # Understanding only exposes a TaskFrame-like structure plus structural tool
+    # candidates. Skill policy is resolved later by the planner/dispatch layer
+    # so skill scope cannot overwrite candidate tools here.
     if understanding.route == "memory":
         return
+
+    if (
+        tool_registry is not None
+        and not understanding.candidate_tools
+        and understanding.capability_requests
+    ):
+        understanding.candidate_tools = tool_registry.resolve_candidate_names(
+            capability_requests=understanding.capability_requests,
+            route=understanding.route,
+            modality=understanding.modality,
+            safe_only=True,
+        )
+
     if understanding.execution_posture == "bounded_agent":
         return
-
-    if skill_registry is not None:
-        matched_skill = (
-            skill_registry.get_by_name(understanding.skill_name)
-            if understanding.skill_name
-            else None
-        )
-        if matched_skill is None:
-            matched_skill = skill_registry.match_for_query(
-                message=message,
-                route=understanding.route,
-                modality=understanding.modality,
-                task_kind=understanding.task_kind,
-                source_kind=understanding.source_kind,
-                tool_name=understanding.tool_name,
-                candidate_tools=understanding.candidate_tools,
-            )
-        if matched_skill is not None:
-            understanding.skill_name = matched_skill.name
-            skill_scope = matched_skill.allowed_tool_scope()
-            if skill_scope:
-                understanding.candidate_tools = skill_scope
 
     if understanding.route != "tool":
         return
@@ -129,6 +123,7 @@ def _apply_skill_tool_routing(
             candidate_names=understanding.candidate_tools,
             modality=understanding.modality,
             route=understanding.route,
+            capability_requests=understanding.capability_requests,
             safe_only=True,
         )
         if selected is not None:

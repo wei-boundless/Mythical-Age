@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from skill_system import SkillDefinition, SkillRegistry
+from skill_system import SkillDefinition, SkillPolicyResolver, SkillRegistry
 from tools.runtime import ToolRuntime
 from understanding import (
     QueryUnderstanding,
@@ -14,6 +14,7 @@ from understanding import (
 
 from query.binding_resolver import StructuredBindingResolver
 from query.bundle_planner import BundlePlanner
+from query.capability_dispatch import CapabilityDispatchScheduler
 from query.continuation_resolver import QueryContinuationResolver
 from query.models import BundleItemPlan, BundlePlan, QueryExecutionPlan, QueryPlan, SubtaskPlan
 from query.subtask_planner import QuerySubtaskPlanner
@@ -34,8 +35,10 @@ class QueryPlanner:
         self.continuation_resolver = QueryContinuationResolver(base_dir=base_dir)
         self.bundle_planner = BundlePlanner()
         self.subtask_planner = QuerySubtaskPlanner()
+        self.dispatch_scheduler = CapabilityDispatchScheduler()
         self.tool_input_resolver = ToolInputResolver(base_dir=base_dir)
         self.binding_resolver = StructuredBindingResolver(base_dir=base_dir)
+        self.skill_policy_resolver = SkillPolicyResolver(skill_registry) if skill_registry is not None else None
 
     def build_plan(
         self,
@@ -144,6 +147,7 @@ class QueryPlanner:
             execution_kind=execution_kind,
             executions=executions,
             ephemeral_system_messages=list(ephemeral_system_messages or []),
+            dispatch_plan=getattr(root_execution, "dispatch_plan", None),
         )
 
     def _build_compound_executions(
@@ -232,29 +236,16 @@ class QueryPlanner:
         query_understanding: QueryUnderstanding,
     ) -> SkillDefinition | None:
         # Planning carries the full SkillDefinition so later phases can use the
-        # runtime contract (tool scope, route restrictions, permission checks).
-        # The prompt chain must render only skill.prompt_view / render_prompt_block(),
-        # never the runtime contract itself.
-        if self.skill_registry is None:
+        # runtime contract. SkillPolicyResolver consumes only structured task
+        # fields; prompt text and routing hints are not execution authority.
+        if self.skill_policy_resolver is None:
             return None
-        if str(getattr(query_understanding, "execution_posture", "") or "") == "bounded_agent":
+        frame = self.skill_policy_resolver.resolve(task_frame=query_understanding)
+        if frame is None:
             return None
-        if query_understanding.skill_name:
-            existing = self.skill_registry.get_by_name(query_understanding.skill_name)
-            if existing is not None:
-                return existing
-        skill = self.skill_registry.match_for_query(
-            message=message,
-            route=query_understanding.route,
-            modality=query_understanding.modality,
-            task_kind=query_understanding.task_kind,
-            source_kind=query_understanding.source_kind,
-            tool_name=query_understanding.tool_name,
-            candidate_tools=query_understanding.candidate_tools,
-        )
-        if skill is not None:
-            query_understanding.skill_name = skill.name
-        return skill
+        query_understanding.skill_name = frame.name
+        query_understanding.reasons.append("skill_policy_resolved")
+        return frame.skill
 
     def _build_execution(
         self,
@@ -282,6 +273,11 @@ class QueryPlanner:
             authority_context=authority_context,
         )
         active_skill = self._resolve_active_skill(message, query_understanding)
+        dispatch_plan = self.dispatch_scheduler.resolve(
+            task_frame=query_understanding,
+            active_skill=active_skill,
+            tool_registry=self.tool_runtime.registry,
+        )
         structured_binding = self.binding_resolver.resolve(
             message=message,
             understanding=query_understanding,
@@ -317,6 +313,7 @@ class QueryPlanner:
             structured_binding=structured_binding,
             execution_kind=execution_kind,
             execution_posture=str(getattr(query_understanding, "execution_posture", "") or ""),
+            dispatch_plan=dispatch_plan,
             ephemeral_system_messages=list(ephemeral_system_messages or []),
         )
 

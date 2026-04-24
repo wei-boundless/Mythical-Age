@@ -62,6 +62,7 @@ class QueryExecutionPlan:
     structured_binding: StructuredDatasetBinding | None = None
     execution_kind: Literal["agent", "direct_tool"] = "agent"
     execution_posture: str = ""
+    dispatch_plan: Any | None = None
     ephemeral_system_messages: list[str] = field(default_factory=list)
     subtask_id: str = ""
     subtask_goal: str = ""
@@ -114,6 +115,7 @@ class QueryPlan:
     tool_input: dict[str, Any] = field(default_factory=dict)
     structured_binding: StructuredDatasetBinding | None = None
     execution_kind: Literal["agent", "direct_tool"] = "agent"
+    dispatch_plan: Any | None = None
     executions: list[QueryExecutionPlan] = field(default_factory=list)
     ephemeral_system_messages: list[str] = field(default_factory=list)
 
@@ -132,6 +134,7 @@ class QueryPlan:
                 structured_binding=self.structured_binding,
                 execution_kind=self.execution_kind,
                 execution_posture=str(getattr(self.query_understanding, "execution_posture", "") or ""),
+                dispatch_plan=getattr(self, "dispatch_plan", None),
                 subtask_id=(self.subtasks[0].subtask_id if self.subtasks else "main"),
                 subtask_goal=(self.subtasks[0].goal if self.subtasks else self.message),
                 subtask_title=(self.subtasks[0].user_visible_title if self.subtasks else self.message),

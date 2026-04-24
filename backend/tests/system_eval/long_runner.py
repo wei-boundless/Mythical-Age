@@ -235,7 +235,7 @@ def _resolve_nonnegative_int_env(name: str, default: int) -> int:
 
 
 def _cap_model_runtime_for_long_eval(runtime) -> tuple[float, int]:
-    timeout_cap = _resolve_positive_float_env("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", 25.0)
+    timeout_cap = _resolve_positive_float_env("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", 60.0)
     retry_cap = _resolve_nonnegative_int_env("SYSTEM_EVAL_LLM_MAX_RETRIES", 0)
     original = (
         float(runtime.model_runtime.request_timeout_seconds),
@@ -662,7 +662,7 @@ def main(argv: list[str] | None = None) -> int:
         "total": len(run_result.results),
         "passed": sum(1 for result in run_result.results if result.passed),
         "failed": sum(1 for result in run_result.results if not result.passed),
-        "llm_timeout_seconds": min(original_timeout, _resolve_positive_float_env("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", 25.0)),
+        "llm_timeout_seconds": min(original_timeout, _resolve_positive_float_env("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", 60.0)),
         "llm_max_retries": min(original_retries, _resolve_nonnegative_int_env("SYSTEM_EVAL_LLM_MAX_RETRIES", 0)),
     }
 

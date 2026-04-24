@@ -7,42 +7,29 @@ import json
 import logging
 import os
 import re
-from dataclasses import replace
 from typing import Any
 
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
 from pdf_agent import PDFCanonicalResult
 from query.answer_assembler import AnswerAssembler
-from query.answer_finalizer import (
-    RAGEvidencePack,
-    answer_looks_like_snippet_dump,
-    build_rag_answer_finalization_messages,
-    build_rag_evidence_pack,
-    normalize_finalized_answer,
-    total_compact_chars,
-)
-from query.binding_models import StructuredDatasetBinding
+from query.answer_finalizer import RAGEvidencePack
 from query.context_models import MainContextState, TaskSummaryRef
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryContext, QueryExecutionPlan, QueryPlan, QueryRequest
-from query.output_classifier import (
-    build_output_decision,
-    classify_output_candidate,
-    looks_like_progress_text,
-    looks_like_procedural_promise_text,
-    looks_like_tool_claim_without_receipt,
-)
 from query.output_boundary import AssistantOutputBoundary, contains_internal_protocol, sanitize_visible_assistant_content
+from query.runtime_context_state import RuntimeContextState
+from query.runtime_followup import RuntimeFollowupCoordinator
+from query.runtime_persistence import RuntimePersistenceAssembler
+from query.runtime_output_policy import RuntimeOutputPolicy
+from query.runtime_tools import RuntimeToolBridge
 from query.prompt_builder import build_system_prompt
 from query.planner import QueryPlanner
 from runtime.model_runtime import ModelRuntime, ModelRuntimeError, stringify_content
 from skill_system import SkillDefinition
-from tasks.context_models import TaskConstraints
 from tasks.coordinator import TaskCoordinator
-from tools.contracts import ToolContractDecision, ToolContractGate
-from tools.definitions import get_tool_definition_map
-from understanding import MemoryIntent, QueryUnderstanding, analyze_memory_intent, evaluate_memory_write
+from tools.contracts import ToolContractDecision, ToolContractGate, ToolScope
+from understanding import analyze_memory_intent, evaluate_memory_write
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +66,32 @@ class QueryRuntime:
             session_state_loader=self._load_session_binding_snapshot,
         )
         self.answer_assembler = AnswerAssembler()
+        self._output_policy = RuntimeOutputPolicy(
+            model_runtime=model_runtime,
+            stringify_tool_output=self._stringify_tool_output,
+        )
+        self._persistence = RuntimePersistenceAssembler(hidden_skill_notice=HIDDEN_SKILL_NOTICE)
         self._session_memory_projection: dict[str, dict[str, Any]] = {}
+        self._context_state = RuntimeContextState(
+            memory_facade=memory_facade,
+            session_memory_projection=self._session_memory_projection,
+            normalize_pdf_scope=self._normalize_pdf_scope,
+        )
+        self._followup = RuntimeFollowupCoordinator(task_coordinator=task_coordinator)
         self.max_tool_steps = 8
         self.tool_contract_gate = ToolContractGate(
             mode=str(os.getenv("TOOL_CONTRACT_MODE", "shadow") or "shadow").strip().lower()
+        )
+        self._tool_bridge = RuntimeToolBridge(
+            permission_service=permission_service,
+            tool_runtime=tool_runtime,
+            task_coordinator=task_coordinator,
+            tool_contract_gate=self.tool_contract_gate,
+            output_policy=self._output_policy,
+            skill_allowed_tool_scope=self._skill_allowed_tool_scope,
+            extract_active_constraints=self._extract_active_constraints,
+            build_direct_tool_main_context=self._build_direct_tool_main_context,
+            task_summary_ref_from_task=self._task_summary_ref_from_task,
         )
         self.planner = QueryPlanner(
             base_dir=base_dir,
@@ -210,7 +219,7 @@ class QueryRuntime:
             persistent_memory=persistent_memory,
             session_memory=None,
             context_package=context_package,
-            active_skill=self._render_active_skill_prompt(execution.active_skill),
+            active_skill=self._render_execution_skill_prompt(execution),
         )
 
     def _render_active_skill_prompt(self, active_skill: SkillDefinition | None) -> str | None:
@@ -218,10 +227,17 @@ class QueryRuntime:
             return None
         return active_skill.render_prompt_block()
 
-    def _skill_allowed_tool_scope(self, active_skill: SkillDefinition | None) -> list[str]:
+    def _render_execution_skill_prompt(self, execution: QueryExecutionPlan) -> str | None:
+        prompt_exposure = getattr(getattr(execution, "dispatch_plan", None), "prompt_exposure", None)
+        prompt_block = str(getattr(prompt_exposure, "skill_prompt_block", "") or "").strip()
+        if prompt_block:
+            return prompt_block
+        return self._render_active_skill_prompt(execution.active_skill)
+
+    def _skill_allowed_tool_scope(self, active_skill: SkillDefinition | None) -> ToolScope:
         if active_skill is None:
-            return []
-        return active_skill.allowed_tool_scope()
+            return ToolScope(source="skill", reason="no_active_skill")
+        return active_skill.tool_scope()
 
     async def astream(self, request: QueryRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
@@ -1103,38 +1119,14 @@ class QueryRuntime:
         *,
         followup_resolution,
     ) -> MainContextState:
-        constraints = self._extract_active_constraints(message)
-        target_task_ids = self._resolved_task_ids(followup_resolution)
-        target_task_id = self._resolved_task_id(followup_resolution) or (target_task_ids[0] if target_task_ids else "")
-        work_item = "followup_task_result_assembly"
-        if followup_resolution.mode == "explicit_fanout_subset":
-            work_item = "followup_explicit_fanout_subset_assembly"
-        elif followup_resolution.mode == "bundle_subset":
-            work_item = "followup_bundle_subset_assembly"
-        elif followup_resolution.mode == "bundle_item_ref":
-            work_item = "followup_bundle_item_result"
-        elif followup_resolution.mode == "binding_ref":
-            work_item = "followup_task_binding_execution"
-        merged_constraints = self._merge_constraints_from_results(constraints, results)
-        active_binding_identity = self._resolved_binding_identity(followup_resolution)
-        if not active_binding_identity:
-            active_binding_identity = self._binding_identity_from_constraints(merged_constraints)
-        return MainContextState(
-            active_goal=message.strip(),
-            active_work_item=work_item,
-            active_binding_identity=active_binding_identity,
-            followup_mode=str(followup_resolution.mode or ""),
-            followup_resolution_source=str(getattr(followup_resolution, "resolution_source", "") or ""),
-            followup_target_task_id=target_task_id or None,
-            followup_target_task_ids=target_task_ids,
-            followup_binding_key=self._resolved_binding_kind(followup_resolution),
-            followup_binding_identity=self._resolved_binding_identity(followup_resolution),
-            followup_binding_owner_task_id=(
-                self._resolved_binding_owner_task_id(followup_resolution) or None
-            ),
-            active_constraints=merged_constraints,
-            latest_correction=self._extract_latest_correction(message),
-            next_step="answer_selected_task_results",
+        return self._followup.build_followup_main_context(
+            message,
+            results,
+            followup_resolution=followup_resolution,
+            extract_active_constraints=self._extract_active_constraints,
+            merge_constraints_from_results=self._merge_constraints_from_results,
+            binding_identity_from_constraints=self._binding_identity_from_constraints,
+            extract_latest_correction=self._extract_latest_correction,
         )
 
     def _task_summary_refs_from_results(self, results: list[dict[str, object]]) -> list[TaskSummaryRef]:
@@ -1228,49 +1220,7 @@ class QueryRuntime:
         constraints: dict[str, Any],
         results: list[dict[str, object]],
     ) -> dict[str, Any]:
-        merged = dict(constraints)
-        for item in reversed(results):
-            context_ref_payload = item.get("context_ref")
-            if not isinstance(context_ref_payload, dict):
-                continue
-            bindings = dict(context_ref_payload.get("bindings") or {})
-            binding_identity = str(bindings.get("active_binding_identity", "") or "").strip()
-            if bindings.get("active_pdf") and not merged.get("active_pdf"):
-                merged["active_pdf"] = str(bindings["active_pdf"])
-                merged.setdefault(
-                    "active_binding_identity",
-                    binding_identity or str(bindings["active_pdf"]).replace("\\", "/").strip().lower(),
-                )
-            if bindings.get("active_dataset") and not merged.get("active_dataset"):
-                merged["active_dataset"] = str(bindings["active_dataset"])
-                merged.setdefault(
-                    "active_binding_identity",
-                    binding_identity or str(bindings["active_dataset"]).replace("\\", "/").strip().lower(),
-                )
-            if bindings.get("active_location") and not merged.get("active_location"):
-                merged["active_location"] = str(bindings["active_location"])
-            if bindings.get("source_kind") and not merged.get("source_kind"):
-                merged["source_kind"] = str(bindings["source_kind"])
-            constraints_payload = item.get("context_ref")
-            if isinstance(constraints_payload, dict):
-                task_constraints = dict(constraints_payload.get("constraints") or {})
-                if task_constraints.get("page") is not None and merged.get("page") is None:
-                    merged["page"] = int(task_constraints["page"])
-                if task_constraints.get("group_by") and not merged.get("group_by"):
-                    merged["group_by"] = str(task_constraints["group_by"])
-                if task_constraints.get("pdf_mode") and not merged.get("pdf_mode"):
-                    merged["pdf_mode"] = str(task_constraints["pdf_mode"])
-                if task_constraints.get("pdf_section") and not merged.get("pdf_section"):
-                    merged["pdf_section"] = str(task_constraints["pdf_section"])
-                if task_constraints.get("pdf_focus_pages") and not merged.get("pdf_focus_pages"):
-                    merged["pdf_focus_pages"] = list(task_constraints["pdf_focus_pages"])
-                if task_constraints.get("readable_pages") is not None and merged.get("readable_pages") is None:
-                    merged["readable_pages"] = int(task_constraints["readable_pages"])
-                if task_constraints.get("usable_pages") is not None and merged.get("usable_pages") is None:
-                    merged["usable_pages"] = int(task_constraints["usable_pages"])
-                if task_constraints.get("total_pages") is not None and merged.get("total_pages") is None:
-                    merged["total_pages"] = int(task_constraints["total_pages"])
-        return merged
+        return self._context_state.merge_constraints_from_results(constraints, results)
 
     def _capture_session_memory_projection(
         self,
@@ -1279,150 +1229,30 @@ class QueryRuntime:
         main_context_payload: Any,
         task_summary_payloads: Any,
     ) -> None:
-        corrections: list[str] = []
-        if isinstance(main_context_payload, dict):
-            latest_correction = str(main_context_payload.get("latest_correction", "") or "").strip()
-            if latest_correction:
-                corrections.append(latest_correction)
-        task_summaries = task_summary_payloads if isinstance(task_summary_payloads, list) else []
-        self._session_memory_projection[session_id] = {
-            "main_context": main_context_payload,
-            "task_summary_refs": task_summaries,
-            "corrections": corrections,
-        }
+        self._context_state.capture_session_memory_projection(
+            session_id,
+            main_context_payload=main_context_payload,
+            task_summary_payloads=task_summary_payloads,
+        )
 
     def _load_session_binding_snapshot(self, session_id: str) -> dict[str, Any]:
-        session_memory = getattr(self.memory_facade, "session_memory", None)
-        if session_memory is None or not hasattr(session_memory, "manager"):
-            return {}
-        try:
-            manager = session_memory.manager(session_id)
-            state = manager.load_state()
-        except Exception:
-            logger.exception("Failed to load session binding snapshot for %s", session_id)
-            return {}
-        slots = getattr(state, "context_slots", None)
-        if slots is None:
-            return {}
-        committed_pdf = str(getattr(slots, "committed_pdf", "") or getattr(slots, "active_pdf", "") or "").strip()
-        committed_dataset = str(
-            getattr(slots, "committed_dataset", "") or getattr(slots, "active_dataset", "") or ""
-        ).strip()
-        return {
-            "committed_pdf": committed_pdf,
-            "committed_pdf_owner_task_id": str(
-                getattr(slots, "committed_pdf_owner_task_id", "")
-                or (getattr(slots, "active_binding_owner_task_id", "") if committed_pdf else "")
-                or ""
-            ).strip(),
-            "committed_dataset": committed_dataset,
-            "committed_dataset_owner_task_id": str(
-                getattr(slots, "committed_dataset_owner_task_id", "")
-                or (getattr(slots, "active_binding_owner_task_id", "") if committed_dataset else "")
-                or ""
-            ).strip(),
-        }
+        return self._context_state.load_session_binding_snapshot(session_id)
 
     def _load_session_authoritative_context(self, session_id: str) -> dict[str, Any]:
-        snapshot = self._load_session_binding_snapshot(session_id)
-        context: dict[str, Any] = {}
-        committed_pdf = str(snapshot.get("committed_pdf", "") or "").strip()
-        if committed_pdf:
-            context["active_pdf"] = committed_pdf
-        committed_dataset = str(snapshot.get("committed_dataset", "") or "").strip()
-        if committed_dataset:
-            context["active_dataset"] = committed_dataset
-        return context
+        return self._context_state.load_session_authoritative_context(session_id)
 
     def _apply_execution_binding_to_constraints(
         self,
         constraints: dict[str, Any],
         execution: QueryExecutionPlan,
     ) -> dict[str, Any]:
-        merged = dict(constraints)
-        tool_input = dict(getattr(execution, "tool_input", {}) or {})
-        pdf_path = str(tool_input.get("path", "") or "").strip()
-        if pdf_path and str(getattr(execution.query_understanding, "tool_name", "") or "") == "pdf_analysis":
-            merged["active_pdf"] = pdf_path
-            merged["active_binding_identity"] = pdf_path.replace("\\", "/").strip().lower()
-            merged.setdefault("source_kind", "pdf")
-            if str(tool_input.get("mode", "") or "").strip():
-                merged["pdf_mode"] = self._normalize_pdf_scope(str(tool_input.get("mode", "") or "").strip())
-        binding = getattr(execution, "structured_binding", None)
-        if binding is None:
-            return merged
-        dataset_path = str(getattr(binding, "dataset_path", "") or "").strip()
-        if dataset_path:
-            merged["active_dataset"] = dataset_path
-            merged["active_binding_identity"] = str(
-                getattr(binding, "binding_identity", "") or dataset_path.replace("\\", "/").strip().lower()
-            )
-            merged.setdefault("source_kind", "dataset")
-        return merged
+        return self._context_state.apply_execution_binding_to_constraints(constraints, execution)
 
     def _binding_identity_from_constraints(self, constraints: dict[str, Any]) -> str:
-        explicit = str(constraints.get("active_binding_identity", "") or "").strip()
-        if explicit:
-            return explicit
-        active_pdf = str(constraints.get("active_pdf", "") or "").strip()
-        if active_pdf:
-            return active_pdf.replace("\\", "/").lower()
-        active_dataset = str(constraints.get("active_dataset", "") or "").strip()
-        if active_dataset:
-            return active_dataset.replace("\\", "/").lower()
-        return ""
+        return self._context_state.binding_identity_from_constraints(constraints)
 
     def _extract_active_constraints(self, message: str) -> dict[str, Any]:
-        lowered = message.lower()
-        constraints: dict[str, Any] = {}
-        top_match = None
-        for pattern in (r"(?:前|top\s*)(\d+)",):
-            top_match = re.search(pattern, message, flags=re.IGNORECASE)
-            if top_match:
-                break
-        if top_match:
-            constraints["top_n"] = int(top_match.group(1))
-        if "一句话" in message or "一句" in message:
-            constraints["response_style"] = "one_sentence"
-        elif "简要" in message or "简短" in message:
-            constraints["response_style"] = "brief"
-        page_match = re.search(r"第\s*(\d+)\s*页", message)
-        if page_match:
-            constraints["page"] = int(page_match.group(1))
-            constraints["pdf_mode"] = "page"
-        elif re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message):
-            constraints["pdf_mode"] = "page"
-        elif re.search(r"page\s*\d+", lowered):
-            constraints["pdf_mode"] = "page"
-        section_match = re.search(r"(第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节))", message)
-        if section_match:
-            constraints["pdf_mode"] = "section"
-            constraints["pdf_section"] = str(section_match.group(1) or "").strip()
-        else:
-            for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节"):
-                if marker in message:
-                    constraints["pdf_mode"] = "section"
-                    constraints["pdf_section"] = marker
-                    break
-        if "按仓库" in message:
-            constraints["group_by"] = "仓库"
-        elif "按地区" in message:
-            constraints["group_by"] = "地区"
-        if "不要重复" in message:
-            constraints["dedupe"] = True
-        if "补一句" in message:
-            constraints["append_mode"] = "single_sentence_append"
-        has_pdf_overview_hint = any(
-            marker in message for marker in ("全文总览", "总览", "概览", "核心结论", "行动建议", "完整总结", "详细解读")
-        )
-        if has_pdf_overview_hint and constraints.get("pdf_mode") not in {"page", "section"}:
-            constraints["pdf_mode"] = "document"
-        if "pdf" in lowered:
-            constraints["source_kind"] = "pdf"
-            constraints.setdefault("pdf_mode", "document")
-        elif any(ext in lowered for ext in (".xlsx", ".csv", ".xls")):
-            constraints["source_kind"] = "dataset"
-        return constraints
+        return self._context_state.extract_active_constraints(message)
 
     def _should_answer_from_followup(
         self,
@@ -1431,55 +1261,25 @@ class QueryRuntime:
         followup_resolution,
         results: list[dict[str, object]],
     ) -> bool:
-        if not results:
-            return False
-        if followup_resolution.mode not in {"task_ref", "explicit_fanout_subset", "bundle_item_ref", "bundle_subset"}:
-            return False
-        return bool(message.strip())
+        return self._followup.should_answer_from_followup(
+            message=message,
+            followup_resolution=followup_resolution,
+            results=results,
+        )
 
     def _followup_results_from_resolution(
         self,
         session_id: str,
         followup_resolution,
     ) -> list[dict[str, object]]:
-        if followup_resolution.mode not in {"task_ref", "explicit_fanout_subset", "bundle_item_ref", "bundle_subset"}:
-            return []
-        task_ids = self._resolved_task_ids(followup_resolution)
-        if not task_ids and self._resolved_task_id(followup_resolution):
-            task_ids = [self._resolved_task_id(followup_resolution)]
-        return self._followup_results_from_task_ids(session_id, task_ids)
+        return self._followup.followup_results_from_resolution(session_id, followup_resolution)
 
     def _followup_results_from_task_ids(
         self,
         session_id: str,
         task_ids: list[str],
     ) -> list[dict[str, object]]:
-        if not task_ids:
-            return []
-        records: list[dict[str, object]] = []
-        for task_id in task_ids:
-            task = self.task_coordinator.get_task(task_id)
-            if task is None:
-                continue
-            if str(task.metadata.get("session_id", "")) != session_id:
-                continue
-            records.append(
-                {
-                    "index": int(
-                        getattr(getattr(task, "context_ref", None), "bundle_item_index", 0)
-                        or task.metadata.get("bundle_item_index", 0)
-                        or task.metadata.get("subtask_index", 0)
-                        or len(records) + 1
-                    ),
-                    "query": task.query,
-                    "content": task.result,
-                    "task_id": task.task_id,
-                    "summary": task.summary.to_dict() if task.summary is not None else None,
-                    "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
-                    "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
-                }
-            )
-        return sorted(records, key=lambda item: int(item.get("index", 0) or 0))
+        return self._followup.followup_results_from_task_ids(session_id, task_ids)
 
     def _followup_result_from_done_event(
         self,
@@ -1487,22 +1287,7 @@ class QueryRuntime:
         *,
         fallback_query: str,
     ) -> dict[str, object] | None:
-        task_id = str(event.get("task_id", "") or "").strip()
-        summary_payload = event.get("summary")
-        context_ref_payload = event.get("context_ref")
-        result_ref_payload = event.get("result_ref")
-        content = event.get("content")
-        if not task_id and not isinstance(summary_payload, dict):
-            return None
-        return {
-            "index": 1,
-            "query": str(event.get("query", "") or fallback_query),
-            "content": content if content is not None else "",
-            "task_id": task_id,
-            "summary": summary_payload if isinstance(summary_payload, dict) else None,
-            "context_ref": context_ref_payload if isinstance(context_ref_payload, dict) else None,
-            "result_ref": result_ref_payload if isinstance(result_ref_payload, dict) else None,
-        }
+        return self._followup.followup_result_from_done_event(event, fallback_query=fallback_query)
 
     def _synthesize_followup_task_summary_ref(
         self,
@@ -1512,30 +1297,15 @@ class QueryRuntime:
         content: str,
         task_kind: str = "",
     ) -> TaskSummaryRef | None:
-        summary = " ".join(sanitize_visible_assistant_content(str(content or "")).split()).strip()
-        if not task_id or not summary or contains_internal_protocol(summary):
-            return None
-        return TaskSummaryRef(
+        return self._followup.synthesize_followup_task_summary_ref(
             task_id=task_id,
             query=query,
-            summary=summary[:280],
+            content=content,
             task_kind=task_kind,
         )
 
     def _binding_owner_task(self, session_id: str, followup_resolution) -> Any | None:
-        owner_task_id = str(
-            self._resolved_binding_owner_task_id(followup_resolution)
-            or self._resolved_task_id(followup_resolution)
-            or ""
-        ).strip()
-        if not owner_task_id:
-            return None
-        task = self.task_coordinator.get_task(owner_task_id)
-        if task is None:
-            return None
-        if str(task.metadata.get("session_id", "")) != session_id:
-            return None
-        return task
+        return self._followup.binding_owner_task(session_id, followup_resolution)
 
     def _should_execute_binding_followup(
         self,
@@ -1544,40 +1314,14 @@ class QueryRuntime:
         followup_resolution,
         plan: QueryPlan,
     ) -> bool:
-        if str(getattr(followup_resolution, "mode", "") or "") != "binding_ref":
-            return False
-        owner_task = self._binding_owner_task(session_id, followup_resolution)
-        if owner_task is None:
-            return False
-        executions = plan.iter_executions()
-        if len(executions) != 1:
-            return False
-        execution = executions[0]
-        if str(getattr(execution.query_understanding, "route", "") or "") != "tool":
-            return False
-        binding_kind = self._resolved_binding_kind(followup_resolution)
-        tool_name = str(getattr(execution.query_understanding, "tool_name", "") or "").strip()
-        tool_input = dict(getattr(execution, "tool_input", {}) or getattr(execution.query_understanding, "tool_input", {}) or {})
-        normalized_path = self._normalize_binding_identity(str(tool_input.get("path", "") or ""))
-        normalized_location = str(tool_input.get("location", "") or "").strip()
-        owner_context = getattr(owner_task, "context_ref", None)
-        owner_bindings = getattr(owner_context, "bindings", None)
-        if binding_kind == "active_pdf":
-            owner_path = self._normalize_binding_identity(str(getattr(owner_bindings, "active_pdf", "") or ""))
-            return tool_name == "pdf_analysis" and (not normalized_path or normalized_path == owner_path)
-        if binding_kind == "active_dataset":
-            owner_path = self._normalize_binding_identity(str(getattr(owner_bindings, "active_dataset", "") or ""))
-            return tool_name == "structured_data_analysis" and (not normalized_path or normalized_path == owner_path)
-        if binding_kind == "active_location":
-            owner_location = str(getattr(owner_bindings, "active_location", "") or "").strip()
-            return tool_name == "get_weather" and (not normalized_location or normalized_location == owner_location)
-        if binding_kind == "active_entity":
-            owner_entity = str(getattr(owner_bindings, "active_entity", "") or "").strip()
-            return tool_name == "get_gold_price" and owner_entity == "黄金"
-        return False
+        return self._followup.should_execute_binding_followup(
+            session_id=session_id,
+            followup_resolution=followup_resolution,
+            plan=plan,
+        )
 
     def _normalize_binding_identity(self, value: str) -> str:
-        return str(value or "").replace("\\", "/").strip().lower()
+        return self._followup.normalize_binding_identity(value)
 
     def _binding_execution_from_owner(
         self,
@@ -1586,94 +1330,10 @@ class QueryRuntime:
         history: list[dict[str, Any]],
         owner_task,
     ) -> QueryExecutionPlan | None:
-        context_ref = getattr(owner_task, "context_ref", None)
-        if context_ref is None:
-            return None
-        bindings = context_ref.bindings
-        tool_name = str(owner_task.metadata.get("tool_name", "") or "").strip()
-        query_understanding: QueryUnderstanding | None = None
-        structured_binding: StructuredDatasetBinding | None = None
-        tool_input: dict[str, Any] = {"query": message}
-
-        if bindings.active_pdf:
-            tool_name = tool_name or "pdf_analysis"
-            tool_input["path"] = bindings.active_pdf
-            query_understanding = QueryUnderstanding(
-                intent="pdf_followup_query",
-                source_kind="pdf",
-                task_kind=context_ref.task_kind or "pdf",
-                modality="pdf",
-                route="tool",
-                execution_posture="direct_tool",
-                direct_route_reason="binding_owner_pdf",
-                tool_name=tool_name,
-                tool_input=dict(tool_input),
-                should_skip_rag=True,
-            )
-        elif bindings.active_dataset:
-            tool_name = tool_name or "structured_data_analysis"
-            tool_input["path"] = bindings.active_dataset
-            structured_binding = StructuredDatasetBinding(
-                dataset_path=bindings.active_dataset,
-                target_object=bindings.active_entity,
-                source="binding_owner",
-                confidence=1.0,
-                binding_identity=str(
-                    bindings.active_binding_identity or str(bindings.active_dataset or "").replace("\\", "/").strip().lower()
-                ),
-                derived_from_task_id=owner_task.task_id,
-            )
-            query_understanding = QueryUnderstanding(
-                intent="structured_followup_query",
-                source_kind="dataset",
-                task_kind=context_ref.task_kind or "structured_data",
-                modality="table",
-                route="tool",
-                execution_posture="direct_tool",
-                direct_route_reason="binding_owner_dataset",
-                tool_name=tool_name,
-                tool_input=dict(tool_input),
-                should_skip_rag=True,
-            )
-        elif bindings.active_location:
-            tool_name = tool_name or "get_weather"
-            tool_input["location"] = bindings.active_location
-            query_understanding = QueryUnderstanding(
-                intent="weather_followup_query",
-                source_kind="weather",
-                task_kind=context_ref.task_kind or "weather",
-                modality="realtime",
-                route="tool",
-                execution_posture="direct_tool",
-                direct_route_reason="binding_owner_weather",
-                tool_name=tool_name,
-                tool_input=dict(tool_input),
-                should_skip_rag=True,
-            )
-        elif bindings.active_entity == "黄金":
-            tool_name = tool_name or "get_gold_price"
-            query_understanding = QueryUnderstanding(
-                intent="finance_followup_query",
-                source_kind="finance",
-                task_kind=context_ref.task_kind or "finance",
-                modality="realtime",
-                route="tool",
-                execution_posture="direct_tool",
-                direct_route_reason="binding_owner_finance",
-                tool_name=tool_name,
-                tool_input=dict(tool_input),
-                should_skip_rag=True,
-            )
-        if query_understanding is None:
-            return None
-        return QueryExecutionPlan(
+        return self._followup.binding_execution_from_owner(
             message=message,
-            history=list(history),
-            memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
-            query_understanding=query_understanding,
-            tool_input=tool_input,
-            structured_binding=structured_binding,
-            execution_kind="direct_tool",
+            history=history,
+            owner_task=owner_task,
         )
 
     async def _stream_binding_followup(
@@ -1685,126 +1345,33 @@ class QueryRuntime:
         followup_resolution,
         trace=None,
     ):
-        owner_task = self._binding_owner_task(session_id, followup_resolution)
-        if owner_task is None:
-            return
-        if trace is not None:
-            trace.annotate(
-                {
-                    "app.route": "followup_binding",
-                    "app.binding_owner_task_id": owner_task.task_id,
-                }
-            )
-        execution = self._binding_execution_from_owner(
-            message=message,
-            history=history,
-            owner_task=owner_task,
-        )
-        if execution is None:
-            return
-        async for event in self._stream_planned_execution(session_id, execution, trace=trace):
-            if event.get("type") != "done":
-                yield event
-                continue
-            event = dict(event)
-            task_summary_payloads = list(event.get("task_summary_refs") or [])
-            task_ids = [
-                str(dict(item or {}).get("task_id", "") or "").strip()
-                for item in task_summary_payloads
-                if str(dict(item or {}).get("task_id", "") or "").strip()
-            ]
-            followup_results = self._followup_results_from_task_ids(session_id, task_ids)
-            if not followup_results:
-                synthetic_result = self._followup_result_from_done_event(event, fallback_query=message)
-                if synthetic_result is not None:
-                    followup_results = [synthetic_result]
-            if followup_results:
-                resolved_followup_task_id = (
-                    task_ids[-1]
-                    if task_ids
-                    else str(event.get("task_id", "") or self._resolved_task_id(followup_resolution)).strip()
-                )
-                resolved_followup_task_ids = (
-                    list(task_ids)
-                    if task_ids
-                    else [resolved_followup_task_id] if resolved_followup_task_id else self._resolved_task_ids(followup_resolution)
-                )
-                synthetic_resolution = followup_resolution.model_copy(
-                    update={
-                        "task_id": resolved_followup_task_id,
-                        "resolved_task_id": resolved_followup_task_id,
-                        "task_ids": resolved_followup_task_ids,
-                        "resolved_task_ids": resolved_followup_task_ids,
-                    }
-                )
-                main_context = self._build_followup_main_context(
-                    message,
-                    followup_results,
-                    followup_resolution=synthetic_resolution,
-                )
-                event["main_context"] = main_context.to_dict()
-                event["content"] = self._assemble_subtask_results(
-                    followup_results,
-                    main_context=main_context,
-                )
-                if not task_summary_payloads:
-                    followup_task_refs = self._task_summary_refs_from_results(followup_results)
-                    if not followup_task_refs:
-                        followup_task_refs = [
-                            synthetic_ref
-                            for synthetic_ref in [
-                                self._synthesize_followup_task_summary_ref(
-                                    task_id=synthetic_resolution.resolved_task_id
-                                    or synthetic_resolution.task_id,
-                                    query=message,
-                                    content=str(event.get("content", "") or ""),
-                                    task_kind=str(synthetic_resolution.resolved_task_kind or ""),
-                                )
-                            ]
-                            if synthetic_ref is not None
-                        ]
-                    event["task_summary_refs"] = [
-                        item.to_dict() if isinstance(item, TaskSummaryRef) else dict(item or {})
-                        for item in followup_task_refs
-                    ]
-            event["followup_mode"] = followup_resolution.mode
+        async for event in self._followup.stream_binding_followup(
+            session_id,
+            message,
+            history,
+            followup_resolution=followup_resolution,
+            trace=trace,
+            stream_planned_execution=self._stream_planned_execution,
+            build_followup_main_context=self._build_followup_main_context,
+            assemble_subtask_results=self._assemble_subtask_results,
+            task_summary_refs_from_results=self._task_summary_refs_from_results,
+        ):
             yield event
 
     def _resolved_task_id(self, followup_resolution) -> str:
-        return str(
-            getattr(followup_resolution, "resolved_task_id", "")
-            or getattr(followup_resolution, "task_id", "")
-            or ""
-        ).strip()
+        return self._followup.resolved_task_id(followup_resolution)
 
     def _resolved_task_ids(self, followup_resolution) -> list[str]:
-        task_ids = list(getattr(followup_resolution, "resolved_task_ids", []) or [])
-        if not task_ids:
-            task_ids = list(getattr(followup_resolution, "task_ids", []) or [])
-        return [str(task_id or "").strip() for task_id in task_ids if str(task_id or "").strip()]
+        return self._followup.resolved_task_ids(followup_resolution)
 
     def _resolved_binding_kind(self, followup_resolution) -> str:
-        return str(
-            getattr(followup_resolution, "resolved_binding_kind", "")
-            or getattr(followup_resolution, "binding_kind", "")
-            or getattr(followup_resolution, "binding_key", "")
-            or ""
-        ).strip()
+        return self._followup.resolved_binding_kind(followup_resolution)
 
     def _resolved_binding_identity(self, followup_resolution) -> str:
-        return str(
-            getattr(followup_resolution, "resolved_binding_identity", "")
-            or getattr(followup_resolution, "binding_identity", "")
-            or getattr(followup_resolution, "resolved_binding_ref", "")
-            or ""
-        ).strip()
+        return self._followup.resolved_binding_identity(followup_resolution)
 
     def _resolved_binding_owner_task_id(self, followup_resolution) -> str:
-        return str(
-            getattr(followup_resolution, "resolved_binding_owner_task_id", "")
-            or getattr(followup_resolution, "binding_owner_task_id", "")
-            or ""
-        ).strip()
+        return self._followup.resolved_binding_owner_task_id(followup_resolution)
 
     def _is_session_summary_execution(self, execution: QueryExecutionPlan) -> bool:
         route = str(getattr(execution.query_understanding, "route", "") or "").strip()
@@ -1977,37 +1544,10 @@ class QueryRuntime:
         return {"content": "", "tool_calls": []}
 
     def _allowed_tool_names_for_plan(self, plan: QueryPlan) -> set[str]:
-        return self._allowed_tool_names_for_execution(plan.iter_executions()[0])
+        return self._tool_bridge.allowed_tool_names_for_plan(plan)
 
     def _allowed_tool_names_for_execution(self, execution: QueryExecutionPlan) -> set[str]:
-        route = str(execution.query_understanding.route or "").strip()
-        execution_posture = str(
-            execution.execution_posture or getattr(execution.query_understanding, "execution_posture", "") or ""
-        ).strip()
-        skill_scope = self._skill_allowed_tool_scope(execution.active_skill)
-
-        if route == "memory":
-            return set()
-        if route == "rag" and execution_posture != "bounded_agent":
-            return set()
-
-        if execution_posture == "bounded_agent":
-            requested = list(getattr(execution.query_understanding, "candidate_tools", []) or [])
-            if not requested and skill_scope:
-                requested.extend(skill_scope)
-            return set(self.permission_service.allowed_tool_names(allowed_tools=requested or None))
-
-        if route == "tool":
-            requested: list[str] = []
-            if execution.query_understanding.tool_name:
-                requested.append(execution.query_understanding.tool_name)
-            elif getattr(execution.query_understanding, "candidate_tools", None):
-                requested.extend(list(execution.query_understanding.candidate_tools))
-            elif skill_scope:
-                requested.extend(skill_scope)
-            return set(self.permission_service.allowed_tool_names(allowed_tools=requested))
-
-        return set(self.permission_service.allowed_tool_names(allowed_tools=skill_scope or None))
+        return self._tool_bridge.allowed_tool_names_for_execution(execution)
 
     async def _stream_direct_tool_execution(
         self,
@@ -2016,197 +1556,8 @@ class QueryRuntime:
         *,
         trace=None,
     ):
-        tool_name = str(execution.query_understanding.tool_name or "").strip()
-        tool_input = dict(execution.tool_input or execution.query_understanding.tool_input or {"query": execution.message})
-        contract_decision = self._evaluate_tool_contract(
-            tool_name=tool_name,
-            tool_input=tool_input,
-            execution=execution,
-        )
-        if trace is not None:
-            trace.annotate(
-                {
-                    "app.tool_contract_mode": contract_decision.mode,
-                    "app.tool_contract_action": contract_decision.action,
-                    "app.tool_contract_reason": contract_decision.reason,
-                }
-            )
-        if contract_decision.should_block:
-            yield {
-                "type": "done",
-                "content": self._tool_contract_failure_message(
-                    tool_name=tool_name,
-                    contract_decision=contract_decision,
-                ),
-                "answer_channel": "fallback_answer",
-                "answer_source": "tool_contract_gate",
-                "answer_fallback_reason": "tool_contract_blocked",
-                "answer_leak_flags": [],
-                "contract": contract_decision.to_dict(),
-            }
-            return
-        decision = self.permission_service.can_invoke_tool(
-            tool_name,
-            allowed_tools=self._skill_allowed_tool_scope(execution.active_skill),
-            direct_route=True,
-            tool_input=tool_input,
-        )
-        if not decision.allowed:
-            yield {
-                "type": "done",
-                "content": f"无法调用工具 {tool_name}：{decision.reason}",
-                "answer_channel": "fallback_answer",
-                "answer_source": "permission_guard",
-                "answer_fallback_reason": "tool_permission_denied",
-                "answer_leak_flags": [],
-            }
-            return
-
-        tool = self.tool_runtime.get_instance(tool_name)
-        if tool is None:
-            yield {
-                "type": "done",
-                "content": f"工具 {tool_name} 当前不可用。",
-                "answer_channel": "fallback_answer",
-                "answer_source": "tool_runtime",
-                "answer_fallback_reason": "tool_unavailable",
-                "answer_leak_flags": [],
-            }
-            return
-
-        if trace is not None:
-            trace.annotate(
-                {
-                    "app.route": "tool",
-                    "app.tool_name": tool_name,
-                    "app.structured_binding_path": (
-                        execution.structured_binding.dataset_path
-                        if getattr(execution, "structured_binding", None) is not None
-                        else ""
-                    ),
-                    "app.structured_binding_source": (
-                        execution.structured_binding.source
-                        if getattr(execution, "structured_binding", None) is not None
-                        else ""
-                    ),
-                }
-            )
-
-        yield {
-            "type": "tool_start",
-            "tool": tool_name,
-            "input": tool_input,
-            "contract": contract_decision.to_dict(),
-            "structured_binding": (
-                execution.structured_binding.to_dict()
-                if getattr(execution, "structured_binding", None) is not None
-                else None
-            ),
-        }
-
-        active_constraints = self._extract_active_constraints(execution.message)
-        raw_tool_output: Any = None
-        rendered_tool_decision = None
-
-        async def invoke_tool() -> Any:
-            nonlocal raw_tool_output
-            if trace is not None:
-                with trace.stage(
-                    "query.direct_tool",
-                    run_type="tool",
-                    inputs={"tool": tool_name, "input": tool_input},
-                ):
-                    raw_tool_output = await asyncio.to_thread(tool.invoke, tool_input)
-                    return raw_tool_output
-            raw_tool_output = await asyncio.to_thread(tool.invoke, tool_input)
-            return raw_tool_output
-
-        def _render_content(output: Any) -> str:
-            nonlocal rendered_tool_decision
-            rendered_tool_decision = self._build_direct_tool_output_decision(
-                output,
-                tool_name=tool_name,
-                query=execution.message,
-                route=str(execution.query_understanding.route or "tool"),
-            )
-            return rendered_tool_decision.canonical_answer.strip()
-
-        task = await self.task_coordinator.run_tool_task(
-            session_id,
-            tool_name,
-            invoke_tool,
-            query=execution.message,
-            tool_input=tool_input,
-            structured_binding=getattr(execution, "structured_binding", None),
-            task_kind=str(getattr(execution.query_understanding, "task_kind", "") or ""),
-            constraints=TaskConstraints(
-                top_n=active_constraints.get("top_n"),
-                group_by=str(active_constraints.get("group_by", "") or ""),
-                page=active_constraints.get("page"),
-                response_style=str(active_constraints.get("response_style", "") or ""),
-                pdf_mode=str(active_constraints.get("pdf_mode", "") or ""),
-                pdf_section=str(active_constraints.get("pdf_section", "") or ""),
-            ),
-            render_content=_render_content,
-        )
-        self._enrich_direct_tool_task(
-            task,
-            raw_output=raw_tool_output,
-            tool_name=tool_name,
-        )
-        tool_decision = rendered_tool_decision or self._build_direct_tool_output_decision(
-            raw_tool_output,
-            tool_name=tool_name,
-            query=execution.message,
-            route=str(execution.query_understanding.route or "tool"),
-        )
-        self._apply_pdf_persistence_gate(
-            task=task,
-            raw_output=raw_tool_output,
-            tool_name=tool_name,
-            tool_decision=tool_decision,
-        )
-        visible_content = await self._finalize_pdf_direct_tool_answer(
-            session_id=session_id,
-            execution=execution,
-            task=task,
-            raw_output=raw_tool_output,
-            tool_name=tool_name,
-            tool_decision=tool_decision,
-        )
-        tool_content = task.result
-        pdf_model_finalized = bool(task.metadata.get("pdf_model_finalized")) if task is not None else False
-        binding_payload = (
-            execution.structured_binding.to_dict()
-            if getattr(execution, "structured_binding", None) is not None
-            else None
-        )
-        task_summary_ref = self._task_summary_ref_from_task(task)
-        yield {"type": "tool_end", "tool": tool_name, "output": tool_content, "structured_binding": binding_payload}
-        if tool_name == "pdf_analysis" and not (
-            self._pdf_tool_decision_is_persistable(raw_tool_output, tool_decision) or pdf_model_finalized
-        ):
-            task_summary_ref = None
-        yield {
-            "type": "done",
-            "content": visible_content,
-            "task_id": task.task_id,
-            "summary": task.summary.to_dict() if task.summary is not None else None,
-            "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
-            "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
-            "main_context": self._build_direct_tool_main_context(execution.message, task=task).to_dict(),
-            "structured_binding": binding_payload,
-            "answer_channel": "answer_candidate" if pdf_model_finalized else tool_decision.selected_channel,
-            "answer_source": "pdf_model_finalization" if pdf_model_finalized else tool_decision.selected_source,
-            "answer_fallback_reason": "" if pdf_model_finalized else tool_decision.fallback_reason,
-            "answer_leak_flags": list(tool_decision.leak_flags),
-            "contract": contract_decision.to_dict(),
-            "task_summary_refs": (
-                [task_summary_ref.to_dict()]
-                if task_summary_ref is not None
-                else []
-            ),
-        }
+        async for event in self._tool_bridge.stream_direct_tool_execution(session_id, execution, trace=trace):
+            yield event
 
     def _evaluate_tool_contract(
         self,
@@ -2215,52 +1566,14 @@ class QueryRuntime:
         tool_input: dict[str, Any],
         execution: QueryExecutionPlan,
     ) -> ToolContractDecision:
-        effective_mode = self._effective_tool_contract_mode(tool_name)
-        contract = None
-        runtime_get_contract = getattr(self.tool_runtime, "get_contract", None)
-        if callable(runtime_get_contract):
-            contract = runtime_get_contract(tool_name)
-        if contract is None:
-            definition = get_tool_definition_map().get(tool_name)
-            if definition is not None:
-                contract = definition.contract
-        if contract is None:
-            return ToolContractDecision(
-                tool_name=tool_name,
-                mode=effective_mode,
-                action="deny",
-                reason="missing_tool_contract",
-            )
-
-        binding_context = {
-            "active_dataset": (
-                execution.structured_binding.dataset_path
-                if getattr(execution, "structured_binding", None) is not None
-                else ""
-            ),
-            "active_pdf": str(tool_input.get("path", "") or "").strip(),
-        }
-        local_gate = ToolContractGate(mode=effective_mode)
-        return local_gate.evaluate(
+        return self._tool_bridge.evaluate_tool_contract(
             tool_name=tool_name,
-            contract=contract,
             tool_input=tool_input,
-            skill_allowed_tools=self._skill_allowed_tool_scope(execution.active_skill),
-            binding_context=binding_context,
+            execution=execution,
         )
 
     def _effective_tool_contract_mode(self, tool_name: str) -> str:
-        base_mode = str(self.tool_contract_gate.mode or "shadow").strip().lower() or "shadow"
-        if base_mode == "off":
-            return "off"
-        if tool_name in {
-            "pdf_analysis",
-            "structured_data_analysis",
-            "analyze_multimodal_file",
-            "index_multimodal_file",
-        }:
-            return "enforce"
-        return base_mode
+        return self._tool_bridge.effective_tool_contract_mode(tool_name)
 
     def _tool_contract_failure_message(
         self,
@@ -2268,17 +1581,10 @@ class QueryRuntime:
         tool_name: str,
         contract_decision: ToolContractDecision,
     ) -> str:
-        if contract_decision.reason == "missing_required_binding":
-            if tool_name == "pdf_analysis":
-                return "无法调用 PDF 工具：需要先明确 PDF 文件 path，或已有已确认的 PDF 绑定。"
-            if tool_name == "structured_data_analysis":
-                return "无法调用表格工具：需要先明确数据文件 path，或已有已确认的数据集绑定。"
-            if contract_decision.missing_bindings:
-                return f"无法调用工具 {tool_name}：缺少绑定 {', '.join(contract_decision.missing_bindings)}。"
-        if contract_decision.reason == "missing_required_input":
-            if contract_decision.missing_inputs:
-                return f"无法调用工具 {tool_name}：缺少输入 {', '.join(contract_decision.missing_inputs)}。"
-        return f"无法调用工具 {tool_name}：{contract_decision.reason}"
+        return self._tool_bridge.tool_contract_failure_message(
+            tool_name=tool_name,
+            contract_decision=contract_decision,
+        )
 
     def _normalize_direct_tool_output(
         self,
@@ -2288,13 +1594,12 @@ class QueryRuntime:
         query: str = "",
         route: str = "tool",
     ) -> str:
-        decision = self._build_direct_tool_output_decision(
+        return self._tool_bridge.normalize_direct_tool_output(
             output,
             tool_name=tool_name,
             query=query,
             route=route,
         )
-        return decision.canonical_answer.strip()
 
     def _build_direct_tool_output_decision(
         self,
@@ -2305,52 +1610,19 @@ class QueryRuntime:
         route: str = "tool",
         force_allow_unlabeled: bool = False,
     ):
-        normalized_text, allow_unlabeled_answer = self._prepare_direct_tool_output_candidate(output)
-        candidate = classify_output_candidate(
-            text=normalized_text,
-            route=route,
-            source=f"direct_tool.{tool_name or 'tool'}",
+        return self._tool_bridge.build_direct_tool_output_decision(
+            output,
             tool_name=tool_name,
-            allow_unlabeled_answer=allow_unlabeled_answer or force_allow_unlabeled,
-            has_tool_receipt=True,
-        )
-        return build_output_decision(
-            candidates=[candidate] if candidate is not None else [],
+            query=query,
             route=route,
-            execution_posture="direct_tool",
-            user_message=query,
-            tool_name=tool_name,
-            retrieval_results=None,
-            has_tool_receipt=True,
+            force_allow_unlabeled=force_allow_unlabeled,
         )
 
     def _prepare_direct_tool_output_candidate(self, output: Any) -> tuple[str, bool]:
-        if isinstance(output, dict):
-            for key in ("answer", "summary", "result", "output", "text", "content"):
-                value = output.get(key)
-                if isinstance(value, str) and value.strip():
-                    return sanitize_visible_assistant_content(value).strip(), True
-        return self._stringify_tool_output(output), False
+        return self._tool_bridge.prepare_direct_tool_output_candidate(output)
 
     def _stringify_tool_output(self, output: Any) -> str:
-        if isinstance(output, str):
-            return sanitize_visible_assistant_content(output).strip()
-        if isinstance(output, dict):
-            for key in ("answer", "content", "summary", "result", "output", "text"):
-                value = output.get(key)
-                if isinstance(value, str) and value.strip():
-                    return sanitize_visible_assistant_content(value).strip()
-            return json.dumps(output, ensure_ascii=False, indent=2)
-        if isinstance(output, (list, tuple)):
-            if all(isinstance(item, str) for item in output):
-                parts = [
-                    sanitize_visible_assistant_content(str(item)).strip()
-                    for item in output
-                ]
-                return "\n".join(item for item in parts if item).strip()
-            return json.dumps(list(output), ensure_ascii=False, indent=2)
-        normalized = stringify_content(output)
-        return sanitize_visible_assistant_content(normalized).strip() if isinstance(normalized, str) else str(output)
+        return self._tool_bridge.stringify_tool_output(output)
 
     def _enrich_direct_tool_task(
         self,
@@ -2359,49 +1631,11 @@ class QueryRuntime:
         raw_output: Any,
         tool_name: str,
     ) -> None:
-        if tool_name != "pdf_analysis" or task is None:
-            return
-        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
-        if canonical is None:
-            return
-        context_ref = getattr(task, "context_ref", None)
-        summary = getattr(task, "summary", None)
-        if context_ref is None or summary is None:
-            return
-        metadata = dict(canonical.metadata or {})
-        normalized_mode = self._normalize_pdf_scope(str(canonical.effective_mode or ""))
-        if canonical.ok:
-            context_ref.constraints.pdf_mode = normalized_mode
-        context_ref.constraints.pdf_section = str(metadata.get("target_section", "") or "")
-        target_page = metadata.get("target_page")
-        if isinstance(target_page, int) and target_page > 0:
-            context_ref.constraints.page = target_page
-        context_ref.constraints.pdf_focus_pages = [int(page) for page in list(canonical.pages or []) if int(page) > 0][:5]
-        total_pages = metadata.get("document_total_pages", metadata.get("total_pages"))
-        readable_pages = metadata.get("readable_pages")
-        usable_pages = metadata.get("usable_pages")
-        if isinstance(total_pages, int) and total_pages > 0:
-            context_ref.constraints.total_pages = total_pages
-        if isinstance(readable_pages, int) and readable_pages >= 0:
-            context_ref.constraints.readable_pages = readable_pages
-            task.metadata["pdf_readable_pages"] = readable_pages
-        if isinstance(usable_pages, int) and usable_pages >= 0:
-            context_ref.constraints.usable_pages = usable_pages
-        if canonical.ok:
-            context_ref.task_kind = self._pdf_task_kind_from_mode(canonical.effective_mode)
-        task.metadata["pdf_canonical_result"] = canonical.to_payload()
-        if canonical.ok:
-            summary.key_points = self._merge_summary_key_points(
-                list(summary.key_points or []),
-                pdf_path=str(context_ref.bindings.active_pdf or ""),
-                page=context_ref.constraints.page,
-                pdf_mode=context_ref.constraints.pdf_mode,
-                pdf_section=context_ref.constraints.pdf_section,
-                pdf_pages=context_ref.constraints.pdf_focus_pages,
-                readable_pages=context_ref.constraints.readable_pages,
-                usable_pages=context_ref.constraints.usable_pages,
-            )
-            context_ref.summary = str(summary.response or "")
+        self._tool_bridge.enrich_direct_tool_task(
+            task,
+            raw_output=raw_output,
+            tool_name=tool_name,
+        )
 
     def _apply_pdf_persistence_gate(
         self,
@@ -2411,20 +1645,12 @@ class QueryRuntime:
         tool_name: str,
         tool_decision,
     ) -> None:
-        if tool_name != "pdf_analysis" or task is None:
-            return
-        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
-        if canonical is None or self._pdf_tool_decision_is_persistable(raw_output, tool_decision):
-            return
-        summary = getattr(task, "summary", None)
-        context_ref = getattr(task, "context_ref", None)
-        if summary is not None:
-            summary.response = ""
-            summary.key_points = []
-        if context_ref is not None:
-            context_ref.summary = ""
-        task.metadata["skip_session_memory_projection"] = True
-        task.metadata["pdf_persistable"] = False
+        self._tool_bridge.apply_pdf_persistence_gate(
+            task=task,
+            raw_output=raw_output,
+            tool_name=tool_name,
+            tool_decision=tool_decision,
+        )
 
     async def _finalize_pdf_direct_tool_answer(
         self,
@@ -2436,29 +1662,14 @@ class QueryRuntime:
         tool_name: str,
         tool_decision,
     ) -> str:
-        fallback = tool_decision.canonical_answer.strip() or f"{tool_name} 已执行，但未返回可展示结果。"
-        if tool_name != "pdf_analysis" or task is None:
-            return fallback
-        if not self._pdf_tool_result_can_use_model_finalization(raw_output, tool_decision):
-            return fallback
-        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
-        if canonical is None:
-            return fallback
-        finalized = await self._rewrite_pdf_answer_with_model(
-            user_query=execution.message,
-            canonical=canonical,
-        )
-        if not finalized or finalized == fallback:
-            return fallback
-        self.task_coordinator.refresh_completed_tool_task(
+        return await self._tool_bridge.finalize_pdf_direct_tool_answer(
             session_id=session_id,
+            execution=execution,
             task=task,
-            content=finalized,
-            event_name="tool_task_llm_finalize",
+            raw_output=raw_output,
+            tool_name=tool_name,
+            tool_decision=tool_decision,
         )
-        task.metadata["pdf_model_finalized"] = True
-        task.metadata["pdf_model_finalized_answer"] = finalized
-        return finalized
 
     async def _rewrite_pdf_answer_with_model(
         self,
@@ -2496,31 +1707,10 @@ class QueryRuntime:
         retrieval_results: list[dict[str, Any]] | None,
         output_response,
     ):
-        if str(execution.query_understanding.route or "") != "rag":
-            return output_response
-        if str(getattr(output_response, "finalization_policy", "none") or "none") != "route_required":
-            return output_response
-        fallback_reason = str(getattr(output_response, "fallback_reason", "") or "")
-        preserve_no_receipt_fallback = fallback_reason in {"no_receipt_tool_claim", "no_receipt_query_promise"}
-        evidence_pack = build_rag_evidence_pack(
-            user_query=execution.message,
+        return await self._output_policy.maybe_finalize_rag_output(
+            execution=execution,
             retrieval_results=retrieval_results,
-            max_items=3,
-        )
-        if not self._rag_evidence_pack_can_finalize(evidence_pack):
-            return output_response if preserve_no_receipt_fallback else self._fallback_rag_output_response(output_response)
-        finalized = await self._rewrite_rag_answer_with_model(evidence_pack=evidence_pack)
-        if not finalized:
-            return self._fallback_rag_output_response(output_response)
-        return replace(
-            output_response,
-            canonical_answer=finalized,
-            selected_channel="answer_candidate",
-            selected_source="rag_answer_finalization",
-            canonical_state="stable_answer",
-            persist_policy="persist_canonical",
-            finalization_policy="none",
-            fallback_reason="",
+            output_response=output_response,
         )
 
     async def _rewrite_rag_answer_with_model(
@@ -2528,42 +1718,13 @@ class QueryRuntime:
         *,
         evidence_pack: RAGEvidencePack,
     ) -> str:
-        messages = build_rag_answer_finalization_messages(evidence_pack=evidence_pack)
-        try:
-            response = await self.model_runtime.invoke_messages(messages)
-        except ModelRuntimeError:
-            return ""
-        except Exception:
-            logger.exception("RAG answer finalization failed")
-            return ""
-        content = normalize_finalized_answer(stringify_content(getattr(response, "content", response)))
-        if (
-            not content
-            or contains_internal_protocol(content)
-            or self._looks_like_rag_procedural_answer(content)
-            or answer_looks_like_snippet_dump(content, evidence_pack)
-        ):
-            return ""
-        return content
+        return await self._output_policy.rewrite_rag_answer_with_model(evidence_pack=evidence_pack)
 
     def _rag_evidence_pack_can_finalize(self, evidence_pack: RAGEvidencePack | None) -> bool:
-        if evidence_pack is None:
-            return False
-        if len(list(evidence_pack.items or [])) < 2:
-            return False
-        return total_compact_chars(evidence_pack) >= 60
+        return self._output_policy.rag_evidence_pack_can_finalize(evidence_pack)
 
     def _fallback_rag_output_response(self, output_response):
-        return replace(
-            output_response,
-            canonical_answer="已检索到相关资料，但当前模型尚未产出可直接展示的结论。",
-            selected_channel="fallback_answer",
-            selected_source="fallback_policy",
-            canonical_state="missing_answer",
-            persist_policy="do_not_persist",
-            finalization_policy="route_required",
-            fallback_reason="rag_missing_answer",
-        )
+        return self._output_policy.fallback_rag_output_response(output_response)
 
     def _maybe_gate_memory_output(
         self,
@@ -2571,61 +1732,16 @@ class QueryRuntime:
         execution: QueryExecutionPlan,
         output_response,
     ):
-        if str(execution.query_understanding.route or "") != "memory":
-            return output_response
-        if str(getattr(output_response, "selected_channel", "") or "") == "fallback_answer":
-            return output_response
-        if str(getattr(output_response, "canonical_state", "") or "") == "progress_only":
-            return self._fallback_memory_output_response(output_response)
-        if not self._memory_output_needs_gate(output_response):
-            return output_response
-        return self._fallback_memory_output_response(output_response)
+        return self._output_policy.maybe_gate_memory_output(
+            execution=execution,
+            output_response=output_response,
+        )
 
     def _memory_output_needs_gate(self, output_response) -> bool:
-        selected_source = str(getattr(output_response, "selected_source", "") or "")
-        if not selected_source.startswith("segment."):
-            return False
-        answer = sanitize_visible_assistant_content(
-            str(getattr(output_response, "canonical_answer", "") or "")
-        ).strip()
-        if not answer:
-            return False
-        if looks_like_progress_text(answer):
-            return True
-        leak_flags = {str(flag or "").strip() for flag in list(getattr(output_response, "leak_flags", []) or [])}
-        if not leak_flags:
-            return False
-        compact = re.sub(r"\s+", "", answer)
-        if not compact.startswith(("我来先", "我先来", "我先", "我来", "我将", "我会", "让我", "接下来我")):
-            return False
-        return any(
-            token in answer
-            for token in (
-                "检查",
-                "查看",
-                "读取",
-                "分析",
-                "确认",
-                "整理",
-                "梳理",
-                "回顾",
-                "回忆",
-                "目录结构",
-                "知识库",
-            )
-        )
+        return self._output_policy.memory_output_needs_gate(output_response)
 
     def _fallback_memory_output_response(self, output_response):
-        return replace(
-            output_response,
-            canonical_answer="当前没有足够稳定的会话内容可直接回答这个问题。",
-            selected_channel="fallback_answer",
-            selected_source="fallback_policy",
-            canonical_state="missing_answer",
-            persist_policy="do_not_persist",
-            finalization_policy="none",
-            fallback_reason="memory_visible_pollution",
-        )
+        return self._output_policy.fallback_memory_output_response(output_response)
 
     async def _maybe_finalize_pdf_output(
         self,
@@ -2633,124 +1749,25 @@ class QueryRuntime:
         execution: QueryExecutionPlan,
         output_response,
     ):
-        canonical = self._extract_pdf_canonical_from_output_response(output_response)
-        if canonical is None:
-            return output_response
-        if str(getattr(output_response, "finalization_policy", "none") or "none") != "route_required":
-            return output_response
-        if not self._pdf_canonical_can_finalize(canonical):
-            return self._fallback_pdf_output_response(output_response, canonical)
-        finalized = await self._rewrite_pdf_answer_with_model(
-            user_query=execution.message,
-            canonical=canonical,
-        )
-        if not finalized:
-            return self._fallback_pdf_output_response(output_response, canonical)
-        return replace(
-            output_response,
-            canonical_answer=finalized,
-            selected_channel="answer_candidate",
-            selected_source="pdf_answer_finalization",
-            canonical_state="stable_answer",
-            persist_policy="persist_canonical",
-            finalization_policy="none",
-            fallback_reason="",
+        return await self._output_policy.maybe_finalize_pdf_output(
+            execution=execution,
+            output_response=output_response,
         )
 
     def _extract_pdf_canonical_from_output_response(self, output_response) -> PDFCanonicalResult | None:
-        for item in reversed(list(getattr(output_response, "tool_calls", []) or [])):
-            if str(item.get("tool", "") or "") != "pdf_analysis":
-                continue
-            output = str(item.get("output", "") or "").strip()
-            if not output:
-                continue
-            canonical = PDFCanonicalResult.from_tool_output(output)
-            if canonical is not None:
-                return canonical
-        return None
+        return self._output_policy.extract_pdf_canonical_from_output_response(output_response)
 
     def _pdf_canonical_can_finalize(self, canonical: PDFCanonicalResult) -> bool:
-        if canonical.ok and canonical.summary.strip():
-            return True
-        return self._pdf_canonical_has_finalizable_evidence(canonical)
+        return self._output_policy.pdf_canonical_can_finalize(canonical)
 
     def _fallback_pdf_output_response(self, output_response, canonical: PDFCanonicalResult):
-        pages = [int(page) for page in list(canonical.pages or []) if int(page) > 0][:3]
-        if pages:
-            selected = "、".join(f"P{page}" for page in pages)
-            message = f"已读取与当前问题最相关的 PDF 页面：{selected}，但当前还没有形成稳定摘要。"
-            reason = "pdf_canonical_missing_summary"
-        else:
-            message = "已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。"
-            reason = "pdf_missing_summary"
-        return replace(
-            output_response,
-            canonical_answer=message,
-            selected_channel="fallback_answer",
-            selected_source="fallback_policy",
-            canonical_state="missing_answer",
-            persist_policy="do_not_persist",
-            finalization_policy="route_required",
-            fallback_reason=reason,
-        )
+        return self._output_policy.fallback_pdf_output_response(output_response, canonical)
 
     def _looks_like_rag_procedural_answer(self, answer: str) -> bool:
-        normalized = sanitize_visible_assistant_content(str(answer or "")).strip()
-        if not normalized:
-            return False
-        normalized = re.sub(r"^(?:岩[，,\s]*)+", "", normalized).strip()
-        if not normalized:
-            return False
-        if looks_like_progress_text(normalized):
-            return True
-        compact = re.sub(r"\s+", "", normalized)
-        if not compact.startswith(("我来先", "我先来", "我先", "我来", "我将", "我会", "让我", "接下来我")):
-            return False
-        return any(
-            token in normalized
-            for token in (
-                "检索",
-                "搜索",
-                "查看",
-                "检查",
-                "读取",
-                "分析",
-                "确认",
-                "整理",
-                "改写",
-                "根据这些证据",
-                "整理答案",
-            )
-        )
+        return self._output_policy.looks_like_rag_procedural_answer(answer)
 
     def _looks_like_pdf_procedural_answer(self, answer: str) -> bool:
-        normalized = sanitize_visible_assistant_content(str(answer or "")).strip()
-        if not normalized:
-            return False
-        normalized = re.sub(r"^(?:岩[，,\s]*)+", "", normalized).strip()
-        if not normalized:
-            return False
-        if looks_like_progress_text(normalized):
-            return True
-        compact = re.sub(r"\s+", "", normalized)
-        if not compact.startswith(("我来先", "我先来", "我先", "我来", "我将", "我会", "让我", "接下来我")):
-            return False
-        return any(
-            token in normalized
-            for token in (
-                "PDF",
-                "页面",
-                "页",
-                "文档",
-                "章节",
-                "读取",
-                "查看",
-                "分析",
-                "整理",
-                "提炼",
-                "总结",
-            )
-        )
+        return self._output_policy.looks_like_pdf_procedural_answer(answer)
 
     def _should_isolate_explicit_durable_turn(
         self,
@@ -2801,63 +1818,19 @@ class QueryRuntime:
         user_query: str,
         canonical: PDFCanonicalResult,
     ) -> list[dict[str, str]]:
-        source = str(canonical.source or "当前PDF").strip()
-        page_marks = [f"P{int(page)}" for page in list(canonical.pages or []) if int(page) > 0][:6]
-        evidence_lines: list[str] = []
-        for item in list(canonical.evidence or [])[:4]:
-            snippet = " ".join(str(item.snippet or "").split()).strip()
-            if not snippet:
-                continue
-            evidence_lines.append(f"- P{int(item.page_number)}: {snippet[:220]}")
-        evidence_block = "\n".join(evidence_lines) if evidence_lines else "- 无额外证据片段"
-        page_block = "、".join(page_marks) if page_marks else "未标注"
-        summary = canonical.summary.strip()
-        degraded_reason = str(canonical.degraded_reason or "").strip()
-        system_prompt = (
-            "你负责把已经清洗过的 PDF 阅读结果改写成对用户可直接展示的最终回答。"
-            "只能依据提供的摘要和证据回答，不要编造，不要输出内部协议、工具名、canonical、evidence 等词。"
-            "不要大段摘抄原文；优先直接回应用户任务。"
-            "如果用户要求总结、行动建议、解释或对比，请按该任务形态组织答案。"
-            "如果提供的页面看起来主要是封面、题名页、目录、版权页或其他非正文，请直接说明这一点，不要硬编正文结论。"
+        return self._output_policy.build_pdf_answer_finalization_messages(
+            user_query=user_query,
+            canonical=canonical,
         )
-        user_prompt = (
-            f"用户问题：{user_query.strip()}\n"
-            f"PDF：{source}\n"
-            f"相关页面：{page_block}\n"
-            f"稳定摘要：{summary or '无'}\n"
-            f"当前状态：{canonical.status}\n"
-            f"降级原因：{degraded_reason or '无'}\n"
-            f"证据片段：\n{evidence_block}\n\n"
-            "请直接回答用户，不要解释你的处理过程。"
-        )
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
 
     def _pdf_tool_result_can_use_model_finalization(self, raw_output: Any, tool_decision) -> bool:
-        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
-        if canonical is None:
-            return False
-        if canonical.ok:
-            return True
-        return self._pdf_canonical_has_finalizable_evidence(canonical)
+        return self._output_policy.pdf_tool_result_can_use_model_finalization(raw_output, tool_decision)
 
     def _pdf_canonical_has_finalizable_evidence(self, canonical: PDFCanonicalResult) -> bool:
-        if str(canonical.effective_mode or "") == "page" and str(canonical.degraded_reason or "") == "target_page_has_no_stable_text":
-            return False
-        for item in list(canonical.evidence or [])[:4]:
-            snippet = sanitize_visible_assistant_content(str(item.snippet or "")).strip()
-            compact = re.sub(r"\s+", "", snippet)
-            if len(compact) >= 8:
-                return True
-        return False
+        return self._output_policy.pdf_canonical_has_finalizable_evidence(canonical)
 
     def _pdf_tool_decision_is_persistable(self, raw_output: Any, tool_decision) -> bool:
-        if tool_decision is None or str(getattr(tool_decision, "selected_channel", "") or "") == "fallback_answer":
-            return False
-        canonical = PDFCanonicalResult.from_tool_output(self._stringify_tool_output(raw_output))
-        return canonical is not None and canonical.ok
+        return self._output_policy.pdf_tool_decision_is_persistable(raw_output, tool_decision)
 
     def _merge_summary_key_points(
         self,
@@ -2871,50 +1844,22 @@ class QueryRuntime:
         readable_pages: int | None = None,
         usable_pages: int | None = None,
     ) -> list[str]:
-        merged: list[str] = []
-        seen: set[str] = set()
-
-        def add(item: str) -> None:
-            normalized = str(item or "").strip()
-            if not normalized or normalized in seen:
-                return
-            seen.add(normalized)
-            merged.append(normalized)
-
-        for item in existing:
-            add(str(item or ""))
-        if page is not None:
-            add(f"page={page}")
-        if pdf_mode:
-            add(f"pdf_mode={pdf_mode}")
-        if pdf_section:
-            add(f"pdf_section={pdf_section}")
-        normalized_pages = [int(page_item) for page_item in list(pdf_pages or []) if int(page_item) > 0]
-        if normalized_pages:
-            add("pdf_pages=" + ",".join(str(page_item) for page_item in normalized_pages))
-        if readable_pages is not None:
-            add(f"readable_pages={readable_pages}")
-        if usable_pages is not None:
-            add(f"usable_pages={usable_pages}")
-        if pdf_path:
-            add(f"pdf={pdf_path}")
-        return merged
+        return self._output_policy.merge_summary_key_points(
+            existing,
+            pdf_path=pdf_path,
+            page=page,
+            pdf_mode=pdf_mode,
+            pdf_section=pdf_section,
+            pdf_pages=pdf_pages,
+            readable_pages=readable_pages,
+            usable_pages=usable_pages,
+        )
 
     def _pdf_task_kind_from_mode(self, mode: str) -> str:
-        normalized = self._normalize_pdf_scope(str(mode or ""))
-        if normalized == "page":
-            return "document_page"
-        if normalized == "section":
-            return "document_section"
-        return "document_read"
+        return self._output_policy.pdf_task_kind_from_mode(mode)
 
     def _normalize_pdf_scope(self, mode: str) -> str:
-        normalized = str(mode or "").strip().lower()
-        if normalized in {"page", "page-read", "page_read"}:
-            return "page"
-        if normalized in {"section", "section-read", "section_read"}:
-            return "section"
-        return "document"
+        return self._output_policy.normalize_pdf_scope(mode)
 
     def _assemble_subtask_results(
         self,
@@ -2931,51 +1876,13 @@ class QueryRuntime:
         return str(exc)
 
     def _is_internal_skill_read_tool_call(self, tool_call: dict[str, Any]) -> bool:
-        tool_name = str(tool_call.get("tool", "") or "").strip().lower()
-        raw = f"{tool_call.get('input', '')}\n{tool_call.get('output', '')}".lower()
-        return tool_name == "read_file" and "skills/" in raw and "/skill.md" in raw
+        return self._persistence.is_internal_skill_read_tool_call(tool_call)
 
     def _looks_like_skill_document(self, content: str) -> bool:
-        normalized = content.strip()
-        if not normalized:
-            return False
-        lowered = normalized.lower()
-        has_skill_frontmatter = (
-            (normalized.startswith("---") or lowered.startswith("name:"))
-            and "metadata:" in lowered
-            and "description:" in lowered
-        )
-        has_skill_sections = "display_name:" in lowered and (
-            "## execution steps" in lowered
-            or "## output format" in lowered
-            or "目标" in normalized
-            or "执行步骤" in normalized
-            or "输出格式" in normalized
-            or "故障排查" in normalized
-            or "查询策略" in normalized
-        )
-        return has_skill_frontmatter or has_skill_sections
+        return self._persistence.looks_like_skill_document(content)
 
     def _sanitize_tool_call(self, tool_call: dict[str, Any]) -> dict[str, Any] | None:
-        if self._is_internal_skill_read_tool_call(tool_call):
-            return None
-
-        sanitized = {
-            "tool": tool_call.get("tool", "tool"),
-            "input": str(tool_call.get("input", "") or ""),
-            "output": str(tool_call.get("output", "") or ""),
-        }
-        input_is_skill = self._looks_like_skill_document(sanitized["input"])
-        output_is_skill = self._looks_like_skill_document(sanitized["output"])
-
-        if (input_is_skill and not sanitized["output"].strip()) or (input_is_skill and output_is_skill):
-            return None
-
-        if input_is_skill:
-            sanitized["input"] = HIDDEN_SKILL_NOTICE
-        if output_is_skill:
-            sanitized["output"] = HIDDEN_SKILL_NOTICE
-        return sanitized
+        return self._persistence.sanitize_tool_call(tool_call)
 
     def _finalize_segments(
         self,
@@ -2984,16 +1891,11 @@ class QueryRuntime:
         *,
         fallback_content: str = "",
     ) -> list[dict[str, Any]]:
-        finalized = list(segments)
-        candidate = {
-            "content": current_segment.get("content", ""),
-            "tool_calls": list(current_segment.get("tool_calls", [])),
-        }
-        if not str(candidate["content"]).strip() and fallback_content:
-            candidate["content"] = fallback_content
-        if str(candidate["content"]).strip() or candidate["tool_calls"]:
-            finalized.append(candidate)
-        return finalized
+        return self._persistence.finalize_segments(
+            segments,
+            current_segment,
+            fallback_content=fallback_content,
+        )
 
     def _build_assistant_messages(
         self,
@@ -3002,111 +1904,21 @@ class QueryRuntime:
         canonical_content: str | None = None,
         answer_metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        if canonical_content is not None:
-            filtered_tool_calls = [
-                sanitized
-                for segment in segments
-                for tool_call in (segment.get("tool_calls") or [])
-                for sanitized in [self._sanitize_tool_call(tool_call)]
-                if sanitized is not None
-            ]
-            content = sanitize_visible_assistant_content(canonical_content)
-            content = self._apply_assistant_persistence_gate(content, filtered_tool_calls)
-            if self._looks_like_skill_document(content) and not filtered_tool_calls:
-                return []
-            if not content.strip() and not filtered_tool_calls:
-                return []
-            return [
-                {
-                    "role": "assistant",
-                    "content": content,
-                    "tool_calls": filtered_tool_calls or None,
-                    **dict(answer_metadata or {}),
-                }
-            ]
-
-        persisted: list[dict[str, Any]] = []
-        for segment in segments:
-            filtered_tool_calls = [
-                sanitized
-                for tool_call in (segment.get("tool_calls") or [])
-                for sanitized in [self._sanitize_tool_call(tool_call)]
-                if sanitized is not None
-            ]
-            content = sanitize_visible_assistant_content(str(segment.get("content", "") or ""))
-            content = self._apply_assistant_persistence_gate(content, filtered_tool_calls)
-            if self._looks_like_skill_document(content) and not filtered_tool_calls:
-                continue
-            if not content.strip() and not filtered_tool_calls:
-                continue
-            persisted.append(
-                {
-                    "role": "assistant",
-                    "content": content,
-                    "tool_calls": filtered_tool_calls or None,
-                    **dict(answer_metadata or {}),
-                }
-            )
-        return persisted
+        return self._persistence.build_assistant_messages(
+            segments,
+            canonical_content=canonical_content,
+            answer_metadata=answer_metadata,
+        )
 
     def _assistant_metadata_from_done_event(self, event: dict[str, Any]) -> dict[str, Any]:
-        answer_channel = str(event.get("answer_channel", "") or "").strip()
-        answer_source = str(event.get("answer_source", "") or "").strip()
-        fallback_reason = str(event.get("answer_fallback_reason", "") or "").strip()
-        canonical_state = str(event.get("answer_canonical_state", "") or "").strip()
-        persist_policy = str(event.get("answer_persist_policy", "") or "").strip()
-        finalization_policy = str(event.get("answer_finalization_policy", "") or "").strip()
-
-        if not canonical_state:
-            if fallback_reason in {"no_receipt_query_promise", "no_receipt_tool_claim"}:
-                canonical_state = "progress_only"
-            elif answer_channel == "answer_candidate" or answer_source in {"memory_write_ack"}:
-                canonical_state = "stable_answer"
-            elif answer_channel == "fallback_answer":
-                canonical_state = "missing_answer"
-
-        if not persist_policy:
-            if canonical_state in {"stable_answer", "tool_summary"}:
-                persist_policy = "persist_canonical"
-            elif canonical_state == "progress_only":
-                persist_policy = "persist_debug_only"
-            else:
-                persist_policy = "do_not_persist"
-
-        if not finalization_policy:
-            if fallback_reason in {"rag_missing_answer", "pdf_missing_summary", "pdf_canonical_missing_summary"}:
-                finalization_policy = "route_required"
-            else:
-                finalization_policy = "none"
-
-        metadata: dict[str, Any] = {}
-        if answer_channel:
-            metadata["answer_channel"] = answer_channel
-        if answer_source:
-            metadata["answer_source"] = answer_source
-        if canonical_state:
-            metadata["answer_canonical_state"] = canonical_state
-        if persist_policy:
-            metadata["answer_persist_policy"] = persist_policy
-        if finalization_policy:
-            metadata["answer_finalization_policy"] = finalization_policy
-        if fallback_reason:
-            metadata["answer_fallback_reason"] = fallback_reason
-        return metadata
+        return self._persistence.assistant_metadata_from_done_event(event)
 
     def _apply_assistant_persistence_gate(
         self,
         content: str,
         tool_calls: list[dict[str, Any]],
     ) -> str:
-        normalized = sanitize_visible_assistant_content(str(content or "")).strip()
-        if not normalized:
-            return ""
-        if self._has_completed_tool_receipt(tool_calls):
-            return normalized
-        if looks_like_procedural_promise_text(normalized) or looks_like_tool_claim_without_receipt(normalized):
-            return "当前还没有形成真实查询结果。"
-        return normalized
+        return self._persistence.apply_assistant_persistence_gate(content, tool_calls)
 
     def _has_completed_tool_receipt(self, tool_calls: list[dict[str, Any]]) -> bool:
-        return any(str(tool_call.get("output", "") or "").strip() for tool_call in list(tool_calls or []))
+        return self._persistence.has_completed_tool_receipt(tool_calls)

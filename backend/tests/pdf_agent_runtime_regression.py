@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
 
 from pdf_agent import PDFCanonicalResult, PDFReadAgentRuntime, PDFReadRequest
 from pdf_analysis.parser import PdfSegment
-from query.output_classifier import classify_output_candidate
+from query.output_classifier import build_output_decision, classify_output_candidate
 from tools.pdf_analysis_tool import PdfAnalysisTool
 
 
@@ -185,6 +185,36 @@ def test_output_classifier_rejects_degraded_pdf_canonical_summary() -> None:
     assert candidate.channel == "tool_raw_output"
     assert candidate.metadata["pdf_status"] == "degraded"
     assert candidate.metadata["pdf_pages"] == [7]
+
+
+def test_output_classifier_pdf_fallback_explains_blank_target_page() -> None:
+    result = PDFCanonicalResult(
+        status="degraded",
+        source="AI治理报告.pdf",
+        requested_mode="page",
+        effective_mode="page",
+        degraded_reason="target_page_has_no_stable_text",
+        pages=[2],
+    )
+    candidate = classify_output_candidate(
+        text=result.to_tool_output(),
+        route="tool",
+        source="tool.pdf_analysis.output",
+        tool_name="pdf_analysis",
+        allow_unlabeled_answer=False,
+    )
+
+    decision = build_output_decision(
+        candidates=[candidate] if candidate is not None else [],
+        route="tool",
+        execution_posture="direct_tool",
+        user_message="请阅读第2页",
+        tool_name="pdf_analysis",
+        has_tool_receipt=True,
+    )
+
+    assert "没有稳定可提取的正文" in decision.canonical_answer
+    assert decision.fallback_reason == "pdf_target_page_has_no_stable_text"
 
 
 def test_pdf_agent_runtime_uses_true_total_pages_for_blank_target_page() -> None:

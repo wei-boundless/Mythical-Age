@@ -432,25 +432,10 @@ def build_route_fallback(
             "none",
         )
     if tool_name == "pdf_analysis":
-        canonical_candidates = [
-            item
-            for item in rejected_candidates
-            if item.tool_name == "pdf_analysis" and item.metadata.get("pdf_pages")
-        ]
-        if canonical_candidates:
-            pages = canonical_candidates[0].metadata.get("pdf_pages") or []
-            selected = "、".join(f"P{page}" for page in list(pages)[:3])
-            if selected:
-                return (
-                    f"已读取与当前问题最相关的 PDF 页面：{selected}，但当前还没有形成稳定摘要。",
-                    "pdf_canonical_missing_summary",
-                    "missing_answer",
-                    "do_not_persist",
-                    "route_required",
-                )
+        message, reason = _build_pdf_fallback_message(rejected_candidates)
         return (
-            "已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。",
-            "pdf_missing_summary",
+            message,
+            reason,
             "missing_answer",
             "do_not_persist",
             "route_required",
@@ -476,3 +461,49 @@ def build_route_fallback(
 
 def _collapse_inline_whitespace(text: str) -> str:
     return _NOISY_WHITESPACE_RE.sub(" ", text).strip()
+
+
+def _build_pdf_fallback_message(rejected_candidates: list[OutputCandidate]) -> tuple[str, str]:
+    canonical_candidates = [item for item in rejected_candidates if item.tool_name == "pdf_analysis"]
+    if not canonical_candidates:
+        return ("已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。", "pdf_missing_summary")
+    metadata = dict(canonical_candidates[0].metadata or {})
+    pages = [int(page) for page in list(metadata.get("pdf_pages") or []) if int(page) > 0][:3]
+    degraded_reason = str(metadata.get("pdf_degraded_reason", "") or "").strip()
+    selected = "、".join(f"P{page}" for page in pages)
+    if degraded_reason == "target_page_has_no_stable_text" and selected:
+        return (
+            f"已定位到 {selected}，但这一页没有稳定可提取的正文，可能是扫描页、图片页、目录页或空白页。",
+            "pdf_target_page_has_no_stable_text",
+        )
+    if degraded_reason == "target_page_text_quality_low" and selected:
+        return (
+            f"已定位到 {selected}，但页面文本质量不稳定，当前无法可靠给出页级结论。",
+            "pdf_target_page_text_quality_low",
+        )
+    if degraded_reason == "target_section_not_located":
+        return (
+            "已检索这份 PDF，但当前没有稳定定位到你指定的章节或部分。",
+            "pdf_target_section_not_located",
+        )
+    if degraded_reason == "target_section_not_stably_located":
+        return (
+            "已定位到相关章节线索，但章节文本不够稳定，当前无法可靠生成章节摘要。",
+            "pdf_target_section_not_stably_located",
+        )
+    if degraded_reason == "no_stable_document_evidence":
+        return (
+            "已读取这份 PDF，但当前提取到的正文证据不足，暂时不能稳定生成文档结论。",
+            "pdf_no_stable_document_evidence",
+        )
+    if degraded_reason == "document_summary_text_quality_low":
+        return (
+            "已读取这份 PDF，但正文清洗后的文本质量不够稳定，暂时不能可靠总结全文。",
+            "pdf_document_summary_text_quality_low",
+        )
+    if selected:
+        return (
+            f"已读取与当前问题最相关的 PDF 页面：{selected}，但当前还没有形成稳定摘要。",
+            "pdf_canonical_missing_summary",
+        )
+    return ("已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。", "pdf_missing_summary")

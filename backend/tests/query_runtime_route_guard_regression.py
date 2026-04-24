@@ -444,25 +444,70 @@ def test_direct_tool_structured_without_path_is_blocked_by_contract_gate() -> No
     assert "需要先明确数据文件 path" in str(done["content"])
 
 
+def test_workspace_file_read_direct_route_invokes_read_file_with_normalized_path() -> None:
+    recorder: list[dict[str, object]] = []
+
+    def _invoke(tool_input: dict[str, object]) -> str:
+        recorder.append(dict(tool_input))
+        return "from __future__ import annotations"
+
+    tool = SimpleNamespace(invoke=_invoke)
+    plan = QueryPlan(
+        session_id="workspace-read-session",
+        message="打开 backend/understanding/task_understanding.py 给我看看源码",
+        history=[],
+        subqueries=["打开 backend/understanding/task_understanding.py 给我看看源码"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="workspace_file_read_query",
+            route="tool",
+            modality="code",
+            tool_name="read_file",
+            task_kind="workspace_file_read",
+            should_skip_rag=True,
+            tool_input={"path": "backend/understanding/task_understanding.py"},
+        ),
+        active_skill=None,
+        execution_kind="direct_tool",
+    )
+    events, _retrieval, _model_runtime, _memory_facade = asyncio.run(
+        _collect_events(
+            plan,
+            rag_mode=False,
+            direct_tools={"read_file": tool},
+            use_execution_events=True,
+        )
+    )
+
+    assert any(event.get("type") == "tool_start" and event.get("tool") == "read_file" for event in events)
+    assert recorder == [{"path": "backend/understanding/task_understanding.py"}]
+    done = next(event for event in reversed(events) if event.get("type") == "done")
+    assert done["answer_source"] == "direct_tool.read_file"
+    assert done["content"] == "from __future__ import annotations"
+
+
 def test_rag_route_prefetches_retrieval_without_tools() -> None:
+    query = "为我搜索本地的数据库，看看有没有缺货情况"
     plan = QueryPlan(
         session_id="rag-session",
-        message="基于本地知识库，告诉我 AI 治理里最常见的三类风险。",
+        message=query,
         history=[],
-        subqueries=["基于本地知识库，告诉我 AI 治理里最常见的三类风险。"],
+        subqueries=[query],
         memory_intent=MemoryIntent(),
         query_understanding=QueryUnderstanding(
             intent="knowledge_lookup_query",
             route="rag",
             modality="general",
             should_skip_rag=False,
+            execution_posture="direct_rag",
+            candidate_tools=["search_knowledge"],
         ),
         active_skill=None,
     )
     events, retrieval, model_runtime, memory_facade = asyncio.run(_collect_events(plan, rag_mode=True))
 
-    assert retrieval.queries == ["基于本地知识库，告诉我 AI 治理里最常见的三类风险。"]
-    assert memory_facade.prefetch_queries == ["基于本地知识库，告诉我 AI 治理里最常见的三类风险。"]
+    assert retrieval.queries == [query]
+    assert memory_facade.prefetch_queries == [query]
     assert model_runtime.last_tools == []
     assert any(event.get("type") == "retrieval" for event in events)
     assert not any(event.get("type") == "tool_start" for event in events)
@@ -699,7 +744,7 @@ def test_pdf_direct_tool_route_skips_model_finalization_for_degraded_result() ->
     done = [event for event in events if event["type"] == "done"][-1]
     assert model_runtime.invoke_messages_calls == []
     assert done["task_summary_refs"] == []
-    assert "已读取与当前问题最相关的 PDF 页面" in done["content"]
+    assert "没有稳定可提取的正文" in done["content"]
 
 
 def test_pdf_direct_tool_route_uses_model_finalization_for_degraded_page_evidence() -> None:
@@ -2188,8 +2233,8 @@ def test_runtime_pdf_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallb
 
     assert done["answer_channel"] == "fallback_answer"
     assert done["answer_source"] == "fallback_policy"
-    assert done["answer_fallback_reason"] == "pdf_canonical_missing_summary"
-    assert "已读取与当前问题最相关的 PDF 页面：P3" in str(done["content"])
+    assert done["answer_fallback_reason"] == "pdf_target_page_text_quality_low"
+    assert "页面文本质量不稳定" in str(done["content"])
     assert len(model_runtime.invoke_messages_calls) == 1
 
 
@@ -2507,6 +2552,9 @@ def test_output_boundary_strips_search_protocol_tail_from_visible_answer() -> No
 
 def main() -> None:
     test_memory_route_disables_tools()
+    test_direct_tool_pdf_without_path_is_blocked_by_contract_gate()
+    test_direct_tool_structured_without_path_is_blocked_by_contract_gate()
+    test_workspace_file_read_direct_route_invokes_read_file_with_normalized_path()
     test_rag_route_prefetches_retrieval_without_tools()
     test_direct_tool_route_normalizes_final_content()
     test_runtime_uses_session_committed_dataset_binding_for_tool_promotion()

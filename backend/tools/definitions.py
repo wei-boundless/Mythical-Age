@@ -6,7 +6,12 @@ from typing import Any, Callable
 
 from langchain_core.tools import BaseTool
 
-from tools.contracts import ToolExecutionContract
+from tools.contracts import (
+    ToolExecutionContract,
+    ToolOutputContract,
+    ToolProjectionContract,
+    ToolResolutionContract,
+)
 from tools.analyze_multimodal_file_tool import AnalyzeMultimodalFileTool
 from tools.fetch_url_tool import FetchURLTool
 from tools.get_gold_price_tool import GetGoldPriceTool
@@ -30,12 +35,13 @@ class ToolDefinition:
     module: str
     factory: ToolFactory
     contract: ToolExecutionContract = field(default_factory=ToolExecutionContract)
+    resolution_contract: ToolResolutionContract = field(default_factory=ToolResolutionContract)
+    output_contract: ToolOutputContract = field(default_factory=ToolOutputContract)
+    projection_contract: ToolProjectionContract = field(default_factory=ToolProjectionContract)
     capability_tags: list[str] = field(default_factory=list)
     supported_modalities: list[str] = field(default_factory=list)
     safety_tags: list[str] = field(default_factory=list)
     route_hints: list[str] = field(default_factory=list)
-    search_terms: list[str] = field(default_factory=list)
-    typical_queries: list[str] = field(default_factory=list)
     safe_for_auto_route: bool = True
     is_read_only: bool = True
     is_destructive: bool = False
@@ -63,12 +69,11 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="inline",
                 result_channel="canonical",
             ),
+            output_contract=ToolOutputContract(display_mode="summary_text"),
             capability_tags=["weather", "forecast", "realtime"],
             supported_modalities=["realtime"],
             safety_tags=["read", "network"],
             route_hints=["tool", "realtime_lookup"],
-            search_terms=["天气", "气温", "温度", "预报", "weather", "forecast"],
-            typical_queries=["北京今天天气怎么样", "上海明天气温多少"],
             safe_for_auto_route=True,
             is_read_only=True,
             is_destructive=False,
@@ -85,12 +90,11 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="inline",
                 result_channel="canonical",
             ),
-            capability_tags=["finance", "gold", "realtime", "price"],
+            output_contract=ToolOutputContract(display_mode="summary_text"),
+            capability_tags=["finance", "gold", "gold_price", "realtime", "price"],
             supported_modalities=["realtime"],
             safety_tags=["read", "network"],
             route_hints=["tool", "realtime_lookup"],
-            search_terms=["黄金", "金价", "gold", "xau", "spot gold"],
-            typical_queries=["查询黄金价格", "XAU USD price today"],
             safe_for_auto_route=True,
             is_read_only=True,
             is_destructive=False,
@@ -107,12 +111,11 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="inline",
                 result_channel="canonical",
             ),
+            output_contract=ToolOutputContract(display_mode="summary_text"),
             capability_tags=["search", "news", "finance", "official-docs"],
             supported_modalities=["web", "realtime"],
             safety_tags=["read", "network"],
             route_hints=["tool", "latest_information"],
-            search_terms=["联网", "搜索", "最新", "新闻", "官网", "web search"],
-            typical_queries=["联网查 OpenAI API 最新更新"],
             safe_for_auto_route=True,
             is_read_only=True,
             is_destructive=False,
@@ -132,12 +135,17 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="isolated",
                 result_channel="canonical",
             ),
+            resolution_contract=ToolResolutionContract(
+                path_field="path",
+                path_kind="dataset",
+                binding_field="dataset_path",
+            ),
+            output_contract=ToolOutputContract(display_mode="canonical_structured"),
+            projection_contract=ToolProjectionContract(memory_projection_policy="canonical_summary_only"),
             capability_tags=["analytics", "table", "top-n", "group-by", "schema", "dataset"],
             supported_modalities=["table", "spreadsheet", "csv", "json"],
             safety_tags=["read", "compute"],
             route_hints=["tool", "dataset_analysis"],
-            search_terms=["表格", "excel", "csv", "库存", "缺货", "排名", "汇总", "schema"],
-            typical_queries=["销售前五的有哪些", "从我的数据库中查询哪些商品库存不足"],
             safe_for_auto_route=True,
             is_read_only=True,
             is_destructive=False,
@@ -157,12 +165,21 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="isolated",
                 result_channel="canonical",
             ),
-            capability_tags=["pdf", "document", "page", "section"],
+            resolution_contract=ToolResolutionContract(
+                path_field="path",
+                path_kind="pdf",
+                allow_message_extraction=True,
+            ),
+            output_contract=ToolOutputContract(
+                display_mode="finalize_then_display",
+                finalization_policy="route_required",
+                persistence_policy="persist_if_canonical",
+            ),
+            projection_contract=ToolProjectionContract(memory_projection_policy="persistable_pdf_only"),
+            capability_tags=["document_analysis", "pdf", "document", "page", "section"],
             supported_modalities=["pdf", "document"],
             safety_tags=["read", "compute"],
             route_hints=["tool", "document_analysis"],
-            search_terms=["白皮书", "报告", "pdf", "第几页", "章节"],
-            typical_queries=["白皮书第五页讲得什么", "这份 PDF 的结论是什么"],
             safe_for_auto_route=True,
             is_read_only=True,
             is_destructive=False,
@@ -179,12 +196,11 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="inline",
                 result_channel="canonical",
             ),
+            output_contract=ToolOutputContract(display_mode="summary_text"),
             capability_tags=["rag", "retrieval", "local-knowledge", "faq"],
             supported_modalities=["text", "document", "knowledge"],
             safety_tags=["read", "retrieval"],
             route_hints=["rag", "knowledge_lookup"],
-            search_terms=["知识库", "本地资料", "查资料", "faq", "为什么找不到订单", "knowledge"],
-            typical_queries=["从本地知识库里查一下三一重工前三大股东", "为什么我在我的帐户中找不到我的订单"],
             safe_for_auto_route=True,
             is_read_only=True,
             is_destructive=False,
@@ -201,12 +217,15 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="isolated",
                 result_channel="canonical",
             ),
+            resolution_contract=ToolResolutionContract(
+                path_field="path",
+                path_kind="multimodal",
+            ),
+            output_contract=ToolOutputContract(display_mode="artifact_only"),
             capability_tags=["multimodal", "inspection", "preview"],
             supported_modalities=["pdf", "table", "image", "document"],
             safety_tags=["read", "compute"],
             route_hints=["tool", "file_preview"],
-            search_terms=["分析文件", "预览文件", "多模态预览"],
-            typical_queries=["帮我看看这个文件内容", "先分析这个 PDF"],
             safe_for_auto_route=False,
             is_read_only=True,
             is_destructive=False,
@@ -223,12 +242,15 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="isolated",
                 result_channel="artifact_only",
             ),
+            resolution_contract=ToolResolutionContract(
+                path_field="path",
+                path_kind="multimodal",
+            ),
+            output_contract=ToolOutputContract(display_mode="artifact_only", persistence_policy="do_not_persist"),
             capability_tags=["indexing", "multimodal", "ingest"],
             supported_modalities=["pdf", "table", "image", "document"],
             safety_tags=["write", "compute"],
             route_hints=["tool", "indexing"],
-            search_terms=["入库", "索引", "ingest", "index"],
-            typical_queries=["把这个文件入库", "重建这个文件的索引"],
             safe_for_auto_route=False,
             is_read_only=False,
             is_destructive=False,
@@ -245,11 +267,15 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="inline",
                 result_channel="canonical",
             ),
+            resolution_contract=ToolResolutionContract(
+                path_field="path",
+                path_kind="workspace",
+            ),
+            output_contract=ToolOutputContract(display_mode="verbatim_text"),
             capability_tags=["file", "read", "local"],
             supported_modalities=["text", "code", "document"],
             safety_tags=["read"],
             route_hints=["tool", "workspace_read"],
-            search_terms=["读取文件", "read file"],
             safe_for_auto_route=False,
             is_read_only=True,
             is_destructive=False,
@@ -266,11 +292,11 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="inline",
                 result_channel="canonical",
             ),
+            output_contract=ToolOutputContract(display_mode="summary_text"),
             capability_tags=["web", "fetch", "verification"],
             supported_modalities=["web"],
             safety_tags=["read", "network"],
             route_hints=["tool", "verification"],
-            search_terms=["抓取网页", "fetch url"],
             safe_for_auto_route=False,
             is_read_only=True,
             is_destructive=False,
@@ -287,11 +313,11 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="isolated",
                 result_channel="tool_raw",
             ),
+            output_contract=ToolOutputContract(display_mode="raw_debug_only", persistence_policy="do_not_persist"),
             capability_tags=["shell", "terminal", "command"],
             supported_modalities=["system"],
             safety_tags=["write", "shell", "destructive"],
             route_hints=["tool", "local_command"],
-            search_terms=["终端", "命令行", "shell"],
             safe_for_auto_route=False,
             is_read_only=False,
             is_destructive=True,
@@ -308,11 +334,11 @@ def _tool_definitions() -> list[ToolDefinition]:
                 context_policy="isolated",
                 result_channel="tool_raw",
             ),
+            output_contract=ToolOutputContract(display_mode="raw_debug_only", persistence_policy="do_not_persist"),
             capability_tags=["python", "repl", "scripting"],
             supported_modalities=["system"],
             safety_tags=["write", "compute", "shell"],
             route_hints=["tool", "local_scripting"],
-            search_terms=["python", "脚本", "repl"],
             safe_for_auto_route=False,
             is_read_only=False,
             is_destructive=False,

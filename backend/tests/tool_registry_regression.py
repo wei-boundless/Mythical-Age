@@ -37,12 +37,12 @@ def main() -> None:
     by_name = {tool["name"]: tool for tool in payload["tools"]}
     assert by_name["get_weather"]["safe_for_auto_route"] is True
     assert "weather" in by_name["get_weather"]["capability_tags"]
-    assert by_name["get_weather"]["search_terms"][0] == "天气"
-    assert by_name["get_weather"]["typical_queries"][0] == "北京今天天气怎么样"
+    assert "search_terms" not in by_name["get_weather"]
+    assert "typical_queries" not in by_name["get_weather"]
 
     assert by_name["get_gold_price"]["safe_for_auto_route"] is True
     assert "gold" in by_name["get_gold_price"]["capability_tags"]
-    assert by_name["get_gold_price"]["typical_queries"][0] == "查询黄金价格"
+    assert "typical_queries" not in by_name["get_gold_price"]
 
     assert by_name["structured_data_analysis"]["safe_for_auto_route"] is True
     assert "table" in by_name["structured_data_analysis"]["supported_modalities"]
@@ -66,19 +66,28 @@ def main() -> None:
         candidate_names=["get_weather", "web_search"],
         modality="realtime",
         route="tool",
+        capability_requests=["weather"],
     ).name == "get_weather"
     assert runtime_registry.select_best(
         "白皮书第五页讲得什么",
         candidate_names=["pdf_analysis", "search_knowledge"],
         modality="pdf",
         route="tool",
+        capability_requests=["document_analysis"],
     ).name == "pdf_analysis"
     assert runtime_registry.select_best(
         "查询黄金价格",
         candidate_names=["get_gold_price", "web_search"],
         modality="realtime",
         route="tool",
+        capability_requests=["gold_price"],
     ).name == "get_gold_price"
+
+    assert runtime_registry.resolve_candidate_names(
+        capability_requests=["knowledge_lookup", "latest_information"],
+        route="agent",
+        modality="general",
+    ) == ["search_knowledge", "web_search"]
 
     print(f"ALL PASSED ({payload['tool_count']} tools)")
 

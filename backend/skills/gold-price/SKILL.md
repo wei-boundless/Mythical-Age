@@ -12,6 +12,7 @@ metadata:
   supported_source_kinds:
     - external_web
   capability_tags:
+    - gold_price
     - gold
     - xau
     - realtime
