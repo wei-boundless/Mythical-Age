@@ -319,6 +319,7 @@ class ContextController:
             "# Errors and Corrections",
             "# Decisions and Learnings",
             "# Key Results",
+            "# Historical Results",
             "# Risk Watch",
             "# Next Step",
             "# Worklog",

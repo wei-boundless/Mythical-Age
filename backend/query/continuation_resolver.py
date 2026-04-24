@@ -137,6 +137,8 @@ class QueryContinuationResolver:
     ) -> QueryUnderstanding:
         if not history:
             return understanding
+        if self._should_preserve_orchestration_understanding(understanding):
+            return understanding
         if not self._looks_like_session_summary(message):
             return understanding
         return QueryUnderstanding(
@@ -151,6 +153,16 @@ class QueryContinuationResolver:
             confidence=max(float(getattr(understanding, "confidence", 0.0) or 0.0), 0.9),
             reasons=[*list(getattr(understanding, "reasons", []) or []), "session_summary_context"],
         )
+
+    def _should_preserve_orchestration_understanding(
+        self,
+        understanding: QueryUnderstanding,
+    ) -> bool:
+        task_kind = str(getattr(understanding, "task_kind", "") or "").strip()
+        if task_kind == "multi_capability_request":
+            return True
+        reasons = set(str(reason or "").strip() for reason in list(getattr(understanding, "reasons", []) or []))
+        return "mixed_capability_signals" in reasons
 
     def _extract_explicit_pdf_reference(self, message: str) -> str:
         normalized = (message or "").strip()

@@ -222,6 +222,36 @@ def main() -> None:
         {"role": "user", "content": "北京今天天气怎么样？"},
         {"role": "assistant", "content": "已完成天气查询。"},
     ]
+    history_protected_bundle_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。",
+        history=summary_history,
+    )
+    assert history_protected_bundle_plan.execution_mode == "bundle_execution"
+    assert history_protected_bundle_plan.bundle_plan is not None
+    assert len(history_protected_bundle_plan.bundle_plan.items) == 3
+    history_protected_executions = history_protected_bundle_plan.iter_executions()
+    assert [execution.query_understanding.tool_name for execution in history_protected_executions] == [
+        "pdf_analysis",
+        "structured_data_analysis",
+        "get_weather",
+    ]
+    assert history_protected_bundle_plan.query_understanding.route == "bundle"
+
+    authority_protected_bundle_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。",
+        history=summary_history,
+        authority_context={"active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"},
+    )
+    assert authority_protected_bundle_plan.execution_mode == "bundle_execution"
+    authority_protected_executions = authority_protected_bundle_plan.iter_executions()
+    assert authority_protected_executions[0].query_understanding.tool_name == "pdf_analysis"
+    assert (
+        authority_protected_executions[0].tool_input["path"]
+        == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+    )
+
     summary_plan = planner.build_plan(
         session_id="planner-regression",
         message="把今天这几个任务分成 PDF、数据表、实时查询三段总结。",

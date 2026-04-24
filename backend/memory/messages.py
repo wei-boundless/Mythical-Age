@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from query.output_boundary import sanitize_visible_assistant_content
 from structured_memory import Message
 
 
@@ -39,9 +40,13 @@ class MemoryMessageAdapter:
             return True
         return False
 
-    def should_skip_message(self, role: str, content: str) -> bool:
+    def should_skip_message(self, role: str, content: str, item: dict[str, Any] | None = None) -> bool:
         if role == "tool":
             return self.looks_like_skill_document(content)
+        if role == "assistant":
+            canonical_state = str((item or {}).get("answer_canonical_state", "") or "").strip()
+            if canonical_state and canonical_state not in {"stable_answer", "tool_summary"}:
+                return True
         if role == "assistant" and self.looks_like_skill_document(content):
             return True
         return False
@@ -58,9 +63,27 @@ class MemoryMessageAdapter:
             if role not in {"system", "user", "assistant", "tool"}:
                 continue
             content = str(item.get("content", "") or "")
-            if self.should_skip_message(role, content):
+            if role in {"assistant", "tool"}:
+                content = sanitize_visible_assistant_content(content)
+            if self.should_skip_message(role, content, item):
+                continue
+            if role in {"assistant", "tool"} and not content.strip():
                 continue
             meta = dict(item.get("meta", {}) or {})
+            for key in (
+                "answer_channel",
+                "answer_source",
+                "answer_canonical_state",
+                "answer_persist_policy",
+                "answer_finalization_policy",
+                "answer_fallback_reason",
+            ):
+                value = item.get(key)
+                if value is None:
+                    continue
+                normalized = str(value or "").strip()
+                if normalized:
+                    meta[key] = normalized
             if session_id:
                 meta["session_id"] = session_id
             converted.append(Message(role=role, content=content, meta=meta))

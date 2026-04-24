@@ -63,6 +63,8 @@ class ProcessState:
     session_title: str = "Ongoing session"
     active_goal: str = ""
     active_goal_turn_type: str = "unknown"
+    restore_goal_hint: str = ""
+    restore_flow_hint: str = ""
     last_turn_type: str = "unknown"
     flow_state: FlowState = field(default_factory=FlowState)
     task_state: TaskState = field(default_factory=TaskState)
@@ -74,6 +76,8 @@ class ProcessState:
     conventions_and_constraints: list[str] = field(default_factory=list)
     errors_and_corrections: list[str] = field(default_factory=list)
     decisions_and_learnings: list[str] = field(default_factory=list)
+    current_result_refs: list[str] = field(default_factory=list)
+    historical_result_refs: list[str] = field(default_factory=list)
     key_results: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
     risk_notes: list[str] = field(default_factory=list)
@@ -185,6 +189,8 @@ class ProcessState:
             session_title=str(payload.get("session_title", "Ongoing session") or "Ongoing session"),
             active_goal=str(payload.get("active_goal", "") or ""),
             active_goal_turn_type=str(payload.get("active_goal_turn_type", "unknown") or "unknown"),
+            restore_goal_hint=str(payload.get("restore_goal_hint", "") or ""),
+            restore_flow_hint=str(payload.get("restore_flow_hint", "") or ""),
             last_turn_type=str(payload.get("last_turn_type", "unknown") or "unknown"),
             flow_state=flow_state,
             task_state=task_state,
@@ -226,9 +232,19 @@ class ProcessState:
                 for item in list(payload.get("decisions_and_learnings", []) or [])
                 if str(item).strip()
             ],
+            current_result_refs=[
+                str(item)
+                for item in list(payload.get("current_result_refs", payload.get("key_results", [])) or [])
+                if str(item).strip()
+            ],
+            historical_result_refs=[
+                str(item)
+                for item in list(payload.get("historical_result_refs", []) or [])
+                if str(item).strip()
+            ],
             key_results=[
                 str(item)
-                for item in list(payload.get("key_results", []) or [])
+                for item in list(payload.get("key_results", payload.get("current_result_refs", [])) or [])
                 if str(item).strip()
             ],
             risk_flags=[

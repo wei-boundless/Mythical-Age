@@ -15,6 +15,8 @@ class ReconciliationDecision:
     confidence_override: float | None = None
     preserve_previous_flow: bool = False
     preserve_previous_goal: bool = False
+    restore_goal_hint: str = ""
+    restore_flow_hint: str = ""
     needs_clarification: bool = False
     reason: str = ""
     notes: list[str] = field(default_factory=list)
@@ -46,6 +48,8 @@ class UnderstandingReconciler:
                 slots_to_clear=self._slots_to_clear_for_flow(repair_flow),
                 facts_to_block=["latest_assistant_result", "latest_assistant_decision"],
                 preserve_previous_goal=True,
+                restore_goal_hint=previous_state.active_goal,
+                restore_flow_hint=repair_flow,
                 reason="latest_user_turn_is_correction_feedback",
                 notes=[
                     "User correction detected before process-state commit.",
@@ -65,11 +69,12 @@ class UnderstandingReconciler:
                 conflict_type="low_confidence_flow_switch",
                 confidence_override=max(0.45, min(confidence, 0.54)),
                 preserve_previous_flow=True,
-                preserve_previous_goal=True,
+                restore_goal_hint=previous_state.active_goal,
+                restore_flow_hint=previous_state.flow_state.flow_type,
                 needs_clarification=confidence < 0.4,
                 reason="low_confidence_understanding_on_existing_flow",
                 notes=[
-                    "Understanding confidence is low; keep the prior flow active for now.",
+                    "Understanding confidence is low; keep the prior flow as a restore hint while preserving the current-turn goal.",
                     "Ask for clarification before committing a major flow switch if ambiguity persists.",
                 ],
             )

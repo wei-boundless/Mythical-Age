@@ -31,7 +31,7 @@ _SEARCH_CALL_RE = re.compile(
     re.IGNORECASE,
 )
 _CONCLUSION_RE = re.compile(
-    r"(?:\*\*结论[:：]?\*\*|结论[:：])\s*(.+)",
+    r"(?:^|\n)\s*(?:\*\*结论[:：]?\*\*|结论[:：])\s*(.+)",
     re.IGNORECASE | re.DOTALL,
 )
 _MARKDOWN_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
@@ -39,6 +39,14 @@ _NOISY_WHITESPACE_RE = re.compile(r"\s+")
 _STRUCTURED_DATA_HINT_RE = re.compile(r"(?:数据源[:：]|查询模式[:：]|前\s*\d+\s*项[:：])")
 _WEATHER_HINT_RE = re.compile(r"(?:当前天气|温度[:：]|湿度[:：]|风速[:：])")
 _FINANCE_HINT_RE = re.compile(r"(?:黄金|金价|price)")
+_PROMISE_LINE_PREFIX_RE = re.compile(
+    r"^(?:岩[，,\s]*)?(?:我(?:(?:现在|立即|马上|这就){1,2}|(?:来|将|会|准备|打算)(?:先)?|先(?:来)?|需要先)|让我(?:先)?|接下来(?:我)?(?:先)?|稍等(?:我)?|现在(?:我)?|立即(?:我)?|马上(?:我)?)",
+    re.IGNORECASE,
+)
+_ANSWER_INTRO_RE = re.compile(
+    r"(?:结论[:：]|答案[:：]|总结[:：]|可以概括为|主要有|分别是|核心是|先用业务语言给出结论)",
+    re.IGNORECASE,
+)
 
 
 def normalize_candidate_text(text: str) -> str:
@@ -71,17 +79,20 @@ def looks_like_procedural_promise_text(text: str) -> bool:
     if not lines:
         return False
     action_tokens = ("查询", "检索", "搜索", "查看", "检查", "读取", "确认", "核实", "执行")
-    promise_tokens = ("我", "现在", "立即", "马上", "这就", "稍等", "接下来", "让我")
     for line in lines:
         if _PROCEDURAL_PROMISE_RE.match(line):
             continue
         if _SUBTASK_STATUS_PROMISE_RE.match(line):
             continue
+        if _ANSWER_INTRO_RE.search(line):
+            return False
+        if not _PROMISE_LINE_PREFIX_RE.match(line):
+            return False
         compact = re.sub(r"\s+", "", line)
         compact = re.sub(r"^岩[，,]*", "", compact)
-        if not any(token in compact for token in action_tokens):
+        if len(compact) > 60:
             return False
-        if not any(token in compact for token in promise_tokens):
+        if not any(token in compact for token in action_tokens):
             return False
     return True
 
@@ -291,10 +302,16 @@ def build_output_decision(
     )
     if preferred is not None:
         rejected = [item for item in ranked if item is not preferred]
+        canonical_state = "stable_answer"
+        if preferred.channel == "tool_visible_summary":
+            canonical_state = "tool_summary"
         return OutputDecision(
             canonical_answer=preferred.text.strip(),
             selected_channel=preferred.channel,
             selected_source=preferred.source,
+            canonical_state=canonical_state,
+            persist_policy="persist_canonical",
+            finalization_policy="none",
             rejected_candidates=rejected,
             leak_flags=leak_flags,
         )
@@ -306,11 +323,15 @@ def build_output_decision(
         retrieval_results=retrieval_results,
         rejected_candidates=ranked,
         has_tool_receipt=has_tool_receipt,
+        leak_flags=leak_flags,
     )
     return OutputDecision(
         canonical_answer=fallback[0],
         selected_channel="fallback_answer",
         selected_source="fallback_policy",
+        canonical_state=fallback[2],
+        persist_policy=fallback[3],
+        finalization_policy=fallback[4],
         rejected_candidates=ranked,
         leak_flags=leak_flags,
         fallback_reason=fallback[1],
@@ -326,22 +347,90 @@ def build_route_fallback(
     retrieval_results: list[dict[str, object]] | None,
     rejected_candidates: list[OutputCandidate],
     has_tool_receipt: bool,
-) -> tuple[str, str]:
+    leak_flags: list[str] | None = None,
+) -> tuple[str, str, str, str, str]:
     has_retrieval = bool(list(retrieval_results or []))
+    normalized_leak_flags = {str(flag or "").strip() for flag in list(leak_flags or [])}
     has_no_receipt_promise = any(
         item.channel in {"procedural_promise", "tool_claim_without_receipt"}
         for item in rejected_candidates
     )
+    has_receiptless_procedural = any(
+        item.channel == "procedural_promise"
+        for item in rejected_candidates
+    )
+    has_explicit_tool_claim = any(
+        any(
+            marker in str(item.text or "").lower()
+            for marker in ("search_knowledge", "searchknowledge", "web_search", "retrieve", "tool")
+        )
+        or any(marker in str(item.text or "") for marker in ("工具", "调用"))
+        for item in rejected_candidates
+    ) or any("inline_pseudo_tool_call" in flag for flag in normalized_leak_flags)
+    if not has_tool_receipt and has_explicit_tool_claim and not rejected_candidates:
+        return (
+            "当前没有可验证的执行结果。",
+            "no_receipt_tool_claim",
+            "progress_only",
+            "persist_debug_only",
+            "none",
+        )
     if has_no_receipt_promise and not has_tool_receipt:
+        if has_explicit_tool_claim:
+            return (
+                "当前没有可验证的执行结果。",
+                "no_receipt_tool_claim",
+                "progress_only",
+                "persist_debug_only",
+                "none",
+            )
+        if route == "rag" and has_retrieval and has_receiptless_procedural:
+            return (
+                "当前还没有形成真实查询结果。",
+                "no_receipt_query_promise",
+                "progress_only",
+                "persist_debug_only",
+                "route_required",
+            )
         if execution_posture == "bounded_agent" or route == "agent":
-            return ("当前还没有形成真实查询结果。", "no_receipt_query_promise")
-        return ("当前没有可验证的执行结果。", "no_receipt_tool_claim")
+            return (
+                "当前还没有形成真实查询结果。",
+                "no_receipt_query_promise",
+                "progress_only",
+                "persist_debug_only",
+                "none",
+            )
+        return (
+            "当前没有可验证的执行结果。",
+            "no_receipt_tool_claim",
+            "progress_only",
+            "persist_debug_only",
+            "none",
+        )
     if route == "rag":
-        if not has_retrieval:
-            return ("当前本地知识库没有检到足够相关材料，无法可靠回答这个问题。", "rag_no_retrieval")
-        return ("已检索到相关资料，但当前模型尚未产出可直接展示的结论。", "rag_missing_answer")
+        if has_retrieval:
+            return (
+                "已检索到相关资料，但当前模型尚未产出可直接展示的结论。",
+                "rag_missing_answer",
+                "missing_answer",
+                "do_not_persist",
+                "route_required",
+            )
+        return (
+            "当前本地知识库没有检到足够相关材料，无法可靠回答这个问题。",
+            "rag_no_retrieval",
+            "missing_answer",
+            "do_not_persist",
+            "none",
+        )
     if route == "memory":
-        return ("当前没有足够的会话记忆可直接回答这个问题。", "memory_missing_answer")
+        return (
+            "当前没有足够的会话记忆可直接回答这个问题。",
+            "memory_missing_answer",
+            "missing_answer",
+            "do_not_persist",
+            "none",
+        )
     if tool_name == "pdf_analysis":
         canonical_candidates = [
             item
@@ -355,13 +444,34 @@ def build_route_fallback(
                 return (
                     f"已读取与当前问题最相关的 PDF 页面：{selected}，但当前还没有形成稳定摘要。",
                     "pdf_canonical_missing_summary",
+                    "missing_answer",
+                    "do_not_persist",
+                    "route_required",
                 )
-        return ("已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。", "pdf_missing_summary")
+        return (
+            "已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。",
+            "pdf_missing_summary",
+            "missing_answer",
+            "do_not_persist",
+            "route_required",
+        )
     if tool_name:
-        return (f"工具 `{tool_name}` 已执行，但当前结果尚未形成可直接展示的答案。", "tool_missing_summary")
+        return (
+            f"工具 `{tool_name}` 已执行，但当前结果尚未形成可直接展示的答案。",
+            "tool_missing_summary",
+            "missing_answer",
+            "do_not_persist",
+            "none",
+        )
     if user_message.strip():
-        return ("当前尚未形成可直接展示的结论，请继续细化问题或提供更多上下文。", "generic_missing_answer")
-    return ("当前没有可展示的答案。", "empty_answer")
+        return (
+            "当前尚未形成可直接展示的结论，请继续细化问题或提供更多上下文。",
+            "generic_missing_answer",
+            "missing_answer",
+            "do_not_persist",
+            "none",
+        )
+    return ("当前没有可展示的答案。", "empty_answer", "missing_answer", "do_not_persist", "none")
 
 
 def _collapse_inline_whitespace(text: str) -> str:

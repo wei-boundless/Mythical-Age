@@ -75,7 +75,16 @@ class ProcessStateEngine:
         file_hints = self._extract_file_hints(projected_messages)
         convention_hints = self._extract_convention_hints(projected_messages)
         decision_items = self._extract_decisions(projected_assistant_messages)
-        result_items = self._extract_results(projected_assistant_messages)
+        current_assistant_messages, historical_assistant_messages = self._split_assistant_messages_for_current_turn(
+            projected_messages
+        )
+        current_result_items = self._extract_results(current_assistant_messages)
+        historical_result_items = self._build_historical_result_refs(
+            previous_state,
+            historical_assistant_messages=historical_assistant_messages,
+            current_result_items=current_result_items,
+            max_items=max_items,
+        )
         request_items = self._extract_user_requests(snapshot.turn_trace, max_items=max_items)
         next_steps = self._infer_next_steps(active_goal, snapshot.turn_trace, projected_assistant_messages)
         next_steps = self._apply_reconciliation_to_next_steps(
@@ -87,8 +96,9 @@ class ProcessStateEngine:
         current_task_state = self._build_current_state(
             active_goal,
             snapshot.turn_trace,
-            projected_assistant_messages,
+            current_assistant_messages,
             active_understanding=snapshot.active_understanding,
+            current_result_items=current_result_items,
             max_items=max_items,
         )
         warm_context = self._build_warm_context(
@@ -96,6 +106,8 @@ class ProcessStateEngine:
             active_goal,
             snapshot.turn_trace,
             projected_assistant_messages,
+            current_result_refs=current_result_items,
+            historical_result_refs=historical_result_items,
             task_switch=task_switch,
             max_items=max_items,
         )
@@ -115,10 +127,11 @@ class ProcessStateEngine:
         task_state = self._build_task_state(
             active_goal,
             snapshot.turn_trace,
-            projected_assistant_messages,
+            current_assistant_messages,
             previous_state=previous_state,
             task_switch=task_switch,
             next_steps=next_steps,
+            current_result_items=current_result_items,
         )
         context_slots = self._build_context_slots(
             active_goal,
@@ -155,6 +168,10 @@ class ProcessStateEngine:
             decision=decision,
             max_items=max_items,
         )
+        restore_goal_hint, restore_flow_hint = self._resolve_restore_hints(
+            previous_state=previous_state,
+            decision=decision,
+        )
 
         return DialogueState(
             version=2,
@@ -162,6 +179,8 @@ class ProcessStateEngine:
             session_title=self._title_from_messages(snapshot.user_messages or projected_messages),
             active_goal=active_goal,
             active_goal_turn_type=active_goal_turn_type,
+            restore_goal_hint=restore_goal_hint,
+            restore_flow_hint=restore_flow_hint,
             last_turn_type=snapshot.last_turn_type,
             flow_state=flow_state,
             task_state=task_state,
@@ -173,7 +192,9 @@ class ProcessStateEngine:
             conventions_and_constraints=self._dedupe_items(convention_hints, max_items=max_items),
             errors_and_corrections=errors_and_corrections,
             decisions_and_learnings=self._dedupe_items(decision_items, max_items=max_items),
-            key_results=self._dedupe_items(result_items, max_items=max_items),
+            current_result_refs=self._dedupe_items(current_result_items, max_items=max_items),
+            historical_result_refs=self._dedupe_items(historical_result_items, max_items=max_items),
+            key_results=self._dedupe_items(current_result_items, max_items=max_items),
             risk_flags=self._dedupe_items(risk_flags, max_items=max_items),
             risk_notes=self._dedupe_items(risk_notes, max_items=max_items),
             next_step=self._dedupe_items(next_steps, max_items=max_items),
@@ -204,6 +225,66 @@ class ProcessStateEngine:
             task_switch = False
 
         return active_goal, active_goal_turn_type, task_switch
+
+    def _resolve_restore_hints(
+        self,
+        *,
+        previous_state: DialogueState,
+        decision: ReconciliationDecision,
+    ) -> tuple[str, str]:
+        restore_goal_hint = str(getattr(decision, "restore_goal_hint", "") or "").strip()
+        restore_flow_hint = str(getattr(decision, "restore_flow_hint", "") or "").strip()
+        if not restore_goal_hint and decision.preserve_previous_goal:
+            restore_goal_hint = previous_state.active_goal.strip()
+        if not restore_flow_hint and decision.preserve_previous_flow:
+            restore_flow_hint = previous_state.flow_state.flow_type.strip()
+        return restore_goal_hint, restore_flow_hint
+
+    def _split_assistant_messages_for_current_turn(
+        self,
+        messages: list[Message],
+    ) -> tuple[list[Message], list[Message]]:
+        last_user_index = None
+        for index in range(len(messages) - 1, -1, -1):
+            if messages[index].role == "user":
+                last_user_index = index
+                break
+        if last_user_index is None:
+            assistant_messages = [message for message in messages if message.role == "assistant"]
+            return assistant_messages, []
+        current_assistant_messages = [
+            message
+            for message in messages[last_user_index + 1 :]
+            if message.role == "assistant"
+        ]
+        historical_assistant_messages = [
+            message
+            for message in messages[:last_user_index]
+            if message.role == "assistant"
+        ]
+        return current_assistant_messages, historical_assistant_messages
+
+    def _build_historical_result_refs(
+        self,
+        previous_state: DialogueState,
+        *,
+        historical_assistant_messages: list[Message],
+        current_result_items: list[str],
+        max_items: int,
+    ) -> list[str]:
+        items: list[str] = []
+        items.extend(list(previous_state.historical_result_refs))
+        previous_visible = self._visible_result_refs(previous_state)
+        items.extend(previous_visible[:2])
+        items.extend(self._extract_results(historical_assistant_messages)[-2:])
+        filtered = [item for item in items if item not in current_result_items]
+        return self._dedupe_items(filtered, max_items=max_items, max_chars=260)
+
+    def _visible_result_refs(self, state: DialogueState) -> list[str]:
+        items = list(getattr(state, "current_result_refs", []) or [])
+        if items:
+            return items
+        return list(state.key_results)
 
     def _apply_reconciliation_to_projection(
         self,
@@ -433,13 +514,14 @@ class ProcessStateEngine:
         previous_state: DialogueState,
         task_switch: bool,
         next_steps: list[str],
+        current_result_items: list[str],
     ) -> TaskState:
         completed_steps: list[str] = []
         if not task_switch:
             completed_steps.extend(previous_state.task_state.completed_steps[-1:])
         completed_steps.extend(
             f"已完成：{self._shorten(item, 120)}"
-            for item in self._extract_results(assistant_messages)[-2:]
+            for item in current_result_items[-2:]
         )
         completed_steps.extend(
             f"已确定：{self._shorten(item, 120)}"
@@ -575,6 +657,7 @@ class ProcessStateEngine:
         assistant_messages: list[Message],
         *,
         active_understanding: ActiveUnderstanding,
+        current_result_items: list[str],
         max_items: int,
     ) -> list[str]:
         items: list[str] = []
@@ -589,9 +672,8 @@ class ProcessStateEngine:
             items.append(f"最新用户反馈：{last_user_turn.excerpt}")
         if last_user_turn is not None and last_user_turn.turn_type == "meta_dialogue":
             items.append(f"最新元对话：{last_user_turn.excerpt}")
-        latest_result = self._extract_results(assistant_messages)
-        if latest_result:
-            items.append(f"最近产出：{self._shorten(latest_result[-1], 180)}")
+        if current_result_items:
+            items.append(f"最近产出：{self._shorten(current_result_items[-1], 180)}")
         latest_error = self._extract_error_hints(assistant_messages)
         if latest_error:
             items.append(f"最近问题：{self._shorten(latest_error[-1], 180)}")
@@ -604,13 +686,15 @@ class ProcessStateEngine:
         turn_trace: list[TurnUnderstanding],
         assistant_messages: list[Message],
         *,
+        current_result_refs: list[str],
+        historical_result_refs: list[str],
         task_switch: bool,
         max_items: int,
     ) -> list[str]:
         items: list[str] = []
         previous_goal = previous_state.active_goal
         previous_state_items = list(previous_state.current_task_state)
-        previous_results = list(previous_state.key_results)
+        previous_results = self._visible_result_refs(previous_state)
         previous_warm = list(previous_state.warm_context)
 
         if task_switch and previous_goal and previous_goal != active_goal:
@@ -622,12 +706,13 @@ class ProcessStateEngine:
             items.extend(previous_warm[:2])
             items.extend(f"延续状态：{item}" for item in previous_state_items[:1])
 
-        assistant_context = assistant_messages[:-1] if len(assistant_messages) > 1 else []
-        recent_decisions = self._extract_decisions(assistant_context)[-1:]
+        recent_decisions = list(previous_state.decisions_and_learnings[-1:])
         items.extend(f"近期结论：{item}" for item in recent_decisions)
 
-        recent_results = self._extract_results(assistant_context)[-1:]
-        items.extend(f"近期结果：{item}" for item in recent_results)
+        if task_switch:
+            items.extend(f"近期结果：{item}" for item in historical_result_refs[:1])
+        elif not current_result_refs:
+            items.extend(f"近期结果：{item}" for item in historical_result_refs[:1])
 
         prior_requests = [
             turn.excerpt

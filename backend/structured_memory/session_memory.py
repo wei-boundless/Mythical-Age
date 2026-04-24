@@ -264,8 +264,22 @@ class SessionMemoryManager:
             current_task_state=current_task_state,
             normalized_task_summaries=normalized_task_summaries,
         )
-        key_results = process_engine._dedupe_items(
+        current_result_refs = process_engine._dedupe_items(
             [item["summary"] for item in normalized_task_summaries if item["summary"]],
+            max_items=max_items,
+            max_chars=260,
+        )
+        historical_result_refs = process_engine._dedupe_items(
+            [
+                *list(previous_state.historical_result_refs),
+                *[
+                    item
+                    for item in (
+                        list(getattr(previous_state, "current_result_refs", []) or previous_state.key_results)[:2]
+                    )
+                    if item not in current_result_refs
+                ],
+            ],
             max_items=max_items,
             max_chars=260,
         )
@@ -281,7 +295,8 @@ class SessionMemoryManager:
         warm_context = self._build_projection_warm_context(
             previous_state=previous_state,
             active_goal=active_goal,
-            key_results=key_results,
+            current_result_refs=current_result_refs,
+            historical_result_refs=historical_result_refs,
             task_switch=task_switch,
             normalized_task_summaries=normalized_task_summaries,
             max_items=max_items,
@@ -290,7 +305,7 @@ class SessionMemoryManager:
         task_state = TaskState(
             current_step=current_step,
             completed_steps=process_engine._dedupe_items(
-                [f"已完成：{item}" for item in key_results[:2]],
+                [f"已完成：{item}" for item in current_result_refs[:2]],
                 max_items=3,
             ),
             pending_steps=[],
@@ -305,7 +320,7 @@ class SessionMemoryManager:
                 f"user: {process_engine._shorten(active_goal, 140)}",
                 *[
                     f"assistant: {process_engine._shorten(item, 140)}"
-                    for item in key_results[:2]
+                    for item in current_result_refs[:2]
                 ],
                 *[
                     f"user-correction: {process_engine._shorten(item, 140)}"
@@ -333,7 +348,9 @@ class SessionMemoryManager:
             conventions_and_constraints=process_engine._dedupe_items(constraint_items, max_items=max_items),
             errors_and_corrections=errors_and_corrections,
             decisions_and_learnings=decision_items,
-            key_results=key_results,
+            current_result_refs=current_result_refs,
+            historical_result_refs=historical_result_refs,
+            key_results=current_result_refs,
             risk_flags=[],
             risk_notes=[],
             next_step=next_steps,
@@ -705,28 +722,30 @@ class SessionMemoryManager:
         *,
         previous_state: DialogueState,
         active_goal: str,
-        key_results: list[str],
+        current_result_refs: list[str],
+        historical_result_refs: list[str],
         task_switch: bool,
         normalized_task_summaries: list[dict[str, str | list[str]]],
         max_items: int,
     ) -> list[str]:
         items: list[str] = []
+        previous_visible_results = list(getattr(previous_state, "current_result_refs", []) or previous_state.key_results)
         if task_switch and previous_state.active_goal and previous_state.active_goal != active_goal:
             items.append(f"上一阶段目标：{self._shorten(previous_state.active_goal, 120)}")
-            if previous_state.key_results:
-                items.append(f"上一阶段结果：{self._shorten(previous_state.key_results[0], 120)}")
+            if previous_visible_results:
+                items.append(f"上一阶段结果：{self._shorten(previous_visible_results[0], 120)}")
             items.extend(previous_state.warm_context[:2])
         else:
             items.extend(previous_state.warm_context[:2])
-            if previous_state.key_results:
-                items.append(f"此前结果：{self._shorten(previous_state.key_results[0], 120)}")
         prior_query = previous_state.active_goal if previous_state.active_goal and previous_state.active_goal != active_goal else ""
         if prior_query and not task_switch:
             items.append(f"此前请求：{self._shorten(prior_query, 120)}")
         if len(normalized_task_summaries) > 1:
             items.append(f"近期结果：{self._shorten(self._coerce_text(normalized_task_summaries[-2].get('summary')), 120)}")
-        if task_switch and key_results:
-            items.append(f"当前切换后结果：{self._shorten(key_results[0], 120)}")
+        elif not current_result_refs and historical_result_refs:
+            items.append(f"近期结果：{self._shorten(historical_result_refs[0], 120)}")
+        if task_switch and current_result_refs:
+            items.append(f"当前切换后结果：{self._shorten(current_result_refs[0], 120)}")
         return self.processor.process_engine._dedupe_items(items, max_items=max_items, max_chars=200)
 
     def _extract_projection_file_hints(self, items: list[str]) -> list[str]:

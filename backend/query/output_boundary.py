@@ -5,7 +5,12 @@ import hashlib
 import re
 
 from query.output_classifier import build_output_decision, classify_output_candidate
-from query.output_models import OutputCandidate
+from query.output_models import (
+    CanonicalState,
+    FinalizationPolicy,
+    OutputCandidate,
+    PersistPolicy,
+)
 
 
 INTERNAL_PROTOCOL_MARKERS = (
@@ -87,6 +92,13 @@ def contains_internal_protocol(text: str) -> bool:
         or bool(_PROTO_ARG_LINE_RE.search(normalized))
         or bool(_INVOKE_TAIL_RE.search(normalized))
     )
+
+
+def contains_inline_pseudo_tool_call(text: str) -> bool:
+    normalized = str(text or "")
+    if not normalized.strip():
+        return False
+    return bool(_INLINE_PSEUDO_TOOL_CALL_RE.search(normalized))
 
 
 def sanitize_visible_assistant_content(text: str) -> str:
@@ -199,6 +211,9 @@ class AssistantOutputResponse:
     canonical_answer: str
     selected_channel: str
     selected_source: str
+    canonical_state: CanonicalState
+    persist_policy: PersistPolicy
+    finalization_policy: FinalizationPolicy
     segments: list[AssistantOutputSegment]
     tool_calls: list[dict[str, str]]
     tool_receipts: list[dict[str, object]]
@@ -219,6 +234,8 @@ class AssistantOutputBoundary:
         self._current.raw_text += chunk
         if contains_internal_protocol(chunk):
             self._add_flag("internal_protocol_stream")
+        if contains_inline_pseudo_tool_call(chunk):
+            self._add_flag("inline_pseudo_tool_call_stream")
         sanitized = sanitize_visible_assistant_content(self._current.raw_text)
         delta = _visible_delta(self._current.stream_visible_text, sanitized)
         self._current.stream_visible_text = sanitized
@@ -231,6 +248,8 @@ class AssistantOutputBoundary:
         self._current.ai_update_raw_text = text
         if contains_internal_protocol(text):
             self._add_flag("internal_protocol_ai_update")
+        if contains_inline_pseudo_tool_call(text):
+            self._add_flag("inline_pseudo_tool_call_ai_update")
         if has_tool_calls:
             return
         sanitized = sanitize_visible_assistant_content(text)
@@ -362,11 +381,14 @@ class AssistantOutputBoundary:
             canonical_answer=decision.canonical_answer,
             selected_channel=decision.selected_channel,
             selected_source=decision.selected_source,
+            canonical_state=decision.canonical_state,
+            persist_policy=decision.persist_policy,
+            finalization_policy=decision.finalization_policy,
             segments=segments,
             tool_calls=all_tool_calls,
             tool_receipts=tool_receipts,
             raw_debug_text="\n\n".join(part for part in raw_parts if part.strip()).strip(),
-            leak_flags=leak_flags,
+            leak_flags=decision.leak_flags,
             fallback_reason=decision.fallback_reason,
         )
 

@@ -79,6 +79,7 @@ class QueryPlanner:
                 history=history,
                 bundle_plan=bundle_plan,
                 root_execution=root_execution,
+                authority_context=authority_context,
             )
             subqueries = [item.execution_message for item in bundle_plan.items]
             subtasks = []
@@ -110,6 +111,7 @@ class QueryPlanner:
                 history=history,
                 subtasks=subtasks,
                 root_execution=root_execution,
+                authority_context=authority_context,
             )
             query_understanding = QueryUnderstanding(
                 intent="explicit_fanout_query",
@@ -150,9 +152,13 @@ class QueryPlanner:
         history: list[dict[str, Any]],
         subtasks: list[SubtaskPlan],
         root_execution: QueryExecutionPlan,
+        authority_context: dict[str, Any] | None = None,
     ) -> list[QueryExecutionPlan]:
         executions: list[QueryExecutionPlan] = []
-        authority_context = self._authoritative_context_from_execution(root_execution)
+        authority_context = self._merge_authoritative_context(
+            authority_context,
+            self._authoritative_context_from_execution(root_execution),
+        )
         for subtask in subtasks:
             execution = self._build_execution(
                 message=subtask.execution_message,
@@ -173,9 +179,13 @@ class QueryPlanner:
         history: list[dict[str, Any]],
         bundle_plan: BundlePlan,
         root_execution: QueryExecutionPlan,
+        authority_context: dict[str, Any] | None = None,
     ) -> list[QueryExecutionPlan]:
         executions: list[QueryExecutionPlan] = []
-        authority_context = self._authoritative_context_from_execution(root_execution)
+        authority_context = self._merge_authoritative_context(
+            authority_context,
+            self._authoritative_context_from_execution(root_execution),
+        )
         for item in bundle_plan.items:
             execution = self._build_execution(
                 message=item.execution_message,

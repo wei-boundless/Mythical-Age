@@ -14,6 +14,26 @@ OutputChannel = Literal[
     "fallback_answer",
 ]
 
+CanonicalState = Literal[
+    "stable_answer",
+    "unstable_answer",
+    "progress_only",
+    "tool_summary",
+    "missing_answer",
+]
+
+PersistPolicy = Literal[
+    "persist_canonical",
+    "persist_debug_only",
+    "do_not_persist",
+]
+
+FinalizationPolicy = Literal[
+    "none",
+    "route_optional",
+    "route_required",
+]
+
 
 @dataclass(slots=True)
 class OutputCandidate:
@@ -32,6 +52,9 @@ class OutputDecision:
     canonical_answer: str
     selected_channel: OutputChannel
     selected_source: str
+    canonical_state: CanonicalState = "missing_answer"
+    persist_policy: PersistPolicy = "do_not_persist"
+    finalization_policy: FinalizationPolicy = "none"
     rejected_candidates: list[OutputCandidate] = field(default_factory=list)
     leak_flags: list[str] = field(default_factory=list)
     fallback_reason: str = ""

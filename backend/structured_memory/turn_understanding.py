@@ -291,7 +291,7 @@ class TurnUnderstandingAnalyzer:
             if turn.turn_type in {"goal_request", "task_switch"}:
                 active_goal = turn.excerpt
                 active_goal_turn_type = turn.turn_type
-            elif turn.turn_type == "followup_request" and not active_goal:
+            elif turn.turn_type == "followup_request":
                 active_goal = turn.excerpt
                 active_goal_turn_type = turn.turn_type
         if not active_goal:

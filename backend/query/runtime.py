@@ -292,6 +292,7 @@ class QueryRuntime:
                         assistant_messages = self._build_assistant_messages(
                             segments,
                             canonical_content=str(event.get("content", "") or ""),
+                            answer_metadata=self._assistant_metadata_from_done_event(event),
                         )
                         if assistant_messages:
                             self.session_manager.append_messages(request.session_id, assistant_messages)
@@ -847,6 +848,9 @@ class QueryRuntime:
                         "app.answer_chars": len(final_content),
                         "app.answer_channel": output_response.selected_channel,
                         "app.answer_source": output_response.selected_source,
+                        "app.answer_canonical_state": str(getattr(output_response, "canonical_state", "") or ""),
+                        "app.answer_persist_policy": str(getattr(output_response, "persist_policy", "") or ""),
+                        "app.answer_finalization_policy": str(getattr(output_response, "finalization_policy", "") or ""),
                         "app.answer_fallback_reason": output_response.fallback_reason,
                         "app.output_leak_flags": ",".join(output_response.leak_flags),
                         "app.tool_receipt_count": len(list(getattr(output_response, "tool_receipts", []) or [])),
@@ -863,6 +867,9 @@ class QueryRuntime:
                 "task_summary_refs": [item.to_dict() for item in task_summary_refs],
                 "answer_channel": output_response.selected_channel,
                 "answer_source": output_response.selected_source,
+                "answer_canonical_state": str(getattr(output_response, "canonical_state", "") or ""),
+                "answer_persist_policy": str(getattr(output_response, "persist_policy", "") or ""),
+                "answer_finalization_policy": str(getattr(output_response, "finalization_policy", "") or ""),
                 "answer_fallback_reason": output_response.fallback_reason,
                 "answer_leak_flags": list(output_response.leak_flags),
             }
@@ -904,8 +911,10 @@ class QueryRuntime:
                     "Failed to refresh session memory from context-state projection for %s; falling back to committed messages",
                     session_id,
                 )
-        messages = self.session_manager.load_session(session_id)
-        summary = self.memory_facade.refresh_session_memory(session_id, messages)
+        summary = self.memory_facade.refresh_session_memory(
+            session_id,
+            self.session_manager.load_session_for_agent(session_id, include_compressed_context=False),
+        )
         return summary
 
     def commit_durable_memory_extraction(self, session_id: str) -> int:
@@ -917,8 +926,10 @@ class QueryRuntime:
                 task_summaries=list(projection.get("task_summary_refs", []) or []),
                 corrections=list(projection.get("corrections", []) or []),
             )
-        messages = self.session_manager.load_session(session_id)
-        return self.memory_facade.commit_durable_memory_extraction(session_id, messages)
+        return self.memory_facade.commit_durable_memory_extraction(
+            session_id,
+            self.session_manager.load_session_for_agent(session_id, include_compressed_context=False),
+        )
 
     def schedule_durable_memory_extraction(self, session_id: str) -> int:
         projection = self._session_memory_projection.pop(session_id, None)
@@ -929,8 +940,10 @@ class QueryRuntime:
                 task_summaries=list(projection.get("task_summary_refs", []) or []),
                 corrections=list(projection.get("corrections", []) or []),
             )
-        messages = self.session_manager.load_session(session_id)
-        return self.memory_facade.submit_durable_memory_extraction(session_id, messages)
+        return self.memory_facade.submit_durable_memory_extraction(
+            session_id,
+            self.session_manager.load_session_for_agent(session_id, include_compressed_context=False),
+        )
 
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
@@ -2485,24 +2498,17 @@ class QueryRuntime:
     ):
         if str(execution.query_understanding.route or "") != "rag":
             return output_response
-        unstable_visible_answer = self._rag_output_needs_finalization(output_response)
-        fallback_reason = str(output_response.fallback_reason or "")
-        receipt_blocked_fallback = fallback_reason in {"no_receipt_tool_claim", "no_receipt_query_promise"}
-        if (
-            fallback_reason != "rag_missing_answer"
-            and not receipt_blocked_fallback
-            and not unstable_visible_answer
-        ):
+        if str(getattr(output_response, "finalization_policy", "none") or "none") != "route_required":
             return output_response
+        fallback_reason = str(getattr(output_response, "fallback_reason", "") or "")
+        preserve_no_receipt_fallback = fallback_reason in {"no_receipt_tool_claim", "no_receipt_query_promise"}
         evidence_pack = build_rag_evidence_pack(
             user_query=execution.message,
             retrieval_results=retrieval_results,
             max_items=3,
         )
         if not self._rag_evidence_pack_can_finalize(evidence_pack):
-            if receipt_blocked_fallback:
-                return output_response
-            return self._fallback_rag_output_response(output_response) if unstable_visible_answer else output_response
+            return output_response if preserve_no_receipt_fallback else self._fallback_rag_output_response(output_response)
         finalized = await self._rewrite_rag_answer_with_model(evidence_pack=evidence_pack)
         if not finalized:
             return self._fallback_rag_output_response(output_response)
@@ -2511,6 +2517,9 @@ class QueryRuntime:
             canonical_answer=finalized,
             selected_channel="answer_candidate",
             selected_source="rag_answer_finalization",
+            canonical_state="stable_answer",
+            persist_policy="persist_canonical",
+            finalization_policy="none",
             fallback_reason="",
         )
 
@@ -2544,28 +2553,15 @@ class QueryRuntime:
             return False
         return total_compact_chars(evidence_pack) >= 60
 
-    def _rag_output_needs_finalization(self, output_response) -> bool:
-        selected_source = str(getattr(output_response, "selected_source", "") or "")
-        if not selected_source.startswith("segment."):
-            return False
-        answer = sanitize_visible_assistant_content(
-            str(getattr(output_response, "canonical_answer", "") or "")
-        ).strip()
-        if not answer:
-            return False
-        if self._looks_like_rag_procedural_answer(answer):
-            return True
-        leak_flags = {str(flag or "").strip() for flag in list(getattr(output_response, "leak_flags", []) or [])}
-        if not leak_flags:
-            return False
-        return self._looks_like_rag_procedural_answer(answer)
-
     def _fallback_rag_output_response(self, output_response):
         return replace(
             output_response,
             canonical_answer="已检索到相关资料，但当前模型尚未产出可直接展示的结论。",
             selected_channel="fallback_answer",
             selected_source="fallback_policy",
+            canonical_state="missing_answer",
+            persist_policy="do_not_persist",
+            finalization_policy="route_required",
             fallback_reason="rag_missing_answer",
         )
 
@@ -2579,6 +2575,8 @@ class QueryRuntime:
             return output_response
         if str(getattr(output_response, "selected_channel", "") or "") == "fallback_answer":
             return output_response
+        if str(getattr(output_response, "canonical_state", "") or "") == "progress_only":
+            return self._fallback_memory_output_response(output_response)
         if not self._memory_output_needs_gate(output_response):
             return output_response
         return self._fallback_memory_output_response(output_response)
@@ -2623,6 +2621,9 @@ class QueryRuntime:
             canonical_answer="当前没有足够稳定的会话内容可直接回答这个问题。",
             selected_channel="fallback_answer",
             selected_source="fallback_policy",
+            canonical_state="missing_answer",
+            persist_policy="do_not_persist",
+            finalization_policy="none",
             fallback_reason="memory_visible_pollution",
         )
 
@@ -2635,25 +2636,24 @@ class QueryRuntime:
         canonical = self._extract_pdf_canonical_from_output_response(output_response)
         if canonical is None:
             return output_response
-        unstable_visible_answer = self._pdf_output_needs_finalization(output_response)
-        if (
-            str(output_response.fallback_reason or "") not in {"pdf_missing_summary", "pdf_canonical_missing_summary"}
-            and not unstable_visible_answer
-        ):
+        if str(getattr(output_response, "finalization_policy", "none") or "none") != "route_required":
             return output_response
         if not self._pdf_canonical_can_finalize(canonical):
-            return self._fallback_pdf_output_response(output_response, canonical) if unstable_visible_answer else output_response
+            return self._fallback_pdf_output_response(output_response, canonical)
         finalized = await self._rewrite_pdf_answer_with_model(
             user_query=execution.message,
             canonical=canonical,
         )
         if not finalized:
-            return self._fallback_pdf_output_response(output_response, canonical) if unstable_visible_answer else output_response
+            return self._fallback_pdf_output_response(output_response, canonical)
         return replace(
             output_response,
             canonical_answer=finalized,
             selected_channel="answer_candidate",
             selected_source="pdf_answer_finalization",
+            canonical_state="stable_answer",
+            persist_policy="persist_canonical",
+            finalization_policy="none",
             fallback_reason="",
         )
 
@@ -2668,14 +2668,6 @@ class QueryRuntime:
             if canonical is not None:
                 return canonical
         return None
-
-    def _pdf_output_needs_finalization(self, output_response) -> bool:
-        if str(getattr(output_response, "selected_source", "") or "").startswith("segment."):
-            answer = sanitize_visible_assistant_content(
-                str(getattr(output_response, "canonical_answer", "") or "")
-            ).strip()
-            return self._looks_like_pdf_procedural_answer(answer)
-        return False
 
     def _pdf_canonical_can_finalize(self, canonical: PDFCanonicalResult) -> bool:
         if canonical.ok and canonical.summary.strip():
@@ -2696,6 +2688,9 @@ class QueryRuntime:
             canonical_answer=message,
             selected_channel="fallback_answer",
             selected_source="fallback_policy",
+            canonical_state="missing_answer",
+            persist_policy="do_not_persist",
+            finalization_policy="route_required",
             fallback_reason=reason,
         )
 
@@ -3005,6 +3000,7 @@ class QueryRuntime:
         segments: list[dict[str, Any]],
         *,
         canonical_content: str | None = None,
+        answer_metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         if canonical_content is not None:
             filtered_tool_calls = [
@@ -3025,6 +3021,7 @@ class QueryRuntime:
                     "role": "assistant",
                     "content": content,
                     "tool_calls": filtered_tool_calls or None,
+                    **dict(answer_metadata or {}),
                 }
             ]
 
@@ -3047,9 +3044,55 @@ class QueryRuntime:
                     "role": "assistant",
                     "content": content,
                     "tool_calls": filtered_tool_calls or None,
+                    **dict(answer_metadata or {}),
                 }
             )
         return persisted
+
+    def _assistant_metadata_from_done_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        answer_channel = str(event.get("answer_channel", "") or "").strip()
+        answer_source = str(event.get("answer_source", "") or "").strip()
+        fallback_reason = str(event.get("answer_fallback_reason", "") or "").strip()
+        canonical_state = str(event.get("answer_canonical_state", "") or "").strip()
+        persist_policy = str(event.get("answer_persist_policy", "") or "").strip()
+        finalization_policy = str(event.get("answer_finalization_policy", "") or "").strip()
+
+        if not canonical_state:
+            if fallback_reason in {"no_receipt_query_promise", "no_receipt_tool_claim"}:
+                canonical_state = "progress_only"
+            elif answer_channel == "answer_candidate" or answer_source in {"memory_write_ack"}:
+                canonical_state = "stable_answer"
+            elif answer_channel == "fallback_answer":
+                canonical_state = "missing_answer"
+
+        if not persist_policy:
+            if canonical_state in {"stable_answer", "tool_summary"}:
+                persist_policy = "persist_canonical"
+            elif canonical_state == "progress_only":
+                persist_policy = "persist_debug_only"
+            else:
+                persist_policy = "do_not_persist"
+
+        if not finalization_policy:
+            if fallback_reason in {"rag_missing_answer", "pdf_missing_summary", "pdf_canonical_missing_summary"}:
+                finalization_policy = "route_required"
+            else:
+                finalization_policy = "none"
+
+        metadata: dict[str, Any] = {}
+        if answer_channel:
+            metadata["answer_channel"] = answer_channel
+        if answer_source:
+            metadata["answer_source"] = answer_source
+        if canonical_state:
+            metadata["answer_canonical_state"] = canonical_state
+        if persist_policy:
+            metadata["answer_persist_policy"] = persist_policy
+        if finalization_policy:
+            metadata["answer_finalization_policy"] = finalization_policy
+        if fallback_reason:
+            metadata["answer_fallback_reason"] = fallback_reason
+        return metadata
 
     def _apply_assistant_persistence_gate(
         self,

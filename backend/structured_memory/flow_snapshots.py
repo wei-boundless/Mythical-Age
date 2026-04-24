@@ -154,7 +154,7 @@ class FlowSnapshotManager:
             binding_identity=binding_identity,
             binding_owner_task_id=binding_owner_task_id,
             key_slots=key_slots,
-            recent_results=list(state.key_results[:2]),
+            recent_results=list((getattr(state, "current_result_refs", None) or state.key_results)[:2]),
             resume_hints=[
                 normalize_storage_text(item)
                 for item in resume_hints

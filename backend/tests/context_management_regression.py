@@ -47,6 +47,54 @@ def test_session_manager_keeps_archival_summary_out_of_runtime_history() -> None
         )
 
 
+def test_session_manager_runtime_history_hides_nonstable_assistant_turns() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionManager(Path(tmp))
+        session = manager.create_session("test")
+        session_id = str(session["id"])
+        manager.save_message(session_id, "user", "先查一下勒布朗今年还在不在打比赛。")
+        manager.append_messages(
+            session_id,
+            [
+                {
+                    "role": "assistant",
+                    "content": "当前还没有形成真实查询结果。",
+                    "answer_channel": "fallback_answer",
+                    "answer_source": "fallback_policy",
+                    "answer_canonical_state": "progress_only",
+                    "answer_persist_policy": "persist_debug_only",
+                    "answer_finalization_policy": "none",
+                    "answer_fallback_reason": "no_receipt_query_promise",
+                },
+                {
+                    "role": "assistant",
+                    "content": "勒布朗·詹姆斯目前仍在征战 NBA。",
+                    "answer_channel": "answer_candidate",
+                    "answer_source": "segment.visible_text",
+                    "answer_canonical_state": "stable_answer",
+                    "answer_persist_policy": "persist_canonical",
+                    "answer_finalization_policy": "none",
+                },
+            ],
+        )
+
+        runtime_history = manager.load_session_for_agent(session_id, include_compressed_context=False)
+        stored_messages = manager.load_session(session_id)
+
+        _assert(
+            all("当前还没有形成真实查询结果。" not in item["content"] for item in runtime_history),
+            "runtime-visible history should hide non-stable assistant turns",
+        )
+        _assert(
+            any("勒布朗·詹姆斯目前仍在征战 NBA。" in item["content"] for item in runtime_history),
+            "runtime-visible history should preserve stable assistant turns",
+        )
+        _assert(
+            any(str(item.get("answer_canonical_state", "")) == "progress_only" for item in stored_messages),
+            "persisted session transcript should retain assistant answer-state metadata",
+        )
+
+
 def test_microcompact_reduces_bulk_outputs_without_losing_recent_turns() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         session_memory = SessionMemoryManager(Path(tmp))

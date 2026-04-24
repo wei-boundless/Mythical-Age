@@ -126,6 +126,8 @@ class SessionManager:
         for message in record.get("messages", []):
             role = message.get("role", "")
             content = str(message.get("content", "") or "")
+            if role == "assistant" and not self._assistant_message_visible_to_agent(message):
+                continue
             if role == "assistant" and merged and merged[-1]["role"] == "assistant":
                 if content:
                     if merged[-1]["content"]:
@@ -156,6 +158,20 @@ class SessionManager:
             tool_calls = raw_message.get("tool_calls")
             if tool_calls:
                 message["tool_calls"] = tool_calls
+            for key in (
+                "answer_channel",
+                "answer_source",
+                "answer_canonical_state",
+                "answer_persist_policy",
+                "answer_finalization_policy",
+                "answer_fallback_reason",
+            ):
+                value = raw_message.get(key)
+                if value is None:
+                    continue
+                normalized = str(value or "").strip()
+                if normalized:
+                    message[key] = normalized
             appended.append(message)
 
         if not appended:
@@ -240,3 +256,9 @@ class SessionManager:
 
     def get_compressed_context(self, session_id: str) -> str:
         return self._read_session_file(session_id).get("compressed_context", "")
+
+    def _assistant_message_visible_to_agent(self, message: dict[str, Any]) -> bool:
+        canonical_state = str(message.get("answer_canonical_state", "") or "").strip()
+        if not canonical_state:
+            return True
+        return canonical_state in {"stable_answer", "tool_summary"}

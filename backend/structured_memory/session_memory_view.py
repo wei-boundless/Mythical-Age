@@ -37,7 +37,10 @@ _Failures, corrections, and approaches to avoid repeating._
 _Concrete conclusions, tradeoffs, and learnings established in this session._
 
 # Key Results
-_Exact outputs, conclusions, or artifacts already produced for the user._
+_Current-turn outputs, conclusions, or artifacts that remain active._
+
+# Historical Results
+_Older results retained only for debugging and restore, not as current truth._
 
 # Risk Watch
 _Known risks in current session state and active safeguards._
@@ -63,6 +66,7 @@ COMPACTION_HEADER_ORDER = [
     "# Errors and Corrections",
     "# Decisions and Learnings",
     "# Key Results",
+    "# Historical Results",
     "# Warm Context",
     "# Worklog",
 ]
@@ -81,6 +85,7 @@ COMPACTION_SECTION_LIMITS = {
     "# Errors and Corrections": 220,
     "# Decisions and Learnings": 240,
     "# Key Results": 260,
+    "# Historical Results": 260,
     "# Warm Context": 220,
     "# Worklog": 180,
 }
@@ -97,13 +102,16 @@ class SessionMemoryViewBuilder:
             "# Current Task State": self._to_bullets(
                 state.current_task_state if include_debug else self._model_current_task_lines(state)
             ),
-            "# Warm Context": self._to_bullets(state.warm_context),
+            "# Warm Context": self._to_bullets(
+                state.warm_context if include_debug else self._model_warm_context_lines(state)
+            ),
             "# Key User Requests": self._to_bullets(state.key_user_requests),
             "# Files and Functions": self._to_bullets(state.files_and_functions),
             "# Conventions and Constraints": self._to_bullets(state.conventions_and_constraints),
             "# Errors and Corrections": self._to_bullets(state.errors_and_corrections),
             "# Decisions and Learnings": self._to_bullets(state.decisions_and_learnings),
-            "# Key Results": self._to_bullets(state.key_results),
+            "# Key Results": self._to_bullets(list(getattr(state, "current_result_refs", []) or state.key_results)),
+            "# Historical Results": self._to_bullets(state.historical_result_refs) if include_debug else [],
             "# Risk Watch": self._to_bullets(state.risk_notes or state.risk_flags) if include_debug else [],
             "# Next Step": self._to_bullets(state.next_step) if include_debug else [],
             "# Worklog": self._to_bullets(state.worklog) if include_debug else [],
@@ -243,6 +251,20 @@ class SessionMemoryViewBuilder:
                 continue
             filtered.append(compact)
         return filtered[:6]
+
+    def _model_warm_context_lines(self, state: DialogueState) -> list[str]:
+        filtered: list[str] = []
+        blocked_prefixes = (
+            "上一阶段结果：",
+            "近期结果：",
+            "当前切换后结果：",
+        )
+        for line in state.warm_context:
+            compact = line.strip()
+            if not compact or compact.startswith(blocked_prefixes):
+                continue
+            filtered.append(compact)
+        return filtered[:4]
 
     def _looks_like_result_line(self, text: str) -> bool:
         compact = text.strip()

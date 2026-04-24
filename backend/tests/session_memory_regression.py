@@ -166,6 +166,82 @@ def test_session_memory_compact_view_uses_state_sections() -> None:
         _assert("session hygiene" in compact or "session state" in compact, "compact view should preserve restore-relevant content")
 
 
+def test_historical_results_are_removed_from_model_key_results_and_kept_in_debug_only() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        manager.update_from_context_state(
+            {
+                "active_goal": "把员工和库存结果分开做一个运营摘要。",
+                "active_work_item": "summary_projection",
+            },
+            task_summaries=[
+                {
+                    "task_id": "employees-task",
+                    "query": "总结 employees.xlsx 的情况",
+                    "summary": "数据源：employees.xlsx，技术部门薪资总额最高。",
+                },
+                {
+                    "task_id": "inventory-task",
+                    "query": "总结 inventory.xlsx 的情况",
+                    "summary": "数据源：inventory.xlsx，武汉仓缺口最高。",
+                },
+            ],
+        )
+        manager.update_from_context_state(
+            {
+                "active_goal": "查询黄金价格。",
+                "active_work_item": "realtime_lookup",
+            },
+            task_summaries=[
+                {
+                    "task_id": "gold-task",
+                    "query": "查询黄金价格。",
+                    "summary": "当前现货黄金 XAU/USD 参考价约为 4696.23 美元/盎司。",
+                }
+            ],
+        )
+
+        state = manager.load_state()
+        model_view = manager.load()
+        model_sections = manager.parse_sections(model_view)
+        debug_sections = manager.parse_sections(manager.load_debug_view())
+        compact_sections = manager.parse_sections(manager.compact_view())
+
+        model_key_results = "\n".join(model_sections.get("# Key Results", []))
+        compact_key_results = "\n".join(compact_sections.get("# Key Results", []))
+        debug_historical_results = "\n".join(debug_sections.get("# Historical Results", []))
+
+        _assert(
+            state.current_result_refs == ["当前现货黄金 XAU/USD 参考价约为 4696.23 美元/盎司。"],
+            "current_result_refs should keep only the active-turn result",
+        )
+        _assert(
+            any("employees.xlsx" in item for item in state.historical_result_refs)
+            and any("inventory.xlsx" in item for item in state.historical_result_refs),
+            "historical_result_refs should retain older task results for restore/debug only",
+        )
+        _assert(
+            "4696.23" in model_key_results
+            and "employees.xlsx" not in model_key_results
+            and "inventory.xlsx" not in model_key_results,
+            "model-visible Key Results should stop leaking historical task outputs",
+        )
+        _assert(
+            "employees.xlsx" not in model_view and "inventory.xlsx" not in model_view,
+            "model-visible summary should keep historical task outputs out of the hot path entirely",
+        )
+        _assert(
+            "4696.23" in compact_key_results
+            and "employees.xlsx" not in compact_key_results
+            and "inventory.xlsx" not in compact_key_results,
+            "compaction view should keep only current results in Key Results",
+        )
+        _assert(
+            "employees.xlsx" in debug_historical_results and "inventory.xlsx" in debug_historical_results,
+            "debug view should expose older results under Historical Results instead of mixing them into Key Results",
+        )
+
+
 def test_session_memory_persists_dialogue_state_separately_from_summary() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         manager = SessionMemoryManager(Path(tmp))
@@ -852,8 +928,8 @@ def test_low_confidence_flow_switch_stays_on_previous_flow_until_clarified() -> 
         summary = manager.load()
 
         _assert(
-            "report.pdf 第3页" in state.active_goal,
-            "low-confidence switch should preserve the previous goal instead of committing the ambiguous new one",
+            state.active_goal == "我想看看这个该怎么弄",
+            "low-confidence switch should keep the current-turn goal visible instead of rewriting it back to the previous goal",
         )
         _assert(
             state.flow_state.flow_type == "pdf_analysis_flow",
@@ -862,6 +938,10 @@ def test_low_confidence_flow_switch_stays_on_previous_flow_until_clarified() -> 
         _assert(
             state.flow_state.confidence <= 0.54,
             "preserved flow should be downgraded to a conservative confidence level",
+        )
+        _assert(
+            state.restore_goal_hint == "请分析 report.pdf 第3页的结论",
+            "downgraded flow switch should preserve the prior goal only as a restore hint",
         )
         _assert(
             any(flag in {"clarification_required", "low_flow_confidence"} for flag in state.risk_flags),
