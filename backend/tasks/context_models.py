@@ -65,6 +65,10 @@ class TaskContextRef:
     task_id: str
     parent_query_id: str
     task_kind: str = ""
+    bundle_id: str = ""
+    bundle_item_id: str = ""
+    bundle_item_index: int = 0
+    bundle_origin: str = ""
     bindings: TaskBindings = field(default_factory=TaskBindings)
     constraints: TaskConstraints = field(default_factory=TaskConstraints)
     status: str = "pending"
@@ -77,6 +81,10 @@ class TaskContextRef:
             "task_id": self.task_id,
             "parent_query_id": self.parent_query_id,
             "task_kind": self.task_kind,
+            "bundle_id": self.bundle_id,
+            "bundle_item_id": self.bundle_item_id,
+            "bundle_item_index": self.bundle_item_index,
+            "bundle_origin": self.bundle_origin,
             "bindings": self.bindings.to_dict(),
             "constraints": self.constraints.to_dict(),
             "status": self.status,

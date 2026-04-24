@@ -42,6 +42,8 @@ class TurnResult:
     event_types: list[str]
     tool_names: list[str]
     response_text: str
+    execution_mode: str = ""
+    bundle_item_count: int = 0
     runtime_effective_route: str = ""
     followup_mode: str = ""
     followup_task_id: str = ""
@@ -103,9 +105,24 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             if turn.plan_skill != expected:
                 failures.append(f"{check} (actual={turn.plan_skill})")
             continue
+        if check.startswith("plan.execution_mode="):
+            expected = check.split("=", 1)[1]
+            if turn.execution_mode != expected:
+                failures.append(f"{check} (actual={turn.execution_mode})")
+            continue
+        if check.startswith("plan.bundle_items="):
+            expected = int(check.split("=", 1)[1])
+            if turn.bundle_item_count != expected:
+                failures.append(f"{check} (actual={turn.bundle_item_count})")
+            continue
         if check.startswith("plan.subqueries>="):
             expected = int(check.split(">=", 1)[1])
             if turn.subquery_count < expected:
+                failures.append(f"{check} (actual={turn.subquery_count})")
+            continue
+        if check.startswith("plan.subqueries="):
+            expected = int(check.split("=", 1)[1])
+            if turn.subquery_count != expected:
                 failures.append(f"{check} (actual={turn.subquery_count})")
             continue
         if check.startswith("event.tool="):
@@ -293,16 +310,18 @@ def _execute_user_turn(
         authority_context=runtime.query_runtime._load_session_authoritative_context(session_id),
     )
 
+    request_started_at = iso_now()
     request_started = time.perf_counter()
-    response = client.post(
+    with client.stream(
+        "POST",
         "/api/chat",
         json={"message": turn.content, "session_id": session_id, "stream": True},
-    )
-    events, timing = collect_sse_events(
-        response,
-        request_start=request_started,
-        request_start_ts=iso_now(),
-    )
+    ) as response:
+        events, timing = collect_sse_events(
+            response,
+            request_start=request_started,
+            request_start_ts=request_started_at,
+        )
     sync_details: dict[str, Any] | None = None
     memory_sync_ms = 0.0
     if turn.force_memory_sync:
@@ -359,6 +378,8 @@ def _execute_user_turn(
         plan_route=plan.query_understanding.route,
         plan_tool=str(plan.query_understanding.tool_name or ""),
         plan_skill=str((plan.active_skill.name if plan.active_skill is not None else plan.query_understanding.skill_name) or ""),
+        execution_mode=str(getattr(plan, "execution_mode", "") or ""),
+        bundle_item_count=len(list(getattr(getattr(plan, "bundle_plan", None), "items", []) or [])),
         subquery_count=len(plan.subqueries),
         event_types=[str(item.get("event", "")) for item in events],
         tool_names=[name for name in tool_names if name],
@@ -409,11 +430,13 @@ def _execute_user_turn(
                     "checks": list(turn.checks),
                 },
                 "plan": {
-                    "route": turn_result.plan_route,
-                    "tool": turn_result.plan_tool,
-                    "skill": turn_result.plan_skill,
-                    "subqueries": list(plan.subqueries),
-                },
+                "route": turn_result.plan_route,
+                "tool": turn_result.plan_tool,
+                "skill": turn_result.plan_skill,
+                "execution_mode": turn_result.execution_mode,
+                "bundle_item_count": turn_result.bundle_item_count,
+                "subqueries": list(plan.subqueries),
+            },
                 "events": events,
                 "memory_sync": sync_details or {},
                 "result": turn_result.to_dict(),

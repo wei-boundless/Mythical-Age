@@ -13,8 +13,9 @@ from understanding import (
 )
 
 from query.binding_resolver import StructuredBindingResolver
+from query.bundle_planner import BundlePlanner
 from query.continuation_resolver import QueryContinuationResolver
-from query.models import QueryExecutionPlan, QueryPlan
+from query.models import BundleItemPlan, BundlePlan, QueryExecutionPlan, QueryPlan, SubtaskPlan
 from query.subtask_planner import QuerySubtaskPlanner
 from query.tool_input_resolver import ToolInputResolver
 
@@ -31,6 +32,7 @@ class QueryPlanner:
         self.skill_registry = skill_registry
         self.tool_runtime = tool_runtime
         self.continuation_resolver = QueryContinuationResolver(base_dir=base_dir)
+        self.bundle_planner = BundlePlanner()
         self.subtask_planner = QuerySubtaskPlanner()
         self.tool_input_resolver = ToolInputResolver(base_dir=base_dir)
         self.binding_resolver = StructuredBindingResolver(base_dir=base_dir)
@@ -43,6 +45,7 @@ class QueryPlanner:
         history: list[dict[str, Any]],
         ephemeral_system_messages: list[str] | None = None,
         authority_context: dict[str, Any] | None = None,
+        explicit_subtasks: list[dict[str, Any]] | None = None,
     ) -> QueryPlan:
         root_execution = self._build_execution(
             message=message,
@@ -52,41 +55,87 @@ class QueryPlanner:
         )
         memory_intent = root_execution.memory_intent
         query_understanding = root_execution.query_understanding
-        subqueries = self.subtask_planner.plan(message=message, understanding=query_understanding)
-        if len(subqueries) <= 1:
-            executions = [root_execution]
+        bundle_plan = None
+        execution_mode = "single_execution"
+        subtasks = self.subtask_planner.plan_structured(
+            message=message,
+            understanding=query_understanding,
+            explicit_subtasks=explicit_subtasks,
+        )
+        if explicit_subtasks:
+            execution_mode = "explicit_fanout"
+        elif not explicit_subtasks:
+            bundle_plan = self.bundle_planner.plan(
+                session_id=session_id,
+                message=message,
+                understanding=query_understanding,
+                authority_context=authority_context,
+            )
+            if bundle_plan is not None:
+                execution_mode = "bundle_execution"
+
+        if bundle_plan is not None:
+            executions = self._build_bundle_executions(
+                history=history,
+                bundle_plan=bundle_plan,
+                root_execution=root_execution,
+            )
+            subqueries = [item.execution_message for item in bundle_plan.items]
+            subtasks = []
+            query_understanding = QueryUnderstanding(
+                intent="bundle_query",
+                source_kind="orchestration",
+                task_kind="bundle_query",
+                modality="multi",
+                route="bundle",
+                execution_posture="bundle_execution",
+                direct_route_reason="strong_anchor_bundle",
+                reasons=["strong_anchor_bundle"],
+            )
+            active_skill = None
+            tool_input = {}
+            structured_binding = None
+            execution_kind = "agent"
+        elif len(subtasks) <= 1:
+            subqueries = [subtask.execution_message for subtask in subtasks]
+            executions = [self._attach_subtask_metadata(root_execution, subtasks[0] if subtasks else SubtaskPlan.single(message))]
             query_understanding = root_execution.query_understanding
             active_skill = root_execution.active_skill
             tool_input = dict(root_execution.tool_input)
             structured_binding = root_execution.structured_binding
             execution_kind = root_execution.execution_kind
         else:
+            subqueries = [subtask.execution_message for subtask in subtasks]
             executions = self._build_compound_executions(
                 history=history,
-                subqueries=subqueries,
+                subtasks=subtasks,
                 root_execution=root_execution,
             )
             query_understanding = QueryUnderstanding(
-                intent="compound_query",
+                intent="explicit_fanout_query",
                 source_kind="orchestration",
-                task_kind="compound_query",
+                task_kind="explicit_fanout_query",
                 modality="multi",
-                route="compound",
-                execution_posture="compound",
-                direct_route_reason="compound_query_fanout",
-                reasons=["compound_query_fanout"],
+                route="explicit_fanout",
+                execution_posture="explicit_fanout",
+                direct_route_reason="explicit_structured_plan",
+                reasons=["explicit_structured_plan"],
             )
             active_skill = None
             tool_input = {}
             structured_binding = None
             execution_kind = "agent"
+            execution_mode = "explicit_fanout"
         return QueryPlan(
             session_id=session_id,
             message=message,
             history=history,
             subqueries=subqueries,
+            subtasks=subtasks,
+            bundle_plan=bundle_plan,
             memory_intent=memory_intent,
             query_understanding=query_understanding,
+            execution_mode=execution_mode,
             active_skill=active_skill,
             tool_input=tool_input,
             structured_binding=structured_binding,
@@ -99,24 +148,73 @@ class QueryPlanner:
         self,
         *,
         history: list[dict[str, Any]],
-        subqueries: list[str],
+        subtasks: list[SubtaskPlan],
         root_execution: QueryExecutionPlan,
     ) -> list[QueryExecutionPlan]:
         executions: list[QueryExecutionPlan] = []
         authority_context = self._authoritative_context_from_execution(root_execution)
-        for subquery in subqueries:
+        for subtask in subtasks:
             execution = self._build_execution(
-                message=subquery,
+                message=subtask.execution_message,
                 history=history,
                 ephemeral_system_messages=root_execution.ephemeral_system_messages,
                 authority_context=authority_context,
             )
+            executions.append(self._attach_subtask_metadata(execution, subtask))
+            authority_context = self._merge_authoritative_context(
+                authority_context,
+                self._authoritative_context_from_execution(execution),
+            )
+        return executions
+
+    def _build_bundle_executions(
+        self,
+        *,
+        history: list[dict[str, Any]],
+        bundle_plan: BundlePlan,
+        root_execution: QueryExecutionPlan,
+    ) -> list[QueryExecutionPlan]:
+        executions: list[QueryExecutionPlan] = []
+        authority_context = self._authoritative_context_from_execution(root_execution)
+        for item in bundle_plan.items:
+            execution = self._build_execution(
+                message=item.execution_message,
+                history=history,
+                ephemeral_system_messages=root_execution.ephemeral_system_messages,
+                authority_context=authority_context,
+            )
+            execution = self._attach_bundle_metadata(execution, bundle_plan, item)
             executions.append(execution)
             authority_context = self._merge_authoritative_context(
                 authority_context,
                 self._authoritative_context_from_execution(execution),
             )
         return executions
+
+    def _attach_subtask_metadata(
+        self,
+        execution: QueryExecutionPlan,
+        subtask: SubtaskPlan,
+    ) -> QueryExecutionPlan:
+        execution.subtask_id = subtask.subtask_id
+        execution.subtask_goal = subtask.goal
+        execution.subtask_title = subtask.user_visible_title
+        execution.subtask_refs = dict(subtask.refs)
+        execution.subtask_depends_on = list(subtask.depends_on)
+        execution.subtask_origin = subtask.origin
+        return execution
+
+    def _attach_bundle_metadata(
+        self,
+        execution: QueryExecutionPlan,
+        bundle_plan: BundlePlan,
+        item: BundleItemPlan,
+    ) -> QueryExecutionPlan:
+        execution.bundle_id = bundle_plan.bundle_id
+        execution.bundle_item_id = item.item_id
+        execution.bundle_item_index = item.index
+        execution.bundle_origin = item.origin
+        return execution
 
     def _resolve_active_skill(
         self,

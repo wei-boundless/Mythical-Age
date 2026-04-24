@@ -14,7 +14,7 @@ def test_answer_assembler_prefers_summary_and_dedupes() -> None:
     assembler = AnswerAssembler()
     main_context = MainContextState(
         active_goal="compound",
-        active_work_item="compound_query",
+        active_work_item="explicit_fanout",
         active_constraints={"dedupe": True},
     )
     results = [
@@ -45,7 +45,7 @@ def test_answer_assembler_prefers_summary_and_dedupes() -> None:
 
 def test_answer_assembler_compresses_one_sentence_segments() -> None:
     assembler = AnswerAssembler()
-    main_context = MainContextState(active_goal="compound", active_work_item="compound_query")
+    main_context = MainContextState(active_goal="compound", active_work_item="explicit_fanout")
     results = [
         {
             "index": 3,
@@ -133,7 +133,7 @@ def test_answer_assembler_never_falls_back_to_raw_content() -> None:
 
 def test_answer_assembler_records_summary_source_ref() -> None:
     assembler = AnswerAssembler()
-    main_context = MainContextState(active_goal="compound", active_work_item="compound_query")
+    main_context = MainContextState(active_goal="compound", active_work_item="explicit_fanout")
     results = [
         {
             "index": 1,
@@ -176,7 +176,7 @@ def test_answer_assembler_renders_single_followup_segment_without_numbered_wrapp
 
 def test_answer_assembler_only_applies_one_sentence_to_segment_local_style() -> None:
     assembler = AnswerAssembler()
-    main_context = MainContextState(active_goal="compound", active_work_item="compound_query")
+    main_context = MainContextState(active_goal="compound", active_work_item="explicit_fanout")
     results = [
         {
             "index": 1,

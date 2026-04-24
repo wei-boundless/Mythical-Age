@@ -62,11 +62,29 @@ class _SessionStateStub:
         self.context_slots = SimpleNamespace(**defaults)
 
 
+class _ContextPackageStub:
+    def __init__(self, sections: dict[str, list[str]]) -> None:
+        self.sections = {name: list(items) for name, items in sections.items()}
+        self.model_visible_sections = {name: list(items) for name, items in sections.items()}
+        self.debug_sections = {name: list(items) for name, items in sections.items()}
+        self.selected_sections = [name for name, items in self.model_visible_sections.items() if items]
+        self.debug_selected_sections = [name for name, items in self.debug_sections.items() if items]
+
+    def sections_for(self, mode: str = "model") -> dict[str, list[str]]:
+        return self.debug_sections if mode == "debug" else self.model_visible_sections
+
+
 class _MemoryFacadeStub:
-    def __init__(self, *, session_state: _SessionStateStub | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        session_state: _SessionStateStub | None = None,
+        context_package: _ContextPackageStub | None = None,
+    ) -> None:
         self.prefetch_queries: list[str] = []
         self.persistent_queries: list[str] = []
         self._session_state = session_state or _SessionStateStub()
+        self._context_package = context_package
         self.session_memory = SimpleNamespace(
             manager=lambda _session_id: SimpleNamespace(load_state=lambda: self._session_state)
         )
@@ -78,7 +96,7 @@ class _MemoryFacadeStub:
         return {}
 
     def build_context_package(self, *_args, **_kwargs):
-        return None
+        return self._context_package
 
     def build_persistent_memory_block(self, *, query=None, **_kwargs):
         if isinstance(query, str) and query:
@@ -157,10 +175,11 @@ def _build_runtime(
     direct_tools: dict[str, object] | None = None,
     task_coordinator=None,
     session_state: _SessionStateStub | None = None,
+    context_package: _ContextPackageStub | None = None,
 ) -> tuple[QueryRuntime, _RetrievalStub, _ModelRuntimeStub, _MemoryFacadeStub]:
     retrieval = _RetrievalStub()
     model_runtime = _ModelRuntimeStub()
-    memory_facade = _MemoryFacadeStub(session_state=session_state)
+    memory_facade = _MemoryFacadeStub(session_state=session_state, context_package=context_package)
     runtime = QueryRuntime(
         base_dir=Path("."),
         settings_service=_SettingsStub(rag_mode=rag_mode),
@@ -177,24 +196,34 @@ def _build_runtime(
 
 
 async def _seed_compound_tasks(coordinator: TaskCoordinator) -> None:
+    bundle_id = "session-1-bundle-seeded"
     executions = [
         QueryExecutionPlan(
             message="总结 PDF 第三页",
             history=[],
             memory_intent=MemoryIntent(),
             query_understanding=QueryUnderstanding(route="tool", tool_name="pdf_analysis", task_kind="pdf_followup_query"),
+            bundle_id=bundle_id,
+            bundle_item_id=f"{bundle_id}-item-1",
+            bundle_item_index=1,
         ),
         QueryExecutionPlan(
             message="给我 inventory.xlsx 里最缺货的前三个仓库",
             history=[],
             memory_intent=MemoryIntent(),
             query_understanding=QueryUnderstanding(route="tool", tool_name="structured_data_analysis", task_kind="structured_followup_query"),
+            bundle_id=bundle_id,
+            bundle_item_id=f"{bundle_id}-item-2",
+            bundle_item_index=2,
         ),
         QueryExecutionPlan(
             message="补一句北京天气",
             history=[],
             memory_intent=MemoryIntent(),
             query_understanding=QueryUnderstanding(route="tool", tool_name="get_weather", task_kind="weather_query"),
+            bundle_id=bundle_id,
+            bundle_item_id=f"{bundle_id}-item-3",
+            bundle_item_index=3,
         ),
     ]
 
@@ -205,14 +234,51 @@ async def _seed_compound_tasks(coordinator: TaskCoordinator) -> None:
         pass
 
 
+async def _seed_session_summary_tasks(coordinator: TaskCoordinator) -> None:
+    await coordinator.run_tool_task(
+        "session-1",
+        "pdf_analysis",
+        lambda: asyncio.sleep(0, result={"answer": "answer for 总结 PDF 第三页"}),
+        query="总结 PDF 第三页",
+        tool_input={"query": "总结 PDF 第三页", "path": "knowledge/report.pdf", "mode": "page"},
+        task_kind="pdf",
+    )
+    await coordinator.run_tool_task(
+        "session-1",
+        "structured_data_analysis",
+        lambda: asyncio.sleep(0, result={"answer": "answer for 给我 inventory.xlsx 里最缺货的前三个仓库"}),
+        query="给我 inventory.xlsx 里最缺货的前三个仓库",
+        tool_input={
+            "query": "给我 inventory.xlsx 里最缺货的前三个仓库",
+            "path": "knowledge/E-commerce Data/inventory.xlsx",
+        },
+        task_kind="structured_data",
+    )
+    await coordinator.run_tool_task(
+        "session-1",
+        "get_weather",
+        lambda: asyncio.sleep(0, result={"answer": "answer for 补一句北京天气"}),
+        query="补一句北京天气",
+        tool_input={"query": "补一句北京天气", "location": "北京"},
+        task_kind="weather",
+    )
+
+
 async def _collect_events(
     plan: QueryPlan,
     *,
     rag_mode: bool,
     direct_tools: dict[str, object] | None = None,
     use_execution_events: bool = False,
+    task_coordinator=None,
+    context_package: _ContextPackageStub | None = None,
 ) -> tuple[list[dict[str, object]], _RetrievalStub, _ModelRuntimeStub, _MemoryFacadeStub]:
-    runtime, retrieval, model_runtime, memory_facade = _build_runtime(rag_mode=rag_mode, direct_tools=direct_tools)
+    runtime, retrieval, model_runtime, memory_facade = _build_runtime(
+        rag_mode=rag_mode,
+        direct_tools=direct_tools,
+        task_coordinator=task_coordinator,
+        context_package=context_package,
+    )
     runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
 
     events: list[dict[str, object]] = []
@@ -247,6 +313,75 @@ def test_memory_route_disables_tools() -> None:
     assert memory_facade.prefetch_queries == []
     assert model_runtime.last_tools == []
     assert not any(event.get("type") == "tool_start" for event in events)
+
+
+def test_session_summary_route_uses_structured_ledger_and_clears_runtime_hot_window() -> None:
+    coordinator = TaskCoordinator()
+    asyncio.run(_seed_session_summary_tasks(coordinator))
+    context_package = _ContextPackageStub(
+        {
+            "active_process_context": ["# Active Goal\n- 回到 inventory.xlsx，哪个仓库最该先补货？"],
+            "hot_truth_window": ["user: 回到 inventory.xlsx，哪个仓库最该先补货？"],
+            "warm_snapshots": ["old snapshot"],
+            "retrieval_evidence": ["old retrieval"],
+            "exact_durable_context": [],
+            "relevant_durable_context": [],
+            "static_context": [],
+        }
+    )
+    history = [
+        {"role": "user", "content": "记住：回答复杂问题先给结论。"},
+        {"role": "assistant", "content": "我记住了。"},
+        {"role": "assistant", "content": "之前的局部任务结果。"},
+    ]
+    plan = QueryPlan(
+        session_id="session-1",
+        message="最后给我一个总总结，按 PDF、数据、实时、长期记忆四段组织，而且先给结论。",
+        history=history,
+        subqueries=["最后给我一个总总结，按 PDF、数据、实时、长期记忆四段组织，而且先给结论。"],
+        memory_intent=MemoryIntent(intent="durable_memory_query", memory_read_mode="durable_exact", should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="session_summary_query",
+            route="memory",
+            task_kind="session_summary",
+            modality="memory",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+
+    events, _retrieval, model_runtime, _memory_facade = asyncio.run(
+        _collect_events(
+            plan,
+            rag_mode=False,
+            task_coordinator=coordinator,
+            context_package=context_package,
+        )
+    )
+
+    stream_messages = list(getattr(model_runtime, "_recorder", {}).get("last_stream_payload", {}).get("messages", []))
+    system_text = "\n\n".join(message["content"] for message in stream_messages if message["role"] == "system")
+    non_system_messages = [message for message in stream_messages if message["role"] != "system"]
+
+    assert "## Session Recap Ledger" in system_text
+    assert "### PDF" in system_text
+    assert "### 数据" in system_text
+    assert "### 实时" in system_text
+    assert "### 长期记忆" in system_text
+    assert "总结 PDF 第三页" in system_text
+    assert "inventory.xlsx 里最缺货的前三个仓库" in system_text
+    assert "补一句北京天气" in system_text
+    assert "记住：回答复杂问题先给结论。" in system_text
+    assert "回到 inventory.xlsx，哪个仓库最该先补货？" not in system_text
+    assert "old retrieval" not in system_text
+    assert not any(message["role"] == "assistant" for message in non_system_messages)
+    assert non_system_messages == [
+        {
+            "role": "user",
+            "content": "最后给我一个总总结，按 PDF、数据、实时、长期记忆四段组织，而且先给结论。",
+        }
+    ]
+    assert events[-1]["content"] == "route-safe answer"
 
 
 def test_direct_tool_pdf_without_path_is_blocked_by_contract_gate() -> None:
@@ -720,11 +855,12 @@ def test_execution_events_reuses_built_plan_for_subtasks() -> None:
         subqueries=["a", "b"],
         memory_intent=MemoryIntent(),
         query_understanding=QueryUnderstanding(
-            intent="general_query",
-            route="rag",
+            intent="explicit_fanout_query",
+            route="explicit_fanout",
             modality="general",
             should_skip_rag=False,
         ),
+        execution_mode="explicit_fanout",
         active_skill=None,
         executions=[execution_a, execution_b],
     )
@@ -753,7 +889,7 @@ def test_execution_events_reuses_built_plan_for_subtasks() -> None:
     assert all(isinstance(event.get("result_ref"), dict) for event in subtask_end)
     assert events[-1]["type"] == "done"
     assert isinstance(events[-1].get("main_context"), dict)
-    assert events[-1]["main_context"]["active_work_item"] == "compound_query"
+    assert events[-1]["main_context"]["active_work_item"] == "explicit_fanout"
     assert "1. a" in str(events[-1]["content"])
     assert "2. b" in str(events[-1]["content"])
 
@@ -810,7 +946,7 @@ def test_followup_task_ref_is_answered_without_replanning() -> None:
     assert model_runtime.last_tools == []
     assert [event["type"] for event in events] == ["done"]
     done = events[0]
-    assert done["main_context"]["active_work_item"] == "followup_task_result_assembly"
+    assert done["main_context"]["active_work_item"] == "followup_bundle_item_result"
     assert done["main_context"]["followup_target_task_ids"] == ["session-1-subtask-2"]
     assert "inventory.xlsx" in str(done["content"])
 
@@ -1445,6 +1581,89 @@ def test_runtime_memory_visible_gate_keeps_stable_memory_answer() -> None:
     assert done["answer_source"] == "segment.visible_text"
     assert done["answer_fallback_reason"] == ""
     assert "收紧 follow-up 边界" in str(done["content"])
+
+
+def test_runtime_durable_memory_write_uses_direct_ack_and_skips_model() -> None:
+    plan = QueryPlan(
+        session_id="durable-memory-write-direct",
+        message="记住：回答我时可以直接称呼我岩。",
+        history=[
+            {"role": "user", "content": "回到 report.pdf 第二部分，继续分析约束重点。"},
+            {"role": "assistant", "content": "第二部分主要收紧了模型部署和审计要求。"},
+        ],
+        subqueries=["记住：回答我时可以直接称呼我岩。"],
+        memory_intent=MemoryIntent(
+            intent="durable_memory_statement",
+            memory_write_mode="durable_fact",
+            should_skip_rag=True,
+            explicit_write_request=True,
+        ),
+        query_understanding=QueryUnderstanding(
+            intent="durable_memory_statement",
+            route="memory",
+            modality="memory",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_channel"] == "answer_candidate"
+    assert done["answer_source"] == "memory_write_ack"
+    assert done["answer_fallback_reason"] == ""
+    assert "长期记忆保留" in str(done["content"])
+    assert "称呼我岩" in str(done["content"])
+    assert not hasattr(model_runtime, "_recorder")
+
+
+def test_runtime_durable_memory_query_drops_prior_history_from_model_payload() -> None:
+    plan = QueryPlan(
+        session_id="durable-memory-query-isolated",
+        message="你刚才帮我长期记住了什么？",
+        history=[
+            {"role": "user", "content": "回到 report.pdf 第二部分，继续分析约束重点。"},
+            {"role": "assistant", "content": "第二部分主要收紧了模型部署和审计要求。"},
+        ],
+        subqueries=["你刚才帮我长期记住了什么？"],
+        memory_intent=MemoryIntent(
+            intent="durable_memory_query",
+            memory_read_mode="durable_exact",
+            should_skip_rag=True,
+            explicit_read_inventory=True,
+        ),
+        query_understanding=QueryUnderstanding(
+            intent="durable_memory_query",
+            route="memory",
+            modality="memory",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    asyncio.run(_run())
+    payload = model_runtime._recorder["last_stream_payload"]
+    messages = list(payload["messages"])
+
+    assert messages[-1] == {"role": "user", "content": "你刚才帮我长期记住了什么？"}
+    assert not any("report.pdf" in str(item.get("content", "")) for item in messages[:-1])
 
 
 def test_runtime_rag_answer_finalizer_rewrites_missing_answer_from_evidence_pack() -> None:

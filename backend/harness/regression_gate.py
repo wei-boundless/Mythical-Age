@@ -54,7 +54,7 @@ CORE_TARGETS: tuple[RegressionTarget, ...] = (
 FULL_ONLY_TARGETS: tuple[RegressionTarget, ...] = (
     RegressionTarget("tests/skills_registry_regression.py", "routing", "skill metadata registry"),
     RegressionTarget("tests/task_understanding_regression.py", "routing", "task understanding"),
-    RegressionTarget("tests/compound_query_regression.py", "tasks", "compound query fan-out"),
+    RegressionTarget("tests/subtask_planner_contract_regression.py", "tasks", "explicit subtask planner contract"),
     RegressionTarget("tests/memory_facade_regression.py", "memory", "memory facade"),
     RegressionTarget("tests/memory_layering_regression.py", "memory", "memory layering"),
     RegressionTarget("tests/memory_partition_regression.py", "memory", "memory partition"),

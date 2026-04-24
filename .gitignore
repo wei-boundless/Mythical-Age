@@ -2,10 +2,14 @@
 .pytest_cache/
 .vscode/
 output/
+.playwright-cli/
+scifact/
 frontend/node_modules/
 frontend/.next/
 backend/.env
-backend/durable_memory/*.md
+backend/session-memory/
+backend/durable_memory/**/*.md
 !backend/durable_memory/SCHEMA.md
+!backend/durable_memory/meta/SCHEMA.md
 *.pyc
 *.pyo

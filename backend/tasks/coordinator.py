@@ -327,6 +327,8 @@ class TaskCoordinator:
         session_id: str,
         executions: list[Any],
         runner: Callable[[Any], AsyncIterator[dict[str, object]]],
+        *,
+        subtasks: list[Any] | None = None,
     ) -> AsyncIterator[dict[str, object]]:
         parent_query_id = f"{session_id}-query-{len(self._tasks) + 1}"
         start_index = self._next_query_subtask_index(session_id)
@@ -334,7 +336,61 @@ class TaskCoordinator:
             index = start_index + offset
             subquery = execution.message
             structured_binding = getattr(execution, "structured_binding", None)
+            query_understanding = getattr(execution, "query_understanding", None)
+            tool_name = str(getattr(query_understanding, "tool_name", "") or "").strip()
+            task_kind = str(getattr(query_understanding, "task_kind", "") or "").strip()
+            tool_input = dict(
+                getattr(execution, "tool_input", {})
+                or getattr(query_understanding, "tool_input", {})
+                or {}
+            )
+            subtask = subtasks[offset] if subtasks is not None and offset < len(subtasks) else None
+            subtask_metadata = {
+                "subtask_plan_id": str(
+                    getattr(subtask, "subtask_id", "")
+                    or getattr(execution, "subtask_id", "")
+                    or f"subtask-{index}"
+                ),
+                "goal": str(getattr(subtask, "goal", "") or getattr(execution, "subtask_goal", "") or subquery),
+                "title": str(
+                    getattr(subtask, "user_visible_title", "")
+                    or getattr(execution, "subtask_title", "")
+                    or subquery
+                ),
+                "refs": dict(getattr(subtask, "refs", None) or getattr(execution, "subtask_refs", {}) or {}),
+                "depends_on": list(
+                    getattr(subtask, "depends_on", None) or getattr(execution, "subtask_depends_on", []) or []
+                ),
+                "origin": str(getattr(subtask, "origin", "") or getattr(execution, "subtask_origin", "") or "planner"),
+            }
+            bundle_item_metadata = {
+                "bundle_id": str(getattr(execution, "bundle_id", "") or "").strip(),
+                "bundle_item_id": str(getattr(execution, "bundle_item_id", "") or "").strip(),
+                "bundle_item_index": int(getattr(execution, "bundle_item_index", 0) or 0),
+                "bundle_origin": str(getattr(execution, "bundle_origin", "") or "").strip(),
+            }
             task = self._query_task(session_id, subquery, index, parent_query_id)
+            task.metadata["subtask_plan"] = subtask_metadata
+            if bundle_item_metadata["bundle_id"]:
+                task.metadata["bundle_item"] = dict(bundle_item_metadata)
+                task.metadata["bundle_id"] = bundle_item_metadata["bundle_id"]
+                task.metadata["bundle_item_id"] = bundle_item_metadata["bundle_item_id"]
+                task.metadata["bundle_item_index"] = bundle_item_metadata["bundle_item_index"]
+            if task.context_ref is not None and bundle_item_metadata["bundle_id"]:
+                task.context_ref.bundle_id = bundle_item_metadata["bundle_id"]
+                task.context_ref.bundle_item_id = bundle_item_metadata["bundle_item_id"]
+                task.context_ref.bundle_item_index = bundle_item_metadata["bundle_item_index"]
+                task.context_ref.bundle_origin = bundle_item_metadata["bundle_origin"]
+            if tool_name:
+                task.metadata["tool_name"] = tool_name
+                self._apply_direct_tool_context(
+                    task=task,
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    structured_binding=structured_binding,
+                    task_kind=task_kind,
+                    constraints=(task.context_ref.constraints if task.context_ref is not None else None),
+                )
             if structured_binding is not None:
                 task.metadata["structured_binding"] = structured_binding.to_dict()
                 if task.context_ref is not None:
@@ -353,12 +409,14 @@ class TaskCoordinator:
             task.mark_running()
             if task.context_ref is not None:
                 task.context_ref.status = "running"
-            task.add_event("subtask_start", payload={"index": index, "query": subquery})
+            task.add_event("subtask_start", payload={"index": index, "query": subquery, **subtask_metadata})
             yield {
                 "type": "subtask_start",
                 "index": index,
                 "query": subquery,
                 "task_id": task.task_id,
+                "subtask_plan": subtask_metadata,
+                "bundle_item": dict(bundle_item_metadata) if bundle_item_metadata["bundle_id"] else None,
                 "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
                 "structured_binding": structured_binding.to_dict() if structured_binding is not None else None,
             }
@@ -376,6 +434,9 @@ class TaskCoordinator:
                     forwarded["subtask_index"] = index
                     forwarded["subtask_query"] = subquery
                     forwarded["task_id"] = task.task_id
+                    forwarded["subtask_plan"] = subtask_metadata
+                    if bundle_item_metadata["bundle_id"]:
+                        forwarded["bundle_item"] = dict(bundle_item_metadata)
                     if structured_binding is not None:
                         forwarded["structured_binding"] = structured_binding.to_dict()
                     task.add_event(event_type or "event", payload=forwarded)
@@ -404,6 +465,8 @@ class TaskCoordinator:
                     "index": index,
                     "query": subquery,
                     "content": final_subcontent,
+                    "subtask_plan": subtask_metadata,
+                    "bundle_item": dict(bundle_item_metadata) if bundle_item_metadata["bundle_id"] else None,
                     "summary": task.summary.to_dict() if task.summary is not None else None,
                     "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
                     "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
@@ -416,6 +479,8 @@ class TaskCoordinator:
                 "query": subquery,
                 "content": final_subcontent,
                 "task_id": task.task_id,
+                "subtask_plan": subtask_metadata,
+                "bundle_item": dict(bundle_item_metadata) if bundle_item_metadata["bundle_id"] else None,
                 "summary": task.summary.to_dict() if task.summary is not None else None,
                 "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
                 "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,

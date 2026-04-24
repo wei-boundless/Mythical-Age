@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import json
 import logging
@@ -41,7 +42,7 @@ from tasks.context_models import TaskConstraints
 from tasks.coordinator import TaskCoordinator
 from tools.contracts import ToolContractDecision, ToolContractGate
 from tools.definitions import get_tool_definition_map
-from understanding import MemoryIntent, QueryUnderstanding
+from understanding import MemoryIntent, QueryUnderstanding, analyze_memory_intent, evaluate_memory_write
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +170,49 @@ class QueryRuntime:
             active_skill=self._render_active_skill_prompt(active_skill),
         )
 
+    async def _abuild_system_prompt_for_execution(
+        self,
+        *,
+        session_id: str,
+        execution: QueryExecutionPlan,
+        retrieval_results: list[dict[str, Any]] | None = None,
+        relevant_memory_notes: list[Any] | None = None,
+    ) -> str:
+        context_package = self.memory_facade.build_context_package(
+            session_id,
+            history=execution.history,
+            pending_user_message=execution.message,
+            memory_intent=execution.memory_intent,
+            relevant_notes=relevant_memory_notes,
+            retrieval_results=retrieval_results,
+            rebuild_reason="prompt_assembly",
+        )
+        if self._is_session_summary_execution(execution):
+            context_package = self._filter_runtime_sections_from_context_package(context_package)
+
+        async_builder = getattr(self.memory_facade, "abuild_persistent_memory_block", None)
+        if callable(async_builder):
+            persistent_memory = await async_builder(
+                query=execution.message,
+                memory_intent=execution.memory_intent,
+                relevant_notes=relevant_memory_notes,
+            )
+        else:
+            persistent_memory = self.memory_facade.build_persistent_memory_block(
+                query=execution.message,
+                memory_intent=execution.memory_intent,
+                relevant_notes=relevant_memory_notes,
+            )
+
+        return build_system_prompt(
+            self.base_dir,
+            self.settings_service.get_rag_mode(),
+            persistent_memory=persistent_memory,
+            session_memory=None,
+            context_package=context_package,
+            active_skill=self._render_active_skill_prompt(execution.active_skill),
+        )
+
     def _render_active_skill_prompt(self, active_skill: SkillDefinition | None) -> str | None:
         if active_skill is None:
             return None
@@ -213,6 +257,7 @@ class QueryRuntime:
                     request.message,
                     history,
                     ephemeral_system_messages=request.ephemeral_system_messages,
+                    explicit_subtasks=request.explicit_subtasks,
                     trace=trace,
                 ):
                     event_type = event["type"]
@@ -300,6 +345,7 @@ class QueryRuntime:
         history: list[dict[str, Any]],
         *,
         ephemeral_system_messages: list[str] | None = None,
+        explicit_subtasks: list[dict[str, Any]] | None = None,
         trace=None,
     ):
         authority_context = self._load_session_authoritative_context(session_id)
@@ -383,6 +429,7 @@ class QueryRuntime:
                     history=history,
                     ephemeral_system_messages=ephemeral_system_messages,
                     authority_context=authority_context,
+                    explicit_subtasks=explicit_subtasks,
                 )
         else:
             plan = self._planner_build_plan(
@@ -391,18 +438,21 @@ class QueryRuntime:
                 history=history,
                 ephemeral_system_messages=ephemeral_system_messages,
                 authority_context=authority_context,
+                explicit_subtasks=explicit_subtasks,
             )
         executions = plan.iter_executions()
         if trace is not None:
             trace.annotate(
                 {
                     "app.route": plan.query_understanding.route,
+                    "app.execution_mode": str(getattr(plan, "execution_mode", "") or ""),
                     "app.execution_posture": str(getattr(plan.query_understanding, "execution_posture", "") or ""),
                     "app.direct_route_reason": str(getattr(plan.query_understanding, "direct_route_reason", "") or ""),
                     "app.tool_name": plan.query_understanding.tool_name or "",
                     "app.skill_name": plan.query_understanding.skill_name or "",
                     "app.bound_candidate_tools": ",".join(list(getattr(plan.query_understanding, "candidate_tools", []) or [])),
                     "app.subquery_count": len(executions),
+                    "app.bundle_item_count": len(list(getattr(getattr(plan, "bundle_plan", None), "items", []) or [])),
                 }
             )
         if self._should_execute_binding_followup(
@@ -419,12 +469,23 @@ class QueryRuntime:
             ):
                 yield event
             return
-        if len(executions) > 1:
+        if str(getattr(plan, "execution_mode", "") or "") == "bundle_execution":
+            async for event in self._stream_bundle_execution(
+                session_id=session_id,
+                message=message,
+                executions=executions,
+                plan=plan,
+                trace=trace,
+            ):
+                yield event
+            return
+        if str(getattr(plan, "execution_mode", "") or "") == "explicit_fanout":
             subtask_results: list[dict[str, object]] = []
             async for event in self.task_coordinator.run_query_tasks(
                 session_id,
                 executions,
                 lambda execution: self._stream_planned_execution(session_id, execution, trace=trace),
+                subtasks=plan.subtasks,
             ):
                 if event.get("type") == "subtask_end":
                     subtask_results.append(dict(event))
@@ -445,6 +506,42 @@ class QueryRuntime:
 
         async for event in self._stream_planned_execution(session_id, executions[0], trace=trace):
             yield event
+
+    async def _stream_bundle_execution(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        executions: list[QueryExecutionPlan],
+        plan: QueryPlan,
+        trace=None,
+    ):
+        bundle_results: list[dict[str, object]] = []
+        async for event in self.task_coordinator.run_query_tasks(
+            session_id,
+            executions,
+            lambda execution: self._stream_planned_execution(session_id, execution, trace=trace),
+            subtasks=None,
+        ):
+            if event.get("type") == "subtask_end":
+                bundle_results.append(dict(event))
+            yield event
+        main_context = self._build_bundle_main_context(
+            message,
+            bundle_results,
+            bundle_plan=plan.bundle_plan,
+        )
+        task_summary_refs = self._task_summary_refs_from_results(bundle_results)
+        yield {
+            "type": "done",
+            "content": self._assemble_subtask_results(bundle_results, main_context=main_context),
+            "main_context": main_context.to_dict(),
+            "task_summary_refs": [item.to_dict() for item in task_summary_refs],
+            "answer_channel": "answer_candidate",
+            "answer_source": "answer_assembler",
+            "answer_fallback_reason": "",
+            "answer_leak_flags": [],
+        }
 
     async def _stream_single_execution(
         self,
@@ -566,20 +663,53 @@ class QueryRuntime:
             )
             yield {"type": "memory_context", "memory": memory_trace}
 
+            if self._should_isolate_augmented_history(execution):
+                context.augmented_history = []
+
+            if self._is_session_summary_execution(execution):
+                session_summary_guide = self._build_session_summary_instruction_block(
+                    session_id=session_id,
+                    history=execution.history,
+                )
+                if session_summary_guide:
+                    context.ephemeral_system_messages.append(session_summary_guide)
+
+            if self._should_handle_memory_write_directly(execution):
+                final_content = self._build_memory_write_acknowledgement(execution.message)
+                if trace is not None:
+                    trace.annotate(
+                        {
+                            "app.answer_chars": len(final_content),
+                            "app.answer_channel": "answer_candidate",
+                            "app.answer_source": "memory_write_ack",
+                            "app.answer_fallback_reason": "",
+                            "app.output_leak_flags": "",
+                            "app.tool_receipt_count": 0,
+                        }
+                    )
+                yield {
+                    "type": "done",
+                    "content": final_content,
+                    "main_context": context.main_context.to_dict(),
+                    "task_summary_refs": [],
+                    "answer_channel": "answer_candidate",
+                    "answer_source": "memory_write_ack",
+                    "answer_fallback_reason": "",
+                    "answer_leak_flags": [],
+                }
+                return
+
             allowed_names = self._allowed_tool_names_for_execution(execution)
             tools = [
                 tool
                 for tool in self.tool_runtime.instances
                 if getattr(tool, "name", "") in allowed_names
             ]
-            system_prompt = await self.abuild_system_prompt_for_session(
-                session_id,
-                history=execution.history,
-                pending_user_message=execution.message,
-                memory_intent=execution.memory_intent,
-                relevant_memory_notes=context.relevant_memory_notes,
-                active_skill=execution.active_skill,
+            system_prompt = await self._abuild_system_prompt_for_execution(
+                session_id=session_id,
+                execution=execution,
                 retrieval_results=context.retrieval_results,
+                relevant_memory_notes=context.relevant_memory_notes,
             )
             agent = self.model_runtime.create_conversation_agent(
                 system_prompt=system_prompt,
@@ -816,6 +946,7 @@ class QueryRuntime:
         history: list[dict[str, Any]],
         ephemeral_system_messages: list[str] | None = None,
         authority_context: dict[str, Any] | None,
+        explicit_subtasks: list[dict[str, Any]] | None = None,
     ) -> QueryPlan:
         try:
             parameters = inspect.signature(self.planner.build_plan).parameters
@@ -830,6 +961,8 @@ class QueryRuntime:
             kwargs["ephemeral_system_messages"] = ephemeral_system_messages
         if "authority_context" in parameters:
             kwargs["authority_context"] = authority_context
+        if "explicit_subtasks" in parameters:
+            kwargs["explicit_subtasks"] = explicit_subtasks
         return self.planner.build_plan(**kwargs)
 
     def _build_agent_messages(self, context: QueryContext) -> list[dict[str, str]]:
@@ -897,7 +1030,7 @@ class QueryRuntime:
         constraints = self._extract_active_constraints(message)
         return MainContextState(
             active_goal=message.strip(),
-            active_work_item="compound_query",
+            active_work_item="explicit_fanout",
             active_binding_identity=self._binding_identity_from_constraints(
                 self._merge_constraints_from_results(constraints, results)
             ),
@@ -907,6 +1040,20 @@ class QueryRuntime:
             latest_correction=self._extract_latest_correction(message),
             next_step="follow_up_or_refine_subtask_results",
         )
+
+    def _build_bundle_main_context(
+        self,
+        message: str,
+        results: list[dict[str, object]],
+        *,
+        bundle_plan=None,
+    ) -> MainContextState:
+        main_context = self._build_compound_main_context(message, results)
+        main_context.active_work_item = "bundle_execution"
+        main_context.next_step = "follow_up_or_refine_bundle_results"
+        if bundle_plan is not None:
+            main_context.followup_mode = "bundle_ref"
+        return main_context
 
     def _build_direct_tool_main_context(
         self,
@@ -947,8 +1094,12 @@ class QueryRuntime:
         target_task_ids = self._resolved_task_ids(followup_resolution)
         target_task_id = self._resolved_task_id(followup_resolution) or (target_task_ids[0] if target_task_ids else "")
         work_item = "followup_task_result_assembly"
-        if followup_resolution.mode == "compound_subset":
-            work_item = "followup_task_subset_assembly"
+        if followup_resolution.mode == "explicit_fanout_subset":
+            work_item = "followup_explicit_fanout_subset_assembly"
+        elif followup_resolution.mode == "bundle_subset":
+            work_item = "followup_bundle_subset_assembly"
+        elif followup_resolution.mode == "bundle_item_ref":
+            work_item = "followup_bundle_item_result"
         elif followup_resolution.mode == "binding_ref":
             work_item = "followup_task_binding_execution"
         merged_constraints = self._merge_constraints_from_results(constraints, results)
@@ -1269,7 +1420,7 @@ class QueryRuntime:
     ) -> bool:
         if not results:
             return False
-        if followup_resolution.mode not in {"task_ref", "compound_subset"}:
+        if followup_resolution.mode not in {"task_ref", "explicit_fanout_subset", "bundle_item_ref", "bundle_subset"}:
             return False
         return bool(message.strip())
 
@@ -1278,7 +1429,7 @@ class QueryRuntime:
         session_id: str,
         followup_resolution,
     ) -> list[dict[str, object]]:
-        if followup_resolution.mode not in {"task_ref", "compound_subset"}:
+        if followup_resolution.mode not in {"task_ref", "explicit_fanout_subset", "bundle_item_ref", "bundle_subset"}:
             return []
         task_ids = self._resolved_task_ids(followup_resolution)
         if not task_ids and self._resolved_task_id(followup_resolution):
@@ -1301,7 +1452,12 @@ class QueryRuntime:
                 continue
             records.append(
                 {
-                    "index": int(task.metadata.get("subtask_index", 0) or len(records) + 1),
+                    "index": int(
+                        getattr(getattr(task, "context_ref", None), "bundle_item_index", 0)
+                        or task.metadata.get("bundle_item_index", 0)
+                        or task.metadata.get("subtask_index", 0)
+                        or len(records) + 1
+                    ),
                     "query": task.query,
                     "content": task.result,
                     "task_id": task.task_id,
@@ -1636,6 +1792,154 @@ class QueryRuntime:
             or getattr(followup_resolution, "binding_owner_task_id", "")
             or ""
         ).strip()
+
+    def _is_session_summary_execution(self, execution: QueryExecutionPlan) -> bool:
+        route = str(getattr(execution.query_understanding, "route", "") or "").strip()
+        task_kind = str(getattr(execution.query_understanding, "task_kind", "") or "").strip()
+        intent = str(getattr(execution.query_understanding, "intent", "") or "").strip()
+        return route == "memory" and (task_kind == "session_summary" or intent == "session_summary_query")
+
+    def _should_isolate_augmented_history(self, execution: QueryExecutionPlan) -> bool:
+        return self._should_isolate_explicit_durable_turn(execution) or self._is_session_summary_execution(execution)
+
+    def _filter_runtime_sections_from_context_package(self, context_package: Any) -> Any:
+        if context_package is None:
+            return None
+        filtered = copy.deepcopy(context_package)
+        runtime_sections = {
+            "active_process_context",
+            "hot_truth_window",
+            "warm_snapshots",
+            "retrieval_evidence",
+        }
+        for attr_name in ("sections", "model_visible_sections", "debug_sections"):
+            sections = getattr(filtered, attr_name, None)
+            if not isinstance(sections, dict):
+                continue
+            copied = {
+                str(name): ([] if str(name) in runtime_sections else list(items or []))
+                for name, items in sections.items()
+            }
+            setattr(filtered, attr_name, copied)
+        if hasattr(filtered, "selected_sections") and isinstance(filtered.model_visible_sections, dict):
+            filtered.selected_sections = [
+                name for name, items in filtered.model_visible_sections.items() if list(items or [])
+            ]
+        if hasattr(filtered, "debug_selected_sections") and isinstance(filtered.debug_sections, dict):
+            filtered.debug_selected_sections = [
+                name for name, items in filtered.debug_sections.items() if list(items or [])
+            ]
+        return filtered
+
+    def _build_session_summary_instruction_block(
+        self,
+        *,
+        session_id: str,
+        history: list[dict[str, Any]],
+    ) -> str:
+        tasks = [
+            task
+            for task in self.task_coordinator.list_tasks(session_id=session_id)
+            if str(getattr(task, "status", "") or "") == "completed" and getattr(task, "summary", None) is not None
+        ]
+        grouped: dict[str, list[str]] = {"PDF": [], "数据": [], "实时": []}
+        for task in tasks:
+            category = self._session_summary_category_for_task(task)
+            if category not in grouped:
+                continue
+            query = self._compact_session_summary_text(str(getattr(task, "query", "") or ""), limit=72)
+            summary = self._compact_session_summary_text(
+                str(getattr(getattr(task, "summary", None), "response", "") or ""),
+                limit=150,
+            )
+            if not query and not summary:
+                continue
+            if query and summary:
+                grouped[category].append(f"{query} -> {summary}")
+            else:
+                grouped[category].append(query or summary)
+
+        memory_events = self._session_summary_memory_events(history)
+        if not any(grouped.values()) and not memory_events:
+            return ""
+
+        lines = [
+            "## Session Recap Ledger",
+            "This turn is a session-wide recap request.",
+            "Summarize from the structured ledger below, not from the latest active goal, recent hot window, or stale flow state.",
+            "If a section has entries, it counts as involved. If a section has no stable entry, say 本轮未形成稳定结果 or 本轮未涉及. Do not invent execution, and do not say 正在查询 without a real result.",
+        ]
+        for title in ("PDF", "数据", "实时"):
+            lines.append("")
+            lines.append(f"### {title}")
+            entries = grouped[title][:4]
+            if entries:
+                lines.extend(f"- {entry}" for entry in entries)
+            else:
+                lines.append("- 本轮没有稳定记录。")
+
+        lines.append("")
+        lines.append("### 长期记忆")
+        if memory_events:
+            lines.extend(f"- {entry}" for entry in memory_events[:4])
+        else:
+            lines.append("- 本轮没有明确的长期记忆写入或回看记录。")
+        return "\n".join(lines).strip()
+
+    def _session_summary_category_for_task(self, task: Any) -> str:
+        context_ref = getattr(task, "context_ref", None)
+        bindings = getattr(context_ref, "bindings", None)
+        task_kind = str(getattr(context_ref, "task_kind", "") or "").strip().lower()
+        source_kind = str(getattr(bindings, "source_kind", "") or "").strip().lower()
+        if str(getattr(bindings, "active_pdf", "") or "").strip():
+            return "PDF"
+        if str(getattr(bindings, "active_dataset", "") or "").strip():
+            return "数据"
+        if str(getattr(bindings, "active_location", "") or "").strip():
+            return "实时"
+        if str(getattr(bindings, "active_entity", "") or "").strip() in {"黄金", "gold"}:
+            return "实时"
+        if source_kind == "pdf" or "pdf" in task_kind:
+            return "PDF"
+        if source_kind in {"dataset", "structured_data"} or task_kind in {"structured_data", "table"}:
+            return "数据"
+        if source_kind in {"weather", "finance", "realtime", "web"} or task_kind in {"weather", "finance", "realtime"}:
+            return "实时"
+        return "other"
+
+    def _session_summary_memory_events(self, history: list[dict[str, Any]]) -> list[str]:
+        events: list[str] = []
+        for index, item in enumerate(history):
+            if str(item.get("role", "") or "") != "user":
+                continue
+            content = str(item.get("content", "") or "").strip()
+            if not content:
+                continue
+            intent = analyze_memory_intent(content)
+            intent_name = str(getattr(intent, "intent", "") or "")
+            if intent_name not in {"durable_memory_statement", "durable_memory_query"}:
+                continue
+            label = "记忆写入" if intent_name == "durable_memory_statement" else "记忆回看"
+            user_line = self._compact_session_summary_text(content, limit=72)
+            assistant_line = ""
+            for candidate in history[index + 1 :]:
+                role = str(candidate.get("role", "") or "")
+                if role == "assistant":
+                    assistant_line = self._compact_session_summary_text(str(candidate.get("content", "") or ""), limit=110)
+                    break
+                if role == "user":
+                    break
+            if assistant_line:
+                events.append(f"{label}: {user_line} -> {assistant_line}")
+            else:
+                events.append(f"{label}: {user_line}")
+        return events
+
+    def _compact_session_summary_text(self, text: str, *, limit: int) -> str:
+        normalized = " ".join(str(text or "").split()).strip()
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[: max(0, limit - 3)].rstrip() + "..."
 
     def _extract_latest_correction(self, message: str) -> str:
         correction_markers = ("不对", "改成", "纠正", "不是", "更正")
@@ -2452,6 +2756,49 @@ class QueryRuntime:
                 "总结",
             )
         )
+
+    def _should_isolate_explicit_durable_turn(
+        self,
+        execution: QueryExecutionPlan,
+    ) -> bool:
+        intent_name = str(getattr(execution.memory_intent, "intent", "") or "").strip()
+        return intent_name in {"durable_memory_statement", "durable_memory_query"}
+
+    def _should_handle_memory_write_directly(
+        self,
+        execution: QueryExecutionPlan,
+    ) -> bool:
+        intent_name = str(getattr(execution.memory_intent, "intent", "") or "").strip()
+        write_mode = str(getattr(execution.memory_intent, "memory_write_mode", "") or "").strip()
+        return intent_name == "durable_memory_statement" and write_mode == "durable_fact"
+
+    def _build_memory_write_acknowledgement(self, message: str) -> str:
+        normalized = self._normalize_memory_write_statement(message)
+        decision = evaluate_memory_write(message)
+        if decision.action == "durable_fact":
+            if normalized:
+                return f"好，我会把这条作为长期记忆保留：{normalized}"
+            return "好，我会把这条作为长期记忆保留。"
+        if decision.action == "session_only":
+            if normalized:
+                return f"这条我会按当前会话记住，但不写入长期记忆：{normalized}"
+            return "这条我会按当前会话记住，但不写入长期记忆。"
+        if normalized:
+            return f"这条我不会写入长期记忆；它更适合作为当前会话约定或静态设定处理：{normalized}"
+        return "这条我不会写入长期记忆；它更适合作为当前会话约定或静态设定处理。"
+
+    def _normalize_memory_write_statement(self, message: str) -> str:
+        normalized = sanitize_visible_assistant_content(str(message or "")).strip()
+        if not normalized:
+            return ""
+        normalized = re.sub(
+            r"^(?:记住|记一下|别忘了|记到长期记忆|remember that|remember|don't forget)\s*[:：,，-]*\s*",
+            "",
+            normalized,
+            count=1,
+            flags=re.IGNORECASE,
+        ).strip()
+        return normalized
 
     def _build_pdf_answer_finalization_messages(
         self,

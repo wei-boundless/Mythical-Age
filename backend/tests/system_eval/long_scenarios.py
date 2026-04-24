@@ -237,9 +237,8 @@ COMPOUND_TASK_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "先总结 PDF 第三页，再给我 inventory.xlsx 里最缺货的前三个仓库，最后补一句北京天气。",
-        "plan.subqueries>=3",
-        "event=subtask_start",
-        "tasks>=3",
+        "plan.execution_mode=bundle_execution",
+        "plan.bundle_items=3",
         "response.nonempty",
     ),
     user(
@@ -491,9 +490,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。",
-        "plan.subqueries>=3",
-        "event=subtask_start",
-        "tasks>=3",
+        "plan.execution_mode=bundle_execution",
+        "plan.bundle_items=3",
         "response.nonempty",
     ),
     user("main", "只展开第二个子任务。", "response.nonempty"),

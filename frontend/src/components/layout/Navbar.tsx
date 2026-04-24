@@ -26,7 +26,7 @@ export function Navbar() {
           <div className="min-w-0">
             <p className="section-kicker">Mythic Local Agent Workbench</p>
             <h1 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-[var(--color-text)]">
-              河图工作台
+              山海—智能体
             </h1>
           </div>
         </div>

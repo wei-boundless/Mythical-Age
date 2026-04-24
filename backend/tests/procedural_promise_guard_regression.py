@@ -40,9 +40,36 @@ def test_persistence_gate_rewrites_no_receipt_query_promise() -> None:
     assert messages[0]["content"] == "当前还没有形成真实查询结果。"
 
 
+def test_output_boundary_strips_subtask_status_placeholder_without_receipt() -> None:
+    boundary = AssistantOutputBoundary()
+    content = (
+        "我来依次处理这三个任务。\n\n"
+        "结论先行：\n\n"
+        "1. PDF 第三页：需要您指定 PDF 文件。\n"
+        "2. 库存最缺货仓库：需要分析 inventory.xlsx 文件。\n"
+        "3. 北京天气：正在查询\n\n"
+        "让我先执行能做的部分："
+    )
+    boundary.ingest_ai_update(content, has_tool_calls=False)
+    boundary.finalize_segment(fallback_content=content)
+    response = boundary.build_response(
+        route="agent",
+        execution_posture="bounded_agent",
+        user_message="先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。",
+        tool_name="",
+        retrieval_results=[],
+    )
+
+    assert "北京天气：正在查询" not in response.canonical_answer
+    assert "让我先执行能做的部分" not in response.canonical_answer
+    assert "PDF 第三页：需要您指定 PDF 文件。" in response.canonical_answer
+    assert "库存最缺货仓库：需要分析 inventory.xlsx 文件。" in response.canonical_answer
+
+
 def main() -> None:
     test_output_boundary_rejects_no_receipt_query_promise()
     test_persistence_gate_rewrites_no_receipt_query_promise()
+    test_output_boundary_strips_subtask_status_placeholder_without_receipt()
     print("ALL PASSED (procedural promise guard regression)")
 
 

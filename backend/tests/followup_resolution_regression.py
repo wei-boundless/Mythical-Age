@@ -17,24 +17,37 @@ from understanding import MemoryIntent, QueryUnderstanding
 
 async def _seed_tasks() -> TaskCoordinator:
     coordinator = TaskCoordinator()
+    bundle_id = "session-1-bundle-seeded"
     executions = [
         QueryExecutionPlan(
             message="总结 knowledge/reports/AI治理报告.pdf 第三页",
             history=[],
             memory_intent=MemoryIntent(),
             query_understanding=QueryUnderstanding(route="tool", tool_name="pdf_analysis", task_kind="pdf_followup_query"),
+            bundle_id=bundle_id,
+            bundle_item_id=f"{bundle_id}-item-1",
+            bundle_item_index=1,
+            bundle_origin="test_seed",
         ),
         QueryExecutionPlan(
             message="给我 inventory.xlsx 最缺货的前三个仓库",
             history=[],
             memory_intent=MemoryIntent(),
             query_understanding=QueryUnderstanding(route="tool", tool_name="structured_data_analysis", task_kind="structured_followup_query"),
+            bundle_id=bundle_id,
+            bundle_item_id=f"{bundle_id}-item-2",
+            bundle_item_index=2,
+            bundle_origin="test_seed",
         ),
         QueryExecutionPlan(
             message="补一句北京天气",
             history=[],
             memory_intent=MemoryIntent(),
             query_understanding=QueryUnderstanding(route="tool", tool_name="get_weather", task_kind="weather_query"),
+            bundle_id=bundle_id,
+            bundle_item_id=f"{bundle_id}-item-3",
+            bundle_item_index=3,
+            bundle_origin="test_seed",
         ),
     ]
 
@@ -55,12 +68,15 @@ def test_followup_resolver_prefers_task_ref_for_ordinal_request() -> None:
         message="只展开第二个子任务，给我仓库和缺货量。",
     )
 
-    assert resolution.mode == "task_ref"
+    assert resolution.mode == "bundle_item_ref"
+    assert resolution.bundle_id
+    assert resolution.bundle_item_id
+    assert resolution.bundle_item_index == 2
     assert resolution.task_id.endswith("-subtask-2")
     assert resolution.task_ids == [resolution.task_id]
     assert resolution.resolved_task_id == resolution.task_id
     assert resolution.resolved_task_ids == resolution.task_ids
-    assert resolution.resolved_target_kind == "task"
+    assert resolution.resolved_target_kind == "bundle_item"
     assert resolution.resolved_task_kind == "structured_data"
     assert resolution.source_query == "给我 inventory.xlsx 最缺货的前三个仓库"
 
@@ -98,11 +114,13 @@ def test_followup_resolver_can_select_multiple_tasks_for_subset_request() -> Non
         message="把第一个和第三个子任务各压成一句话，不要重复第二个。",
     )
 
-    assert resolution.mode == "compound_subset"
+    assert resolution.mode == "bundle_subset"
+    assert resolution.bundle_id
+    assert len(resolution.bundle_item_ids) == 2
     assert resolution.task_ids == ["session-1-subtask-1", "session-1-subtask-3"]
     assert resolution.task_id == "session-1-subtask-1"
     assert resolution.resolved_task_ids == resolution.task_ids
-    assert resolution.resolved_target_kind == "task_subset"
+    assert resolution.resolved_target_kind == "bundle_subset"
 
 
 def test_followup_resolver_refuses_ambiguous_dataset_binding() -> None:

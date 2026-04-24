@@ -58,6 +58,10 @@ def test_memory_intent_routing() -> None:
     _assert(mainline_intent.intent == "memory_read_signal", "mainline query should become a weak durable-memory signal")
     _assert(mainline_intent.preferred_types == ["project"], "mainline query should prefer project durable notes")
 
+    mainline_write_intent = analyze_memory_intent("记住：我们项目当前主线是优化 Memory 和 RAG。")
+    _assert(mainline_write_intent.intent == "durable_memory_statement", "explicit remember statement should override semantic memory-read hints")
+    _assert(mainline_write_intent.memory_write_mode == "durable_fact", "explicit remember statement should stay on durable write path")
+
     pref_intent = analyze_memory_intent("你知道我喜欢你怎么回答吗？")
     _assert(pref_intent.intent == "memory_read_signal", "preference recall should become a weak durable-memory signal")
     _assert(pref_intent.preferred_memory_classes == ["preference"], "preference query should prefer preference memory")
@@ -492,7 +496,7 @@ def test_summary_first_durable_commit_uses_session_projection_and_blocks_task_lo
         task_session = "summary-first-durable-task"
         task_context = {
             "active_goal": "给我 inventory.xlsx 里最缺货的前三个仓库。",
-            "active_work_item": "compound_query",
+            "active_work_item": "explicit_fanout",
             "active_constraints": {"top_n": 3, "group_by": "仓库"},
             "next_step": "answer_current_request",
         }
@@ -692,7 +696,7 @@ def main() -> None:
         test_memory_manager_supersedes_conflicting_note_and_hides_old_one,
         test_memory_manager_governance_normalizes_instruction_wrapper_and_deprecates_duplicates,
         test_archived_durable_notes_are_hidden_from_runtime_reads,
-        test_durable_extraction_prefers_session_state_candidates,
+        test_durable_extraction_prefers_context_state_projection,
         test_summary_first_durable_commit_uses_session_projection_and_blocks_task_local_noise,
         test_explicit_durable_commit_filters_synthetic_state_noise_and_keeps_project_type,
         test_runtime_reads_hide_assistant_generated_memory_receipts,

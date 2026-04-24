@@ -232,16 +232,18 @@ def _run_inprocess_sse_smoke(artifact_dir: Path) -> ScenarioResult:
             created.raise_for_status()
             created_session_id = created.json()["id"]
 
+            request_started_at = iso_now()
             request_started = time.perf_counter()
-            response = client.post(
+            with client.stream(
+                "POST",
                 "/api/chat",
                 json={"message": "hello smoke", "session_id": created_session_id, "stream": True},
-            )
-            events, timing = collect_sse_events(
-                response,
-                request_start=request_started,
-                request_start_ts=started_at,
-            )
+            ) as response:
+                events, timing = collect_sse_events(
+                    response,
+                    request_start=request_started,
+                    request_start_ts=request_started_at,
+                )
         finally:
             runtime.model_runtime.create_conversation_agent = original_factory  # type: ignore[method-assign]
             runtime.query_runtime._run_post_turn_tasks = original_post_turn  # type: ignore[method-assign]

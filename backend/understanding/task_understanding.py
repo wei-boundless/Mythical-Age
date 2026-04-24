@@ -48,7 +48,8 @@ def analyze_task_understanding(
         )
 
     return (
-        _detect_realtime_task(normalized, lowered)
+        _detect_mixed_capability_task(normalized, lowered)
+        or _detect_realtime_task(normalized, lowered)
         or _detect_web_task(normalized, lowered)
         or _detect_pdf_task(normalized, lowered)
         or _detect_faq_task(normalized, lowered)
@@ -63,6 +64,40 @@ def analyze_task_understanding(
             confidence=0.35,
             reasons=["fallback_bounded_lookup"],
         )
+    )
+
+
+def _detect_mixed_capability_task(message: str, lowered: str) -> TaskUnderstanding | None:
+    explicit_pdf_references = PdfAnalysisCatalog.extract_explicit_pdf_references(message)
+    explicit_dataset_reference = _extract_explicit_dataset_reference(message)
+    has_document_signal = bool(explicit_pdf_references) or (
+        ("pdf" in lowered or "报告" in lowered or "文档" in lowered)
+        and bool(re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message))
+    )
+    has_dataset_signal = bool(explicit_dataset_reference)
+    has_realtime_signal = _contains_any(
+        lowered,
+        (
+            "weather",
+            "forecast",
+            "天气",
+            "气温",
+            "黄金",
+            "金价",
+            "现货黄金",
+        ),
+    )
+    signal_count = sum(1 for signal in (has_document_signal, has_dataset_signal, has_realtime_signal) if signal)
+    if signal_count < 2:
+        return None
+    return _build_bounded_lookup_task(
+        message=message,
+        lowered=lowered,
+        source_kind="mixed_sources",
+        task_kind="multi_capability_request",
+        modality="multi",
+        confidence=0.72,
+        reasons=["mixed_capability_signals"],
     )
 
 

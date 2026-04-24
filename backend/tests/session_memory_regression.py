@@ -131,7 +131,7 @@ def test_session_memory_hygiene() -> None:
                 content='{"ok": true, "query": "我要实时的黄金价格", "results": [{"title": "foo", "content": "bar"}]}',
             ),
             Message(role="user", content="帮我修复 backend/graph/agent.py 里的复合问题拆分"),
-            Message(role="assistant", content="已修复复合问题拆分，并通过 compound_query_regression.py 测试。"),
+            Message(role="assistant", content="已修复显式多任务编排，并通过 query_planner_regression.py 测试。"),
         ]
 
         summary = manager.update_from_messages(messages)
@@ -140,7 +140,7 @@ def test_session_memory_hygiene() -> None:
         _assert('"results"' not in summary, "raw JSON payloads should be filtered from session summary")
         _assert("backend/graph/agent.py" in summary, "important file hints should be preserved")
         _assert("复合问题拆分" in summary, "current goal should be preserved")
-        _assert("已修复复合问题拆分" in summary, "useful assistant result should be preserved")
+        _assert("已修复显式多任务编排" in summary, "useful assistant result should be preserved")
 
 
 def test_session_memory_compact_view_uses_state_sections() -> None:
@@ -233,7 +233,7 @@ def test_session_memory_accepts_summary_first_context_projection() -> None:
         summary = manager.update_from_context_state(
             {
                 "active_goal": "只展开第二个子任务，给我 inventory.xlsx 里最缺货的前三个仓库。",
-                "active_work_item": "compound_query",
+                "active_work_item": "explicit_fanout",
                 "active_constraints": {"top_n": 3, "group_by": "仓库", "response_style": "brief"},
                 "latest_correction": "不是按地区，按仓库。",
                 "next_step": "follow_up_or_refine_subtask_results",

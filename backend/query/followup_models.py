@@ -7,6 +7,10 @@ class FollowupResolution(BaseModel):
     mode: str = "none"
     target_kind: str = "none"
     resolved_target_kind: str = ""
+    bundle_id: str = ""
+    bundle_item_id: str = ""
+    bundle_item_ids: list[str] = Field(default_factory=list)
+    bundle_item_index: int = 0
     task_id: str = ""
     task_ids: list[str] = Field(default_factory=list)
     resolved_task_id: str = ""
@@ -29,6 +33,10 @@ class FollowupResolution(BaseModel):
 
     @model_validator(mode="after")
     def _sync_compatibility_fields(self) -> "FollowupResolution":
+        # Normalize legacy persisted mode names when loading older session state.
+        if self.mode == "compound_subset":
+            self.mode = "explicit_fanout_subset"
+
         if not self.resolved_target_kind:
             self.resolved_target_kind = self.target_kind
         if not self.target_kind:
@@ -43,6 +51,11 @@ class FollowupResolution(BaseModel):
             self.resolved_task_ids = list(self.task_ids)
         if not self.task_ids:
             self.task_ids = list(self.resolved_task_ids)
+
+        if not self.bundle_item_ids and self.bundle_item_id:
+            self.bundle_item_ids = [self.bundle_item_id]
+        if not self.bundle_item_id and self.bundle_item_ids:
+            self.bundle_item_id = self.bundle_item_ids[0]
 
         if not self.resolved_binding_kind:
             self.resolved_binding_kind = self.binding_kind or self.binding_key

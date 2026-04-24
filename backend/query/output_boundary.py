@@ -58,9 +58,13 @@ _INTERNAL_STATUS_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 _PROCEDURAL_LINE_RE = re.compile(
-    r"^(?:岩[，,\s]*)?(?:我(?:来|将|会|先|需要先|先来|准备|打算)|让我|接下来(?:我)?|稍等(?:我)?)"
-    r"(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|核实|改写|整理|查询).+"
+    r"^(?:岩[，,\s]*)?(?:我(?:来|将|会|先|需要先|先来|准备|打算)|让我(?:先)?|接下来(?:我)?(?:先)?|稍等(?:我)?)"
+    r"(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|核实|改写|整理|查询|执行).+"
     r"|^(?:知识库检索(?:未返回结果|失败)。?(?:让我|我将).+)$",
+    re.IGNORECASE,
+)
+_SUBTASK_STATUS_PROMISE_RE = re.compile(
+    r"^(?:\d+[.)、]\s*)?[^:：\n]{1,40}[:：]\s*(?:正在(?:查询|检索|搜索|处理)|稍后(?:给你|给您)?(?:结果|回复)?|待(?:查询|确认|处理)|稍等).*$",
     re.IGNORECASE,
 )
 _EXCESS_SEPARATOR_RE = re.compile(r"(?:\n\s*---\s*\n){2,}", re.DOTALL)
@@ -136,6 +140,7 @@ def _sanitize_visible_assistant_content(
             continue
         if drop_internal_status and (
             _INTERNAL_STATUS_LINE_RE.match(line)
+            or _SUBTASK_STATUS_PROMISE_RE.match(line)
             or "search_knowledge" in line.lower()
             or "searchknowledge" in line.lower()
             or "web_search" in line.lower()
@@ -156,7 +161,9 @@ def _trim_procedural_edges(lines: list[str]) -> list[str]:
     content_indexes = [
         index
         for index, line in enumerate(lines)
-        if line.strip() and not _PROCEDURAL_LINE_RE.match(line.strip())
+        if line.strip()
+        and not _PROCEDURAL_LINE_RE.match(line.strip())
+        and not _SUBTASK_STATUS_PROMISE_RE.match(line.strip())
     ]
     if not content_indexes:
         return lines

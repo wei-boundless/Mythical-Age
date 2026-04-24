@@ -52,24 +52,15 @@ def main() -> None:
         message="切到 knowledge/E-commerce Data/inventory.xlsx，先按仓库汇总，再按部门排序，最后给我缺货前五。",
         history=[],
     )
-    assert structured_compound_plan.query_understanding.route == "compound"
-    assert structured_compound_plan.subqueries == [
-        "切到 knowledge/E-commerce Data/inventory.xlsx",
-        "按仓库汇总",
-        "按部门排序",
-        "给我缺货前五",
-    ]
+    assert structured_compound_plan.query_understanding.route == "tool"
+    assert structured_compound_plan.subqueries == ["切到 knowledge/E-commerce Data/inventory.xlsx，先按仓库汇总，再按部门排序，最后给我缺货前五。"]
+    assert len(structured_compound_plan.subtasks) == 1
+    assert structured_compound_plan.subtasks[0].subtask_id == "main"
     structured_compound_executions = structured_compound_plan.iter_executions()
-    assert len(structured_compound_executions) == 4
+    assert len(structured_compound_executions) == 1
     assert all(execution.query_understanding.tool_name == "structured_data_analysis" for execution in structured_compound_executions)
     assert structured_compound_executions[0].structured_binding is not None
     assert structured_compound_executions[0].structured_binding.source == "prebound_tool_input"
-    assert structured_compound_executions[1].structured_binding is not None
-    assert structured_compound_executions[1].structured_binding.source == "compound_authority"
-    assert structured_compound_executions[2].structured_binding is not None
-    assert structured_compound_executions[2].structured_binding.source == "compound_authority"
-    assert structured_compound_executions[3].structured_binding is not None
-    assert structured_compound_executions[3].structured_binding.source == "compound_authority"
     assert all(execution.tool_input.get("path", "").endswith("inventory.xlsx") for execution in structured_compound_executions)
 
     structured_mixed_compound_plan = planner.build_plan(
@@ -78,28 +69,22 @@ def main() -> None:
         history=[],
     )
     structured_mixed_executions = structured_mixed_compound_plan.iter_executions()
-    assert [execution.message for execution in structured_mixed_executions] == [
-        "切到 knowledge/E-commerce Data/inventory.xlsx",
-        "按仓库汇总",
-        "查北京天气",
+    assert structured_mixed_compound_plan.execution_mode == "bundle_execution"
+    assert structured_mixed_compound_plan.bundle_plan is not None
+    assert len(structured_mixed_compound_plan.bundle_plan.items) == 2
+    assert len(structured_mixed_executions) == 2
+    assert [execution.query_understanding.tool_name for execution in structured_mixed_executions] == [
+        "structured_data_analysis",
+        "get_weather",
     ]
-    assert structured_mixed_executions[0].query_understanding.tool_name == "structured_data_analysis"
-    assert structured_mixed_executions[1].query_understanding.tool_name == "structured_data_analysis"
-    assert structured_mixed_executions[2].query_understanding.tool_name == "get_weather"
-    assert not structured_mixed_executions[2].tool_input.get("path", "")
 
     compound_plan = planner.build_plan(
         session_id="planner-regression",
         message="请查询哪些商品库存不足/三一重工前三大股东/为什么我在我的帐户中找不到我的订单？",
         history=[],
     )
-    assert compound_plan.query_understanding.route == "compound"
-    assert compound_plan.query_understanding.tool_name is None
-    assert compound_plan.subqueries == [
-        "哪些商品库存不足",
-        "三一重工前三大股东",
-        "为什么我在我的帐户中找不到我的订单？",
-    ]
+    assert compound_plan.query_understanding.route != "compound"
+    assert compound_plan.subqueries == ["请查询哪些商品库存不足/三一重工前三大股东/为什么我在我的帐户中找不到我的订单？"]
     assert [execution.message for execution in compound_plan.iter_executions()] == compound_plan.subqueries
 
     sequential_plan = planner.build_plan(
@@ -107,56 +92,45 @@ def main() -> None:
         message="先总结 AI 治理报告第三页，再告诉我 inventory.xlsx 缺货前五，最后查北京天气。",
         history=[],
     )
-    assert sequential_plan.query_understanding.route == "compound"
-    assert sequential_plan.query_understanding.tool_name is None
-    assert sequential_plan.subqueries == [
-        "总结 AI 治理报告第三页",
-        "告诉我 inventory.xlsx 缺货前五",
-        "查北京天气",
-    ]
+    assert sequential_plan.execution_mode == "bundle_execution"
     sequential_executions = sequential_plan.iter_executions()
     assert len(sequential_executions) == 3
-    assert sequential_executions[0].query_understanding.tool_name == "pdf_analysis"
-    assert sequential_executions[1].query_understanding.tool_name == "structured_data_analysis"
-    assert sequential_executions[2].query_understanding.tool_name == "get_weather"
+    assert [execution.query_understanding.tool_name for execution in sequential_executions] == [
+        "pdf_analysis",
+        "structured_data_analysis",
+        "get_weather",
+    ]
 
     nested_sequential_plan = planner.build_plan(
         session_id="planner-regression",
         message="先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。",
         history=[],
     )
-    assert nested_sequential_plan.query_understanding.route == "compound"
-    assert nested_sequential_plan.subqueries == [
-        "总结 PDF 第三页",
-        "给我 inventory.xlsx 最缺货的前三个仓库",
-        "补一句北京天气",
-    ]
+    assert nested_sequential_plan.execution_mode == "bundle_execution"
+    assert nested_sequential_plan.bundle_plan is not None
+    assert len(nested_sequential_plan.bundle_plan.items) == 3
     nested_executions = nested_sequential_plan.iter_executions()
     assert len(nested_executions) == 3
-    assert nested_executions[0].query_understanding.tool_name == "pdf_analysis"
-    assert nested_executions[1].query_understanding.tool_name == "structured_data_analysis"
-    assert nested_executions[2].query_understanding.tool_name == "get_weather"
+    assert [execution.query_understanding.tool_name for execution in nested_executions] == [
+        "pdf_analysis",
+        "structured_data_analysis",
+        "get_weather",
+    ]
+    assert all(execution.bundle_id for execution in nested_executions)
+    assert [execution.bundle_item_index for execution in nested_executions] == [1, 2, 3]
 
     pdf_compound_plan = planner.build_plan(
         session_id="planner-regression",
         message="打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，然后总结第三页，最后查北京天气。",
         history=[],
     )
-    assert pdf_compound_plan.query_understanding.route == "compound"
-    assert pdf_compound_plan.subqueries == [
-        "打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
-        "总结第三页",
-        "查北京天气",
-    ]
+    assert pdf_compound_plan.execution_mode == "bundle_execution"
     pdf_compound_executions = pdf_compound_plan.iter_executions()
-    assert len(pdf_compound_executions) == 3
-    assert pdf_compound_executions[0].query_understanding.tool_name == "pdf_analysis"
-    assert pdf_compound_executions[1].query_understanding.tool_name == "pdf_analysis"
-    assert pdf_compound_executions[2].query_understanding.tool_name == "get_weather"
-    assert pdf_compound_executions[0].tool_input.get("path", "").endswith(".pdf")
-    assert pdf_compound_executions[1].tool_input.get("path", "").endswith(".pdf")
-    assert not pdf_compound_executions[2].tool_input.get("path", "")
-    assert pdf_compound_executions[1].tool_input.get("mode") == "page"
+    assert len(pdf_compound_executions) == 2
+    assert [execution.query_understanding.tool_name for execution in pdf_compound_executions] == [
+        "pdf_analysis",
+        "get_weather",
+    ]
 
     section_plan = planner.build_plan(
         session_id="planner-regression",

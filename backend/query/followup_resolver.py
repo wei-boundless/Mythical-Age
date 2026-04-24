@@ -32,9 +32,49 @@ class QueryFollowupResolver:
 
         ordinal_targets = self._resolve_ordinal_tasks(normalized, tasks)
         if ordinal_targets:
+            if self._all_bundle_items(ordinal_targets):
+                bundle_id = self._bundle_id(ordinal_targets[0])
+                bundle_item_ids = [self._bundle_item_id(task) for task in ordinal_targets if self._bundle_item_id(task)]
+                if len(ordinal_targets) > 1:
+                    return FollowupResolution(
+                        mode="bundle_subset",
+                        target_kind="bundle_subset",
+                        resolved_target_kind="bundle_subset",
+                        bundle_id=bundle_id,
+                        bundle_item_id=bundle_item_ids[0] if bundle_item_ids else "",
+                        bundle_item_ids=bundle_item_ids,
+                        bundle_item_index=self._bundle_item_index(ordinal_targets[0]),
+                        task_id=ordinal_targets[0].task_id,
+                        resolved_task_id=ordinal_targets[0].task_id,
+                        resolved_task_kind=self._task_kind(ordinal_targets[0]),
+                        resolution_source="task_registry_bundle_ordinal",
+                        confidence=0.95,
+                        reason="ordinal_bundle_subset_reference",
+                        source_query=" | ".join(task.query for task in ordinal_targets),
+                        task_ids=[task.task_id for task in ordinal_targets],
+                        resolved_task_ids=[task.task_id for task in ordinal_targets],
+                    )
+                return FollowupResolution(
+                    mode="bundle_item_ref",
+                    target_kind="bundle_item",
+                    resolved_target_kind="bundle_item",
+                    bundle_id=bundle_id,
+                    bundle_item_id=bundle_item_ids[0] if bundle_item_ids else "",
+                    bundle_item_ids=bundle_item_ids,
+                    bundle_item_index=self._bundle_item_index(ordinal_targets[0]),
+                    task_id=ordinal_targets[0].task_id,
+                    resolved_task_id=ordinal_targets[0].task_id,
+                    resolved_task_kind=self._task_kind(ordinal_targets[0]),
+                    resolution_source="task_registry_bundle_ordinal",
+                    confidence=0.95,
+                    reason="ordinal_bundle_item_reference",
+                    source_query=ordinal_targets[0].query,
+                    task_ids=[ordinal_targets[0].task_id],
+                    resolved_task_ids=[ordinal_targets[0].task_id],
+                )
             if len(ordinal_targets) > 1:
                 return FollowupResolution(
-                    mode="compound_subset",
+                    mode="explicit_fanout_subset",
                     target_kind="task_subset",
                     resolved_target_kind="task_subset",
                     task_id=ordinal_targets[0].task_id,
@@ -124,9 +164,9 @@ class QueryFollowupResolver:
         if not ordinals:
             return []
         indexed = {
-            int(task.metadata.get("subtask_index", 0) or 0): task
+            self._ordinal_index(task): task
             for task in tasks
-            if task.task_type == "query" and int(task.metadata.get("subtask_index", 0) or 0) > 0
+            if task.task_type == "query" and self._ordinal_index(task) > 0
         }
         return [indexed[ordinal] for ordinal in ordinals if ordinal in indexed]
 
@@ -582,4 +622,57 @@ class QueryFollowupResolver:
         context_ref = getattr(task, "context_ref", None)
         if context_ref is None:
             return ""
-        return str(getattr(context_ref, "task_kind", "") or "").strip()
+        raw = str(getattr(context_ref, "task_kind", "") or "").strip()
+        lowered = raw.lower()
+        if "pdf" in lowered:
+            return "pdf"
+        if "structured" in lowered or "dataset" in lowered:
+            return "structured_data"
+        if "weather" in lowered:
+            return "weather"
+        if "finance" in lowered or "gold" in lowered:
+            return "finance"
+        return raw
+
+    def _ordinal_index(self, task) -> int:
+        context_ref = getattr(task, "context_ref", None)
+        if context_ref is not None:
+            bundle_index = int(getattr(context_ref, "bundle_item_index", 0) or 0)
+            if bundle_index > 0:
+                return bundle_index
+        bundle_index = int(task.metadata.get("bundle_item_index", 0) or 0)
+        if bundle_index > 0:
+            return bundle_index
+        return int(task.metadata.get("subtask_index", 0) or 0)
+
+    def _bundle_id(self, task) -> str:
+        context_ref = getattr(task, "context_ref", None)
+        if context_ref is not None:
+            bundle_id = str(getattr(context_ref, "bundle_id", "") or "").strip()
+            if bundle_id:
+                return bundle_id
+        return str(task.metadata.get("bundle_id", "") or "").strip()
+
+    def _bundle_item_id(self, task) -> str:
+        context_ref = getattr(task, "context_ref", None)
+        if context_ref is not None:
+            bundle_item_id = str(getattr(context_ref, "bundle_item_id", "") or "").strip()
+            if bundle_item_id:
+                return bundle_item_id
+        return str(task.metadata.get("bundle_item_id", "") or "").strip()
+
+    def _bundle_item_index(self, task) -> int:
+        context_ref = getattr(task, "context_ref", None)
+        if context_ref is not None:
+            bundle_item_index = int(getattr(context_ref, "bundle_item_index", 0) or 0)
+            if bundle_item_index > 0:
+                return bundle_item_index
+        return int(task.metadata.get("bundle_item_index", 0) or 0)
+
+    def _all_bundle_items(self, tasks: list[object]) -> bool:
+        if not tasks:
+            return False
+        bundle_ids = {self._bundle_id(task) for task in tasks if self._bundle_id(task)}
+        if len(bundle_ids) != 1:
+            return False
+        return all(self._bundle_item_index(task) > 0 for task in tasks)

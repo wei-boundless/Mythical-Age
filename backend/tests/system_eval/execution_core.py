@@ -9,7 +9,7 @@ from harness.contracts import TimingSnapshot
 
 
 def iso_now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now().isoformat(timespec="milliseconds")
 
 
 def collect_sse_events(

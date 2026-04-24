@@ -42,6 +42,8 @@ class QueryContinuationResolver:
         history: list[dict[str, Any]],
         understanding: QueryUnderstanding,
     ) -> QueryUnderstanding:
+        if "mixed_capability_signals" in list(getattr(understanding, "reasons", []) or []):
+            return understanding
         existing_tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
         existing_tool_input = dict(getattr(understanding, "tool_input", {}) or {})
         existing_path = str(existing_tool_input.get("path", "") or "").strip()
@@ -95,6 +97,8 @@ class QueryContinuationResolver:
         history: list[dict[str, Any]],
         understanding: QueryUnderstanding,
     ) -> QueryUnderstanding:
+        if "mixed_capability_signals" in list(getattr(understanding, "reasons", []) or []):
+            return understanding
         if understanding.route == "tool":
             return understanding
         explicit_path = self._extract_explicit_dataset_reference(message)
@@ -326,7 +330,7 @@ class QueryContinuationResolver:
         authority_pdf = str(authority_context.get("active_pdf", "") or "").strip()
         if not authority_pdf:
             return understanding
-        if understanding.route in {"memory", "compound"}:
+        if understanding.route in {"memory", "compound"} or "mixed_capability_signals" in list(getattr(understanding, "reasons", []) or []):
             return understanding
         existing_tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
         existing_tool_input = dict(getattr(understanding, "tool_input", {}) or {})
@@ -379,7 +383,7 @@ class QueryContinuationResolver:
         authority_dataset = str(authority_context.get("active_dataset", "") or "").strip()
         if not authority_dataset:
             return understanding
-        if understanding.route in {"memory", "compound"}:
+        if understanding.route in {"memory", "compound"} or "mixed_capability_signals" in list(getattr(understanding, "reasons", []) or []):
             return understanding
         existing_tool_name = str(getattr(understanding, "tool_name", "") or "").strip()
         existing_tool_input = dict(getattr(understanding, "tool_input", {}) or {})

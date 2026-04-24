@@ -150,6 +150,31 @@ def test_memory_facade_exposes_context_trace_without_legacy_bridge() -> None:
         assert inspection["session_memory"]["preview"] != inspection["session_memory"]["model_preview"]
 
 
+def test_memory_facade_isolates_explicit_durable_turn_from_process_context() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        session_id = "memory-facade-durable-isolation"
+        history = [
+            {"role": "user", "content": "回到 report.pdf 第二部分，继续分析约束重点。"},
+            {"role": "assistant", "content": "第二部分主要收紧了模型部署和审计要求。"},
+        ]
+
+        facade.refresh_session_memory(session_id, history)
+        intent = analyze_memory_intent("记住：回答我时可以直接称呼我岩。")
+        package = facade.build_context_package(
+            session_id,
+            history=history,
+            pending_user_message="记住：回答我时可以直接称呼我岩。",
+            memory_intent=intent,
+        )
+
+        assert not package.model_visible_sections["active_process_context"]
+        assert not package.model_visible_sections["hot_truth_window"]
+        assert not package.sections["active_process_context"]
+        assert "# Active Goal" in "\n".join(package.debug_sections["active_process_context"])
+
+
 def test_memory_facade_refreshes_session_memory_from_context_state() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

@@ -80,7 +80,7 @@ class MemoryContextLayer:
         ]
         retrieval_payload = self._retrieval_items_from_results(retrieval_results)
         controller = self.session_memory.context_controller(session_id)
-        return controller.build_context_package(
+        package = controller.build_context_package(
             list(history or []),
             rebuild_reason=rebuild_reason,
             pending_user_message=pending_user_message,
@@ -88,6 +88,7 @@ class MemoryContextLayer:
             relevant_durable_matches=relevant_payload,
             retrieval_evidence=retrieval_payload,
         )
+        return self._apply_memory_intent_filters(package, memory_intent=memory_intent)
 
     def inspect_query_context(
         self,
@@ -358,6 +359,36 @@ class MemoryContextLayer:
             if evidence_lines:
                 items.append("\n".join(evidence_lines))
         return items
+
+    def _apply_memory_intent_filters(
+        self,
+        package: ContextPackage,
+        *,
+        memory_intent: Any | None,
+    ) -> ContextPackage:
+        intent_name = str(getattr(memory_intent, "intent", "") or "").strip()
+        if intent_name not in {"durable_memory_statement", "durable_memory_query"}:
+            return package
+
+        filtered_sections = self._copy_sections(package.model_visible_sections)
+        for section_name in ("active_process_context", "hot_truth_window", "warm_snapshots"):
+            filtered_sections[section_name] = []
+
+        package.sections = self._copy_sections(filtered_sections)
+        package.model_visible_sections = self._copy_sections(filtered_sections)
+        package.selected_sections = [
+            name for name, items in package.model_visible_sections.items() if list(items or [])
+        ]
+        return package
+
+    def _copy_sections(
+        self,
+        sections: dict[str, list[str]],
+    ) -> dict[str, list[str]]:
+        return {
+            str(name): list(items or [])
+            for name, items in dict(sections or {}).items()
+        }
 
     def _hierarchy_context_line(
         self,

@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
     session_id: str
     stream: bool = True
     ephemeral_system_messages: list[str] = Field(default_factory=list)
+    explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -35,6 +36,7 @@ async def chat(payload: ChatRequest):
                 session_id=payload.session_id,
                 message=payload.message,
                 ephemeral_system_messages=list(payload.ephemeral_system_messages or []),
+                explicit_subtasks=list(payload.explicit_subtasks or []),
             )
         ):
             event_type = str(event.get("type", "message"))

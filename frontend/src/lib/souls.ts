@@ -32,22 +32,22 @@ const SOUL_COLORS: Record<SoulKey, { color: string; glow: string; intro: string 
   hebo: {
     color: "#1da1f2",
     glow: "rgba(29, 161, 242, 0.34)",
-    intro: "河伯更偏冷静、清澈、克制，语气会更稳，表达更收束。"
+    intro: "河伯更偏冷静、克制，语气会更稳，表达更收束。"
   },
   siyue: {
     color: "#c6a15b",
     glow: "rgba(198, 161, 91, 0.32)",
-    intro: "四岳更偏稳重、沉着、讲秩序，表达会更有结构感和分寸感。"
+    intro: "四岳更偏稳重、沉着，表达会更有结构感和分寸感。"
   },
   zhurong: {
     color: "#ff5a36",
     glow: "rgba(255, 90, 54, 0.32)",
-    intro: "祝融更偏直接、果断、利落，语气会更有推进感和行动感。"
+    intro: "祝融更偏直接、果断，语气会更有激情和行动感。"
   },
   xuannv: {
     color: "#f2f5f3",
     glow: "rgba(242, 245, 243, 0.34)",
-    intro: "玄女更偏细致、敏锐、安静，表达会更注重辨析和层次。"
+    intro: "玄女更偏细致、敏锐，表达会更注重辨析和层次。"
   }
 };
 

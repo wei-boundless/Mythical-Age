@@ -254,6 +254,20 @@ def analyze_memory_intent(message: str) -> MemoryIntent:
         )
 
     if (
+        not is_question
+        and not _looks_like_negative_memory_write(lowered)
+        and any(marker in lowered for marker in _lower_markers(WRITE_MARKERS))
+    ):
+        return MemoryIntent(
+            intent="durable_memory_statement",
+            memory_write_mode="durable_fact",
+            should_skip_rag=True,
+            explicit_write_request=True,
+            preferred_types=_infer_preferred_types(lowered),
+            preferred_memory_classes=_infer_preferred_classes(lowered),
+        )
+
+    if (
         any(marker in lowered for marker in _lower_markers(SEMANTIC_MEMORY_READ_MARKERS))
         or query_profile is not None
         or _looks_like_memory_read_query(normalized, lowered)
@@ -266,20 +280,6 @@ def analyze_memory_intent(message: str) -> MemoryIntent:
             should_skip_rag=False,
             preferred_types=preferred_types,
             preferred_memory_classes=preferred_classes,
-        )
-
-    if (
-        not is_question
-        and not _looks_like_negative_memory_write(lowered)
-        and any(marker in lowered for marker in _lower_markers(WRITE_MARKERS))
-    ):
-        return MemoryIntent(
-            intent="durable_memory_statement",
-            memory_write_mode="durable_fact",
-            should_skip_rag=True,
-            explicit_write_request=True,
-            preferred_types=_infer_preferred_types(lowered),
-            preferred_memory_classes=_infer_preferred_classes(lowered),
         )
 
     return MemoryIntent()

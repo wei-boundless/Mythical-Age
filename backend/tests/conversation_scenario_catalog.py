@@ -192,7 +192,7 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
         expected_artifacts=("tasks in TaskCoordinator",),
         related_regressions=(
             "backend/tests/task_coordinator_regression.py",
-            "backend/tests/compound_query_regression.py",
+            "backend/tests/query_planner_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(
