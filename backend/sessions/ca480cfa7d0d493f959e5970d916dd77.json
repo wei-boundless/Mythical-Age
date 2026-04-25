@@ -1,0 +1,41 @@
+{
+  "id": "ca480cfa7d0d493f959e5970d916dd77",
+  "title": "北京天气查询",
+  "created_at": 1777151686.7237058,
+  "updated_at": 1777151717.5972624,
+  "compressed_context": "",
+  "messages": [
+    {
+      "role": "user",
+      "content": "北京的天气今天怎么样"
+    },
+    {
+      "role": "assistant",
+      "content": "北京，北京市，中国 当前天气： - 温度：16.9°C - 天气状况：多云 - 风速：11.8 km/h，北风 - 观测时间：2026-04-26T05:00 - 数据来源：Open-Meteo",
+      "tool_calls": [
+        {
+          "tool": "get_weather",
+          "input": "{'query': '北京的天气今天怎么样'}",
+          "output": "北京，北京市，中国 当前天气： - 温度：16.9°C - 天气状况：多云 - 风速：11.8 km/h，北风 - 观测时间：2026-04-26T05:00 - 数据来源：Open-Meteo"
+        }
+      ],
+      "answer_channel": "tool_visible_summary",
+      "answer_source": "direct_tool.get_weather",
+      "answer_persist_policy": "do_not_persist",
+      "answer_finalization_policy": "none"
+    },
+    {
+      "role": "user",
+      "content": "你是谁？"
+    },
+    {
+      "role": "assistant",
+      "content": "我是河伯，是智能体系统中的灵魂之一。简单来说，就是您当前正在对话的这位。我的说话风格偏向平和、冷静、克制，习惯先说结论再补充理由，尽量用短句把事情讲清楚。有什么需要帮忙的，您直接说就行。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "segment.visible_text",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    }
+  ]
+}
