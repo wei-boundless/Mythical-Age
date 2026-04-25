@@ -201,7 +201,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             supported_modalities=["text", "document", "knowledge"],
             safety_tags=["read", "retrieval"],
             route_hints=["rag", "knowledge_lookup"],
-            safe_for_auto_route=True,
+            safe_for_auto_route=False,
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,

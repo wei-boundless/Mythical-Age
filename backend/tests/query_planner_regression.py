@@ -15,6 +15,18 @@ from tools.tool_registry import ToolRegistry
 from understanding.query_understanding import QueryUnderstanding
 
 
+def _assert_pdf_worker(execution, *, path_suffix: str | None = None, mode: str | None = None) -> None:
+    assert execution.query_understanding.tool_name == "pdf_analysis"
+    assert execution.execution_kind == "worker"
+    assert execution.worker_plan is not None
+    assert execution.worker_plan.worker_route == "pdf"
+    assert execution.worker_plan.request is not None
+    if path_suffix is not None:
+        assert str(execution.worker_plan.request.bindings.get("active_pdf", "")).endswith(path_suffix)
+    if mode is not None:
+        assert execution.worker_plan.request.constraints.get("mode") == mode
+
+
 def main() -> None:
     planner = QueryPlanner(
         base_dir=ROOT,
@@ -31,8 +43,7 @@ def main() -> None:
     assert pdf_plan.query_understanding.tool_name == "pdf_analysis"
     assert pdf_plan.subqueries == ["请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，先给我全文总览。"]
     assert len(pdf_plan.iter_executions()) == 1
-    assert pdf_plan.iter_executions()[0].execution_kind == "direct_tool"
-    assert pdf_plan.iter_executions()[0].tool_input["path"].endswith(".pdf")
+    _assert_pdf_worker(pdf_plan.iter_executions()[0], path_suffix=".pdf")
     assert pdf_plan.iter_executions()[0].structured_binding is None
 
     structured_plan = planner.build_plan(
@@ -107,11 +118,12 @@ def main() -> None:
     assert sequential_plan.execution_mode == "bundle_execution"
     sequential_executions = sequential_plan.iter_executions()
     assert len(sequential_executions) == 3
-    assert [execution.query_understanding.tool_name for execution in sequential_executions] == [
-        "pdf_analysis",
+    assert [execution.worker_plan.worker_route if execution.worker_plan else execution.query_understanding.tool_name for execution in sequential_executions] == [
+        "pdf",
         "structured_data_analysis",
         "get_weather",
     ]
+    _assert_pdf_worker(sequential_executions[0])
 
     nested_sequential_plan = planner.build_plan(
         session_id="planner-regression",
@@ -123,11 +135,12 @@ def main() -> None:
     assert len(nested_sequential_plan.bundle_plan.items) == 3
     nested_executions = nested_sequential_plan.iter_executions()
     assert len(nested_executions) == 3
-    assert [execution.query_understanding.tool_name for execution in nested_executions] == [
-        "pdf_analysis",
+    assert [execution.worker_plan.worker_route if execution.worker_plan else execution.query_understanding.tool_name for execution in nested_executions] == [
+        "pdf",
         "structured_data_analysis",
         "get_weather",
     ]
+    _assert_pdf_worker(nested_executions[0])
     assert all(execution.bundle_id for execution in nested_executions)
     assert [execution.bundle_item_index for execution in nested_executions] == [1, 2, 3]
 
@@ -139,18 +152,18 @@ def main() -> None:
     assert pdf_compound_plan.execution_mode == "bundle_execution"
     pdf_compound_executions = pdf_compound_plan.iter_executions()
     assert len(pdf_compound_executions) == 2
-    assert [execution.query_understanding.tool_name for execution in pdf_compound_executions] == [
-        "pdf_analysis",
+    assert [execution.worker_plan.worker_route if execution.worker_plan else execution.query_understanding.tool_name for execution in pdf_compound_executions] == [
+        "pdf",
         "get_weather",
     ]
+    _assert_pdf_worker(pdf_compound_executions[0])
 
     section_plan = planner.build_plan(
         session_id="planner-regression",
         message="回到刚才 PDF，第二部分的结论是什么？",
         history=[],
     )
-    assert section_plan.query_understanding.tool_name == "pdf_analysis"
-    assert section_plan.iter_executions()[0].tool_input["mode"] == "section"
+    _assert_pdf_worker(section_plan.iter_executions()[0], mode="section")
 
     history = [
         {"role": "user", "content": "请帮我详细解读 AI治理报告.pdf"},
@@ -164,8 +177,8 @@ def main() -> None:
     assert followup_plan.query_understanding.route == "tool"
     assert followup_plan.query_understanding.tool_name == "pdf_analysis"
     assert "path" not in followup_plan.query_understanding.tool_input
-    assert "path" not in followup_plan.iter_executions()[0].tool_input
-    assert followup_plan.iter_executions()[0].tool_input["mode"] == "section"
+    assert "path" not in followup_plan.iter_executions()[0].worker_plan.request.bindings
+    _assert_pdf_worker(followup_plan.iter_executions()[0], mode="section")
     assert followup_plan.subqueries == ["回到刚才 PDF，第二部分的结论是什么？"]
 
     session_pdf_authority_plan = planner.build_plan(
@@ -177,10 +190,10 @@ def main() -> None:
     assert session_pdf_authority_plan.query_understanding.route == "tool"
     assert session_pdf_authority_plan.query_understanding.tool_name == "pdf_analysis"
     assert (
-        session_pdf_authority_plan.iter_executions()[0].tool_input["path"]
+        session_pdf_authority_plan.iter_executions()[0].worker_plan.request.bindings["active_pdf"]
         == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
     )
-    assert session_pdf_authority_plan.iter_executions()[0].tool_input["mode"] == "section"
+    _assert_pdf_worker(session_pdf_authority_plan.iter_executions()[0], mode="section")
 
     structured_followup_history = [
         {"role": "user", "content": "给我 inventory.xlsx 最缺货的前三个仓库"},
@@ -243,8 +256,8 @@ def main() -> None:
     assert history_protected_bundle_plan.bundle_plan is not None
     assert len(history_protected_bundle_plan.bundle_plan.items) == 3
     history_protected_executions = history_protected_bundle_plan.iter_executions()
-    assert [execution.query_understanding.tool_name for execution in history_protected_executions] == [
-        "pdf_analysis",
+    assert [execution.worker_plan.worker_route if execution.worker_plan else execution.query_understanding.tool_name for execution in history_protected_executions] == [
+        "pdf",
         "structured_data_analysis",
         "get_weather",
     ]
@@ -258,9 +271,9 @@ def main() -> None:
     )
     assert authority_protected_bundle_plan.execution_mode == "bundle_execution"
     authority_protected_executions = authority_protected_bundle_plan.iter_executions()
-    assert authority_protected_executions[0].query_understanding.tool_name == "pdf_analysis"
+    _assert_pdf_worker(authority_protected_executions[0])
     assert (
-        authority_protected_executions[0].tool_input["path"]
+        authority_protected_executions[0].worker_plan.request.bindings["active_pdf"]
         == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
     )
 

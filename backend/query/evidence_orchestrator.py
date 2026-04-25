@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from query.answer_finalizer import build_rag_evidence_pack
+from query.evidence_graph import EvidenceArtifactGraph
+from query.pdf_worker import PDFWorker
 from query.retrieval_worker import RetrievalWorker
 from query.structured_data_worker import StructuredDataWorker
 from query.worker_models import CanonicalResult, WorkerExecutionPlan, WorkerResult
@@ -14,13 +16,17 @@ class EvidenceOrchestrator:
         self,
         *,
         retrieval_worker: RetrievalWorker,
+        pdf_worker: PDFWorker | None = None,
         structured_data_worker: StructuredDataWorker | None = None,
         candidate_store=None,
+        graph_store=None,
         output_policy,
     ) -> None:
         self.retrieval_worker = retrieval_worker
+        self.pdf_worker = pdf_worker
         self.structured_data_worker = structured_data_worker
         self.candidate_store = candidate_store
+        self.graph_store = graph_store
         self.output_policy = output_policy
         self.projection_adapter = WorkerProjectionAdapter()
 
@@ -52,6 +58,8 @@ class EvidenceOrchestrator:
         yield {"type": "worker_start", "worker": worker_route, "request": request.to_dict()}
         if worker_route in {"retrieval", "evidence_orchestrator"}:
             worker_result = self.retrieval_worker.run(request)
+        elif worker_route == "pdf" and self.pdf_worker is not None:
+            worker_result = await self.pdf_worker.run(request)
         elif worker_route == "structured_data" and self.structured_data_worker is not None:
             worker_result = await self.structured_data_worker.run(request)
         else:
@@ -79,15 +87,13 @@ class EvidenceOrchestrator:
                     source_query=request.query,
                     candidates=list(worker_result.binding_candidates),
                 )
-            yield {"type": "retrieval", "query": request.query, "results": raw_results}
+            if worker_route in {"retrieval", "evidence_orchestrator"}:
+                yield {"type": "retrieval", "query": request.query, "results": raw_results}
             yield {"type": "worker_evidence", "worker": worker_route, "evidence": envelope.to_dict()}
-            yield {
-                "type": "worker_artifacts",
-                "graph_delta": {
-                    "source_objects": [item.to_dict() for item in envelope.source_objects],
-                    "artifacts": [item.to_dict() for item in envelope.derived_artifacts],
-                },
-            }
+            graph = EvidenceArtifactGraph.from_envelope(session_id=session_id, envelope=envelope)
+            if self.graph_store is not None:
+                self.graph_store.merge(session_id, graph)
+            yield {"type": "worker_artifacts", "graph_delta": graph.to_delta()}
 
         if worker_result.canonical_result is not None:
             canonical = worker_result.canonical_result

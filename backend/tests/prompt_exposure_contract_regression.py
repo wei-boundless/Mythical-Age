@@ -47,6 +47,8 @@ def main() -> None:
     assert prompt_payload["exposure_policy"] == "model_visible_only"
     assert prompt_payload["active_skill_name"] == "rag-skill"
     assert "Skill: 知识库问答" in prompt_payload["skill_prompt_block"]
+    assert prompt_payload["tool_schema_names"] == ()
+    assert "search_knowledge" not in prompt_payload["skill_prompt_block"]
     for forbidden in FORBIDDEN_PROMPT_POLICY_TOKENS:
         assert forbidden not in prompt_text
 

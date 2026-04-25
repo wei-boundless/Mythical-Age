@@ -100,8 +100,8 @@ class CapabilityDispatchScheduler:
             )
             for name in candidate_names
         )
-        selected_request = self._selected_tool_request(task_frame, candidates)
         selected_worker_request = self._selected_worker_request(task_frame)
+        selected_request = None if selected_worker_request is not None else self._selected_tool_request(task_frame, candidates)
         prompt_exposure = self._prompt_exposure(active_skill=active_skill, candidates=candidates)
         return DispatchPlan(
             route=route,
@@ -167,6 +167,9 @@ class CapabilityDispatchScheduler:
     def _selected_worker_request(self, task_frame: Any) -> WorkerRequest | None:
         route = str(getattr(task_frame, "route", "") or "").strip()
         execution_posture = str(getattr(task_frame, "execution_posture", "") or "").strip()
+        tool_name = str(getattr(task_frame, "tool_name", "") or "").strip()
+        if route == "tool" and tool_name == "pdf_analysis":
+            return self._selected_pdf_worker_request(task_frame)
         if route != "rag" or execution_posture not in {"", "direct_rag"}:
             return None
         if bool(getattr(task_frame, "should_skip_rag", False)):
@@ -194,6 +197,39 @@ class CapabilityDispatchScheduler:
             constraints=dict(getattr(task_frame, "structural_signals", {}) or {}),
         )
 
+    def _selected_pdf_worker_request(self, task_frame: Any) -> WorkerRequest | None:
+        tool_input = dict(getattr(task_frame, "tool_input", {}) or {})
+        query = str(tool_input.get("query", "") or getattr(task_frame, "target_object", "") or "").strip()
+        path = str(tool_input.get("path", "") or "").strip()
+        mode = str(tool_input.get("mode", "") or "").strip()
+        constraints = {
+            key: value
+            for key, value in {
+                "path": path,
+                "active_pdf": path,
+                "mode": mode,
+                "page": tool_input.get("page"),
+                "section": tool_input.get("section"),
+                "max_chunks": tool_input.get("max_chunks"),
+            }.items()
+            if value not in (None, "")
+        }
+        return WorkerRequest(
+            request_id="worker:pdf:main",
+            query=query,
+            worker_route="pdf",
+            task_frame={
+                "intent": str(getattr(task_frame, "intent", "") or ""),
+                "source_kind": str(getattr(task_frame, "source_kind", "") or ""),
+                "task_kind": str(getattr(task_frame, "task_kind", "") or ""),
+                "modality": str(getattr(task_frame, "modality", "") or ""),
+                "route": str(getattr(task_frame, "route", "") or ""),
+                "capability_requests": list(getattr(task_frame, "capability_requests", []) or []),
+            },
+            bindings={"active_pdf": path} if path else {},
+            constraints=constraints,
+        )
+
     def _prompt_exposure(
         self,
         *,
@@ -202,13 +238,13 @@ class CapabilityDispatchScheduler:
     ) -> PromptExposurePlan:
         if active_skill is None:
             return PromptExposurePlan(
-                tool_schema_names=tuple(candidate.name for candidate in candidates),
+                tool_schema_names=_model_visible_tool_schema_names(candidates),
                 reasons=("no_active_skill",),
             )
         return PromptExposurePlan(
             active_skill_name=active_skill.name,
             skill_prompt_block=active_skill.render_prompt_block(),
-            tool_schema_names=tuple(candidate.name for candidate in candidates),
+            tool_schema_names=_model_visible_tool_schema_names(candidates),
             reasons=("skill_prompt_view_only",),
         )
 
@@ -230,3 +266,7 @@ class CapabilityDispatchScheduler:
         if str(getattr(task_frame, "route", "") or "") != "tool":
             reasons.append("non_tool_route")
         return tuple(reasons)
+
+
+def _model_visible_tool_schema_names(candidates: tuple[ToolCandidate, ...]) -> tuple[str, ...]:
+    return tuple(candidate.name for candidate in candidates if candidate.name not in {"search_knowledge"})

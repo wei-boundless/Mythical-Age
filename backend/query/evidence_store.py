@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from query.evidence_graph import EvidenceArtifactGraph
 from query.evidence_models import BindingCandidate
 
 
@@ -85,6 +86,38 @@ class BindingCandidateStore:
             "candidates": [candidate.to_dict() for candidate in item.candidates],
         }
 
+    def restore(self, session_id: str, payload: dict[str, Any]) -> None:
+        normalized = str(session_id or "").strip()
+        if not normalized or not isinstance(payload, dict):
+            return
+        raw_candidates = list(payload.get("candidates", []) or [])
+        candidates: list[BindingCandidate] = []
+        for raw in raw_candidates:
+            if not isinstance(raw, dict):
+                continue
+            candidate = BindingCandidate(
+                candidate_id=str(raw.get("candidate_id", "") or ""),
+                kind=str(raw.get("kind", "") or ""),
+                identity=str(raw.get("identity", "") or ""),
+                display_label=str(raw.get("display_label", "") or ""),
+                source_worker=str(raw.get("source_worker", "") or ""),
+                artifact_id=str(raw.get("artifact_id", "") or ""),
+                confidence=float(raw.get("confidence", 0.0) or 0.0),
+                evidence_refs=[str(item) for item in list(raw.get("evidence_refs", []) or [])],
+                expires_after_turns=int(raw.get("expires_after_turns", 3) or 3),
+            )
+            if candidate.identity:
+                candidates.append(candidate)
+        if not candidates:
+            self.clear(normalized)
+            return
+        self._store[normalized] = StoredBindingCandidateSet(
+            session_id=normalized,
+            source_query=str(payload.get("source_query", "") or ""),
+            candidates=candidates,
+            remaining_turns=max(int(payload.get("remaining_turns", 1) or 1), 1),
+        )
+
     def _decrement(self, session_id: str) -> None:
         item = self._store.get(session_id)
         if item is None:
@@ -103,14 +136,18 @@ class BindingCandidateStore:
             return None
         for candidate in item.candidates:
             surfaces = {
+                str(candidate.candidate_id or ""),
                 str(candidate.identity or ""),
                 str(candidate.display_label or ""),
-                str(candidate.artifact_id or ""),
             }
             for surface in surfaces:
                 normalized = _normalize(surface)
                 if normalized and normalized in compact:
                     return candidate
+        for candidate in item.candidates:
+            normalized = _normalize(str(candidate.artifact_id or ""))
+            if normalized and normalized in compact:
+                return candidate
         return None
 
     def _is_affirmative_selection(self, text: str) -> bool:
@@ -122,3 +159,55 @@ class BindingCandidateStore:
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", "", str(text or "").replace("\\", "/")).strip().lower()
+
+
+class EvidenceGraphStore:
+    def __init__(self) -> None:
+        self._store: dict[str, EvidenceArtifactGraph] = {}
+
+    def merge(self, session_id: str, graph: EvidenceArtifactGraph) -> None:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return
+        existing = self._store.get(normalized)
+        if existing is None:
+            self._store[normalized] = EvidenceArtifactGraph(
+                session_id=normalized,
+                turn_id=graph.turn_id,
+                source_objects=dict(graph.source_objects),
+                artifacts=dict(graph.artifacts),
+                edges=list(graph.edges),
+            )
+            return
+        existing.merge(graph)
+
+    def snapshot(self, session_id: str) -> dict[str, Any]:
+        graph = self._store.get(str(session_id or "").strip())
+        if graph is None:
+            return {}
+        return graph.to_delta()
+
+    def restore(self, session_id: str, payload: dict[str, Any]) -> None:
+        normalized = str(session_id or "").strip()
+        if not normalized or not isinstance(payload, dict):
+            return
+        graph = EvidenceArtifactGraph.from_delta({**dict(payload), "session_id": normalized})
+        if not graph.source_objects and not graph.artifacts and not graph.edges:
+            self.clear(normalized)
+            return
+        self._store[normalized] = graph
+
+    def get_artifact(self, session_id: str, artifact_id: str):
+        graph = self._store.get(str(session_id or "").strip())
+        if graph is None:
+            return None
+        return graph.get_artifact(artifact_id)
+
+    def get_source_object(self, session_id: str, object_id: str):
+        graph = self._store.get(str(session_id or "").strip())
+        if graph is None:
+            return None
+        return graph.get_source_object(object_id)
+
+    def clear(self, session_id: str) -> None:
+        self._store.pop(str(session_id or "").strip(), None)

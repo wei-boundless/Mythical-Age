@@ -163,6 +163,7 @@
         "knowledge_base"
       ],
       "capability_tags": [
+        "knowledge_lookup",
         "rag",
         "retrieval",
         "local-knowledge",

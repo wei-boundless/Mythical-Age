@@ -333,7 +333,7 @@ class QueryPlanner:
         return WorkerExecutionPlan(
             worker_route=str(getattr(request, "worker_route", "") or "retrieval"),
             request=request,
-            expected_result="evidence",
+            expected_result="canonical" if str(getattr(request, "worker_route", "") or "") in {"pdf", "structured_data"} else "evidence",
             fallback_execution_kind="agent",
             cutover_mode="primary",
         )
@@ -345,7 +345,16 @@ class QueryPlanner:
         context: dict[str, Any] = {}
         tool_name = str(getattr(execution.query_understanding, "tool_name", "") or "").strip()
         tool_input = dict(getattr(execution, "tool_input", {}) or getattr(execution.query_understanding, "tool_input", {}) or {})
-        pdf_path = str(tool_input.get("path", "") or "").strip()
+        worker_request = getattr(getattr(execution, "worker_plan", None), "request", None)
+        worker_bindings = dict(getattr(worker_request, "bindings", {}) or {}) if worker_request is not None else {}
+        worker_constraints = dict(getattr(worker_request, "constraints", {}) or {}) if worker_request is not None else {}
+        pdf_path = str(
+            tool_input.get("path", "")
+            or worker_bindings.get("active_pdf", "")
+            or worker_constraints.get("active_pdf", "")
+            or worker_constraints.get("path", "")
+            or ""
+        ).strip()
         if tool_name == "pdf_analysis" and pdf_path:
             context["active_pdf"] = pdf_path
         binding = getattr(execution, "structured_binding", None)

@@ -9,8 +9,9 @@ if str(BACKEND_DIR) not in sys.path:
 
 from query.context_models import MainContextState
 from query.evidence_models import BindingCandidate
-from query.worker_models import CanonicalResult, WorkerResult
+from query.worker_models import CanonicalResult, WorkerRequest, WorkerResult
 from query.worker_projection import WorkerProjectionAdapter
+from query.structured_data_worker import StructuredDataWorker
 
 
 def test_structured_canonical_result_projects_dataset_binding_to_session_context() -> None:
@@ -88,10 +89,37 @@ def test_degraded_result_does_not_project_summary_even_with_binding() -> None:
     assert projection.main_context.active_constraints["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
 
 
+def test_structured_worker_fails_closed_for_unmaterialized_table_candidate() -> None:
+    class _ToolRuntime:
+        def get_instance(self, _name):
+            raise AssertionError("unmaterialized table must not invoke structured_data_analysis")
+
+    async def _run():
+        return await StructuredDataWorker(tool_runtime=_ToolRuntime()).run(
+            request=WorkerRequest(
+                request_id="worker:structured_data:cand:table:1",
+                query="分析这张表",
+                worker_route="structured_data",
+                bindings={"active_table": "pdf-table-artifact"},
+            )
+        )
+
+    import asyncio
+
+    result = asyncio.run(_run())
+
+    assert result.status == "clarify"
+    assert result.canonical_result.ok is False
+    assert result.canonical_result.bindings["active_table"] == "pdf-table-artifact"
+    assert result.canonical_result.projection_policy == "do_not_persist"
+    assert "还没有可直接分析的数据文件" in result.canonical_result.answer
+
+
 def main() -> None:
     test_structured_canonical_result_projects_dataset_binding_to_session_context()
     test_candidate_clarification_does_not_project_stable_task_summary()
     test_degraded_result_does_not_project_summary_even_with_binding()
+    test_structured_worker_fails_closed_for_unmaterialized_table_candidate()
     print("ALL PASSED (worker projection)")
 
 

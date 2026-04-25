@@ -73,6 +73,14 @@ class WorkerProjectionAdapter:
                 source_kind="pdf",
                 active_work_item="pdf",
             )
+            pages = bindings.get("active_pdf_pages")
+            if isinstance(pages, list):
+                normalized_pages = [int(page) for page in pages if _positive_int(page) is not None]
+                if normalized_pages:
+                    projected.active_constraints["active_pdf_pages"] = normalized_pages
+            mode = str(bindings.get("active_pdf_mode", "") or "").strip()
+            if mode:
+                projected.active_constraints["active_pdf_mode"] = mode
         elif active_table:
             self._apply_binding(
                 projected,
@@ -81,6 +89,8 @@ class WorkerProjectionAdapter:
                 source_kind="table",
                 active_work_item="structured_data",
             )
+        if active_table:
+            projected.active_constraints["active_table"] = active_table
         return projected
 
     def _project_task_summary_refs(
@@ -102,6 +112,11 @@ class WorkerProjectionAdapter:
             task_kind = "structured_data"
         if bindings.get("active_pdf"):
             key_points.append(f"pdf={bindings['active_pdf']}")
+            if bindings.get("active_pdf_mode"):
+                key_points.append(f"pdf_mode={bindings['active_pdf_mode']}")
+            pages = bindings.get("active_pdf_pages")
+            if isinstance(pages, list) and pages:
+                key_points.append("pdf_pages=" + ",".join(str(page) for page in pages[:8]))
             task_kind = "pdf"
         if bindings.get("active_table"):
             key_points.append(f"table={bindings['active_table']}")
@@ -165,3 +180,11 @@ class WorkerProjectionAdapter:
 def _slug(value: str) -> str:
     compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", str(value or "").lower()).strip("-")
     return compact[:48] or "main"
+
+
+def _positive_int(value) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None

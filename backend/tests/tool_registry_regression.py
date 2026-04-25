@@ -49,7 +49,7 @@ def main() -> None:
     assert by_name["structured_data_analysis"]["contract"]["owner_scope"] == "active_binding_or_explicit_path"
     assert by_name["structured_data_analysis"]["contract"]["required_bindings"] == ["active_dataset"]
 
-    assert by_name["search_knowledge"]["safe_for_auto_route"] is True
+    assert by_name["search_knowledge"]["safe_for_auto_route"] is False
     assert "faq" in by_name["search_knowledge"]["capability_tags"]
     assert "retrieval" in by_name["search_knowledge"]["safety_tags"]
     assert by_name["search_knowledge"]["contract"]["missing_binding_behavior"] == "fallback_to_rag"
@@ -87,7 +87,7 @@ def main() -> None:
         capability_requests=["knowledge_lookup", "latest_information"],
         route="agent",
         modality="general",
-    ) == ["search_knowledge", "web_search"]
+    ) == ["web_search"]
 
     print(f"ALL PASSED ({payload['tool_count']} tools)")
 

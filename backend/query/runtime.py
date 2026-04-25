@@ -7,20 +7,23 @@ import json
 import logging
 import os
 import re
+from pathlib import PurePosixPath
 from typing import Any
 
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
-from pdf_agent import PDFCanonicalResult
 from query.answer_assembler import AnswerAssembler
 from query.answer_finalizer import RAGEvidencePack
 from query.context_models import MainContextState, TaskSummaryRef
 from query.evidence_orchestrator import EvidenceOrchestrator
-from query.evidence_store import BindingCandidateStore
+from query.evidence_graph import EvidenceArtifactGraph
+from query.evidence_store import BindingCandidateStore, EvidenceGraphStore
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryContext, QueryExecutionPlan, QueryPlan, QueryRequest
+from query.pdf_worker import PDFWorker
 from query.retrieval_worker import RetrievalWorker
 from query.structured_data_worker import StructuredDataWorker
+from query.table_materializer import TableMaterializer
 from query.binding_models import StructuredDatasetBinding
 from query.output_boundary import AssistantOutputBoundary, contains_internal_protocol, sanitize_visible_assistant_content
 from query.runtime_context_state import RuntimeContextState
@@ -78,12 +81,17 @@ class QueryRuntime:
         )
         self._persistence = RuntimePersistenceAssembler(hidden_skill_notice=HIDDEN_SKILL_NOTICE)
         self.binding_candidate_store = BindingCandidateStore()
+        self.evidence_graph_store = EvidenceGraphStore()
         self.retrieval_worker = RetrievalWorker(retrieval_service=retrieval_service)
+        self.pdf_worker = PDFWorker(root_dir=base_dir)
         self.structured_data_worker = StructuredDataWorker(tool_runtime=tool_runtime)
+        self.table_materializer = TableMaterializer(root_dir=base_dir)
         self.evidence_orchestrator = EvidenceOrchestrator(
             retrieval_worker=self.retrieval_worker,
+            pdf_worker=self.pdf_worker,
             structured_data_worker=self.structured_data_worker,
             candidate_store=self.binding_candidate_store,
+            graph_store=self.evidence_graph_store,
             output_policy=self._output_policy,
         )
         self._session_memory_projection: dict[str, dict[str, Any]] = {}
@@ -586,6 +594,7 @@ class QueryRuntime:
         ephemeral_system_messages: list[str] | None = None,
         trace=None,
     ):
+        self._restore_evidence_state_from_session(session_id)
         plan = self._planner_build_plan(
             session_id=session_id,
             message=message,
@@ -608,8 +617,34 @@ class QueryRuntime:
         if selection is None:
             return execution
         candidate = selection.candidate
+        if candidate.kind == "document":
+            return self._build_document_candidate_selection_execution(
+                session_id=session_id,
+                execution=execution,
+                selection=selection,
+            )
+        if candidate.kind == "table":
+            return self._build_table_candidate_selection_execution(
+                session_id=session_id,
+                execution=execution,
+                selection=selection,
+            )
         if candidate.kind != "dataset":
             return execution
+        return self._build_dataset_candidate_selection_execution(
+            session_id=session_id,
+            execution=execution,
+            selection=selection,
+        )
+
+    def _build_dataset_candidate_selection_execution(
+        self,
+        *,
+        session_id: str,
+        execution: QueryExecutionPlan,
+        selection,
+    ) -> QueryExecutionPlan:
+        candidate = selection.candidate
         dataset_path = str(candidate.identity or "").strip()
         if not dataset_path:
             return execution
@@ -659,6 +694,178 @@ class QueryRuntime:
             execution_posture="worker",
             worker_plan=WorkerExecutionPlan(
                 worker_route="structured_data",
+                request=request,
+                expected_result="canonical",
+                candidate_refs=[candidate.candidate_id],
+                fallback_execution_kind="none",
+                cutover_mode="primary",
+            ),
+            ephemeral_system_messages=list(execution.ephemeral_system_messages),
+        )
+
+    def _build_table_candidate_selection_execution(
+        self,
+        *,
+        session_id: str,
+        execution: QueryExecutionPlan,
+        selection,
+    ) -> QueryExecutionPlan:
+        candidate = selection.candidate
+        table_identity = str(candidate.identity or candidate.artifact_id or "").strip()
+        if not table_identity:
+            return execution
+        source_query = str(selection.source_query or execution.message or "").strip()
+        dataset_path = self._dataset_path_from_table_candidate(session_id, table_identity)
+        bindings = {"active_table": table_identity}
+        if dataset_path:
+            bindings["active_dataset"] = dataset_path
+        request = WorkerRequest(
+            request_id=f"worker:structured_data:{candidate.candidate_id}",
+            session_id=session_id,
+            query=source_query,
+            worker_route="structured_data",
+            task_frame={
+                "intent": "table_candidate_followup",
+                "source_kind": "table",
+                "task_kind": "table_query",
+                "modality": "table",
+                "selection_source": selection.selection_source,
+            },
+            bindings=bindings,
+        )
+        self.binding_candidate_store.clear(session_id)
+        return QueryExecutionPlan(
+            message=source_query,
+            history=list(execution.history),
+            memory_intent=execution.memory_intent,
+            query_understanding=QueryUnderstanding(
+                intent="table_candidate_followup",
+                source_kind="table",
+                task_kind="table_query",
+                modality="table",
+                route="worker",
+                execution_posture="worker",
+                direct_route_reason="evidence_candidate_selection",
+                capability_requests=["dataset_analysis"],
+                should_skip_rag=True,
+                reasons=["evidence_candidate_selection", selection.selection_source],
+            ),
+            active_skill=execution.active_skill,
+            execution_kind="worker",
+            execution_posture="worker",
+            worker_plan=WorkerExecutionPlan(
+                worker_route="structured_data",
+                request=request,
+                expected_result="canonical",
+                candidate_refs=[candidate.candidate_id],
+                fallback_execution_kind="none",
+                cutover_mode="primary",
+            ),
+            ephemeral_system_messages=list(execution.ephemeral_system_messages),
+        )
+
+    def _dataset_path_from_table_candidate(self, session_id: str, table_identity: str) -> str:
+        artifact = self.evidence_graph_store.get_artifact(session_id, table_identity)
+        if artifact is None:
+            return ""
+        content_ref = str(getattr(artifact, "content_ref", "") or "").strip()
+        if _structured_dataset_path(content_ref):
+            return content_ref.split("#", 1)[0]
+        materialized = self.table_materializer.materialize(artifact, session_id=session_id)
+        if materialized is not None:
+            graph = EvidenceArtifactGraph(session_id=session_id)
+            graph.add_artifact(
+                materialized.artifact,
+                worker="table_materializer",
+                relation="materialized_as",
+            )
+            self.evidence_graph_store.merge(session_id, graph)
+            return materialized.dataset_path
+        source = self.evidence_graph_store.get_source_object(session_id, artifact.source_object_id)
+        if source is None:
+            return ""
+        uri = str(getattr(source, "uri", "") or "").strip()
+        return uri if _structured_dataset_path(uri) else ""
+
+    def _restore_evidence_state_from_session(self, session_id: str) -> None:
+        loader = getattr(self.session_manager, "get_runtime_state", None)
+        if not callable(loader):
+            return
+        try:
+            state = loader(session_id, "evidence_state")
+        except Exception:
+            return
+        if not isinstance(state, dict) or not state:
+            return
+        candidates = state.get("binding_candidates")
+        if isinstance(candidates, dict):
+            self.binding_candidate_store.restore(session_id, candidates)
+        graph = state.get("evidence_graph")
+        if isinstance(graph, dict):
+            self.evidence_graph_store.restore(session_id, graph)
+
+    def _persist_evidence_state_to_session(self, session_id: str) -> None:
+        saver = getattr(self.session_manager, "set_runtime_state", None)
+        if not callable(saver):
+            return
+        state = {
+            "binding_candidates": self.binding_candidate_store.snapshot(session_id),
+            "evidence_graph": self.evidence_graph_store.snapshot(session_id),
+        }
+        try:
+            saver(session_id, "evidence_state", state)
+        except Exception:
+            return
+
+    def _build_document_candidate_selection_execution(
+        self,
+        *,
+        session_id: str,
+        execution: QueryExecutionPlan,
+        selection,
+    ) -> QueryExecutionPlan:
+        candidate = selection.candidate
+        document_path = str(candidate.identity or "").strip()
+        if not document_path:
+            return execution
+        source_query = str(selection.source_query or execution.message or "").strip()
+        request = WorkerRequest(
+            request_id=f"worker:pdf:{candidate.candidate_id}",
+            session_id=session_id,
+            query=source_query,
+            worker_route="pdf",
+            task_frame={
+                "intent": "document_candidate_followup",
+                "source_kind": "document",
+                "task_kind": "pdf_query",
+                "modality": "pdf",
+                "selection_source": selection.selection_source,
+            },
+            bindings={"active_pdf": document_path},
+            constraints={"mode": "document"},
+        )
+        self.binding_candidate_store.clear(session_id)
+        return QueryExecutionPlan(
+            message=source_query,
+            history=list(execution.history),
+            memory_intent=execution.memory_intent,
+            query_understanding=QueryUnderstanding(
+                intent="document_candidate_followup",
+                source_kind="document",
+                task_kind="pdf_query",
+                modality="pdf",
+                route="worker",
+                execution_posture="worker",
+                direct_route_reason="evidence_candidate_selection",
+                capability_requests=["pdf_read"],
+                should_skip_rag=True,
+                reasons=["evidence_candidate_selection", selection.selection_source],
+            ),
+            active_skill=execution.active_skill,
+            execution_kind="worker",
+            execution_posture="worker",
+            worker_plan=WorkerExecutionPlan(
+                worker_route="pdf",
                 request=request,
                 expected_result="canonical",
                 candidate_refs=[candidate.candidate_id],
@@ -720,6 +927,7 @@ class QueryRuntime:
                     trace=trace,
                 ):
                     yield event
+                self._persist_evidence_state_to_session(session_id)
                 return
 
             if execution.execution_kind == "direct_tool" and execution.query_understanding.tool_name:
@@ -949,10 +1157,6 @@ class QueryRuntime:
             output_response = await self._maybe_finalize_rag_output(
                 execution=execution,
                 retrieval_results=context.retrieval_results,
-                output_response=output_response,
-            )
-            output_response = await self._maybe_finalize_pdf_output(
-                execution=execution,
                 output_response=output_response,
             )
             final_content = output_response.canonical_answer.strip()
@@ -1722,82 +1926,6 @@ class QueryRuntime:
     def _stringify_tool_output(self, output: Any) -> str:
         return self._tool_bridge.stringify_tool_output(output)
 
-    def _enrich_direct_tool_task(
-        self,
-        task,
-        *,
-        raw_output: Any,
-        tool_name: str,
-    ) -> None:
-        self._tool_bridge.enrich_direct_tool_task(
-            task,
-            raw_output=raw_output,
-            tool_name=tool_name,
-        )
-
-    def _apply_pdf_persistence_gate(
-        self,
-        *,
-        task,
-        raw_output: Any,
-        tool_name: str,
-        tool_decision,
-    ) -> None:
-        self._tool_bridge.apply_pdf_persistence_gate(
-            task=task,
-            raw_output=raw_output,
-            tool_name=tool_name,
-            tool_decision=tool_decision,
-        )
-
-    async def _finalize_pdf_direct_tool_answer(
-        self,
-        *,
-        session_id: str,
-        execution: QueryExecutionPlan,
-        task,
-        raw_output: Any,
-        tool_name: str,
-        tool_decision,
-    ) -> str:
-        return await self._tool_bridge.finalize_pdf_direct_tool_answer(
-            session_id=session_id,
-            execution=execution,
-            task=task,
-            raw_output=raw_output,
-            tool_name=tool_name,
-            tool_decision=tool_decision,
-        )
-
-    async def _rewrite_pdf_answer_with_model(
-        self,
-        *,
-        user_query: str,
-        canonical: PDFCanonicalResult,
-    ) -> str:
-        messages = self._build_pdf_answer_finalization_messages(
-            user_query=user_query,
-            canonical=canonical,
-        )
-        try:
-            response = await self.model_runtime.invoke_messages(messages)
-        except ModelRuntimeError:
-            return ""
-        except Exception:
-            logger.exception("PDF answer finalization failed")
-            return ""
-        content = sanitize_visible_assistant_content(
-            stringify_content(getattr(response, "content", response))
-        ).strip()
-        if (
-            not content
-            or contains_internal_protocol(content)
-            or self._looks_like_pdf_procedural_answer(content)
-            or (canonical.summary.strip() and content == canonical.summary.strip())
-        ):
-            return ""
-        return content
-
     async def _maybe_finalize_rag_output(
         self,
         *,
@@ -1841,31 +1969,8 @@ class QueryRuntime:
     def _fallback_memory_output_response(self, output_response):
         return self._output_policy.fallback_memory_output_response(output_response)
 
-    async def _maybe_finalize_pdf_output(
-        self,
-        *,
-        execution: QueryExecutionPlan,
-        output_response,
-    ):
-        return await self._output_policy.maybe_finalize_pdf_output(
-            execution=execution,
-            output_response=output_response,
-        )
-
-    def _extract_pdf_canonical_from_output_response(self, output_response) -> PDFCanonicalResult | None:
-        return self._output_policy.extract_pdf_canonical_from_output_response(output_response)
-
-    def _pdf_canonical_can_finalize(self, canonical: PDFCanonicalResult) -> bool:
-        return self._output_policy.pdf_canonical_can_finalize(canonical)
-
-    def _fallback_pdf_output_response(self, output_response, canonical: PDFCanonicalResult):
-        return self._output_policy.fallback_pdf_output_response(output_response, canonical)
-
     def _looks_like_rag_procedural_answer(self, answer: str) -> bool:
         return self._output_policy.looks_like_rag_procedural_answer(answer)
-
-    def _looks_like_pdf_procedural_answer(self, answer: str) -> bool:
-        return self._output_policy.looks_like_pdf_procedural_answer(answer)
 
     def _should_isolate_explicit_durable_turn(
         self,
@@ -1909,26 +2014,6 @@ class QueryRuntime:
             flags=re.IGNORECASE,
         ).strip()
         return normalized
-
-    def _build_pdf_answer_finalization_messages(
-        self,
-        *,
-        user_query: str,
-        canonical: PDFCanonicalResult,
-    ) -> list[dict[str, str]]:
-        return self._output_policy.build_pdf_answer_finalization_messages(
-            user_query=user_query,
-            canonical=canonical,
-        )
-
-    def _pdf_tool_result_can_use_model_finalization(self, raw_output: Any, tool_decision) -> bool:
-        return self._output_policy.pdf_tool_result_can_use_model_finalization(raw_output, tool_decision)
-
-    def _pdf_canonical_has_finalizable_evidence(self, canonical: PDFCanonicalResult) -> bool:
-        return self._output_policy.pdf_canonical_has_finalizable_evidence(canonical)
-
-    def _pdf_tool_decision_is_persistable(self, raw_output: Any, tool_decision) -> bool:
-        return self._output_policy.pdf_tool_decision_is_persistable(raw_output, tool_decision)
 
     def _merge_summary_key_points(
         self,
@@ -2020,3 +2105,8 @@ class QueryRuntime:
 
     def _has_completed_tool_receipt(self, tool_calls: list[dict[str, Any]]) -> bool:
         return self._persistence.has_completed_tool_receipt(tool_calls)
+
+
+def _structured_dataset_path(value: str) -> bool:
+    suffix = PurePosixPath(str(value or "").replace("\\", "/").split("#", 1)[0]).suffix.lower()
+    return suffix in {".xlsx", ".xls", ".csv", ".json", ".parquet"}

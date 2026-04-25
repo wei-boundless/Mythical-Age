@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,7 +14,8 @@ from query.evidence_adapter import build_evidence_envelope_from_retrieval
 from query.models import QueryPlan
 from query.planner import QueryPlanner
 from query.runtime import QueryRuntime
-from query.worker_models import WorkerExecutionPlan, WorkerRequest
+from query.worker_models import CanonicalResult, WorkerExecutionPlan, WorkerRequest, WorkerResult
+from runtime.session_store import SessionManager
 from tasks import TaskCoordinator
 from understanding import MemoryIntent, QueryUnderstanding
 
@@ -75,6 +77,69 @@ class _RetrievalStub:
                 "metadata": {"block_id": "inventory-fields", "result_granularity": "block"},
             },
         ][:top_k]
+
+
+class _DocumentRetrievalStub:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def retrieve(self, query: str, *, top_k: int = 5):
+        self.queries.append(query)
+        return [
+            {
+                "text": "2025年AI治理报告：回归现实主义.pdf 是一份可继续阅读的本地 PDF。",
+                "source": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "score": 0.88,
+                "metadata": {"block_id": "ai-governance-report-summary", "result_granularity": "block"},
+            }
+        ][:top_k]
+
+
+class _TableRetrievalStub:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def retrieve(self, query: str, *, top_k: int = 5):
+        self.queries.append(query)
+        return [
+            {
+                "text": "inventory.xlsx 的库存表包含城市、仓库、当前库存、缺口字段。",
+                "source": "knowledge/E-commerce Data/inventory.xlsx",
+                "score": 0.9,
+                "metadata": {
+                    "block_id": "inventory-table",
+                    "block_type": "table",
+                    "result_granularity": "block",
+                    "columns": ["城市", "仓库", "当前库存", "缺口"],
+                },
+            }
+        ][:top_k]
+
+
+class _PDFWorkerStub:
+    def __init__(self) -> None:
+        self.requests: list[WorkerRequest] = []
+
+    async def run(self, request: WorkerRequest) -> WorkerResult:
+        self.requests.append(request)
+        active_pdf = str(request.bindings.get("active_pdf", "") or "")
+        return WorkerResult(
+            worker_name="pdf",
+            status="ok",
+            canonical_result=CanonicalResult(
+                result_kind="pdf_answer",
+                ok=True,
+                answer="文档要点：AI 治理报告强调回归现实主义。",
+                bindings={
+                    "active_pdf": active_pdf,
+                    "active_pdf_pages": [1],
+                    "active_pdf_mode": "document",
+                },
+                artifact_refs=[f"{active_pdf}#page=1"],
+                projection_policy="persist_canonical",
+                diagnostics={"answer_source": "pdf_worker"},
+            ),
+        )
 
 
 class _ModelRuntimeStub:
@@ -289,6 +354,17 @@ def test_candidate_confirmation_turn_runs_structured_worker_from_previous_retrie
     asyncio.run(_run(first_query))
     events = asyncio.run(_run("是销售数据库"))
     done = next(event for event in reversed(events) if event.get("type") == "done")
+    structured_evidence = next(
+        event
+        for event in events
+        if event.get("type") == "worker_evidence" and event.get("worker") == "structured_data"
+    )
+    structured_artifacts = next(
+        event
+        for event in events
+        if event.get("type") == "worker_artifacts"
+        and event.get("graph_delta", {}).get("artifacts", [{}])[0].get("artifact_type") == "dataset_analysis"
+    )
 
     assert structured_calls == [
         {
@@ -296,6 +372,8 @@ def test_candidate_confirmation_turn_runs_structured_worker_from_previous_retrie
             "path": "knowledge/E-commerce Data/inventory.xlsx",
         }
     ]
+    assert structured_evidence["evidence"]["source_objects"][0]["object_type"] == "dataset"
+    assert structured_artifacts["graph_delta"]["artifacts"][0]["artifact_type"] == "dataset_analysis"
     assert done["answer_source"] == "structured_data_worker"
     assert "缺货城市" in str(done["content"])
     assert done["committed_bindings"]["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
@@ -306,11 +384,296 @@ def test_candidate_confirmation_turn_runs_structured_worker_from_previous_retrie
     assert done["memory_policy"] == "session_context_only"
 
 
+def test_document_candidate_confirmation_turn_runs_pdf_worker_from_previous_retrieval_candidate() -> None:
+    first_query = "帮我找一下 AI 治理报告"
+    retrieval = _DocumentRetrievalStub()
+    model_runtime = _ModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=BACKEND_DIR,
+        settings_service=_SettingsStub(),
+        session_manager=SimpleNamespace(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=retrieval,
+        tool_runtime=_ToolRuntimeStub(),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=model_runtime,
+        task_coordinator=TaskCoordinator(),
+    )
+    pdf_worker = _PDFWorkerStub()
+    runtime.evidence_orchestrator.pdf_worker = pdf_worker
+
+    def _plan_for(message: str) -> QueryPlan:
+        if message == first_query:
+            return QueryPlan(
+                session_id="document-candidate-session",
+                message=first_query,
+                history=[],
+                subqueries=[first_query],
+                memory_intent=MemoryIntent(),
+                query_understanding=QueryUnderstanding(
+                    intent="knowledge_lookup_query",
+                    route="rag",
+                    modality="general",
+                    should_skip_rag=False,
+                    execution_posture="direct_rag",
+                    capability_requests=["knowledge_lookup"],
+                ),
+                execution_kind="worker",
+                worker_plan=WorkerExecutionPlan(
+                    worker_route="retrieval",
+                    request=WorkerRequest(
+                        request_id="worker:retrieval:main",
+                        query=first_query,
+                        worker_route="retrieval",
+                        task_frame={"route": "rag", "capability_requests": ["knowledge_lookup"]},
+                    ),
+                    expected_result="evidence",
+                ),
+            )
+        return QueryPlan(
+            session_id="document-candidate-session",
+            message=message,
+            history=[],
+            subqueries=[message],
+            memory_intent=MemoryIntent(),
+            query_understanding=QueryUnderstanding(
+                intent="general_query",
+                route="agent",
+                execution_posture="bounded_agent",
+                capability_requests=["knowledge_lookup"],
+            ),
+        )
+
+    runtime.planner.build_plan = lambda *, session_id, message, history, **_kwargs: _plan_for(message)  # type: ignore[method-assign]
+
+    async def _run(message: str) -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution("document-candidate-session", message, []):
+            events.append(event)
+        return events
+
+    first_events = asyncio.run(_run(first_query))
+    first_done = next(event for event in reversed(first_events) if event.get("type") == "done")
+    events = asyncio.run(_run("knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"))
+    done = next(event for event in reversed(events) if event.get("type") == "done")
+
+    assert first_done["binding_candidate_refs"] == ["cand:document:1"]
+    assert len(pdf_worker.requests) == 1
+    assert pdf_worker.requests[0].worker_route == "pdf"
+    assert pdf_worker.requests[0].bindings["active_pdf"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+    assert done["answer_source"] == "pdf_worker"
+    assert "AI 治理报告" in str(done["content"])
+    assert done["committed_bindings"]["active_pdf"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+    assert done["main_context"]["followup_binding_key"] == "active_pdf"
+    assert done["main_context"]["active_constraints"]["active_pdf_mode"] == "document"
+    assert done["task_summary_refs"][0]["task_kind"] == "pdf"
+    assert done["memory_policy"] == "session_context_only"
+
+
+def test_table_candidate_confirmation_turn_runs_structured_worker_with_resolved_dataset_source() -> None:
+    first_query = "本地库存表里哪些城市缺货"
+    structured_calls: list[dict[str, object]] = []
+
+    def _structured_invoke(tool_input: dict[str, object]) -> str:
+        structured_calls.append(dict(tool_input))
+        return "数据源：inventory.xlsx 缺货城市：武汉、上海。"
+
+    retrieval = _TableRetrievalStub()
+    model_runtime = _ModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=BACKEND_DIR,
+        settings_service=_SettingsStub(),
+        session_manager=SimpleNamespace(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=retrieval,
+        tool_runtime=_ToolRuntimeStub(direct_tools={"structured_data_analysis": SimpleNamespace(invoke=_structured_invoke)}),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=model_runtime,
+        task_coordinator=TaskCoordinator(),
+    )
+
+    def _plan_for(message: str) -> QueryPlan:
+        if message == first_query:
+            return QueryPlan(
+                session_id="table-candidate-session",
+                message=first_query,
+                history=[],
+                subqueries=[first_query],
+                memory_intent=MemoryIntent(),
+                query_understanding=QueryUnderstanding(
+                    intent="knowledge_lookup_query",
+                    route="rag",
+                    modality="general",
+                    should_skip_rag=False,
+                    execution_posture="direct_rag",
+                    capability_requests=["knowledge_lookup"],
+                ),
+                execution_kind="worker",
+                worker_plan=WorkerExecutionPlan(
+                    worker_route="retrieval",
+                    request=WorkerRequest(
+                        request_id="worker:retrieval:main",
+                        query=first_query,
+                        worker_route="retrieval",
+                        task_frame={"route": "rag", "capability_requests": ["knowledge_lookup"]},
+                    ),
+                    expected_result="evidence",
+                ),
+            )
+        return QueryPlan(
+            session_id="table-candidate-session",
+            message=message,
+            history=[],
+            subqueries=[message],
+            memory_intent=MemoryIntent(),
+            query_understanding=QueryUnderstanding(
+                intent="general_query",
+                route="agent",
+                execution_posture="bounded_agent",
+                capability_requests=["knowledge_lookup"],
+            ),
+        )
+
+    runtime.planner.build_plan = lambda *, session_id, message, history, **_kwargs: _plan_for(message)  # type: ignore[method-assign]
+
+    async def _run(message: str) -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution("table-candidate-session", message, []):
+            events.append(event)
+        return events
+
+    first_events = asyncio.run(_run(first_query))
+    first_done = next(event for event in reversed(first_events) if event.get("type") == "done")
+    events = asyncio.run(_run("cand:table:1"))
+    done = next(event for event in reversed(events) if event.get("type") == "done")
+
+    assert "cand:dataset:1" in first_done["binding_candidate_refs"]
+    assert "cand:table:1" in first_done["binding_candidate_refs"]
+    assert structured_calls == [
+        {
+            "query": first_query,
+            "path": "knowledge/E-commerce Data/inventory.xlsx",
+        }
+    ]
+    assert done["answer_source"] == "structured_data_worker"
+    assert done["committed_bindings"]["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
+    assert done["committed_bindings"]["active_table"] == "inventory-table"
+    assert done["main_context"]["active_constraints"]["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
+    assert done["main_context"]["active_constraints"]["active_table"] == "inventory-table"
+    assert "table=inventory-table" in done["task_summary_refs"][0]["key_points"]
+
+
+def test_candidate_and_graph_state_restore_from_session_runtime_state() -> None:
+    first_query = "你可以查询本地数据库里面，有哪些城市缺货嘛"
+    structured_calls: list[dict[str, object]] = []
+
+    def _structured_invoke(tool_input: dict[str, object]) -> str:
+        structured_calls.append(dict(tool_input))
+        return "数据源：inventory.xlsx 缺货城市：武汉、上海。"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        session_manager = SessionManager(Path(tmp))
+        session_id = "candidate-runtime-state-session"
+        runtime1 = QueryRuntime(
+            base_dir=BACKEND_DIR,
+            settings_service=_SettingsStub(),
+            session_manager=session_manager,
+            memory_facade=_MemoryFacadeStub(),
+            retrieval_service=_RetrievalStub(),
+            tool_runtime=_ToolRuntimeStub(),
+            skill_registry=_SkillRegistryStub(),
+            permission_service=_PermissionStub(),
+            model_runtime=_ModelRuntimeStub(),
+            task_coordinator=TaskCoordinator(),
+        )
+        runtime2 = QueryRuntime(
+            base_dir=BACKEND_DIR,
+            settings_service=_SettingsStub(),
+            session_manager=session_manager,
+            memory_facade=_MemoryFacadeStub(),
+            retrieval_service=_RetrievalStub(),
+            tool_runtime=_ToolRuntimeStub(direct_tools={"structured_data_analysis": SimpleNamespace(invoke=_structured_invoke)}),
+            skill_registry=_SkillRegistryStub(),
+            permission_service=_PermissionStub(),
+            model_runtime=_ModelRuntimeStub(),
+            task_coordinator=TaskCoordinator(),
+        )
+
+        def _plan_for(message: str) -> QueryPlan:
+            if message == first_query:
+                return QueryPlan(
+                    session_id=session_id,
+                    message=first_query,
+                    history=[],
+                    subqueries=[first_query],
+                    memory_intent=MemoryIntent(),
+                    query_understanding=QueryUnderstanding(
+                        intent="knowledge_lookup_query",
+                        route="rag",
+                        modality="general",
+                        should_skip_rag=False,
+                        execution_posture="direct_rag",
+                        capability_requests=["knowledge_lookup"],
+                    ),
+                    execution_kind="worker",
+                    worker_plan=WorkerExecutionPlan(
+                        worker_route="retrieval",
+                        request=WorkerRequest(
+                            request_id="worker:retrieval:main",
+                            session_id=session_id,
+                            query=first_query,
+                            worker_route="retrieval",
+                            task_frame={"route": "rag", "capability_requests": ["knowledge_lookup"]},
+                        ),
+                        expected_result="evidence",
+                    ),
+                )
+            return QueryPlan(
+                session_id=session_id,
+                message=message,
+                history=[],
+                subqueries=[message],
+                memory_intent=MemoryIntent(),
+                query_understanding=QueryUnderstanding(
+                    intent="general_query",
+                    route="agent",
+                    execution_posture="bounded_agent",
+                    capability_requests=["knowledge_lookup"],
+                ),
+            )
+
+        runtime1.planner.build_plan = lambda *, session_id, message, history, **_kwargs: _plan_for(message)  # type: ignore[method-assign]
+        runtime2.planner.build_plan = lambda *, session_id, message, history, **_kwargs: _plan_for(message)  # type: ignore[method-assign]
+
+        async def _run(runtime: QueryRuntime, message: str) -> list[dict[str, object]]:
+            events: list[dict[str, object]] = []
+            async for event in runtime._stream_single_execution(session_id, message, []):
+                events.append(event)
+            return events
+
+        asyncio.run(_run(runtime1, first_query))
+        persisted = session_manager.get_runtime_state(session_id, "evidence_state")
+        assert persisted["binding_candidates"]["candidates"][0]["candidate_id"] == "cand:dataset:1"
+        assert persisted["evidence_graph"]["artifacts"]
+
+        events = asyncio.run(_run(runtime2, "是销售数据库"))
+        done = next(event for event in reversed(events) if event.get("type") == "done")
+
+        assert structured_calls == [{"query": first_query, "path": "knowledge/E-commerce Data/inventory.xlsx"}]
+        assert done["answer_source"] == "structured_data_worker"
+        assert done["committed_bindings"]["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
+
+
 def main() -> None:
     test_evidence_adapter_promotes_retrieval_source_to_dataset_candidate()
     test_planner_promotes_direct_rag_to_worker_execution_plan()
     test_runtime_worker_branch_runs_retrieval_without_main_agent_or_search_tool()
     test_candidate_confirmation_turn_runs_structured_worker_from_previous_retrieval_candidate()
+    test_document_candidate_confirmation_turn_runs_pdf_worker_from_previous_retrieval_candidate()
+    test_table_candidate_confirmation_turn_runs_structured_worker_with_resolved_dataset_source()
+    test_candidate_and_graph_state_restore_from_session_runtime_state()
     print("ALL PASSED (evidence worker runtime regression)")
 
 

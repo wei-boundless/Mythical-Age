@@ -30,7 +30,7 @@ def _assert_bounded_lookup(result, query: str) -> None:
     assert result.tool_name is None
     assert result.task_kind == "knowledge_lookup"
     assert result.target_object is None
-    assert result.candidate_tools == ["search_knowledge"]
+    assert result.candidate_tools == []
     assert result.tool_input == {"query": query}
     assert "fallback_bounded_lookup" in result.reasons
 
@@ -74,7 +74,7 @@ def main() -> None:
     assert shortage.skill_name is None
     assert skill_resolver.resolve(task_frame=shortage).name == "rag-skill"
     assert shortage.tool_name is None
-    assert shortage.candidate_tools == ["search_knowledge"]
+    assert shortage.candidate_tools == []
 
     local_database = analyze_query_understanding(
         "为我搜索本地的数据库，看看有没有缺货情况",
@@ -85,7 +85,7 @@ def main() -> None:
     assert local_database.execution_posture == "direct_rag"
     assert skill_resolver.resolve(task_frame=local_database).name == "rag-skill"
     assert local_database.tool_name is None
-    assert local_database.candidate_tools == ["search_knowledge"]
+    assert local_database.candidate_tools == []
 
     abundance = analyze_query_understanding(
         "我不是要知道缺货情况，我要你分析哪些地方货物最充足",
@@ -145,7 +145,7 @@ def main() -> None:
     assert faq.task_kind == "faq_explanation"
     assert faq.target_object is None
     assert faq.tool_name is None
-    assert faq.candidate_tools == ["search_knowledge"]
+    assert faq.candidate_tools == []
 
     rag = analyze_query_understanding(
         "为我讲讲AI吧，你的数据库里有不少AI知识吧",

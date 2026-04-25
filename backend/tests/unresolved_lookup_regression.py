@@ -108,7 +108,7 @@ async def _collect_events(plan: QueryPlan) -> tuple[list[dict[str, object]], _Re
     return events, retrieval, model_runtime
 
 
-def test_bounded_agent_exposes_bounded_tools_without_rag_retrieval() -> None:
+def test_bounded_agent_exposes_only_non_rag_tools_without_rag_retrieval() -> None:
     plan = QueryPlan(
         session_id="bounded-agent-session",
         message="他今年还在打比赛吗",
@@ -129,14 +129,14 @@ def test_bounded_agent_exposes_bounded_tools_without_rag_retrieval() -> None:
     events, retrieval, model_runtime = asyncio.run(_collect_events(plan))
 
     assert retrieval.queries == []
-    assert model_runtime.last_tools == ["search_knowledge", "web_search"]
+    assert model_runtime.last_tools == ["web_search"]
     done = events[-1]
     assert done["content"] == "当前还没有形成真实查询结果。"
     assert done["answer_source"] == "segment.visible_text"
 
 
 def main() -> None:
-    test_bounded_agent_exposes_bounded_tools_without_rag_retrieval()
+    test_bounded_agent_exposes_only_non_rag_tools_without_rag_retrieval()
     print("ALL PASSED (unresolved lookup regression)")
 
 

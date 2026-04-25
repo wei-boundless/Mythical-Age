@@ -4,7 +4,6 @@ import asyncio
 import json
 from typing import Any, Callable
 
-from pdf_agent import PDFCanonicalResult
 from query.output_boundary import sanitize_visible_assistant_content
 from query.output_classifier import build_output_decision, classify_output_candidate
 from query.tool_output_adapter import build_tool_result_envelope
@@ -57,7 +56,9 @@ class RuntimeToolBridge:
             requested = list(getattr(execution.query_understanding, "candidate_tools", []) or [])
             if not requested and skill_scope.has_allowed_filter:
                 requested.extend(skill_scope.to_allowed_tools())
-            return set(self.permission_service.allowed_tool_names(allowed_tools=requested or None))
+            return self._without_worker_only_tools(
+                self.permission_service.allowed_tool_names(allowed_tools=requested or None)
+            )
 
         if route == "tool":
             requested: list[str] = []
@@ -69,11 +70,16 @@ class RuntimeToolBridge:
                 requested.extend(skill_scope.to_allowed_tools())
             return set(self.permission_service.allowed_tool_names(allowed_tools=requested))
 
-        return set(
+        return self._without_worker_only_tools(
             self.permission_service.allowed_tool_names(
                 allowed_tools=skill_scope.to_allowed_tools() if skill_scope.has_allowed_filter else None
             )
         )
+
+    def _without_worker_only_tools(self, tool_names: list[str] | set[str] | tuple[str, ...]) -> set[str]:
+        # RAG is now a RetrievalWorker capability. Keeping the legacy facade out
+        # of the model-visible tool schema prevents bounded-agent retrieval loops.
+        return {str(name) for name in list(tool_names or []) if str(name) != "search_knowledge"}
 
     async def stream_direct_tool_execution(
         self,
@@ -216,33 +222,14 @@ class RuntimeToolBridge:
             ),
             render_content=_render_content,
         )
-        self.enrich_direct_tool_task(
-            task,
-            raw_output=raw_tool_output,
-            tool_name=tool_name,
-        )
         tool_decision = rendered_tool_decision or self.build_direct_tool_output_decision(
             raw_tool_output,
             tool_name=tool_name,
             query=execution.message,
             route=str(execution.query_understanding.route or "tool"),
         )
-        self.apply_pdf_persistence_gate(
-            task=task,
-            raw_output=raw_tool_output,
-            tool_name=tool_name,
-            tool_decision=tool_decision,
-        )
-        visible_content = await self.finalize_pdf_direct_tool_answer(
-            session_id=session_id,
-            execution=execution,
-            task=task,
-            raw_output=raw_tool_output,
-            tool_name=tool_name,
-            tool_decision=tool_decision,
-        )
+        visible_content = tool_decision.canonical_answer.strip() or f"{tool_name} 已执行，但未返回可展示结果。"
         tool_content = task.result
-        pdf_model_finalized = bool(task.metadata.get("pdf_model_finalized")) if task is not None else False
         binding_payload = (
             execution.structured_binding.to_dict()
             if getattr(execution, "structured_binding", None) is not None
@@ -250,10 +237,6 @@ class RuntimeToolBridge:
         )
         task_summary_ref = self._task_summary_ref_from_task(task)
         yield {"type": "tool_end", "tool": tool_name, "output": tool_content, "structured_binding": binding_payload}
-        if tool_name == "pdf_analysis" and not (
-            self.output_policy.pdf_tool_decision_is_persistable(raw_tool_output, tool_decision) or pdf_model_finalized
-        ):
-            task_summary_ref = None
         yield {
             "type": "done",
             "content": visible_content,
@@ -263,9 +246,9 @@ class RuntimeToolBridge:
             "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
             "main_context": self._build_direct_tool_main_context(execution.message, task=task).to_dict(),
             "structured_binding": binding_payload,
-            "answer_channel": "answer_candidate" if pdf_model_finalized else tool_decision.selected_channel,
-            "answer_source": "pdf_model_finalization" if pdf_model_finalized else tool_decision.selected_source,
-            "answer_fallback_reason": "" if pdf_model_finalized else tool_decision.fallback_reason,
+            "answer_channel": tool_decision.selected_channel,
+            "answer_source": tool_decision.selected_source,
+            "answer_fallback_reason": tool_decision.fallback_reason,
             "answer_leak_flags": list(tool_decision.leak_flags),
             "contract": contract_decision.to_dict(),
             "task_summary_refs": [task_summary_ref.to_dict()] if task_summary_ref is not None else [],
@@ -420,111 +403,3 @@ class RuntimeToolBridge:
             return json.dumps(list(output), ensure_ascii=False, indent=2)
         normalized = stringify_content(output)
         return sanitize_visible_assistant_content(normalized).strip() if isinstance(normalized, str) else str(output)
-
-    def enrich_direct_tool_task(
-        self,
-        task,
-        *,
-        raw_output: Any,
-        tool_name: str,
-    ) -> None:
-        if tool_name != "pdf_analysis" or task is None:
-            return
-        canonical = PDFCanonicalResult.from_tool_output(self.stringify_tool_output(raw_output))
-        if canonical is None:
-            return
-        context_ref = getattr(task, "context_ref", None)
-        summary = getattr(task, "summary", None)
-        if context_ref is None or summary is None:
-            return
-        metadata = dict(canonical.metadata or {})
-        normalized_mode = self.output_policy.normalize_pdf_scope(str(canonical.effective_mode or ""))
-        if canonical.ok:
-            context_ref.constraints.pdf_mode = normalized_mode
-        context_ref.constraints.pdf_section = str(metadata.get("target_section", "") or "")
-        target_page = metadata.get("target_page")
-        if isinstance(target_page, int) and target_page > 0:
-            context_ref.constraints.page = target_page
-        context_ref.constraints.pdf_focus_pages = [int(page) for page in list(canonical.pages or []) if int(page) > 0][:5]
-        total_pages = metadata.get("document_total_pages", metadata.get("total_pages"))
-        readable_pages = metadata.get("readable_pages")
-        usable_pages = metadata.get("usable_pages")
-        if isinstance(total_pages, int) and total_pages > 0:
-            context_ref.constraints.total_pages = total_pages
-        if isinstance(readable_pages, int) and readable_pages >= 0:
-            context_ref.constraints.readable_pages = readable_pages
-            task.metadata["pdf_readable_pages"] = readable_pages
-        if isinstance(usable_pages, int) and usable_pages >= 0:
-            context_ref.constraints.usable_pages = usable_pages
-        if canonical.ok:
-            context_ref.task_kind = self.output_policy.pdf_task_kind_from_mode(canonical.effective_mode)
-        task.metadata["pdf_canonical_result"] = canonical.to_payload()
-        if canonical.ok:
-            summary.key_points = self.output_policy.merge_summary_key_points(
-                list(summary.key_points or []),
-                pdf_path=str(context_ref.bindings.active_pdf or ""),
-                page=context_ref.constraints.page,
-                pdf_mode=context_ref.constraints.pdf_mode,
-                pdf_section=context_ref.constraints.pdf_section,
-                pdf_pages=context_ref.constraints.pdf_focus_pages,
-                readable_pages=context_ref.constraints.readable_pages,
-                usable_pages=context_ref.constraints.usable_pages,
-            )
-            context_ref.summary = str(summary.response or "")
-
-    def apply_pdf_persistence_gate(
-        self,
-        *,
-        task,
-        raw_output: Any,
-        tool_name: str,
-        tool_decision,
-    ) -> None:
-        if tool_name != "pdf_analysis" or task is None:
-            return
-        canonical = PDFCanonicalResult.from_tool_output(self.stringify_tool_output(raw_output))
-        if canonical is None or self.output_policy.pdf_tool_decision_is_persistable(raw_output, tool_decision):
-            return
-        summary = getattr(task, "summary", None)
-        context_ref = getattr(task, "context_ref", None)
-        if summary is not None:
-            summary.response = ""
-            summary.key_points = []
-        if context_ref is not None:
-            context_ref.summary = ""
-        task.metadata["skip_session_memory_projection"] = True
-        task.metadata["pdf_persistable"] = False
-
-    async def finalize_pdf_direct_tool_answer(
-        self,
-        *,
-        session_id: str,
-        execution,
-        task,
-        raw_output: Any,
-        tool_name: str,
-        tool_decision,
-    ) -> str:
-        fallback = tool_decision.canonical_answer.strip() or f"{tool_name} 已执行，但未返回可展示结果。"
-        if tool_name != "pdf_analysis" or task is None:
-            return fallback
-        if not self.output_policy.pdf_tool_result_can_use_model_finalization(raw_output, tool_decision):
-            return fallback
-        canonical = PDFCanonicalResult.from_tool_output(self.stringify_tool_output(raw_output))
-        if canonical is None:
-            return fallback
-        finalized = await self.output_policy.rewrite_pdf_answer_with_model(
-            user_query=execution.message,
-            canonical=canonical,
-        )
-        if not finalized or finalized == fallback:
-            return fallback
-        self.task_coordinator.refresh_completed_tool_task(
-            session_id=session_id,
-            task=task,
-            content=finalized,
-            event_name="tool_task_llm_finalize",
-        )
-        task.metadata["pdf_model_finalized"] = True
-        task.metadata["pdf_model_finalized_answer"] = finalized
-        return finalized

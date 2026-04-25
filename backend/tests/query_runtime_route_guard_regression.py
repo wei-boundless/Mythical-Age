@@ -15,6 +15,7 @@ from query.binding_models import StructuredDatasetBinding
 from query.followup_models import FollowupResolution
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryExecutionPlan, QueryPlan
+from query.worker_models import CanonicalResult, WorkerRequest, WorkerResult
 from tasks import TaskCoordinator
 from understanding import MemoryIntent, QueryUnderstanding
 
@@ -115,6 +116,46 @@ class _RetrievalStub:
     def retrieve(self, query: str, *, top_k: int = 5):
         self.queries.append(query)
         return [{"text": "retrieved evidence", "top_k": top_k}]
+
+
+class _PDFWorkerStub:
+    def __init__(
+        self,
+        *,
+        answer: str = "第二部分强调先划清权限边界，再明确审计归口。",
+        ok: bool = True,
+        degraded_reason: str = "",
+    ) -> None:
+        self.answer = answer
+        self.ok = ok
+        self.degraded_reason = degraded_reason
+        self.requests: list[WorkerRequest] = []
+
+    async def run(self, request: WorkerRequest) -> WorkerResult:
+        self.requests.append(request)
+        active_pdf = str(
+            request.bindings.get("active_pdf")
+            or request.constraints.get("active_pdf")
+            or request.constraints.get("path")
+            or "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+        )
+        return WorkerResult(
+            worker_name="pdf",
+            status="ok" if self.ok else "degraded",
+            canonical_result=CanonicalResult(
+                result_kind="pdf_answer",
+                ok=self.ok,
+                answer=self.answer,
+                bindings={
+                    "active_pdf": active_pdf,
+                    "active_pdf_pages": [3, 4],
+                    "active_pdf_mode": str(request.constraints.get("mode") or "section"),
+                },
+                projection_policy="persist_canonical" if self.ok else "do_not_persist",
+                degraded_reason="" if self.ok else self.degraded_reason or "pdf_missing_stable_answer",
+                diagnostics={"answer_source": "pdf_worker"},
+            ),
+        )
 
 
 class _ToolRuntimeStub:
@@ -602,28 +643,15 @@ def test_runtime_uses_session_committed_dataset_binding_for_tool_promotion() -> 
 
 
 def test_runtime_uses_session_committed_pdf_binding_for_tool_promotion() -> None:
-    pdf_output = PDFCanonicalResult(
-        status="ok",
-        source="AI治理报告.pdf",
-        requested_mode="section",
-        effective_mode="section",
-        summary="第二部分强调权限边界和审计归口。",
-        pages=[3, 4],
-        evidence=[
-            PDFCanonicalEvidence(page_number=3, score=7.2, snippet="先划清权限边界。"),
-            PDFCanonicalEvidence(page_number=4, score=6.9, snippet="再明确审计归口。"),
-        ],
-    ).to_tool_output()
-    tool = SimpleNamespace(invoke=lambda _tool_input: pdf_output)
     runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(
         rag_mode=False,
-        direct_tools={"pdf_analysis": tool},
         session_state=_SessionStateStub(
             committed_pdf="knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
             committed_pdf_owner_task_id="pdf-task",
         ),
     )
-    model_runtime.invoke_messages_response = "第二部分强调先划清权限边界，再明确审计归口。"
+    pdf_worker = _PDFWorkerStub(answer="第二部分强调先划清权限边界，再明确审计归口。")
+    runtime.evidence_orchestrator.pdf_worker = pdf_worker
 
     async def _run() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -632,18 +660,20 @@ def test_runtime_uses_session_committed_pdf_binding_for_tool_promotion() -> None
         return events
 
     events = asyncio.run(_run())
-    tool_start = next(event for event in events if event.get("type") == "tool_start")
+    worker_start = next(event for event in events if event.get("type") == "worker_start")
     done = events[-1]
 
-    assert tool_start["tool"] == "pdf_analysis"
-    assert str(tool_start["input"]["path"]).endswith(".pdf")
-    assert done["answer_source"] == "pdf_model_finalization"
+    assert worker_start["worker"] == "pdf"
+    assert pdf_worker.requests
+    assert str(pdf_worker.requests[0].bindings["active_pdf"]).endswith(".pdf")
+    assert done["answer_source"] == "pdf_worker"
     assert done["answer_fallback_reason"] == ""
     assert "权限边界" in str(done["content"])
-    assert len(model_runtime.invoke_messages_calls) == 1
+    assert done["main_context"]["active_constraints"]["active_pdf"].endswith(".pdf")
+    assert len(model_runtime.invoke_messages_calls) == 0
 
 
-def test_pdf_direct_tool_route_uses_model_finalization_for_visible_answer() -> None:
+def test_pdf_direct_tool_facade_returns_canonical_summary_without_runtime_finalization() -> None:
     pdf_output = PDFCanonicalResult(
         status="ok",
         source="AI治理报告.pdf",
@@ -683,7 +713,6 @@ def test_pdf_direct_tool_route_uses_model_finalization_for_visible_answer() -> N
         rag_mode=False,
         direct_tools={"pdf_analysis": tool},
     )
-    model_runtime.invoke_messages_response = "1. 先立规则。\n2. 再建审计。\n3. 最后明确责任归口。"
     runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
 
     async def _run() -> list[dict[str, object]]:
@@ -695,13 +724,13 @@ def test_pdf_direct_tool_route_uses_model_finalization_for_visible_answer() -> N
     events = asyncio.run(_run())
     done = [event for event in events if event["type"] == "done"][-1]
 
-    assert len(model_runtime.invoke_messages_calls) == 1
-    assert "核心结论压成三条行动建议" in model_runtime.invoke_messages_calls[0][1]["content"]
-    assert done["content"] == "1. 先立规则。\n2. 再建审计。\n3. 最后明确责任归口。"
-    assert done["summary"]["response"].startswith("1. 先立规则。")
-    assert done["context_ref"]["summary"].startswith("1. 先立规则。")
-    assert done["task_summary_refs"][0]["summary"].startswith("1. 先立规则。")
-    assert events[-2]["output"] == "1. 先立规则。\n2. 再建审计。\n3. 最后明确责任归口。"
+    assert model_runtime.invoke_messages_calls == []
+    assert done["answer_source"] == "direct_tool.pdf_analysis"
+    assert done["content"] == "文档要点：先建立规则，再补审计，最后明确责任归口。"
+    assert done["summary"]["response"].startswith("文档要点")
+    assert done["context_ref"]["summary"].startswith("文档要点")
+    assert done["task_summary_refs"][0]["summary"].startswith("文档要点")
+    assert events[-2]["output"] == "文档要点：先建立规则，再补审计，最后明确责任归口。"
 
 
 def test_pdf_direct_tool_route_skips_model_finalization_for_degraded_result() -> None:
@@ -743,11 +772,11 @@ def test_pdf_direct_tool_route_skips_model_finalization_for_degraded_result() ->
 
     done = [event for event in events if event["type"] == "done"][-1]
     assert model_runtime.invoke_messages_calls == []
-    assert done["task_summary_refs"] == []
+    assert done["task_summary_refs"]
     assert "没有稳定可提取的正文" in done["content"]
 
 
-def test_pdf_direct_tool_route_uses_model_finalization_for_degraded_page_evidence() -> None:
+def test_pdf_direct_tool_facade_does_not_model_finalize_degraded_page_evidence() -> None:
     pdf_output = PDFCanonicalResult(
         status="degraded",
         source="AI治理报告.pdf",
@@ -787,7 +816,6 @@ def test_pdf_direct_tool_route_uses_model_finalization_for_degraded_page_evidenc
         rag_mode=False,
         direct_tools={"pdf_analysis": tool},
     )
-    model_runtime.invoke_messages_response = "第三页基本是题名页，主要给出报告标题《2025年AI治理报告：回归现实主义》和来源腾讯研究院，没有展开正文论述。"
     runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
 
     async def _run() -> list[dict[str, object]]:
@@ -799,17 +827,16 @@ def test_pdf_direct_tool_route_uses_model_finalization_for_degraded_page_evidenc
     events = asyncio.run(_run())
     done = [event for event in events if event["type"] == "done"][-1]
 
-    assert len(model_runtime.invoke_messages_calls) == 1
-    assert "降级原因：target_page_text_quality_low" in model_runtime.invoke_messages_calls[0][1]["content"]
-    assert done["content"].startswith("第三页基本是题名页")
-    assert done["answer_channel"] == "answer_candidate"
-    assert done["answer_source"] == "pdf_model_finalization"
-    assert done["answer_fallback_reason"] == ""
-    assert done["summary"]["response"].startswith("第三页基本是题名页")
-    assert done["context_ref"]["summary"].startswith("第三页基本是题名页")
+    assert model_runtime.invoke_messages_calls == []
+    assert done["content"].startswith("已定位到 P3")
+    assert done["answer_channel"] == "fallback_answer"
+    assert done["answer_source"] == "fallback_policy"
+    assert done["answer_fallback_reason"] == "pdf_target_page_text_quality_low"
+    assert done["summary"]["response"].startswith("已定位到 P3")
+    assert done["context_ref"]["summary"].startswith("已定位到 P3")
     assert done["task_summary_refs"]
-    assert done["task_summary_refs"][0]["summary"].startswith("第三页基本是题名页")
-    assert events[-2]["output"].startswith("第三页基本是题名页")
+    assert done["task_summary_refs"][0]["summary"].startswith("已定位到 P3")
+    assert events[-2]["output"].startswith("已定位到 P3")
 
 
 def test_semantic_memory_signal_keeps_rag_and_prefetches_durable() -> None:
@@ -2063,7 +2090,7 @@ def test_runtime_rag_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallb
     assert len(model_runtime.invoke_messages_calls) == 1
 
 
-def test_runtime_pdf_answer_finalizer_rewrites_canonical_tool_output() -> None:
+def test_runtime_pdf_tool_output_boundary_no_longer_model_finalizes_tool_output() -> None:
     plan = QueryPlan(
         session_id="pdf-finalizer-success",
         message="第三页具体讲了什么？",
@@ -2092,95 +2119,6 @@ def test_runtime_pdf_answer_finalizer_rewrites_canonical_tool_output() -> None:
             PDFCanonicalEvidence(page_number=3, score=1.0, snippet="回归现实主义2025年AI治理报告 腾讯研究院"),
         ],
     ).to_tool_output()
-    model_runtime.invoke_messages_response = "第三页目前更像题名页，能确认的信息主要是报告标题和机构，暂时看不出正文论证。"
-    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
-    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
-        [
-            (
-                "updates",
-                {
-                    "node": {
-                        "messages": [
-                            SimpleNamespace(
-                                type="ai",
-                                content="我先读取第三页，再给你结论。",
-                                tool_calls=[
-                                    {
-                                        "id": "call-1",
-                                        "name": "pdf_analysis",
-                                        "args": {"path": "knowledge/demo.pdf", "page": 3},
-                                    }
-                                ],
-                            )
-                        ]
-                    }
-                },
-            ),
-            (
-                "updates",
-                {
-                    "node": {
-                        "messages": [
-                            SimpleNamespace(
-                                type="tool",
-                                tool_call_id="call-1",
-                                name="pdf_analysis",
-                                content=canonical,
-                            )
-                        ]
-                    }
-                },
-            ),
-        ]
-    )
-
-    async def _run() -> list[dict[str, object]]:
-        events: list[dict[str, object]] = []
-        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
-            events.append(event)
-        return events
-
-    events = asyncio.run(_run())
-    done = events[-1]
-
-    assert done["answer_channel"] == "answer_candidate"
-    assert done["answer_source"] == "pdf_answer_finalization"
-    assert done["answer_fallback_reason"] == ""
-    assert "题名页" in str(done["content"])
-    assert len(model_runtime.invoke_messages_calls) == 1
-    assert "AI治理报告.pdf" in model_runtime.invoke_messages_calls[0][1]["content"]
-
-
-def test_runtime_pdf_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallback() -> None:
-    plan = QueryPlan(
-        session_id="pdf-finalizer-reject",
-        message="第三页具体讲了什么？",
-        history=[],
-        subqueries=["第三页具体讲了什么？"],
-        memory_intent=MemoryIntent(should_skip_rag=True),
-        query_understanding=QueryUnderstanding(
-            intent="pdf_page_followup_query",
-            route="tool",
-            modality="pdf",
-            tool_name="pdf_analysis",
-            should_skip_rag=True,
-        ),
-        active_skill=None,
-    )
-    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=False)
-    canonical = PDFCanonicalResult(
-        status="degraded",
-        source="AI治理报告.pdf",
-        requested_mode="page",
-        effective_mode="page",
-        summary="",
-        degraded_reason="target_page_text_quality_low",
-        pages=[3],
-        evidence=[
-            PDFCanonicalEvidence(page_number=3, score=1.0, snippet="回归现实主义2025年AI治理报告 腾讯研究院"),
-        ],
-    ).to_tool_output()
-    model_runtime.invoke_messages_response = "我先根据第三页整理一下答案。"
     runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
     runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
         [
@@ -2235,7 +2173,93 @@ def test_runtime_pdf_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallb
     assert done["answer_source"] == "fallback_policy"
     assert done["answer_fallback_reason"] == "pdf_target_page_text_quality_low"
     assert "页面文本质量不稳定" in str(done["content"])
-    assert len(model_runtime.invoke_messages_calls) == 1
+    assert len(model_runtime.invoke_messages_calls) == 0
+
+
+def test_runtime_pdf_tool_output_boundary_keeps_fallback_without_model_rewrite() -> None:
+    plan = QueryPlan(
+        session_id="pdf-finalizer-reject",
+        message="第三页具体讲了什么？",
+        history=[],
+        subqueries=["第三页具体讲了什么？"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="pdf_page_followup_query",
+            route="tool",
+            modality="pdf",
+            tool_name="pdf_analysis",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    canonical = PDFCanonicalResult(
+        status="degraded",
+        source="AI治理报告.pdf",
+        requested_mode="page",
+        effective_mode="page",
+        summary="",
+        degraded_reason="target_page_text_quality_low",
+        pages=[3],
+        evidence=[
+            PDFCanonicalEvidence(page_number=3, score=1.0, snippet="回归现实主义2025年AI治理报告 腾讯研究院"),
+        ],
+    ).to_tool_output()
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ScriptedAgent(  # type: ignore[method-assign]
+        [
+            (
+                "updates",
+                {
+                    "node": {
+                        "messages": [
+                            SimpleNamespace(
+                                type="ai",
+                                content="我先读取第三页，再给你结论。",
+                                tool_calls=[
+                                    {
+                                        "id": "call-1",
+                                        "name": "pdf_analysis",
+                                        "args": {"path": "knowledge/demo.pdf", "page": 3},
+                                    }
+                                ],
+                            )
+                        ]
+                    }
+                },
+            ),
+            (
+                "updates",
+                {
+                    "node": {
+                        "messages": [
+                            SimpleNamespace(
+                                type="tool",
+                                tool_call_id="call-1",
+                                name="pdf_analysis",
+                                content=canonical,
+                            )
+                        ]
+                    }
+                },
+            ),
+        ]
+    )
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert done["answer_channel"] == "fallback_answer"
+    assert done["answer_source"] == "fallback_policy"
+    assert done["answer_fallback_reason"] == "pdf_target_page_text_quality_low"
+    assert "页面文本质量不稳定" in str(done["content"])
+    assert len(model_runtime.invoke_messages_calls) == 0
 
 
 def test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_content() -> None:
@@ -2355,7 +2379,7 @@ def test_direct_tool_pdf_raw_dump_does_not_become_done_content() -> None:
     assert events[-1]["answer_channel"] == "fallback_answer"
 
 
-def test_direct_tool_degraded_pdf_result_does_not_project_summary_state() -> None:
+def test_direct_tool_degraded_pdf_facade_projects_generic_fallback_state() -> None:
     canonical = PDFCanonicalResult(
         status="degraded",
         source="test.pdf",
@@ -2399,17 +2423,22 @@ def test_direct_tool_degraded_pdf_result_does_not_project_summary_state() -> Non
 
     done = events[-1]
     assert done["answer_channel"] == "fallback_answer"
-    assert done["task_summary_refs"] == []
-    assert done["summary"]["response"] == ""
-    assert done["summary"]["key_points"] == []
-    assert done["context_ref"]["summary"] == ""
+    assert done["answer_source"] == "fallback_policy"
+    assert done["answer_fallback_reason"] == "pdf_target_page_text_quality_low"
+    assert done["content"] == "已定位到 P8，但页面文本质量不稳定，当前无法可靠给出页级结论。"
+    assert done["task_summary_refs"]
+    assert done["summary"]["response"] == done["content"]
+    assert done["summary"]["key_points"] == ["page=8", "pdf_mode=page", "pdf=knowledge/test.pdf"]
+    assert done["context_ref"]["summary"] == done["content"]
     assert done["main_context"]["active_constraints"]["page"] == 8
-    assert done["main_context"]["active_constraints"]["total_pages"] == 16
-    assert done["main_context"]["active_constraints"]["readable_pages"] == 12
-    assert done["main_context"]["active_constraints"]["usable_pages"] == 10
+    assert done["main_context"]["active_constraints"]["pdf_mode"] == "page"
+    assert done["main_context"]["active_constraints"]["active_pdf"] == "knowledge/test.pdf"
+    assert "total_pages" not in done["main_context"]["active_constraints"]
+    assert "readable_pages" not in done["main_context"]["active_constraints"]
+    assert "usable_pages" not in done["main_context"]["active_constraints"]
 
 
-def test_direct_tool_pdf_canonical_result_projects_pdf_state_into_task_and_main_context() -> None:
+def test_direct_tool_pdf_canonical_facade_projects_minimal_binding_state() -> None:
     canonical = PDFCanonicalResult(
         status="ok",
         source="test.pdf",
@@ -2459,14 +2488,15 @@ def test_direct_tool_pdf_canonical_result_projects_pdf_state_into_task_and_main_
     summary_key_points = list(done["summary"]["key_points"])
     assert constraints["pdf_mode"] == "section"
     assert constraints["pdf_section"] == "第二部分"
-    assert constraints["page"] == 8
-    assert constraints["pdf_focus_pages"] == [8, 9]
+    assert constraints["page"] is None
+    assert constraints["pdf_focus_pages"] == []
     assert main_constraints["pdf_mode"] == "section"
     assert main_constraints["pdf_section"] == "第二部分"
-    assert main_constraints["page"] == 8
-    assert main_constraints["readable_pages"] == 14
-    assert main_constraints["usable_pages"] == 12
-    assert "readable_pages=14" in summary_key_points
+    assert "page" not in main_constraints
+    assert "readable_pages" not in main_constraints
+    assert "usable_pages" not in main_constraints
+    assert done["answer_source"] == "direct_tool.pdf_analysis"
+    assert done["content"] == "已定位到第二部分的约束重点。"
     assert "pdf_mode=section" in summary_key_points
     assert "pdf_section=第二部分" in summary_key_points
 
@@ -2559,9 +2589,9 @@ def main() -> None:
     test_direct_tool_route_normalizes_final_content()
     test_runtime_uses_session_committed_dataset_binding_for_tool_promotion()
     test_runtime_uses_session_committed_pdf_binding_for_tool_promotion()
-    test_pdf_direct_tool_route_uses_model_finalization_for_visible_answer()
+    test_pdf_direct_tool_facade_returns_canonical_summary_without_runtime_finalization()
     test_pdf_direct_tool_route_skips_model_finalization_for_degraded_result()
-    test_pdf_direct_tool_route_uses_model_finalization_for_degraded_page_evidence()
+    test_pdf_direct_tool_facade_does_not_model_finalize_degraded_page_evidence()
     test_semantic_memory_signal_keeps_rag_and_prefetches_durable()
     test_execution_events_reuses_built_plan_for_subtasks()
     test_memory_route_does_not_promote_fake_tool_call_into_task_summary()
@@ -2578,12 +2608,12 @@ def main() -> None:
     test_runtime_memory_visible_gate_keeps_stable_memory_answer()
     test_runtime_rag_answer_finalizer_rewrites_missing_answer_from_evidence_pack()
     test_runtime_rag_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallback()
-    test_runtime_pdf_answer_finalizer_rewrites_canonical_tool_output()
-    test_runtime_pdf_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallback()
+    test_runtime_pdf_tool_output_boundary_no_longer_model_finalizes_tool_output()
+    test_runtime_pdf_tool_output_boundary_keeps_fallback_without_model_rewrite()
     test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_content()
     test_direct_tool_pdf_raw_dump_does_not_become_done_content()
-    test_direct_tool_degraded_pdf_result_does_not_project_summary_state()
-    test_direct_tool_pdf_canonical_result_projects_pdf_state_into_task_and_main_context()
+    test_direct_tool_degraded_pdf_facade_projects_generic_fallback_state()
+    test_direct_tool_pdf_canonical_facade_projects_minimal_binding_state()
     test_direct_tool_plain_table_dump_does_not_become_done_content()
     test_assistant_message_persistence_uses_canonical_visible_content()
     test_output_boundary_strips_search_protocol_tail_from_visible_answer()

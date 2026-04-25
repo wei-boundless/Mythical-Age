@@ -37,10 +37,12 @@ class TurnResult:
     message: str
     plan_route: str
     plan_tool: str
+    plan_worker: str
     plan_skill: str
     subquery_count: int
     event_types: list[str]
     tool_names: list[str]
+    worker_names: list[str]
     response_text: str
     execution_mode: str = ""
     bundle_item_count: int = 0
@@ -100,6 +102,11 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             if turn.plan_tool != expected:
                 failures.append(f"{check} (actual={turn.plan_tool})")
             continue
+        if check.startswith("plan.worker="):
+            expected = check.split("=", 1)[1]
+            if turn.plan_worker != expected:
+                failures.append(f"{check} (actual={turn.plan_worker})")
+            continue
         if check.startswith("plan.skill="):
             expected = check.split("=", 1)[1]
             if turn.plan_skill != expected:
@@ -129,6 +136,11 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             expected = check.split("=", 1)[1]
             if expected not in turn.tool_names:
                 failures.append(f"{check} (actual={turn.tool_names})")
+            continue
+        if check.startswith("event.worker="):
+            expected = check.split("=", 1)[1]
+            if expected not in turn.worker_names:
+                failures.append(f"{check} (actual={turn.worker_names})")
             continue
         if check.startswith("event="):
             expected = check.split("=", 1)[1]
@@ -361,6 +373,8 @@ def _execute_user_turn(
         runtime_effective_route = "followup_direct"
     elif any(item.get("event") == "tool_start" for item in events):
         runtime_effective_route = "tool"
+    elif any(item.get("event") == "worker_start" for item in events):
+        runtime_effective_route = "worker"
     elif any(item.get("event") == "retrieval" for item in events):
         runtime_effective_route = "rag"
     tool_names = [
@@ -368,6 +382,20 @@ def _execute_user_turn(
         for item in events
         if item.get("event") == "tool_start"
     ]
+    worker_names = [
+        str(dict(item.get("data") or {}).get("worker", "") or "")
+        for item in events
+        if item.get("event") == "worker_start"
+    ]
+    plan_worker = str(getattr(getattr(plan, "worker_plan", None), "worker_route", "") or "")
+    if not plan_worker:
+        executions = plan.iter_executions()
+        for execution in executions:
+            worker_plan = getattr(execution, "worker_plan", None)
+            worker_route = str(getattr(worker_plan, "worker_route", "") or "")
+            if worker_route:
+                plan_worker = worker_route
+                break
     task_count = len(runtime.task_coordinator.list_tasks(session_id=session_id))
 
     turn_result = TurnResult(
@@ -377,12 +405,14 @@ def _execute_user_turn(
         message=turn.content,
         plan_route=plan.query_understanding.route,
         plan_tool=str(plan.query_understanding.tool_name or ""),
+        plan_worker=plan_worker,
         plan_skill=str((plan.active_skill.name if plan.active_skill is not None else plan.query_understanding.skill_name) or ""),
         execution_mode=str(getattr(plan, "execution_mode", "") or ""),
         bundle_item_count=len(list(getattr(getattr(plan, "bundle_plan", None), "items", []) or [])),
         subquery_count=len(plan.subqueries),
         event_types=[str(item.get("event", "")) for item in events],
         tool_names=[name for name in tool_names if name],
+        worker_names=[name for name in worker_names if name],
         response_text=response_text,
         runtime_effective_route=runtime_effective_route or plan.query_understanding.route,
         followup_mode=str(done_payload.get("followup_mode", "") or ("direct_task_handle" if active_work_item.startswith("followup_task_") else "")),
@@ -432,6 +462,7 @@ def _execute_user_turn(
                 "plan": {
                 "route": turn_result.plan_route,
                 "tool": turn_result.plan_tool,
+                "worker": turn_result.plan_worker,
                 "skill": turn_result.plan_skill,
                 "execution_mode": turn_result.execution_mode,
                 "bundle_item_count": turn_result.bundle_item_count,

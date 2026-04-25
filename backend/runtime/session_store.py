@@ -207,6 +207,27 @@ class SessionManager:
     def get_history(self, session_id: str) -> dict[str, Any]:
         return self._read_session_file(session_id)
 
+    def get_runtime_state(self, session_id: str, key: str) -> dict[str, Any]:
+        record = self._read_session_file(session_id)
+        runtime_state = record.get("runtime_state")
+        if not isinstance(runtime_state, dict):
+            return {}
+        value = runtime_state.get(str(key or "").strip())
+        return dict(value) if isinstance(value, dict) else {}
+
+    def set_runtime_state(self, session_id: str, key: str, value: dict[str, Any]) -> None:
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            return
+        with self._lock:
+            record = self._read_session_file(session_id)
+            runtime_state = record.get("runtime_state")
+            if not isinstance(runtime_state, dict):
+                runtime_state = {}
+            runtime_state[normalized_key] = dict(value or {})
+            record["runtime_state"] = runtime_state
+            self._write_session(record)
+
     def rename_session(self, session_id: str, title: str) -> dict[str, Any]:
         with self._lock:
             record = self._read_session_file(session_id)

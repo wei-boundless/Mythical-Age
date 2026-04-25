@@ -1,0 +1,278 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+from pathlib import Path
+from typing import Any
+
+from pdf_agent import PDFCanonicalResult, PDFReadAgentRuntime, PDFReadRequest
+from pdf_analysis import PdfAnalysisCatalog
+from query.evidence_models import (
+    DocumentCandidate,
+    EvidenceArtifact,
+    EvidenceEnvelope,
+    EvidenceItem,
+    SourceObjectRef,
+)
+from query.worker_models import CanonicalResult, WorkerRequest, WorkerResult
+
+
+class PDFWorker:
+    def __init__(
+        self,
+        *,
+        root_dir: Path,
+        runtime: PDFReadAgentRuntime | None = None,
+    ) -> None:
+        self.root_dir = root_dir.resolve()
+        self.runtime = runtime or PDFReadAgentRuntime(root_dir=self.root_dir)
+
+    async def run(self, request: WorkerRequest) -> WorkerResult:
+        pdf_path = self._request_pdf_path(request)
+        if not pdf_path:
+            return WorkerResult(
+                worker_name="pdf",
+                status="clarify",
+                canonical_result=CanonicalResult(
+                    result_kind="pdf_answer",
+                    ok=False,
+                    answer="需要先确认要阅读的 PDF 文件。",
+                    projection_policy="do_not_persist",
+                    degraded_reason="missing_pdf_binding",
+                    diagnostics={"answer_source": "pdf_worker"},
+                ),
+            )
+
+        try:
+            file_path = self._resolve_pdf_path(pdf_path)
+        except ValueError as exc:
+            return WorkerResult(
+                worker_name="pdf",
+                status="error",
+                canonical_result=CanonicalResult(
+                    result_kind="pdf_answer",
+                    ok=False,
+                    answer=self._resolve_error_message(str(exc)),
+                    projection_policy="do_not_persist",
+                    degraded_reason=str(exc) or "pdf_path_resolution_failed",
+                    diagnostics={"answer_source": "pdf_worker"},
+                ),
+            )
+
+        relative_path = PdfAnalysisCatalog.relative_path(self.root_dir, file_path)
+        mode = str(request.constraints.get("mode", "") or request.bindings.get("active_pdf_mode", "") or "document").strip()
+        max_chunks = _safe_int(request.constraints.get("max_chunks"), default=4, minimum=1, maximum=12)
+        canonical = await asyncio.to_thread(
+            self.runtime.run,
+            request=PDFReadRequest(
+                query=str(request.query or "").strip(),
+                path=relative_path,
+                mode=mode,
+                max_chunks=max_chunks,
+            ),
+            file_path=file_path,
+        )
+        return WorkerResult(
+            worker_name="pdf",
+            status="ok" if canonical.ok else "degraded" if canonical.status == "degraded" else "error",
+            evidence_envelope=self._to_evidence_envelope(
+                request=request,
+                canonical=canonical,
+                active_pdf=relative_path,
+            ),
+            canonical_result=self._to_worker_canonical(canonical, active_pdf=relative_path),
+            diagnostics={
+                "active_pdf": relative_path,
+                "requested_mode": canonical.requested_mode,
+                "effective_mode": canonical.effective_mode,
+                "pages": list(canonical.pages),
+            },
+        )
+
+    def _to_evidence_envelope(
+        self,
+        *,
+        request: WorkerRequest,
+        canonical: PDFCanonicalResult,
+        active_pdf: str,
+    ) -> EvidenceEnvelope:
+        source_object_id = _stable_id("source:pdf", active_pdf)
+        source_object = SourceObjectRef(
+            object_id=source_object_id,
+            object_type="pdf",
+            uri=active_pdf,
+            locator={
+                "path": active_pdf,
+                "pages": list(canonical.pages),
+                "requested_mode": canonical.requested_mode,
+                "effective_mode": canonical.effective_mode,
+            },
+            metadata={
+                "pdf_status": canonical.status,
+                "document_total_pages": canonical.metadata.get("document_total_pages"),
+                "readable_pages": canonical.metadata.get("readable_pages"),
+                "usable_pages": canonical.metadata.get("usable_pages"),
+            },
+        )
+        artifacts: list[EvidenceArtifact] = []
+        evidence_items: list[EvidenceItem] = []
+        for evidence in canonical.evidence:
+            page_number = int(evidence.page_number or 0)
+            if page_number <= 0:
+                continue
+            artifact_id = f"{source_object_id}:page:{page_number}"
+            snippet = " ".join(str(evidence.snippet or "").split())
+            artifacts.append(
+                EvidenceArtifact(
+                    artifact_id=artifact_id,
+                    artifact_type="pdf_page",
+                    source_object_id=source_object_id,
+                    content_ref=f"{active_pdf}#page={page_number}",
+                    canonical_preview=snippet[:220],
+                    visibility="model_visible" if canonical.ok else "debug_only",
+                    consumable_by=["pdf", "answer_finalizer"],
+                    metadata={
+                        "page": page_number,
+                        "score": float(evidence.score or 0.0),
+                        "confidence": float(evidence.score or 0.0),
+                        "active_pdf": active_pdf,
+                        "effective_mode": canonical.effective_mode,
+                    },
+                )
+            )
+            evidence_items.append(
+                EvidenceItem(
+                    kind="pdf_page",
+                    source=active_pdf,
+                    text=snippet,
+                    score=float(evidence.score or 0.0),
+                    metadata={
+                        "page": page_number,
+                        "artifact_id": artifact_id,
+                        "source_object_id": source_object_id,
+                    },
+                    visibility="model_visible" if canonical.ok else "debug_only",
+                )
+            )
+        document_candidate = DocumentCandidate(
+            path=active_pdf,
+            document_type="pdf",
+            page=int(canonical.pages[0]) if canonical.pages else None,
+            confidence=1.0 if canonical.ok else 0.45,
+            reason="pdf_worker_active_document",
+            artifact_id=artifacts[0].artifact_id if artifacts else "",
+            source_object_id=source_object_id,
+        )
+        return EvidenceEnvelope(
+            query=str(request.query or "").strip(),
+            source_worker="pdf",
+            evidence_items=evidence_items,
+            source_objects=[source_object],
+            derived_artifacts=artifacts,
+            document_candidates=[document_candidate],
+            diagnostics={
+                "pdf_status": canonical.status,
+                "requested_mode": canonical.requested_mode,
+                "effective_mode": canonical.effective_mode,
+                "page_count": len(canonical.pages),
+                "evidence_count": len(evidence_items),
+            },
+        )
+
+    def _request_pdf_path(self, request: WorkerRequest) -> str:
+        candidates = [
+            request.bindings.get("active_pdf"),
+            request.constraints.get("active_pdf"),
+            request.constraints.get("path"),
+            request.task_frame.get("active_pdf"),
+            request.task_frame.get("path"),
+        ]
+        for item in candidates:
+            value = str(item or "").strip()
+            if value:
+                return value
+        return ""
+
+    def _resolve_pdf_path(self, path: str) -> Path:
+        normalized = str(path or "").strip()
+        if not normalized:
+            raise ValueError("missing_pdf_binding")
+        candidates = PdfAnalysisCatalog.list_pdf_paths(self.root_dir)
+        matched = PdfAnalysisCatalog._match_filename(self.root_dir, candidates, normalized)
+        if matched is not None:
+            return matched
+        resolved = (self.root_dir / normalized).resolve()
+        if resolved != self.root_dir and self.root_dir not in resolved.parents:
+            raise ValueError("illegal_pdf_path")
+        if not resolved.exists():
+            raise ValueError("pdf_file_not_found")
+        if resolved.is_dir():
+            raise ValueError("pdf_path_is_directory")
+        if resolved.suffix.lower() != ".pdf":
+            raise ValueError("not_pdf_file")
+        return resolved
+
+    def _to_worker_canonical(self, canonical: PDFCanonicalResult, *, active_pdf: str) -> CanonicalResult:
+        ok = canonical.ok
+        answer = canonical.summary.strip()
+        degraded_reason = str(canonical.degraded_reason or canonical.error or "").strip()
+        if not answer:
+            answer = _degraded_pdf_answer(canonical)
+        artifact_refs = [f"{active_pdf}#page={page}" for page in canonical.pages if int(page or 0) > 0]
+        return CanonicalResult(
+            result_kind="pdf_answer",
+            ok=ok,
+            answer=answer,
+            artifact_refs=artifact_refs,
+            evidence_refs=artifact_refs,
+            bindings={
+                "active_pdf": active_pdf,
+                "active_pdf_pages": list(canonical.pages),
+                "active_pdf_mode": canonical.effective_mode or canonical.requested_mode or "document",
+            },
+            projection_policy="persist_canonical" if ok else "do_not_persist",
+            degraded_reason="" if ok else degraded_reason or "pdf_missing_stable_answer",
+            diagnostics={
+                "answer_source": "pdf_worker",
+                "pdf_status": canonical.status,
+                "requested_mode": canonical.requested_mode,
+                "effective_mode": canonical.effective_mode,
+                "metadata": dict(canonical.metadata or {}),
+            },
+        )
+
+    def _resolve_error_message(self, reason: str) -> str:
+        if reason == "illegal_pdf_path":
+            return "检测到非法 PDF 路径访问。"
+        if reason == "pdf_file_not_found":
+            return "没有找到要阅读的 PDF 文件。"
+        if reason == "pdf_path_is_directory":
+            return "提供的 PDF 路径是一个目录。"
+        if reason == "not_pdf_file":
+            return "提供的路径不是 PDF 文件。"
+        return "PDF 阅读任务没有形成可执行输入。"
+
+
+def _degraded_pdf_answer(canonical: PDFCanonicalResult) -> str:
+    pages = "、".join(f"P{page}" for page in canonical.pages[:5] if int(page or 0) > 0)
+    reason = str(canonical.degraded_reason or canonical.error or "").strip()
+    if pages and reason:
+        return f"已尝试读取这份 PDF 的 {pages}，但没有形成稳定摘要。原因：{reason}。"
+    if pages:
+        return f"已尝试读取这份 PDF 的 {pages}，但没有形成稳定摘要。"
+    if reason:
+        return f"已尝试读取这份 PDF，但没有形成稳定摘要。原因：{reason}。"
+    return "已尝试读取这份 PDF，但没有形成稳定摘要。"
+
+
+def _safe_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _stable_id(prefix: str, value: str) -> str:
+    digest = hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}:{digest}"

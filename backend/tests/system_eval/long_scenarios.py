@@ -82,22 +82,22 @@ RESEARCH_DOCUMENT_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
         "main",
         "第三页具体讲了什么？",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
         "main",
         "第四页如果要给业务负责人看，应该重点看哪几句？",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
@@ -177,8 +177,8 @@ OPS_DATA_LIVE_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，第二部分强调的约束是什么？",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "main.active_pdf.nonempty",
         "response.nonempty",
     ),
@@ -285,8 +285,8 @@ MULTI_SESSION_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "doc",
         "请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf 的核心结论。",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
@@ -306,8 +306,8 @@ MULTI_SESSION_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "doc",
         "第三页讲了什么？",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
@@ -370,22 +370,22 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "现在分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，先给我全文总览。",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
         "main",
         "第三页具体讲了什么？",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
         "main",
         "第四页如果让我准备汇报，应该重点盯哪几句？",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
@@ -451,8 +451,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "回到刚才 PDF，第二部分的约束重点是什么？",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "followup.mode=binding_ref",
         "followup.task_id.nonempty",
         "used_task_summary_refs.nonempty",
@@ -514,15 +514,15 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "再回到 PDF，第二部分的约束能不能只用两句话说清楚？",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
         "doc",
         "请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf 的核心结论。",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(
@@ -542,8 +542,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "doc",
         "第三页讲了什么？",
-        "plan.tool=pdf_analysis",
-        "event.tool=pdf_analysis",
+        "plan.worker=pdf",
+        "event.worker=pdf",
         "response.nonempty",
     ),
     user(

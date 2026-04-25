@@ -336,7 +336,7 @@
         "rag",
         "knowledge_lookup"
       ],
-      "safe_for_auto_route": true,
+      "safe_for_auto_route": false,
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true

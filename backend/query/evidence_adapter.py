@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from pathlib import PurePosixPath
 from typing import Any
@@ -75,9 +74,9 @@ def build_evidence_envelope_from_retrieval(
                 key = _normalize_identity(path)
                 dataset_candidates_by_key.setdefault(
                     key,
-                    DatasetCandidate(
-                        path=path,
-                        target_object=os.path.basename(path),
+                        DatasetCandidate(
+                            path=path,
+                            target_object=_basename(path),
                         evidence_source=source,
                         confidence=max(score, 0.6),
                         reason="retrieval_source_dataset",
@@ -177,7 +176,7 @@ def _artifact_from_result(
         artifact_type=artifact_type,
         source_object_id=source_object.object_id,
         content_ref=str(metadata.get("content_ref", "") or metadata.get("block_id", "") or source_object.uri),
-        canonical_preview=" ".join(text.split())[:220],
+        canonical_preview=_canonical_preview(text, artifact_type=artifact_type),
         visibility="model_visible",
         consumable_by=_consumable_by(artifact_type),
         metadata={
@@ -232,8 +231,13 @@ def _candidate_paths(source: str, metadata: dict[str, Any], text: str) -> list[s
     seen_names: set[str] = set()
     for candidate in candidates:
         key = _normalize_identity(candidate)
-        basename = os.path.basename(candidate.replace("\\", "/")).strip().lower()
-        if not key or key in seen or (basename and basename in seen_names):
+        basename = _basename(candidate).strip().lower()
+        if (
+            not key
+            or key in seen
+            or (basename and basename in seen_names)
+            or any(_same_or_suffix_path(existing, key) for existing in seen)
+        ):
             continue
         seen.add(key)
         if basename:
@@ -248,6 +252,14 @@ def _consumable_by(artifact_type: str) -> list[str]:
     if artifact_type in {"pdf_page"}:
         return ["pdf", "answer_finalizer"]
     return ["answer_finalizer"]
+
+
+def _canonical_preview(text: str, *, artifact_type: str) -> str:
+    raw = str(text or "").strip()
+    if artifact_type in {"pdf_table", "table_object"}:
+        lines = [re.sub(r"[ \t]+", " ", line).strip() for line in raw.splitlines()]
+        return "\n".join(line for line in lines if line)[:2000]
+    return " ".join(raw.split())[:220]
 
 
 def _schema_preview(metadata: dict[str, Any]) -> list[str]:
@@ -280,3 +292,13 @@ def _stable_id(prefix: str, value: str) -> str:
 
 def _normalize_identity(value: str) -> str:
     return str(value or "").replace("\\", "/").strip().lower()
+
+
+def _basename(value: str) -> str:
+    return PurePosixPath(str(value or "").replace("\\", "/")).name
+
+
+def _same_or_suffix_path(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    return left == right or left.endswith(right) or right.endswith(left)
