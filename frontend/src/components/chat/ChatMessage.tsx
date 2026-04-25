@@ -25,7 +25,7 @@ export function ChatMessage({
 
   return (
     <article
-      className={`message-shell max-w-[94%] rounded-[30px] px-5 py-4 ${
+      className={`message-shell archive-message-shell max-w-[94%] rounded-[30px] px-5 py-4 ${
         isUser
           ? "message-shell--user ml-auto text-white"
           : "message-shell--assistant mr-auto text-[var(--color-text)]"
@@ -37,10 +37,10 @@ export function ChatMessage({
             {isUser ? "你" : assistantMark}
           </div>
           <div>
-            <p className="text-sm font-medium">
+            <p className="archive-message-shell__label text-sm font-medium">
               {isUser ? "用户输入" : assistantName}
             </p>
-            <p className="text-xs uppercase tracking-[0.24em] text-[var(--color-text-soft)]">
+            <p className="archive-message-shell__eyebrow text-xs uppercase tracking-[0.24em] text-[var(--color-text-soft)]">
               {isUser ? "User" : "Current Style"}
             </p>
           </div>

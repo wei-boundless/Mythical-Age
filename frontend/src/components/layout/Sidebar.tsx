@@ -22,7 +22,7 @@ export function Sidebar() {
 
   return (
     <aside className="panel flex h-full flex-col gap-4 rounded-[34px] p-4">
-      <section className="archive-block p-4">
+      <section className="archive-block archive-block--ornate p-4">
         {activeSoul ? (
           <div className="style-panel">
             <div className="style-panel__head">
@@ -46,15 +46,15 @@ export function Sidebar() {
         ) : null}
       </section>
 
-      <section className="archive-block flex min-h-0 flex-1 flex-col p-4">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div>
-            <p className="section-kicker">Sessions</p>
-            <h2 className="text-xl font-semibold tracking-[-0.04em] text-[var(--color-text)]">
+      <section className="archive-block archive-block--ornate flex min-h-0 flex-1 flex-col p-4">
+        <div className="archive-section-head mb-4 flex items-center justify-between gap-3">
+          <div className="archive-section-head__copy">
+            <p className="archive-section-head__eyebrow">Sessions</p>
+            <h2 className="archive-section-head__title">
               会话与消息轨迹
             </h2>
           </div>
-          <button className="icon-well" onClick={() => void createNewSession()} type="button">
+          <button className="icon-well archive-icon-button" onClick={() => void createNewSession()} type="button">
             <Plus size={18} />
           </button>
         </div>
@@ -62,7 +62,7 @@ export function Sidebar() {
         <div className="space-y-2 overflow-y-auto pr-1">
           {sessions.map((session) => (
             <div
-              className={`session-card ${session.id === currentSessionId ? "session-card--active" : ""}`}
+              className={`session-card archive-session-card ${session.id === currentSessionId ? "session-card--active" : ""}`}
               key={session.id}
             >
               <button

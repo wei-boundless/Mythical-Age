@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { Navbar } from "@/components/layout/Navbar";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
+import { RightRail } from "@/components/layout/RightRail";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AppProvider, useAppStore } from "@/lib/store";
 
@@ -29,6 +30,9 @@ function Workspace() {
           </div>
           <ResizeHandle onResize={(delta) => setSidebarWidth(Math.max(280, sidebarWidth + delta))} />
           <ChatPanel />
+          <div className="w-full xl:ml-4 xl:w-[320px] xl:shrink-0">
+            <RightRail />
+          </div>
         </div>
       </div>
     </main>

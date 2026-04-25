@@ -23,11 +23,11 @@ export function Navbar() {
   return (
     <header className="panel flex flex-col gap-5 rounded-[34px] px-5 py-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="flex min-w-0 items-start gap-4">
-          <div className="brand-mark">
+        <div className="navbar-brand flex min-w-0 items-start gap-4">
+          <div className="brand-mark navbar-brand-mark">
             <Sparkles size={20} />
           </div>
-          <div className="min-w-0">
+          <div className="navbar-brand-copy min-w-0">
             <p className="mythic-brand-eyebrow">The Mythical Agent</p>
             <h1 className="mythic-brand-title mt-2">
               <span className="mythic-brand-title__cn">洪荒时代</span>
@@ -37,9 +37,9 @@ export function Navbar() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="navbar-controls flex flex-wrap items-center justify-end gap-2">
           <button
-            className="action-button action-button--muted"
+            className="action-button action-button--muted navbar-action-button"
             onClick={() => void createNewSession()}
             type="button"
           >
@@ -47,7 +47,7 @@ export function Navbar() {
             新会话
           </button>
           <button
-            className={`action-button ${
+            className={`action-button navbar-action-button ${
               ragMode ? "action-button--primary" : "action-button--muted"
             }`}
             onClick={() => void toggleRagMode()}
@@ -58,7 +58,7 @@ export function Navbar() {
           </button>
           {tokenStats ? (
             <div
-              className={`status-pill status-pill--context status-pill--${pressureLevel}`}
+              className={`status-pill status-pill--context navbar-status-pill status-pill--${pressureLevel}`}
               title={contextTitle}
             >
               <Gauge size={16} />
