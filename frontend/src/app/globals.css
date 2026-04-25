@@ -209,6 +209,105 @@ button:hover {
   color: var(--color-text-soft);
 }
 
+.mythic-brand-eyebrow {
+  margin: 0;
+  font-family: var(--font-brand-latin), "Times New Roman", serif;
+  font-size: clamp(0.92rem, 1vw, 1.08rem);
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(246, 245, 240, 0.88);
+  text-shadow:
+    0 0 6px rgba(255, 255, 255, 0.05),
+    0 0 14px color-mix(in srgb, var(--color-soul) 8%, transparent);
+}
+
+.mythic-brand-eyebrow::before {
+  content: "§";
+  display: inline-block;
+  margin-right: 0.55rem;
+  transform: translateY(-0.02em) scale(0.92);
+  opacity: 0.5;
+}
+
+.mythic-brand-eyebrow::after {
+  content: "";
+  display: inline-block;
+  width: 2.8rem;
+  height: 1px;
+  margin-left: 0.75rem;
+  vertical-align: middle;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.18), transparent);
+  opacity: 0.72;
+}
+
+.mythic-brand-title {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.14rem;
+  margin: 0;
+  font-family: var(--font-display), "STSong", serif;
+  font-size: clamp(2.02rem, 3.35vw, 2.84rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.05em;
+  color: var(--color-text);
+  text-wrap: balance;
+}
+
+.mythic-brand-title__cn {
+  position: relative;
+  color: rgba(246, 245, 240, 0.96);
+  font-weight: 700;
+  text-shadow:
+    0 0 6px rgba(255, 255, 255, 0.05),
+    0 0 14px color-mix(in srgb, var(--color-soul) 8%, transparent),
+    0 7px 18px rgba(0, 0, 0, 0.2);
+}
+
+.mythic-brand-title__cn::before {
+  content: "";
+  position: absolute;
+  inset: 0.08em -0.03em -0.04em;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 0.08em;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.mythic-brand-title__cn--accent {
+  margin-left: 0.02em;
+}
+
+.mythic-brand-title__divider {
+  display: inline-flex;
+  transform: translateY(-0.03em) scaleY(0.95);
+  margin: 0 0.08em;
+  color: rgba(246, 245, 240, 0.58);
+  text-shadow:
+    0 0 8px color-mix(in srgb, var(--color-soul) 7%, transparent),
+    0 0 2px rgba(255, 255, 255, 0.05);
+}
+
+.mythic-brand-title::after {
+  content: "";
+  position: absolute;
+  left: 0.18rem;
+  bottom: -0.14rem;
+  width: min(11.25rem, 78%);
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.2),
+    color-mix(in srgb, var(--color-soul) 14%, rgba(255, 255, 255, 0.12)),
+    transparent
+  );
+  opacity: 0.78;
+  filter: blur(0.4px);
+}
+
 .archive-block {
   position: relative;
   overflow: hidden;

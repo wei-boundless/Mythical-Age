@@ -56,7 +56,7 @@ class MainContextState:
         if self.active_work_item:
             lines.append(f"- Active Work Item: {self.active_work_item}")
         if self.active_binding_identity:
-            lines.append(f"- Active Binding Identity: {self.active_binding_identity}")
+            lines.append("- Active Binding: available")
         if self.active_object_handle_id:
             lines.append("- Active Evidence Object: available")
         if self.active_result_handle_id:
@@ -68,23 +68,17 @@ class MainContextState:
         if self.followup_resolution_source:
             lines.append(f"- Follow-up Resolution Source: {self.followup_resolution_source}")
         if self.followup_target_task_id:
-            lines.append(f"- Follow-up Target Task: {self.followup_target_task_id}")
+            lines.append("- Follow-up Target Task: available")
         if self.followup_target_task_ids:
-            lines.append(
-                f"- Follow-up Target Tasks: {', '.join(task_id for task_id in self.followup_target_task_ids if task_id)}"
-            )
+            lines.append(f"- Follow-up Target Task Count: {len([task_id for task_id in self.followup_target_task_ids if task_id])}")
         if self.followup_binding_key:
             lines.append(f"- Follow-up Binding Key: {self.followup_binding_key}")
         if self.followup_binding_identity:
-            lines.append(f"- Follow-up Binding Identity: {self.followup_binding_identity}")
+            lines.append("- Follow-up Binding: available")
         if self.followup_binding_owner_task_id:
-            lines.append(f"- Follow-up Binding Owner Task: {self.followup_binding_owner_task_id}")
+            lines.append("- Follow-up Binding Owner Task: available")
         if self.active_constraints:
-            parts = [
-                f"{key}={value}"
-                for key, value in self.active_constraints.items()
-                if value not in ("", None, [], {})
-            ]
+            parts = _prompt_visible_constraint_parts(self.active_constraints)
             if parts:
                 lines.append(f"- Active Constraints: {', '.join(parts)}")
         if self.latest_correction:
@@ -92,3 +86,31 @@ class MainContextState:
         if self.next_step:
             lines.append(f"- Next Step: {self.next_step}")
         return "\n".join(lines)
+
+
+def _prompt_visible_constraint_parts(active_constraints: dict[str, Any]) -> list[str]:
+    safe_keys = {
+        "append_mode",
+        "dedupe",
+        "group_by",
+        "page",
+        "pdf_focus_pages",
+        "pdf_mode",
+        "pdf_section",
+        "response_style",
+        "source_kind",
+        "top_n",
+    }
+    aliases = {
+        "active_pdf_mode": "pdf_mode",
+        "active_pdf_pages": "pdf_focus_pages",
+    }
+    parts: list[str] = []
+    for key, value in active_constraints.items():
+        if value in ("", None, [], {}):
+            continue
+        normalized_key = aliases.get(str(key), str(key))
+        if normalized_key not in safe_keys:
+            continue
+        parts.append(f"{normalized_key}={value}")
+    return parts

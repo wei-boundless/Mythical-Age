@@ -272,6 +272,19 @@ class ModelRuntime:
                     base_url=primary.base_url,
                 )
             )
+        fallback_provider = getattr(settings, "llm_fallback_provider", None)
+        fallback_model = getattr(settings, "llm_fallback_model", None)
+        fallback_api_key = getattr(settings, "llm_fallback_api_key", None)
+        fallback_base_url = getattr(settings, "llm_fallback_base_url", None)
+        if fallback_provider and fallback_model and fallback_base_url:
+            specs.append(
+                ModelSpec(
+                    provider=fallback_provider,
+                    model=fallback_model,
+                    api_key=fallback_api_key,
+                    base_url=fallback_base_url,
+                )
+            )
 
         deduped: list[ModelSpec] = []
         seen: set[tuple[str, str, str | None, str]] = set()

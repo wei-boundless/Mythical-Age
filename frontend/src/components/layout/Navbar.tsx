@@ -28,9 +28,11 @@ export function Navbar() {
             <Sparkles size={20} />
           </div>
           <div className="min-w-0">
-            <p className="section-kicker">Mythic Local Agent Workbench</p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-[var(--color-text)]">
-              山海—智能体
+            <p className="mythic-brand-eyebrow">The Mythical Agent</p>
+            <h1 className="mythic-brand-title mt-2">
+              <span className="mythic-brand-title__cn">洪荒时代</span>
+              <span className="mythic-brand-title__divider">—</span>
+              <span className="mythic-brand-title__cn mythic-brand-title__cn--accent">智能体</span>
             </h1>
           </div>
         </div>

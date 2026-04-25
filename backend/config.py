@@ -60,6 +60,10 @@ class Settings:
     llm_model: str
     llm_api_key: str | None
     llm_base_url: str
+    llm_fallback_provider: str | None
+    llm_fallback_model: str | None
+    llm_fallback_api_key: str | None
+    llm_fallback_base_url: str | None
     llm_timeout_seconds: float
     llm_max_retries: int
     embedding_provider: str
@@ -159,6 +163,50 @@ def _resolve_llm_base_url(provider: str) -> str:
     if provider == "deepseek":
         return _first_env("LLM_BASE_URL", "DEEPSEEK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     return _first_env("LLM_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+
+
+def _resolve_llm_fallback_provider() -> str | None:
+    value = _first_env("LLM_FALLBACK_PROVIDER")
+    if not value:
+        return None
+    normalized = _normalize_provider(value, default="", defaults=LLM_PROVIDER_DEFAULTS)
+    return normalized or None
+
+
+def _resolve_llm_fallback_api_key(provider: str | None) -> str | None:
+    if not provider:
+        return None
+    if provider == "zhipu":
+        return _first_env("LLM_FALLBACK_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY")
+    if provider == "bailian":
+        return _first_env("LLM_FALLBACK_API_KEY", "BAILIAN_API_KEY", "DASHSCOPE_API_KEY")
+    if provider == "deepseek":
+        return _first_env("LLM_FALLBACK_API_KEY", "DEEPSEEK_API_KEY")
+    return _first_env("LLM_FALLBACK_API_KEY", "OPENAI_API_KEY")
+
+
+def _resolve_llm_fallback_model(provider: str | None) -> str | None:
+    if not provider:
+        return None
+    if provider == "zhipu":
+        return _first_env("LLM_FALLBACK_MODEL", "ZHIPU_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    if provider == "bailian":
+        return _first_env("LLM_FALLBACK_MODEL", "BAILIAN_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    if provider == "deepseek":
+        return _first_env("LLM_FALLBACK_MODEL", "DEEPSEEK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    return _first_env("LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+
+
+def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
+    if not provider:
+        return None
+    if provider == "zhipu":
+        return _first_env("LLM_FALLBACK_BASE_URL", "ZHIPU_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+    if provider == "bailian":
+        return _first_env("LLM_FALLBACK_BASE_URL", "BAILIAN_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+    if provider == "deepseek":
+        return _first_env("LLM_FALLBACK_BASE_URL", "DEEPSEEK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+    return _first_env("LLM_FALLBACK_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
 
 
 def _resolve_embedding_api_key(provider: str) -> str | None:
@@ -424,6 +472,7 @@ def get_settings() -> Settings:
         default="bailian",
         defaults=EMBEDDING_PROVIDER_DEFAULTS,
     )
+    llm_fallback_provider = _resolve_llm_fallback_provider()
 
     return Settings(
         backend_dir=backend_dir,
@@ -432,6 +481,10 @@ def get_settings() -> Settings:
         llm_model=_resolve_llm_model(llm_provider),
         llm_api_key=_resolve_llm_api_key(llm_provider),
         llm_base_url=_resolve_llm_base_url(llm_provider),
+        llm_fallback_provider=llm_fallback_provider,
+        llm_fallback_model=_resolve_llm_fallback_model(llm_fallback_provider),
+        llm_fallback_api_key=_resolve_llm_fallback_api_key(llm_fallback_provider),
+        llm_fallback_base_url=_resolve_llm_fallback_base_url(llm_fallback_provider),
         llm_timeout_seconds=_resolve_positive_float("LLM_TIMEOUT_SECONDS", 45.0),
         llm_max_retries=_resolve_nonnegative_int("LLM_MAX_RETRIES", 2),
         embedding_provider=embedding_provider,

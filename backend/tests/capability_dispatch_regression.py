@@ -52,6 +52,26 @@ def main() -> None:
     assert "tool_scope" not in exposure
     assert "PermissionDecision" not in str(exposure)
 
+    rag_frame = QueryUnderstanding(
+        intent="knowledge_lookup_query",
+        source_kind="knowledge_base",
+        task_kind="knowledge_lookup",
+        modality="general",
+        route="rag",
+        execution_posture="direct_rag",
+        capability_requests=["knowledge_lookup"],
+        tool_input={"query": "查询本地资料"},
+    )
+    rag_plan = scheduler.resolve(
+        task_frame=rag_frame,
+        active_skill=None,
+        tool_registry=tool_registry,
+    )
+    assert rag_plan.selected_worker_request is not None
+    assert rag_plan.selected_worker_request.agent_id == "agent:knowledge:retrieval"
+    assert rag_plan.selected_worker_request.protocol_version == "a2a-compatible.v1"
+    assert rag_plan.selected_worker_request.to_dict()["message_id"] == "worker:retrieval:main"
+
     print("ALL PASSED (capability dispatch)")
 
 

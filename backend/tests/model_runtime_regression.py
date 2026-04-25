@@ -16,12 +16,25 @@ from runtime.model_runtime import ModelRuntime, ModelRuntimeError
 
 
 class _SettingsStub:
-    def __init__(self, *, timeout: float = 1.0, retries: int = 1) -> None:
+    def __init__(
+        self,
+        *,
+        timeout: float = 1.0,
+        retries: int = 1,
+        fallback_provider: str | None = None,
+        fallback_model: str | None = None,
+        fallback_api_key: str | None = None,
+        fallback_base_url: str | None = None,
+    ) -> None:
         self.static = SimpleNamespace(
             llm_provider="openai",
             llm_model="gpt-4.1-mini",
             llm_api_key="test-key",
             llm_base_url="https://example.invalid/v1",
+            llm_fallback_provider=fallback_provider,
+            llm_fallback_model=fallback_model,
+            llm_fallback_api_key=fallback_api_key,
+            llm_fallback_base_url=fallback_base_url,
             llm_timeout_seconds=timeout,
             llm_max_retries=retries,
         )
@@ -51,8 +64,25 @@ class _FakeAgent:
             yield item
 
 
-def _runtime(*, timeout: float = 1.0, retries: int = 1) -> ModelRuntime:
-    return ModelRuntime(_SettingsStub(timeout=timeout, retries=retries))
+def _runtime(
+    *,
+    timeout: float = 1.0,
+    retries: int = 1,
+    fallback_provider: str | None = None,
+    fallback_model: str | None = None,
+    fallback_api_key: str | None = None,
+    fallback_base_url: str | None = None,
+) -> ModelRuntime:
+    return ModelRuntime(
+        _SettingsStub(
+            timeout=timeout,
+            retries=retries,
+            fallback_provider=fallback_provider,
+            fallback_model=fallback_model,
+            fallback_api_key=fallback_api_key,
+            fallback_base_url=fallback_base_url,
+        )
+    )
 
 
 def test_model_runtime_retries_transient_invoke_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,3 +137,19 @@ def test_model_runtime_retries_stream_before_first_event(monkeypatch: pytest.Mon
     items = asyncio.run(_collect())
 
     assert items == [("messages", (SimpleNamespace(content="ok"), {}))]
+
+
+def test_model_runtime_appends_cross_provider_fallback_candidate() -> None:
+    runtime = _runtime(
+        fallback_provider="bailian",
+        fallback_model="qwen3.5-plus",
+        fallback_api_key="bailian-key",
+        fallback_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
+
+    specs = runtime._candidate_specs()
+
+    assert [(spec.provider, spec.model) for spec in specs] == [
+        ("openai", "gpt-4.1-mini"),
+        ("bailian", "qwen3.5-plus"),
+    ]

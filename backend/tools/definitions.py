@@ -7,10 +7,13 @@ from typing import Any, Callable
 from langchain_core.tools import BaseTool
 
 from tools.contracts import (
+    ToolPromptExposurePolicy,
     ToolExecutionContract,
     ToolOutputContract,
     ToolProjectionContract,
     ToolResolutionContract,
+    ToolResourceExposurePolicy,
+    ToolRuntimeVisibility,
 )
 from tools.analyze_multimodal_file_tool import AnalyzeMultimodalFileTool
 from tools.fetch_url_tool import FetchURLTool
@@ -43,6 +46,10 @@ class ToolDefinition:
     safety_tags: list[str] = field(default_factory=list)
     route_hints: list[str] = field(default_factory=list)
     safe_for_auto_route: bool = True
+    schema_identity: str = ""
+    runtime_visibility: ToolRuntimeVisibility = "main_runtime"
+    prompt_exposure_policy: ToolPromptExposurePolicy = "schema_only"
+    resource_exposure_policy: ToolResourceExposurePolicy = "none"
     is_read_only: bool = True
     is_destructive: bool = False
     is_concurrency_safe: bool = False
@@ -75,6 +82,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["read", "network"],
             route_hints=["tool", "realtime_lookup"],
             safe_for_auto_route=True,
+            schema_identity="local.tools/get_weather",
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
@@ -96,6 +104,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["read", "network"],
             route_hints=["tool", "realtime_lookup"],
             safe_for_auto_route=True,
+            schema_identity="local.tools/get_gold_price",
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
@@ -117,6 +126,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["read", "network"],
             route_hints=["tool", "latest_information"],
             safe_for_auto_route=True,
+            schema_identity="local.tools/web_search",
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
@@ -147,6 +157,10 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["read", "compute"],
             route_hints=["tool", "dataset_analysis"],
             safe_for_auto_route=True,
+            schema_identity="local.tools/structured_data_analysis",
+            runtime_visibility="agent_internal",
+            prompt_exposure_policy="hidden",
+            resource_exposure_policy="handle_only",
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
@@ -181,6 +195,10 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["read", "compute"],
             route_hints=["tool", "document_analysis"],
             safe_for_auto_route=True,
+            schema_identity="local.tools/pdf_analysis",
+            runtime_visibility="agent_internal",
+            prompt_exposure_policy="hidden",
+            resource_exposure_policy="handle_only",
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
@@ -202,6 +220,10 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["read", "retrieval"],
             route_hints=["rag", "knowledge_lookup"],
             safe_for_auto_route=False,
+            schema_identity="local.tools/search_knowledge",
+            runtime_visibility="agent_internal",
+            prompt_exposure_policy="hidden",
+            resource_exposure_policy="handle_only",
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
@@ -227,6 +249,10 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["read", "compute"],
             route_hints=["tool", "file_preview"],
             safe_for_auto_route=False,
+            schema_identity="local.tools/analyze_multimodal_file",
+            runtime_visibility="agent_internal",
+            prompt_exposure_policy="hidden",
+            resource_exposure_policy="handle_only",
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
@@ -252,6 +278,10 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["write", "compute"],
             route_hints=["tool", "indexing"],
             safe_for_auto_route=False,
+            schema_identity="local.tools/index_multimodal_file",
+            runtime_visibility="agent_internal",
+            prompt_exposure_policy="hidden",
+            resource_exposure_policy="handle_only",
             is_read_only=False,
             is_destructive=False,
             is_concurrency_safe=False,
@@ -277,6 +307,9 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["read"],
             route_hints=["tool", "workspace_read"],
             safe_for_auto_route=False,
+            schema_identity="local.tools/read_file",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="explicit_resource",
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
@@ -298,6 +331,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["read", "network"],
             route_hints=["tool", "verification"],
             safe_for_auto_route=False,
+            schema_identity="local.tools/fetch_url",
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
@@ -319,6 +353,10 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["write", "shell", "destructive"],
             route_hints=["tool", "local_command"],
             safe_for_auto_route=False,
+            schema_identity="local.tools/terminal",
+            runtime_visibility="agent_internal",
+            prompt_exposure_policy="hidden",
+            resource_exposure_policy="none",
             is_read_only=False,
             is_destructive=True,
             is_concurrency_safe=False,
@@ -340,6 +378,10 @@ def _tool_definitions() -> list[ToolDefinition]:
             safety_tags=["write", "compute", "shell"],
             route_hints=["tool", "local_scripting"],
             safe_for_auto_route=False,
+            schema_identity="local.tools/python_repl",
+            runtime_visibility="agent_internal",
+            prompt_exposure_policy="hidden",
+            resource_exposure_policy="none",
             is_read_only=False,
             is_destructive=False,
             is_concurrency_safe=False,

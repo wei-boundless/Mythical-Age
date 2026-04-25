@@ -5,7 +5,7 @@ from typing import Any
 
 from skill_system import SkillDefinition
 from tools.contracts import ToolScope
-from query.worker_models import WorkerRequest
+from query.worker_models import A2A_COMPATIBLE_PROTOCOL_VERSION, agent_id_for_worker_route, WorkerRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +195,12 @@ class CapabilityDispatchScheduler:
                 "capability_requests": list(getattr(task_frame, "capability_requests", []) or []),
             },
             constraints=dict(getattr(task_frame, "structural_signals", {}) or {}),
+            agent_id=agent_id_for_worker_route("retrieval"),
+            message_id="worker:retrieval:main",
+            protocol_version=A2A_COMPATIBLE_PROTOCOL_VERSION,
+            extensions={
+                "x-langchain-agent.dispatch_reason": "direct_rag_worker",
+            },
         )
 
     def _selected_pdf_worker_request(self, task_frame: Any) -> WorkerRequest | None:
@@ -228,6 +234,12 @@ class CapabilityDispatchScheduler:
             },
             bindings={"active_pdf": path} if path else {},
             constraints=constraints,
+            agent_id=agent_id_for_worker_route("pdf"),
+            message_id="worker:pdf:main",
+            protocol_version=A2A_COMPATIBLE_PROTOCOL_VERSION,
+            extensions={
+                "x-langchain-agent.dispatch_reason": "pdf_tool_collapsed_to_worker",
+            },
         )
 
     def _prompt_exposure(

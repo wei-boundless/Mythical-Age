@@ -297,6 +297,32 @@ def test_followup_resolver_keeps_ops_summary_request_out_of_single_binding() -> 
     assert resolution.resolved_task_id == ""
 
 
+def test_followup_resolver_restores_session_binding_handles_without_task_registry() -> None:
+    resolver = QueryFollowupResolver(
+        TaskCoordinator(),
+        session_state_loader=lambda _session_id: {
+            "committed_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+            "committed_dataset_owner_task_id": "",
+            "active_object_handle_id": "source:dataset:inventory",
+            "active_result_handle_id": "result:structured:inventory:primary",
+            "active_subset_handle_id": "subset:selection:inventory:primary",
+        },
+    )
+
+    resolution = resolver.resolve(
+        session_id="restored-session",
+        message="继续按仓库展开一下。",
+    )
+
+    assert resolution.mode == "binding_ref"
+    assert resolution.binding_key == "active_dataset"
+    assert resolution.object_handle_id == "source:dataset:inventory"
+    assert resolution.result_handle_id == "result:structured:inventory:primary"
+    assert resolution.subset_handle_id == "subset:selection:inventory:primary"
+    assert resolution.resolution_scope == "subset"
+    assert resolution.resolution_source == "session_committed_binding"
+
+
 def main() -> None:
     test_followup_resolver_prefers_task_ref_for_ordinal_request()
     test_followup_resolver_can_bind_back_to_recent_pdf_task()
@@ -308,6 +334,7 @@ def main() -> None:
     test_followup_resolver_does_not_treat_generic_pdf_mention_as_committed_owner()
     test_followup_resolver_keeps_global_synthesis_request_out_of_single_binding()
     test_followup_resolver_keeps_ops_summary_request_out_of_single_binding()
+    test_followup_resolver_restores_session_binding_handles_without_task_registry()
     print("ALL PASSED (followup resolution regression)")
 
 

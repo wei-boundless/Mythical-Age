@@ -8,7 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from query.evidence_graph import EvidenceArtifactGraph
-from query.evidence_models import EvidenceArtifact, EvidenceEnvelope, SourceObjectRef
+from query.evidence_models import EvidenceArtifact, EvidenceEnvelope, ResultHandle, SourceObjectRef, SubsetHandle
 from query.evidence_store import EvidenceGraphStore
 
 
@@ -103,9 +103,44 @@ def test_evidence_graph_store_merges_session_scoped_artifacts() -> None:
     assert {item["artifact_type"] for item in snapshot["artifacts"]} == {"pdf_page", "dataset_analysis"}
 
 
+def test_evidence_graph_store_persists_result_and_subset_handles() -> None:
+    store = EvidenceGraphStore()
+    graph = EvidenceArtifactGraph(session_id="graph-session")
+    graph.add_result_handle(
+        ResultHandle(
+            result_id="result:structured:primary",
+            result_kind="structured_answer",
+            source_object_id="source:dataset",
+            identity="inventory shortage answer",
+        ),
+        worker="structured_data",
+    )
+    graph.add_subset_handle(
+        SubsetHandle(
+            subset_id="subset:selection:primary",
+            subset_kind="selection",
+            result_id="result:structured:primary",
+            identity="shortage cities",
+            metadata={"labels": ["武汉", "上海"], "filter_column": "city"},
+        ),
+        worker="structured_data",
+    )
+
+    store.merge("graph-session", graph)
+    snapshot = store.snapshot("graph-session")
+    restored = EvidenceGraphStore()
+    restored.restore("graph-session", snapshot)
+
+    assert snapshot["result_handles"][0]["result_id"] == "result:structured:primary"
+    assert snapshot["subset_handles"][0]["subset_id"] == "subset:selection:primary"
+    assert restored.get_result_handle("graph-session", "result:structured:primary").result_kind == "structured_answer"
+    assert restored.get_subset_handle("graph-session", "subset:selection:primary").metadata["labels"] == ["武汉", "上海"]
+
+
 def main() -> None:
     test_evidence_graph_preserves_source_artifact_edges_from_envelope()
     test_evidence_graph_store_merges_session_scoped_artifacts()
+    test_evidence_graph_store_persists_result_and_subset_handles()
     print("ALL PASSED (evidence artifact graph)")
 
 

@@ -52,6 +52,10 @@
         "realtime_lookup"
       ],
       "safe_for_auto_route": true,
+      "schema_identity": "local.tools/get_weather",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -107,6 +111,10 @@
         "realtime_lookup"
       ],
       "safe_for_auto_route": true,
+      "schema_identity": "local.tools/get_gold_price",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -162,6 +170,10 @@
         "latest_information"
       ],
       "safe_for_auto_route": true,
+      "schema_identity": "local.tools/web_search",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -223,6 +235,10 @@
         "dataset_analysis"
       ],
       "safe_for_auto_route": true,
+      "schema_identity": "local.tools/structured_data_analysis",
+      "runtime_visibility": "agent_internal",
+      "prompt_exposure_policy": "hidden",
+      "resource_exposure_policy": "handle_only",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -281,6 +297,10 @@
         "document_analysis"
       ],
       "safe_for_auto_route": true,
+      "schema_identity": "local.tools/pdf_analysis",
+      "runtime_visibility": "agent_internal",
+      "prompt_exposure_policy": "hidden",
+      "resource_exposure_policy": "handle_only",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -337,6 +357,10 @@
         "knowledge_lookup"
       ],
       "safe_for_auto_route": false,
+      "schema_identity": "local.tools/search_knowledge",
+      "runtime_visibility": "agent_internal",
+      "prompt_exposure_policy": "hidden",
+      "resource_exposure_policy": "handle_only",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -393,6 +417,10 @@
         "file_preview"
       ],
       "safe_for_auto_route": false,
+      "schema_identity": "local.tools/analyze_multimodal_file",
+      "runtime_visibility": "agent_internal",
+      "prompt_exposure_policy": "hidden",
+      "resource_exposure_policy": "handle_only",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -449,6 +477,10 @@
         "indexing"
       ],
       "safe_for_auto_route": false,
+      "schema_identity": "local.tools/index_multimodal_file",
+      "runtime_visibility": "agent_internal",
+      "prompt_exposure_policy": "hidden",
+      "resource_exposure_policy": "handle_only",
       "is_read_only": false,
       "is_destructive": false,
       "is_concurrency_safe": false
@@ -503,6 +535,10 @@
         "workspace_read"
       ],
       "safe_for_auto_route": false,
+      "schema_identity": "local.tools/read_file",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -556,6 +592,10 @@
         "verification"
       ],
       "safe_for_auto_route": false,
+      "schema_identity": "local.tools/fetch_url",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
@@ -610,6 +650,10 @@
         "local_command"
       ],
       "safe_for_auto_route": false,
+      "schema_identity": "local.tools/terminal",
+      "runtime_visibility": "agent_internal",
+      "prompt_exposure_policy": "hidden",
+      "resource_exposure_policy": "none",
       "is_read_only": false,
       "is_destructive": true,
       "is_concurrency_safe": false
@@ -664,6 +708,10 @@
         "local_scripting"
       ],
       "safe_for_auto_route": false,
+      "schema_identity": "local.tools/python_repl",
+      "runtime_visibility": "agent_internal",
+      "prompt_exposure_policy": "hidden",
+      "resource_exposure_policy": "none",
       "is_read_only": false,
       "is_destructive": false,
       "is_concurrency_safe": false

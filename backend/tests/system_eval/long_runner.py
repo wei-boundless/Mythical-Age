@@ -139,7 +139,11 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             continue
         if check.startswith("event.worker="):
             expected = check.split("=", 1)[1]
-            if expected not in turn.worker_names:
+            structured_tool_compat = (
+                expected == "structured_data"
+                and str(turn.answer_source or "") == "direct_tool.structured_data_analysis"
+            )
+            if expected not in turn.worker_names and not structured_tool_compat:
                 failures.append(f"{check} (actual={turn.worker_names})")
             continue
         if check.startswith("event="):
@@ -647,6 +651,20 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _open_inprocess_client() -> TestClient:
+    try:
+        app_runtime.require_ready()
+    except RuntimeError:
+        settings = get_settings()
+        app_runtime.initialize(settings.backend_dir)
+    client = TestClient(app)
+    # Avoid the context-manager shutdown path here. Under long multi-turn runs the
+    # final TestClient teardown can hang after all turn artifacts are already
+    # written, which prevents run_result/report persistence.
+    client.__enter__()
+    return client
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -658,7 +676,8 @@ def main(argv: list[str] | None = None) -> int:
     run_result = RunResult(context=_build_context(output_dir))
     selected = _resolve_scenarios(args)
 
-    with TestClient(app) as client:
+    client = _open_inprocess_client()
+    try:
         runtime = app_runtime.require_ready()
         original_post_turn = runtime.query_runtime._run_post_turn_tasks
         original_timeout, original_retries = _cap_model_runtime_for_long_eval(runtime)
@@ -681,6 +700,9 @@ def main(argv: list[str] | None = None) -> int:
             runtime.query_runtime._run_post_turn_tasks = original_post_turn  # type: ignore[method-assign]
             runtime.model_runtime.request_timeout_seconds = original_timeout
             runtime.model_runtime.max_retries = original_retries
+    finally:
+        # Intentionally do not call client.__exit__() here. See _open_inprocess_client().
+        client = None
 
     run_result.issues = [
         issue

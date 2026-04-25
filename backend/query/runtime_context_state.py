@@ -70,6 +70,9 @@ class RuntimeContextState:
                 or (getattr(slots, "active_binding_owner_task_id", "") if committed_dataset else "")
                 or ""
             ).strip(),
+            "active_object_handle_id": str(getattr(slots, "active_object_handle_id", "") or "").strip(),
+            "active_result_handle_id": str(getattr(slots, "active_result_handle_id", "") or "").strip(),
+            "active_subset_handle_id": str(getattr(slots, "active_subset_handle_id", "") or "").strip(),
         }
 
     def load_session_authoritative_context(self, session_id: str) -> dict[str, Any]:
@@ -81,6 +84,10 @@ class RuntimeContextState:
         committed_dataset = str(snapshot.get("committed_dataset", "") or "").strip()
         if committed_dataset:
             context["active_dataset"] = committed_dataset
+        for key in ("active_object_handle_id", "active_result_handle_id", "active_subset_handle_id"):
+            value = str(snapshot.get(key, "") or "").strip()
+            if value:
+                context[key] = value
         return context
 
     def apply_execution_binding_to_constraints(

@@ -13,7 +13,6 @@ from typing import Any
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
 from query.answer_assembler import AnswerAssembler
-from query.answer_finalizer import RAGEvidencePack
 from query.context_models import MainContextState, TaskSummaryRef
 from query.evidence_orchestrator import EvidenceOrchestrator
 from query.evidence_graph import EvidenceArtifactGraph
@@ -1004,22 +1003,14 @@ class QueryRuntime:
                     yield event
                 return
 
-            if (
-                self.settings_service.get_rag_mode()
-                and execution.query_understanding.route == "rag"
-                and not execution.memory_intent.should_skip_rag
-                and not execution.query_understanding.should_skip_rag
-            ):
+            if self._is_stale_non_worker_rag_plan(execution):
                 if trace is not None:
-                    with trace.stage(
-                        "query.retrieval",
-                        inputs={"query": execution.message},
-                        metadata={"top_k": 5},
-                    ):
-                        context.retrieval_results = self.retrieval_service.retrieve(execution.message, top_k=5)
-                else:
-                    context.retrieval_results = self.retrieval_service.retrieve(execution.message, top_k=5)
-                yield {"type": "retrieval", "query": execution.message, "results": context.retrieval_results}
+                    trace.annotate(
+                        {
+                            "app.stale_rag_plan": "blocked",
+                            "app.stale_rag_plan_reason": "retrieval_agent_required",
+                        }
+                    )
 
             if self._should_prefetch_durable_context(execution):
                 try:
@@ -1209,11 +1200,6 @@ class QueryRuntime:
             )
             output_response = self._maybe_gate_memory_output(
                 execution=execution,
-                output_response=output_response,
-            )
-            output_response = await self._maybe_finalize_rag_output(
-                execution=execution,
-                retrieval_results=context.retrieval_results,
                 output_response=output_response,
             )
             final_content = output_response.canonical_answer.strip()
@@ -1726,6 +1712,21 @@ class QueryRuntime:
     def _load_session_authoritative_context(self, session_id: str) -> dict[str, Any]:
         return self._context_state.load_session_authoritative_context(session_id)
 
+    def _is_stale_non_worker_rag_plan(self, execution: QueryExecutionPlan) -> bool:
+        if not self.settings_service.get_rag_mode():
+            return False
+        if str(getattr(execution.query_understanding, "route", "") or "") != "rag":
+            return False
+        if str(getattr(execution, "execution_kind", "") or "") == "worker":
+            return False
+        if getattr(execution, "worker_plan", None) is not None:
+            return False
+        if bool(getattr(execution.memory_intent, "should_skip_rag", False)):
+            return False
+        if bool(getattr(execution.query_understanding, "should_skip_rag", False)):
+            return False
+        return True
+
     def _apply_execution_binding_to_constraints(
         self,
         constraints: dict[str, Any],
@@ -1807,21 +1808,6 @@ class QueryRuntime:
 
     def _normalize_binding_identity(self, value: str) -> str:
         return self._followup.normalize_binding_identity(value)
-
-    def _binding_execution_from_owner(
-        self,
-        *,
-        session_id: str,
-        message: str,
-        history: list[dict[str, Any]],
-        owner_task,
-    ) -> QueryExecutionPlan | None:
-        return self._followup.binding_execution_from_owner(
-            session_id=session_id,
-            message=message,
-            history=history,
-            owner_task=owner_task,
-        )
 
     async def _stream_binding_followup(
         self,
@@ -2110,32 +2096,6 @@ class QueryRuntime:
 
     def _stringify_tool_output(self, output: Any) -> str:
         return self._tool_bridge.stringify_tool_output(output)
-
-    async def _maybe_finalize_rag_output(
-        self,
-        *,
-        execution: QueryExecutionPlan,
-        retrieval_results: list[dict[str, Any]] | None,
-        output_response,
-    ):
-        return await self._output_policy.maybe_finalize_rag_output(
-            execution=execution,
-            retrieval_results=retrieval_results,
-            output_response=output_response,
-        )
-
-    async def _rewrite_rag_answer_with_model(
-        self,
-        *,
-        evidence_pack: RAGEvidencePack,
-    ) -> str:
-        return await self._output_policy.rewrite_rag_answer_with_model(evidence_pack=evidence_pack)
-
-    def _rag_evidence_pack_can_finalize(self, evidence_pack: RAGEvidencePack | None) -> bool:
-        return self._output_policy.rag_evidence_pack_can_finalize(evidence_pack)
-
-    def _fallback_rag_output_response(self, output_response):
-        return self._output_policy.fallback_rag_output_response(output_response)
 
     def _maybe_gate_memory_output(
         self,

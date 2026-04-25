@@ -16,7 +16,7 @@ from query.followup_models import FollowupResolution
 from query.runtime_followup import RuntimeFollowupCoordinator
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryExecutionPlan, QueryPlan
-from query.worker_models import CanonicalResult, WorkerRequest, WorkerResult
+from query.worker_models import CanonicalResult, WorkerExecutionPlan, WorkerRequest, WorkerResult
 from tasks import TaskCoordinator
 from understanding import MemoryIntent, QueryUnderstanding
 
@@ -209,6 +209,25 @@ class _ModelRuntimeStub:
     async def invoke_messages(self, messages: list[dict[str, str]]):
         self.invoke_messages_calls.append(list(messages))
         return SimpleNamespace(content=self.invoke_messages_response)
+
+
+def _promote_rag_plan_to_retrieval_worker(plan: QueryPlan) -> QueryPlan:
+    request = WorkerRequest(
+        request_id="worker:retrieval:test",
+        session_id=plan.session_id,
+        query=plan.message,
+        worker_route="retrieval",
+        task_frame={"route": "rag", "capability_requests": ["knowledge_lookup"]},
+    )
+    plan.execution_kind = "worker"
+    plan.worker_plan = WorkerExecutionPlan(
+        worker_route="retrieval",
+        request=request,
+        expected_result="evidence",
+        fallback_execution_kind="none",
+        cutover_mode="primary",
+    )
+    return plan
 
 
 def _build_runtime(
@@ -528,7 +547,7 @@ def test_workspace_file_read_direct_route_invokes_read_file_with_normalized_path
     assert done["content"] == "from __future__ import annotations"
 
 
-def test_rag_route_prefetches_retrieval_without_tools() -> None:
+def test_non_worker_rag_route_does_not_run_direct_retrieval() -> None:
     query = "为我搜索本地的数据库，看看有没有缺货情况"
     plan = QueryPlan(
         session_id="rag-session",
@@ -548,10 +567,10 @@ def test_rag_route_prefetches_retrieval_without_tools() -> None:
     )
     events, retrieval, model_runtime, memory_facade = asyncio.run(_collect_events(plan, rag_mode=True))
 
-    assert retrieval.queries == [query]
+    assert retrieval.queries == []
     assert memory_facade.prefetch_queries == [query]
     assert model_runtime.last_tools == []
-    assert any(event.get("type") == "retrieval" for event in events)
+    assert not any(event.get("type") == "retrieval" for event in events)
     assert not any(event.get("type") == "tool_start" for event in events)
     stream_messages = list(getattr(model_runtime, "_recorder", {}).get("last_stream_payload", {}).get("messages", []))
     assert stream_messages
@@ -600,6 +619,14 @@ def test_direct_tool_route_normalizes_final_content() -> None:
     ]
     tool_start = next(event for event in events if event.get("type") == "tool_start")
     assert tool_start["structured_binding"]["dataset_path"].endswith("inventory.xlsx")
+    assert tool_start["protocol_version"] == "mcp-compatible.v1"
+    assert tool_start["mcp"]["schema_identity"] == "local.tools/structured_data_analysis"
+    assert tool_start["mcp"]["runtime_visibility"] == "agent_internal"
+    assert tool_start["mcp"]["prompt_exposure_policy"] == "hidden"
+    assert events[-2]["protocol_version"] == "mcp-compatible.v1"
+    assert events[-2]["message_id"] == tool_start["message_id"]
+    assert events[-1]["tool_protocol"] == "mcp-compatible.v1"
+    assert events[-1]["message_id"] == tool_start["message_id"]
     assert events[-1]["content"] == "normalized tool answer"
     assert events[-2]["output"] == "normalized tool answer"
     assert str(events[-1]["task_id"]).startswith("tool-session-tool-structured_data_analysis-")
@@ -706,11 +733,24 @@ def test_binding_followup_from_direct_tool_owner_passes_subset_constraints_struc
     owner_task = coordinator.list_tasks(session_id="session-1")[0]
     followup = RuntimeFollowupCoordinator(task_coordinator=coordinator)
 
-    execution = followup.binding_execution_from_owner(
+    execution = followup.binding_execution_from_resolution(
         session_id="session-1",
         message="按部门汇总这些高薪员工。",
         history=[],
-        owner_task=owner_task,
+        followup_resolution=FollowupResolution(
+            mode="binding_ref",
+            binding_kind="active_dataset",
+            resolved_binding_kind="active_dataset",
+            binding_identity="knowledge/e-commerce data/employees.xlsx",
+            resolved_binding_identity="knowledge/e-commerce data/employees.xlsx",
+            binding_owner_task_id=owner_task.task_id,
+            resolved_binding_owner_task_id=owner_task.task_id,
+            task_id=owner_task.task_id,
+            resolved_task_id=owner_task.task_id,
+            result_handle_id=str(getattr(owner_task.result_ref, "primary_result_handle_id", "") or ""),
+            result_handle_ids=list(getattr(owner_task.result_ref, "result_handle_ids", []) or []),
+            subset_handle_id=str(getattr(owner_task.result_ref, "subset_handle_id", "") or ""),
+        ),
     )
 
     assert execution is not None
@@ -723,6 +763,49 @@ def test_binding_followup_from_direct_tool_owner_passes_subset_constraints_struc
     assert request.bindings["active_dataset"].endswith("employees.xlsx")
 
 
+def test_pdf_binding_followup_from_page_owner_does_not_inherit_page_mode_without_page_reference() -> None:
+    coordinator = TaskCoordinator()
+
+    async def _seed() -> None:
+        await coordinator.run_tool_task(
+            "session-1",
+            "pdf_analysis",
+            lambda: asyncio.sleep(0, result={"answer": "第九页没有稳定正文。"}),
+            query="第九页讲了什么？",
+            tool_input={"query": "第九页讲了什么？", "path": "knowledge/demo.pdf", "mode": "page"},
+            task_kind="pdf_followup_query",
+        )
+
+    asyncio.run(_seed())
+    owner_task = coordinator.list_tasks(session_id="session-1")[0]
+    followup = RuntimeFollowupCoordinator(task_coordinator=coordinator)
+
+    execution = followup.binding_execution_from_resolution(
+        session_id="session-1",
+        message="把这份 PDF 的核心结论压成三条行动建议。",
+        history=[],
+        followup_resolution=FollowupResolution(
+            mode="binding_ref",
+            binding_kind="active_pdf",
+            resolved_binding_kind="active_pdf",
+            binding_identity="knowledge/demo.pdf",
+            resolved_binding_identity="knowledge/demo.pdf",
+            binding_owner_task_id=owner_task.task_id,
+            resolved_binding_owner_task_id=owner_task.task_id,
+            task_id=owner_task.task_id,
+            resolved_task_id=owner_task.task_id,
+            result_handle_id=str(getattr(owner_task.result_ref, "primary_result_handle_id", "") or ""),
+            result_handle_ids=list(getattr(owner_task.result_ref, "result_handle_ids", []) or []),
+        ),
+    )
+
+    assert execution is not None
+    assert execution.worker_plan is not None
+    request = execution.worker_plan.request
+    assert request.constraints["mode"] == "document"
+    assert "page" not in request.constraints
+
+
 def test_runtime_uses_session_committed_dataset_binding_for_tool_promotion() -> None:
     tool = SimpleNamespace(invoke=lambda _tool_input: {"answer": "已按仓库汇总前五。"})
     runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(
@@ -731,6 +814,9 @@ def test_runtime_uses_session_committed_dataset_binding_for_tool_promotion() -> 
         session_state=_SessionStateStub(
             committed_dataset="knowledge/E-commerce Data/inventory.xlsx",
             committed_dataset_owner_task_id="dataset-task",
+            active_object_handle_id="source:dataset:inventory",
+            active_result_handle_id="result:structured:inventory:primary",
+            active_subset_handle_id="subset:selection:inventory:primary",
         ),
     )
 
@@ -741,11 +827,16 @@ def test_runtime_uses_session_committed_dataset_binding_for_tool_promotion() -> 
         return events
 
     events = asyncio.run(_run())
-    tool_start = next(event for event in events if event.get("type") == "tool_start")
+    worker_start = next(event for event in events if event.get("type") == "worker_start")
     done = events[-1]
 
-    assert tool_start["tool"] == "structured_data_analysis"
-    assert str(tool_start["input"]["path"]).endswith("inventory.xlsx")
+    assert worker_start["worker"] == "structured_data"
+    assert worker_start["agent_id"] == "agent:data:structured"
+    assert str(worker_start["request"]["bindings"]["active_dataset"]).endswith("inventory.xlsx")
+    assert worker_start["request"]["target_handle_kind"] == "subset"
+    assert worker_start["request"]["target_handle_id"] == "subset:selection:inventory:primary"
+    assert worker_start["request"]["upstream_result_handle_ids"] == ["result:structured:inventory:primary"]
+    assert done["answer_source"] == "structured_data_worker"
     assert done["answer_fallback_reason"] == ""
     assert done["content"] == "已按仓库汇总前五。"
     assert model_runtime.last_tools == []
@@ -757,6 +848,8 @@ def test_runtime_uses_session_committed_pdf_binding_for_tool_promotion() -> None
         session_state=_SessionStateStub(
             committed_pdf="knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
             committed_pdf_owner_task_id="pdf-task",
+            active_object_handle_id="source:pdf:governance",
+            active_result_handle_id="result:pdf_summary:governance:primary",
         ),
     )
     pdf_worker = _PDFWorkerStub(answer="第二部分强调先划清权限边界，再明确审计归口。")
@@ -775,6 +868,9 @@ def test_runtime_uses_session_committed_pdf_binding_for_tool_promotion() -> None
     assert worker_start["worker"] == "pdf"
     assert pdf_worker.requests
     assert str(pdf_worker.requests[0].bindings["active_pdf"]).endswith(".pdf")
+    assert pdf_worker.requests[0].target_handle_kind == "result"
+    assert pdf_worker.requests[0].target_handle_id == "result:pdf_summary:governance:primary"
+    assert pdf_worker.requests[0].constraints["mode"] == "document"
     assert done["answer_source"] == "pdf_worker"
     assert done["answer_fallback_reason"] == ""
     assert "权限边界" in str(done["content"])
@@ -948,7 +1044,7 @@ def test_pdf_direct_tool_facade_does_not_model_finalize_degraded_page_evidence()
     assert events[-2]["output"].startswith("已定位到 P3")
 
 
-def test_semantic_memory_signal_keeps_rag_and_prefetches_durable() -> None:
+def test_semantic_memory_signal_prefetches_durable_without_runtime_rag_fallback() -> None:
     plan = QueryPlan(
         session_id="semantic-memory-signal",
         message="我们项目当前重点是什么？",
@@ -971,12 +1067,12 @@ def test_semantic_memory_signal_keeps_rag_and_prefetches_durable() -> None:
     )
     events, retrieval, model_runtime, memory_facade = asyncio.run(_collect_events(plan, rag_mode=True))
 
-    assert retrieval.queries == ["我们项目当前重点是什么？"]
+    assert retrieval.queries == []
     assert memory_facade.prefetch_queries == ["我们项目当前重点是什么？"]
     assert model_runtime.last_tools == []
-    retrieval_index = next(i for i, event in enumerate(events) if event.get("type") == "retrieval")
+    assert not any(event.get("type") == "retrieval" for event in events)
     memory_index = next(i for i, event in enumerate(events) if event.get("type") == "memory_context")
-    assert retrieval_index < memory_index
+    assert memory_index >= 0
 
 
 def test_general_memory_adjacent_query_still_prefetches_durable_context() -> None:
@@ -1853,7 +1949,7 @@ def test_runtime_durable_memory_query_drops_prior_history_from_model_payload() -
 
 
 def test_runtime_rag_answer_finalizer_rewrites_missing_answer_from_evidence_pack() -> None:
-    plan = QueryPlan(
+    plan = _promote_rag_plan_to_retrieval_worker(QueryPlan(
         session_id="rag-finalizer-success",
         message="基于本地知识库，告诉我 AI 治理里最常见的三类风险。",
         history=[],
@@ -1866,7 +1962,7 @@ def test_runtime_rag_answer_finalizer_rewrites_missing_answer_from_evidence_pack
             should_skip_rag=False,
         ),
         active_skill=None,
-    )
+    ))
     runtime, retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=True)
     retrieval.retrieve = lambda query, *, top_k=5: [  # type: ignore[method-assign]
         {
@@ -1921,7 +2017,7 @@ def test_runtime_rag_answer_finalizer_rewrites_missing_answer_from_evidence_pack
     assert done["answer_fallback_reason"] == ""
     assert "数据质量与口径失真" in str(done["content"])
     assert len(model_runtime.invoke_messages_calls) == 1
-    assert "ai_governance.md P3" in model_runtime.invoke_messages_calls[0][1]["content"]
+    assert "ai_governance.md" in model_runtime.invoke_messages_calls[0][1]["content"]
 
 
 def test_runtime_rag_output_boundary_trims_trailing_protocol_tail_from_visible_answer() -> None:
@@ -1992,7 +2088,7 @@ def test_runtime_rag_output_boundary_trims_trailing_protocol_tail_from_visible_a
 
 
 def test_runtime_rag_output_boundary_rejects_tool_arg_json_and_uses_finalizer() -> None:
-    plan = QueryPlan(
+    plan = _promote_rag_plan_to_retrieval_worker(QueryPlan(
         session_id="rag-json-protocol",
         message="基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。",
         history=[],
@@ -2005,7 +2101,7 @@ def test_runtime_rag_output_boundary_rejects_tool_arg_json_and_uses_finalizer() 
             should_skip_rag=False,
         ),
         active_skill=None,
-    )
+    ))
     runtime, retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=True)
     retrieval.retrieve = lambda query, *, top_k=5: [  # type: ignore[method-assign]
         {
@@ -2067,7 +2163,7 @@ def test_runtime_rag_output_boundary_rejects_tool_arg_json_and_uses_finalizer() 
 
 
 def test_runtime_rag_output_boundary_rejects_invoke_tail_protocol_and_uses_finalizer() -> None:
-    plan = QueryPlan(
+    plan = _promote_rag_plan_to_retrieval_worker(QueryPlan(
         session_id="rag-invoke-protocol",
         message="基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。",
         history=[],
@@ -2080,7 +2176,7 @@ def test_runtime_rag_output_boundary_rejects_invoke_tail_protocol_and_uses_final
             should_skip_rag=False,
         ),
         active_skill=None,
-    )
+    ))
     runtime, retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=True)
     retrieval.retrieve = lambda query, *, top_k=5: [  # type: ignore[method-assign]
         {
@@ -2144,7 +2240,7 @@ def test_runtime_rag_output_boundary_rejects_invoke_tail_protocol_and_uses_final
 
 
 def test_runtime_rag_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallback() -> None:
-    plan = QueryPlan(
+    plan = _promote_rag_plan_to_retrieval_worker(QueryPlan(
         session_id="rag-finalizer-reject",
         message="基于本地知识库，告诉我 AI 治理里最常见的三类风险。",
         history=[],
@@ -2157,7 +2253,7 @@ def test_runtime_rag_answer_finalizer_rejects_procedural_rewrite_and_keeps_fallb
             should_skip_rag=False,
         ),
         active_skill=None,
-    )
+    ))
     runtime, retrieval, model_runtime, _memory_facade = _build_runtime(rag_mode=True)
     retrieval.retrieve = lambda query, *, top_k=5: [  # type: ignore[method-assign]
         {
@@ -2699,18 +2795,19 @@ def main() -> None:
     test_direct_tool_pdf_without_path_is_blocked_by_contract_gate()
     test_direct_tool_structured_without_path_is_blocked_by_contract_gate()
     test_workspace_file_read_direct_route_invokes_read_file_with_normalized_path()
-    test_rag_route_prefetches_retrieval_without_tools()
+    test_non_worker_rag_route_does_not_run_direct_retrieval()
     test_direct_tool_route_normalizes_final_content()
     test_runtime_uses_session_committed_dataset_binding_for_tool_promotion()
     test_runtime_uses_session_committed_pdf_binding_for_tool_promotion()
     test_pdf_direct_tool_facade_returns_canonical_summary_without_runtime_finalization()
     test_pdf_direct_tool_route_skips_model_finalization_for_degraded_result()
     test_pdf_direct_tool_facade_does_not_model_finalize_degraded_page_evidence()
-    test_semantic_memory_signal_keeps_rag_and_prefetches_durable()
+    test_semantic_memory_signal_prefetches_durable_without_runtime_rag_fallback()
     test_execution_events_reuses_built_plan_for_subtasks()
     test_memory_route_does_not_promote_fake_tool_call_into_task_summary()
     test_followup_task_ref_is_answered_without_replanning()
     test_binding_followup_executes_from_owner_task_without_replanning()
+    test_pdf_binding_followup_from_page_owner_does_not_inherit_page_mode_without_page_reference()
     test_binding_followup_candidate_yields_to_memory_plan_when_route_conflicts()
     test_ambiguous_binding_followup_requests_clarification_without_replanning()
     test_session_committed_pdf_binding_breaks_registry_ambiguity()

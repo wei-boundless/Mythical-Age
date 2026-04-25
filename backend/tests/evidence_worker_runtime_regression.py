@@ -172,6 +172,18 @@ class _SkillRegistryStub:
         return None
 
 
+def _assert_structured_call(
+    structured_calls: list[dict[str, object]],
+    *,
+    query: str,
+    path: str,
+) -> None:
+    assert len(structured_calls) == 1
+    assert structured_calls[0]["query"] == query
+    assert structured_calls[0]["path"] == path
+    assert isinstance(structured_calls[0].get("semantic_hints"), dict)
+
+
 def test_evidence_adapter_promotes_retrieval_source_to_dataset_candidate() -> None:
     envelope = build_evidence_envelope_from_retrieval(
         query="查询缺货情况",
@@ -210,6 +222,8 @@ def test_planner_promotes_direct_rag_to_worker_execution_plan() -> None:
     assert execution.worker_plan.worker_route == "retrieval"
     assert execution.worker_plan.request is not None
     assert execution.worker_plan.request.query == "你可以查询本地数据库里面，有哪些城市缺货嘛"
+    assert execution.worker_plan.request.to_dict()["agent_id"] == "agent:knowledge:retrieval"
+    assert execution.worker_plan.request.to_dict()["protocol_version"] == "a2a-compatible.v1"
 
 
 def test_runtime_worker_branch_runs_retrieval_without_main_agent_or_search_tool() -> None:
@@ -272,6 +286,18 @@ def test_runtime_worker_branch_runs_retrieval_without_main_agent_or_search_tool(
     assert model_runtime.agent_created is False
     assert any(event.get("type") == "worker_evidence" for event in events)
     assert any(event.get("type") == "worker_artifacts" for event in events)
+    worker_start = next(event for event in events if event.get("type") == "worker_start")
+    worker_end = next(event for event in events if event.get("type") == "worker_end")
+    assert worker_start["agent_id"] == "agent:knowledge:retrieval"
+    assert worker_start["protocol_version"] == "a2a-compatible.v1"
+    assert worker_start["stream_event_type"] == "task.started"
+    assert worker_end["agent_id"] == "agent:knowledge:retrieval"
+    assert worker_end["task_status"] == "completed"
+    assert worker_end["stream_event_type"] == "task.completed"
+    assert done["agent_id"] == "agent:knowledge:retrieval"
+    assert done["protocol_version"] == "a2a-compatible.v1"
+    assert done["task_status"] == "completed"
+    assert done["stream_event_type"] == "task.completed"
     assert done["answer_source"] == "rag_answer_finalization"
     assert "inventory.xlsx" in str(done["content"])
     assert done["binding_candidate_refs"] == ["cand:dataset:1"]
@@ -366,15 +392,17 @@ def test_candidate_confirmation_turn_runs_structured_worker_from_previous_retrie
         and event.get("graph_delta", {}).get("artifacts", [{}])[0].get("artifact_type") == "dataset_analysis"
     )
 
-    assert structured_calls == [
-        {
-            "query": first_query,
-            "path": "knowledge/E-commerce Data/inventory.xlsx",
-        }
-    ]
+    _assert_structured_call(
+        structured_calls,
+        query=first_query,
+        path="knowledge/E-commerce Data/inventory.xlsx",
+    )
     assert structured_evidence["evidence"]["source_objects"][0]["object_type"] == "dataset"
     assert structured_artifacts["graph_delta"]["artifacts"][0]["artifact_type"] == "dataset_analysis"
+    assert structured_artifacts["graph_delta"]["result_handles"][0]["result_kind"] == "structured_answer"
     assert done["answer_source"] == "structured_data_worker"
+    assert done["agent_id"] == "agent:data:structured"
+    assert done["protocol_version"] == "a2a-compatible.v1"
     assert "缺货城市" in str(done["content"])
     assert done["committed_bindings"]["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
     assert done["main_context"]["active_constraints"]["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
@@ -461,8 +489,10 @@ def test_document_candidate_confirmation_turn_runs_pdf_worker_from_previous_retr
     assert first_done["binding_candidate_refs"] == ["cand:document:1"]
     assert len(pdf_worker.requests) == 1
     assert pdf_worker.requests[0].worker_route == "pdf"
+    assert pdf_worker.requests[0].to_dict()["agent_id"] == "agent:document:pdf"
     assert pdf_worker.requests[0].bindings["active_pdf"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
     assert done["answer_source"] == "pdf_worker"
+    assert done["agent_id"] == "agent:document:pdf"
     assert "AI 治理报告" in str(done["content"])
     assert done["committed_bindings"]["active_pdf"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
     assert done["main_context"]["followup_binding_key"] == "active_pdf"
@@ -551,13 +581,13 @@ def test_table_candidate_confirmation_turn_runs_structured_worker_with_resolved_
 
     assert "cand:dataset:1" in first_done["binding_candidate_refs"]
     assert "cand:table:1" in first_done["binding_candidate_refs"]
-    assert structured_calls == [
-        {
-            "query": first_query,
-            "path": "knowledge/E-commerce Data/inventory.xlsx",
-        }
-    ]
+    _assert_structured_call(
+        structured_calls,
+        query=first_query,
+        path="knowledge/E-commerce Data/inventory.xlsx",
+    )
     assert done["answer_source"] == "structured_data_worker"
+    assert done["agent_id"] == "agent:data:structured"
     assert done["committed_bindings"]["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
     assert done["committed_bindings"]["active_table"] == "inventory-table"
     assert done["main_context"]["active_constraints"]["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
@@ -661,9 +691,15 @@ def test_candidate_and_graph_state_restore_from_session_runtime_state() -> None:
         events = asyncio.run(_run(runtime2, "是销售数据库"))
         done = next(event for event in reversed(events) if event.get("type") == "done")
 
-        assert structured_calls == [{"query": first_query, "path": "knowledge/E-commerce Data/inventory.xlsx"}]
+        _assert_structured_call(
+            structured_calls,
+            query=first_query,
+            path="knowledge/E-commerce Data/inventory.xlsx",
+        )
         assert done["answer_source"] == "structured_data_worker"
         assert done["committed_bindings"]["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
+        restored = session_manager.get_runtime_state(session_id, "evidence_state")
+        assert restored["evidence_graph"]["result_handles"][0]["result_kind"] == "structured_answer"
 
 
 def main() -> None:

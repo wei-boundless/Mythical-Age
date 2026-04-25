@@ -8,6 +8,16 @@ from query.evidence_models import BindingCandidate, EvidenceArtifact, EvidenceEn
 
 WorkerRoute = Literal["none", "retrieval", "pdf", "structured_data", "evidence_orchestrator"]
 WorkerStatus = Literal["ok", "degraded", "clarify", "error"]
+WorkerTaskStatus = Literal["submitted", "working", "completed", "failed", "requires_input"]
+
+A2A_COMPATIBLE_PROTOCOL_VERSION = "a2a-compatible.v1"
+
+AGENT_ID_BY_WORKER_ROUTE: dict[str, str] = {
+    "retrieval": "agent:knowledge:retrieval",
+    "evidence_orchestrator": "agent:knowledge:retrieval",
+    "pdf": "agent:document:pdf",
+    "structured_data": "agent:data:structured",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,9 +37,18 @@ class WorkerRequest:
     upstream_result_handle_ids: list[str] = field(default_factory=list)
     owner_task_id: str = ""
     arbitration_reason: str = ""
+    agent_id: str = ""
+    message_id: str = ""
+    protocol_version: str = A2A_COMPATIBLE_PROTOCOL_VERSION
+    extensions: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["agent_id"] = request_agent_id(self)
+        payload["message_id"] = self.message_id or self.request_id
+        payload["protocol_version"] = self.protocol_version or A2A_COMPATIBLE_PROTOCOL_VERSION
+        payload["extensions"] = dict(self.extensions or {})
+        return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +67,7 @@ class CanonicalResult:
     primary_result_handle_id: str = ""
     degraded_reason_typed: str = ""
     presentation_hints: dict[str, Any] = field(default_factory=dict)
+    extensions: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -65,11 +85,19 @@ class WorkerResult:
     emitted_object_handles: list[dict[str, Any]] = field(default_factory=list)
     emitted_result_handles: list[dict[str, Any]] = field(default_factory=list)
     binding_owner_task_id: str = ""
+    agent_id: str = ""
+    task_status: WorkerTaskStatus | str = ""
+    stream_event_type: str = ""
+    extensions: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "worker_name": self.worker_name,
             "status": self.status,
+            "agent_id": result_agent_id(self),
+            "task_status": self.task_status or task_status_from_worker_status(self.status),
+            "stream_event_type": self.stream_event_type or stream_event_type_from_worker_status(self.status),
+            "extensions": dict(self.extensions or {}),
             "evidence_envelope": self.evidence_envelope.to_dict() if self.evidence_envelope is not None else None,
             "artifact_updates": [item.to_dict() for item in self.artifact_updates],
             "canonical_result": self.canonical_result.to_dict() if self.canonical_result is not None else None,
@@ -101,3 +129,41 @@ class WorkerExecutionPlan:
             "fallback_execution_kind": self.fallback_execution_kind,
             "cutover_mode": self.cutover_mode,
         }
+
+
+def agent_id_for_worker_route(worker_route: str | None) -> str:
+    return AGENT_ID_BY_WORKER_ROUTE.get(str(worker_route or "").strip(), "agent:local:unknown")
+
+
+def request_agent_id(request: WorkerRequest | None, *, fallback_worker_route: str = "") -> str:
+    if request is None:
+        return agent_id_for_worker_route(fallback_worker_route)
+    return str(request.agent_id or "").strip() or agent_id_for_worker_route(request.worker_route or fallback_worker_route)
+
+
+def result_agent_id(result: WorkerResult | None, *, fallback_worker_route: str = "") -> str:
+    if result is None:
+        return agent_id_for_worker_route(fallback_worker_route)
+    return str(result.agent_id or "").strip() or agent_id_for_worker_route(result.worker_name or fallback_worker_route)
+
+
+def task_status_from_worker_status(status: str | None) -> WorkerTaskStatus:
+    normalized = str(status or "").strip()
+    if normalized == "ok":
+        return "completed"
+    if normalized == "clarify":
+        return "requires_input"
+    if normalized in {"degraded", "error"}:
+        return "failed"
+    return "working"
+
+
+def stream_event_type_from_worker_status(status: str | None) -> str:
+    normalized = str(status or "").strip()
+    if normalized == "ok":
+        return "task.completed"
+    if normalized == "clarify":
+        return "task.input_required"
+    if normalized in {"degraded", "error"}:
+        return "task.failed"
+    return "task.updated"

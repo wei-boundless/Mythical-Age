@@ -48,6 +48,9 @@ class ContextSlots:
     active_binding_kind: str = ""
     active_binding_identity: str = ""
     active_binding_owner_task_id: str = ""
+    active_object_handle_id: str = ""
+    active_result_handle_id: str = ""
+    active_subset_handle_id: str = ""
     committed_pdf: str = ""
     committed_pdf_owner_task_id: str = ""
     committed_dataset: str = ""
@@ -167,6 +170,15 @@ class ProcessState:
                 active_binding_identity=str(getattr(slots_payload, "get", lambda *_: "")("active_binding_identity", "")),
                 active_binding_owner_task_id=str(
                     getattr(slots_payload, "get", lambda *_: "")("active_binding_owner_task_id", "")
+                ),
+                active_object_handle_id=str(
+                    getattr(slots_payload, "get", lambda *_: "")("active_object_handle_id", "")
+                ),
+                active_result_handle_id=str(
+                    getattr(slots_payload, "get", lambda *_: "")("active_result_handle_id", "")
+                ),
+                active_subset_handle_id=str(
+                    getattr(slots_payload, "get", lambda *_: "")("active_subset_handle_id", "")
                 ),
                 committed_pdf=str(getattr(slots_payload, "get", lambda *_: "")("committed_pdf", "")),
                 committed_pdf_owner_task_id=str(

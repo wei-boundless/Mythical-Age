@@ -512,6 +512,9 @@ class SessionMemoryManager:
             normalized_task_summaries=normalized_task_summaries,
             active_binding_kind=active_binding_kind,
         )
+        active_object_handle_id = self._coerce_text(self._read_value(main_context, "active_object_handle_id"))
+        active_result_handle_id = self._coerce_text(self._read_value(main_context, "active_result_handle_id"))
+        active_subset_handle_id = self._coerce_text(self._read_value(main_context, "active_subset_handle_id"))
         source_kind = self._coerce_text(active_constraints.get("source_kind"))
         active_entity = ""
         lowered_goal = active_goal.lower()
@@ -540,12 +543,18 @@ class SessionMemoryManager:
             active_binding_kind = ""
             active_binding_identity = ""
             active_binding_owner_task_id = ""
+            active_object_handle_id = ""
+            active_result_handle_id = ""
+            active_subset_handle_id = ""
         if flow_type == "pdf_analysis_flow":
             active_dataset = ""
             if active_binding_kind == "active_dataset":
                 active_binding_kind = ""
                 active_binding_identity = self._binding_identity_from_slot_values(active_pdf=active_pdf, active_dataset="")
                 active_binding_owner_task_id = ""
+                active_object_handle_id = ""
+                active_result_handle_id = ""
+                active_subset_handle_id = ""
         if flow_type == "structured_data_flow":
             active_pdf = ""
             active_pdf_mode = ""
@@ -555,10 +564,16 @@ class SessionMemoryManager:
                 active_binding_kind = ""
                 active_binding_identity = self._binding_identity_from_slot_values(active_pdf="", active_dataset=active_dataset)
                 active_binding_owner_task_id = ""
+                active_object_handle_id = ""
+                active_result_handle_id = ""
+                active_subset_handle_id = ""
         if not active_pdf and not active_dataset:
             active_binding_kind = ""
             active_binding_identity = ""
             active_binding_owner_task_id = ""
+            active_object_handle_id = ""
+            active_result_handle_id = ""
+            active_subset_handle_id = ""
         if not active_pdf:
             active_pdf_mode = ""
             active_pdf_section = ""
@@ -580,6 +595,9 @@ class SessionMemoryManager:
             active_binding_kind=active_binding_kind,
             active_binding_identity=active_binding_identity,
             active_binding_owner_task_id=active_binding_owner_task_id,
+            active_object_handle_id=active_object_handle_id,
+            active_result_handle_id=active_result_handle_id,
+            active_subset_handle_id=active_subset_handle_id,
             committed_pdf=committed_pdf,
             committed_pdf_owner_task_id=committed_pdf_owner_task_id,
             committed_dataset=committed_dataset,
@@ -823,11 +841,30 @@ class SessionMemoryManager:
         return ""
 
     def _render_constraints(self, constraints: dict[str, Any]) -> str:
+        safe_keys = {
+            "append_mode",
+            "dedupe",
+            "group_by",
+            "page",
+            "pdf_focus_pages",
+            "pdf_mode",
+            "pdf_section",
+            "response_style",
+            "source_kind",
+            "top_n",
+        }
+        aliases = {
+            "active_pdf_mode": "pdf_mode",
+            "active_pdf_pages": "pdf_focus_pages",
+        }
         rendered: list[str] = []
         for key, value in constraints.items():
             if value in ("", None, [], {}):
                 continue
-            rendered.append(f"{key}={value}")
+            normalized_key = aliases.get(str(key), str(key))
+            if normalized_key not in safe_keys:
+                continue
+            rendered.append(f"{normalized_key}={value}")
         return "；".join(rendered)
 
     def _dedupe_text_items(self, items: list[str]) -> list[str]:

@@ -15,6 +15,7 @@ from query.prompt_builder import (
     build_system_prompt,
     build_turn_prompt,
 )
+from query.context_models import MainContextState
 
 
 def _assert(condition: bool, message: str) -> None:
@@ -98,8 +99,41 @@ def test_prompt_builder_splits_static_session_and_turn_layers() -> None:
         _assert("profile" not in full_prompt.lower(), "prompt should not expose profile implementation term")
 
 
+def test_main_context_prompt_masks_bindings_and_handles() -> None:
+    block = MainContextState(
+        active_goal="继续分析 PDF。",
+        active_binding_identity="knowledge/reports/report.pdf",
+        active_object_handle_id="source:pdf:secret",
+        active_result_handle_id="result:pdf_summary:secret",
+        active_subset_handle_id="subset:selection:secret",
+        followup_target_task_id="task-secret",
+        followup_target_task_ids=["task-secret", "task-other"],
+        followup_binding_identity="knowledge/reports/report.pdf",
+        followup_binding_owner_task_id="task-secret",
+        active_constraints={
+            "active_pdf": "knowledge/reports/report.pdf",
+            "active_dataset": "knowledge/data/inventory.xlsx",
+            "active_binding_identity": "knowledge/reports/report.pdf",
+            "source_kind": "pdf",
+            "page": 3,
+            "active_pdf_mode": "page",
+        },
+    ).to_prompt_block()
+
+    _assert("knowledge/reports/report.pdf" not in block, "prompt block must not expose concrete PDF paths")
+    _assert("knowledge/data/inventory.xlsx" not in block, "prompt block must not expose concrete dataset paths")
+    _assert("source:pdf:secret" not in block, "prompt block must not expose object handle ids")
+    _assert("result:pdf_summary:secret" not in block, "prompt block must not expose result handle ids")
+    _assert("task-secret" not in block, "prompt block must not expose task ids")
+    _assert("Active Binding: available" in block, "prompt block should preserve availability signal")
+    _assert("Active Evidence Result: available" in block, "prompt block should preserve result availability signal")
+    _assert("page=3" in block, "prompt block should keep safe page constraint")
+    _assert("pdf_mode=page" in block, "prompt block should keep safe pdf mode constraint")
+
+
 def main() -> None:
     test_prompt_builder_splits_static_session_and_turn_layers()
+    test_main_context_prompt_masks_bindings_and_handles()
     print("ALL PASSED (prompt context regression)")
 
 

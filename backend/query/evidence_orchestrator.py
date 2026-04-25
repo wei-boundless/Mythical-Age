@@ -2,12 +2,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from agents.a2a_runtime import task_envelope_from_request, task_envelope_from_result
 from query.answer_finalizer import build_rag_evidence_pack
-from query.evidence_graph import EvidenceArtifactGraph
+from query.evidence_graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
 from query.pdf_worker import PDFWorker
 from query.retrieval_worker import RetrievalWorker
 from query.structured_data_worker import StructuredDataWorker
-from query.worker_models import CanonicalResult, WorkerExecutionPlan, WorkerResult
+from query.worker_models import (
+    A2A_COMPATIBLE_PROTOCOL_VERSION,
+    CanonicalResult,
+    WorkerExecutionPlan,
+    WorkerResult,
+    request_agent_id,
+    result_agent_id,
+    stream_event_type_from_worker_status,
+    task_status_from_worker_status,
+)
 from query.worker_projection import WorkerProjectionAdapter
 
 
@@ -41,6 +51,13 @@ class EvidenceOrchestrator:
     ):
         request = worker_plan.request
         worker_route = str(worker_plan.worker_route or "none")
+        agent_id = request_agent_id(request, fallback_worker_route=worker_route)
+        protocol_version = (
+            str(getattr(request, "protocol_version", "") or "").strip()
+            or A2A_COMPATIBLE_PROTOCOL_VERSION
+        )
+        message_id = str(getattr(request, "message_id", "") or getattr(request, "request_id", "") or "").strip()
+        extensions = dict(getattr(request, "extensions", {}) or {})
         if request is None or worker_route in {"", "none"}:
             yield self._done_event(
                 canonical=CanonicalResult(
@@ -52,10 +69,25 @@ class EvidenceOrchestrator:
                 main_context=main_context,
                 worker_result=None,
                 query=str(getattr(request, "query", "") or "") if request is not None else "",
+                agent_id=agent_id,
+                protocol_version=protocol_version,
+                message_id=message_id,
+                extensions=extensions,
             )
             return
 
-        yield {"type": "worker_start", "worker": worker_route, "request": request.to_dict()}
+        yield {
+            "type": "worker_start",
+            "worker": worker_route,
+            "agent_id": agent_id,
+            "protocol_version": protocol_version,
+            "message_id": message_id,
+            "task_status": "submitted",
+            "stream_event_type": "task.started",
+            "extensions": extensions,
+            "request": request.to_dict(),
+            "a2a_task": task_envelope_from_request(request).to_dict(),
+        }
         if worker_route in {"retrieval", "evidence_orchestrator"}:
             worker_result = self.retrieval_worker.run(request)
         elif worker_route == "pdf" and self.pdf_worker is not None:
@@ -73,6 +105,8 @@ class EvidenceOrchestrator:
             trace.annotate(
                 {
                     "app.worker_route": worker_route,
+                    "app.agent_id": result_agent_id(worker_result, fallback_worker_route=worker_route),
+                    "app.protocol_version": protocol_version,
                     "app.worker_status": worker_result.status,
                     "app.evidence_candidate_count": len(worker_result.binding_candidates),
                 }
@@ -88,12 +122,40 @@ class EvidenceOrchestrator:
                     candidates=list(worker_result.binding_candidates),
                 )
             if worker_route in {"retrieval", "evidence_orchestrator"}:
-                yield {"type": "retrieval", "query": request.query, "results": raw_results}
-            yield {"type": "worker_evidence", "worker": worker_route, "evidence": envelope.to_dict()}
+                yield {
+                    "type": "retrieval",
+                    "query": request.query,
+                    "results": raw_results,
+                    "agent_id": agent_id,
+                    "protocol_version": protocol_version,
+                    "message_id": message_id,
+                }
+            yield {
+                "type": "worker_evidence",
+                "worker": worker_route,
+                "agent_id": agent_id,
+                "protocol_version": protocol_version,
+                "message_id": message_id,
+                "task_status": "working",
+                "stream_event_type": "task.updated",
+                "extensions": extensions,
+                "evidence": envelope.to_dict(),
+            }
             graph = EvidenceArtifactGraph.from_envelope(session_id=session_id, envelope=envelope)
+            _add_emitted_handles_to_graph(graph, worker_result=worker_result, worker=worker_route)
             if self.graph_store is not None:
                 self.graph_store.merge(session_id, graph)
-            yield {"type": "worker_artifacts", "graph_delta": graph.to_delta()}
+            yield {
+                "type": "worker_artifacts",
+                "worker": worker_route,
+                "agent_id": agent_id,
+                "protocol_version": protocol_version,
+                "message_id": message_id,
+                "task_status": "working",
+                "stream_event_type": "task.artifact_delta",
+                "extensions": extensions,
+                "graph_delta": graph.to_delta(),
+            }
 
         if worker_result.canonical_result is not None:
             canonical = worker_result.canonical_result
@@ -106,6 +168,15 @@ class EvidenceOrchestrator:
         yield {
             "type": "worker_end",
             "worker": worker_route,
+            "agent_id": result_agent_id(worker_result, fallback_worker_route=worker_route),
+            "protocol_version": protocol_version,
+            "message_id": message_id,
+            "task_status": task_status_from_worker_status(worker_result.status),
+            "stream_event_type": stream_event_type_from_worker_status(worker_result.status),
+            "extensions": {
+                **extensions,
+                **dict(getattr(worker_result, "extensions", {}) or {}),
+            },
             "result": canonical.to_dict(),
             "binding_candidates": [item.to_dict() for item in worker_result.binding_candidates],
             "object_handle_ids": list(canonical.object_handle_ids or []),
@@ -113,12 +184,24 @@ class EvidenceOrchestrator:
             "binding_owner_task_id": str(getattr(worker_result, "binding_owner_task_id", "") or ""),
             "degraded_reason_typed": str(canonical.degraded_reason_typed or canonical.degraded_reason or ""),
             "presentation_hints": dict(canonical.presentation_hints or {}),
+            "a2a_task": task_envelope_from_result(
+                request=request,
+                result=worker_result,
+                canonical=canonical,
+            ).to_dict(),
         }
         yield self._done_event(
             canonical=canonical,
             main_context=main_context,
             worker_result=worker_result,
             query=request.query,
+            agent_id=result_agent_id(worker_result, fallback_worker_route=worker_route),
+            protocol_version=protocol_version,
+            message_id=message_id,
+            extensions={
+                **extensions,
+                **dict(getattr(worker_result, "extensions", {}) or {}),
+            },
         )
 
     async def _canonicalize_retrieval_answer(
@@ -184,10 +267,25 @@ class EvidenceOrchestrator:
         main_context: Any,
         worker_result: WorkerResult | None,
         query: str = "",
+        agent_id: str = "",
+        protocol_version: str = A2A_COMPATIBLE_PROTOCOL_VERSION,
+        message_id: str = "",
+        extensions: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         diagnostics = dict(canonical.diagnostics or {})
         answer_source = str(diagnostics.get("answer_source", "") or "evidence_worker")
         binding_candidates = list(getattr(worker_result, "binding_candidates", []) or []) if worker_result is not None else []
+        resolved_agent_id = agent_id or result_agent_id(worker_result)
+        task_status = (
+            str(getattr(worker_result, "task_status", "") or "").strip()
+            if worker_result is not None
+            else ""
+        ) or ("completed" if canonical.ok else "failed")
+        stream_event_type = (
+            str(getattr(worker_result, "stream_event_type", "") or "").strip()
+            if worker_result is not None
+            else ""
+        ) or ("task.completed" if canonical.ok else "task.failed")
         projection = self.projection_adapter.project_done_event(
             query=query,
             canonical_result=canonical,
@@ -197,6 +295,15 @@ class EvidenceOrchestrator:
         return {
             "type": "done",
             "content": canonical.answer,
+            "agent_id": resolved_agent_id,
+            "protocol_version": protocol_version or A2A_COMPATIBLE_PROTOCOL_VERSION,
+            "message_id": message_id,
+            "task_status": task_status,
+            "stream_event_type": stream_event_type,
+            "extensions": {
+                **dict(extensions or {}),
+                **dict(canonical.extensions or {}),
+            },
             "main_context": projection.main_context.to_dict(),
             "task_summary_refs": [item.to_dict() for item in projection.task_summary_refs],
             "object_handle_ids": list(projection.object_handle_ids),
@@ -267,6 +374,26 @@ def _source_object_ids(worker_result: WorkerResult) -> list[str]:
     if envelope is None:
         return []
     return [item.object_id for item in envelope.source_objects if item.object_id]
+
+
+def _add_emitted_handles_to_graph(
+    graph: EvidenceArtifactGraph,
+    *,
+    worker_result: WorkerResult,
+    worker: str,
+) -> None:
+    for raw in list(getattr(worker_result, "emitted_result_handles", []) or []):
+        if not isinstance(raw, dict):
+            continue
+        handle_kind = str(raw.get("handle_kind", "") or "").strip()
+        if handle_kind == "subset":
+            subset = subset_handle_from_payload(raw)
+            if subset is not None:
+                graph.add_subset_handle(subset, worker=worker)
+            continue
+        result = result_handle_from_payload(raw)
+        if result is not None:
+            graph.add_result_handle(result, worker=worker)
 
 
 def _slug(value: str) -> str:

@@ -209,3 +209,44 @@ def test_memory_facade_refreshes_session_memory_from_context_state() -> None:
         assert "# Risk Watch" not in stored
         assert "# Next Step" not in stored
         assert "# Next Step" in debug_stored
+
+
+def test_session_memory_model_view_masks_bindings_and_handles() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        session_id = "memory-facade-binding-mask"
+        facade.refresh_session_memory_from_context_state(
+            session_id,
+            {
+                "active_goal": "继续分析 report.pdf。",
+                "active_work_item": "pdf_analysis",
+                "active_binding_identity": "knowledge/reports/report.pdf",
+                "active_object_handle_id": "source:pdf:secret",
+                "active_result_handle_id": "result:pdf_summary:secret",
+                "active_constraints": {
+                    "active_pdf": "knowledge/reports/report.pdf",
+                    "source_kind": "pdf",
+                    "pdf_mode": "document",
+                },
+            },
+            task_summaries=[
+                {
+                    "task_id": "pdf-task",
+                    "query": "继续分析 report.pdf。",
+                    "summary": "PDF 结论已经形成。",
+                    "key_points": ["pdf=knowledge/reports/report.pdf"],
+                }
+            ],
+        )
+
+        manager = facade.session_memory.manager(session_id)
+        model_preview = manager.load()
+        debug_preview = manager.load_debug_view()
+
+        assert "当前 PDF：available" in model_preview
+        assert "knowledge/reports/report.pdf" not in model_preview
+        assert "source:pdf:secret" not in model_preview
+        assert "result:pdf_summary:secret" not in model_preview
+        assert "knowledge/reports/report.pdf" in debug_preview
+        assert "source:pdf:secret" in debug_preview

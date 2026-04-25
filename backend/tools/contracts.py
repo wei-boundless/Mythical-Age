@@ -16,6 +16,9 @@ def _is_blank(value: Any) -> bool:
 
 ToolScopeSource = Literal["global", "skill", "agent", "session", "explicit_user", "legacy"]
 ToolScopeTrustLevel = Literal["system", "project", "user", "external", "unknown"]
+ToolRuntimeVisibility = Literal["main_runtime", "agent_internal"]
+ToolPromptExposurePolicy = Literal["schema_only", "hidden", "debug_only"]
+ToolResourceExposurePolicy = Literal["none", "handle_only", "explicit_resource"]
 
 
 @dataclass(frozen=True, slots=True)

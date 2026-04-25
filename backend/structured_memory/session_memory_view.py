@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from .dialogue_state import DialogueState
 
 
@@ -106,8 +108,12 @@ class SessionMemoryViewBuilder:
                 state.warm_context if include_debug else self._model_warm_context_lines(state)
             ),
             "# Key User Requests": self._to_bullets(state.key_user_requests),
-            "# Files and Functions": self._to_bullets(state.files_and_functions),
-            "# Conventions and Constraints": self._to_bullets(state.conventions_and_constraints),
+            "# Files and Functions": self._to_bullets(
+                state.files_and_functions if include_debug else self._model_files_and_functions_lines(state)
+            ),
+            "# Conventions and Constraints": self._to_bullets(
+                state.conventions_and_constraints if include_debug else self._model_convention_lines(state)
+            ),
             "# Errors and Corrections": self._to_bullets(state.errors_and_corrections),
             "# Decisions and Learnings": self._to_bullets(state.decisions_and_learnings),
             "# Key Results": self._to_bullets(list(getattr(state, "current_result_refs", []) or state.key_results)),
@@ -215,7 +221,7 @@ class SessionMemoryViewBuilder:
         slots = state.context_slots
         items: list[str] = []
         if slots.active_pdf:
-            items.append(f"当前 PDF：{slots.active_pdf}")
+            items.append(f"当前 PDF：{slots.active_pdf if include_debug else 'available'}")
         if slots.active_pdf_mode:
             items.append(f"PDF 查询范围：{slots.active_pdf_mode}")
         if slots.active_pdf_section:
@@ -223,11 +229,17 @@ class SessionMemoryViewBuilder:
         if slots.active_pdf_pages:
             items.append(f"PDF 聚焦页：{', '.join(str(page) for page in slots.active_pdf_pages)}")
         if slots.active_dataset:
-            items.append(f"当前数据集：{slots.active_dataset}")
+            items.append(f"当前数据集：{slots.active_dataset if include_debug else 'available'}")
         if include_debug and slots.active_binding_identity:
             items.append(f"当前绑定标识：{slots.active_binding_identity}")
         if include_debug and slots.active_binding_owner_task_id:
             items.append(f"当前绑定 Owner：{slots.active_binding_owner_task_id}")
+        if include_debug and getattr(slots, "active_object_handle_id", ""):
+            items.append(f"当前对象 Handle：{slots.active_object_handle_id}")
+        if include_debug and getattr(slots, "active_result_handle_id", ""):
+            items.append(f"当前结果 Handle：{slots.active_result_handle_id}")
+        if include_debug and getattr(slots, "active_subset_handle_id", ""):
+            items.append(f"当前子集 Handle：{slots.active_subset_handle_id}")
         if slots.active_entity:
             items.append(f"当前实体：{slots.active_entity}")
         if include_debug and slots.active_rule:
@@ -266,6 +278,21 @@ class SessionMemoryViewBuilder:
             filtered.append(compact)
         return filtered[:4]
 
+    def _model_files_and_functions_lines(self, state: DialogueState) -> list[str]:
+        return [
+            line
+            for line in list(state.files_and_functions)
+            if not _contains_private_binding_value(line)
+        ][:6]
+
+    def _model_convention_lines(self, state: DialogueState) -> list[str]:
+        masked: list[str] = []
+        for line in list(state.conventions_and_constraints):
+            item = _mask_private_binding_values(line).strip()
+            if item:
+                masked.append(item)
+        return masked[:6]
+
     def _looks_like_result_line(self, text: str) -> bool:
         compact = text.strip()
         if not compact:
@@ -275,3 +302,20 @@ class SessionMemoryViewBuilder:
 
     def _to_bullets(self, items: list[str]) -> list[str]:
         return [f"- {item}" for item in items if item.strip()]
+
+
+_PRIVATE_BINDING_RE = re.compile(
+    r"(?:(?:active_)?(?:pdf|dataset)=)?(?:knowledge|output|backend|docs)[^\s；,，\]]+\.(?:pdf|xlsx|xls|csv|json|parquet)",
+    flags=re.IGNORECASE,
+)
+
+
+def _contains_private_binding_value(line: str) -> bool:
+    return bool(_PRIVATE_BINDING_RE.search(str(line or "")))
+
+
+def _mask_private_binding_values(line: str) -> str:
+    text = str(line or "")
+    text = re.sub(r"(?:active_pdf|pdf)=\S+", "pdf=available", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?:active_dataset|dataset)=\S+", "dataset=available", text, flags=re.IGNORECASE)
+    return _PRIVATE_BINDING_RE.sub("binding=available", text)

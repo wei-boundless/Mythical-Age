@@ -176,6 +176,8 @@ class EvidenceGraphStore:
                 turn_id=graph.turn_id,
                 source_objects=dict(graph.source_objects),
                 artifacts=dict(graph.artifacts),
+                result_handles=dict(graph.result_handles),
+                subset_handles=dict(graph.subset_handles),
                 edges=list(graph.edges),
             )
             return
@@ -192,7 +194,13 @@ class EvidenceGraphStore:
         if not normalized or not isinstance(payload, dict):
             return
         graph = EvidenceArtifactGraph.from_delta({**dict(payload), "session_id": normalized})
-        if not graph.source_objects and not graph.artifacts and not graph.edges:
+        if (
+            not graph.source_objects
+            and not graph.artifacts
+            and not graph.result_handles
+            and not graph.subset_handles
+            and not graph.edges
+        ):
             self.clear(normalized)
             return
         self._store[normalized] = graph
@@ -208,6 +216,18 @@ class EvidenceGraphStore:
         if graph is None:
             return None
         return graph.get_source_object(object_id)
+
+    def get_result_handle(self, session_id: str, result_id: str):
+        graph = self._store.get(str(session_id or "").strip())
+        if graph is None:
+            return None
+        return graph.get_result_handle(result_id)
+
+    def get_subset_handle(self, session_id: str, subset_id: str):
+        graph = self._store.get(str(session_id or "").strip())
+        if graph is None:
+            return None
+        return graph.get_subset_handle(subset_id)
 
     def clear(self, session_id: str) -> None:
         self._store.pop(str(session_id or "").strip(), None)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -137,9 +138,6 @@ class RuntimeFollowupCoordinator:
     ) -> bool:
         if str(getattr(followup_resolution, "mode", "") or "") != "binding_ref":
             return False
-        owner_task = self.binding_owner_task(session_id, followup_resolution)
-        if owner_task is None:
-            return False
         executions = plan.iter_executions()
         if len(executions) != 1:
             return False
@@ -152,18 +150,30 @@ class RuntimeFollowupCoordinator:
         tool_input = dict(getattr(execution, "tool_input", {}) or getattr(execution.query_understanding, "tool_input", {}) or {})
         normalized_path = self.normalize_binding_identity(str(tool_input.get("path", "") or ""))
         normalized_location = str(tool_input.get("location", "") or "").strip()
+        binding_identity = self.normalize_binding_identity(self.resolved_binding_identity(followup_resolution))
+        owner_task = self.binding_owner_task(session_id, followup_resolution)
         owner_context = getattr(owner_task, "context_ref", None)
         owner_bindings = getattr(owner_context, "bindings", None)
         if binding_kind == "active_pdf":
             owner_path = self.normalize_binding_identity(str(getattr(owner_bindings, "active_pdf", "") or ""))
-            if normalized_path and normalized_path != owner_path:
+            expected_path = binding_identity or owner_path
+            if not expected_path:
+                return False
+            if normalized_path and normalized_path != expected_path:
                 return False
             return route != "memory"
         if binding_kind == "active_dataset":
             owner_path = self.normalize_binding_identity(str(getattr(owner_bindings, "active_dataset", "") or ""))
-            if normalized_path and normalized_path != owner_path:
+            expected_path = binding_identity or owner_path
+            if not expected_path:
+                return False
+            if normalized_path and normalized_path != expected_path:
                 return False
             return route != "memory"
+        if owner_task is None:
+            return False
+        owner_context = getattr(owner_task, "context_ref", None)
+        owner_bindings = getattr(owner_context, "bindings", None)
         if binding_kind == "active_location":
             owner_location = str(getattr(owner_bindings, "active_location", "") or "").strip()
             return tool_name == "get_weather" and (not normalized_location or normalized_location == owner_location)
@@ -175,7 +185,7 @@ class RuntimeFollowupCoordinator:
     def normalize_binding_identity(self, value: str) -> str:
         return str(value or "").replace("\\", "/").strip().lower()
 
-    def binding_execution_from_owner(
+    def _scalar_binding_execution_from_task_ref(
         self,
         *,
         session_id: str,
@@ -189,159 +199,14 @@ class RuntimeFollowupCoordinator:
         bindings = context_ref.bindings
         tool_name = str(owner_task.metadata.get("tool_name", "") or "").strip()
         query_understanding: QueryUnderstanding | None = None
-        structured_binding: StructuredDatasetBinding | None = None
         tool_input: dict[str, Any] = {"query": message}
         target_handle_kind = self._target_handle_kind(owner_task)
         target_handle_id = self._target_handle_id(owner_task)
         upstream_object_handle_ids = self._owner_object_handle_ids(owner_task)
         upstream_result_handle_ids = self._owner_result_handle_ids(owner_task)
-        owner_task_id = str(getattr(owner_task, "task_id", "") or "").strip()
-        arbitration_reason = "binding_owner_followup"
+        arbitration_reason = "scalar_binding_task_ref_followup"
 
-        if bindings.active_pdf:
-            request = WorkerRequest(
-                request_id=f"worker:pdf:followup:{owner_task.task_id}",
-                session_id=session_id,
-                query=message,
-                worker_route="pdf",
-                task_frame={
-                    "intent": "pdf_followup_query",
-                    "source_kind": "document",
-                    "task_kind": context_ref.task_kind or "pdf",
-                    "modality": "pdf",
-                },
-                bindings={"active_pdf": bindings.active_pdf},
-                constraints={
-                    key: value
-                    for key, value in {
-                        "active_pdf": bindings.active_pdf,
-                        "mode": str(context_ref.constraints.pdf_mode or "") or "document",
-                        "page": context_ref.constraints.page,
-                    }.items()
-                    if value not in ("", None)
-                },
-                target_handle_kind=target_handle_kind,
-                target_handle_id=target_handle_id,
-                upstream_object_handle_ids=upstream_object_handle_ids,
-                upstream_result_handle_ids=upstream_result_handle_ids,
-                owner_task_id=owner_task_id,
-                arbitration_reason=arbitration_reason,
-            )
-            query_understanding = QueryUnderstanding(
-                intent="pdf_followup_query",
-                source_kind="document",
-                task_kind=context_ref.task_kind or "pdf",
-                modality="pdf",
-                route="worker",
-                execution_posture="worker",
-                direct_route_reason="binding_owner_pdf_worker",
-                capability_requests=["pdf_read"],
-                should_skip_rag=True,
-                reasons=["binding_owner_followup", "binding_owner_pdf_worker"],
-            )
-            return QueryExecutionPlan(
-                message=message,
-                history=list(history),
-                memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
-                query_understanding=query_understanding,
-                execution_kind="worker",
-                execution_posture="worker",
-                worker_plan=WorkerExecutionPlan(
-                    worker_route="pdf",
-                    request=request,
-                    expected_result="canonical",
-                    fallback_execution_kind="none",
-                    cutover_mode="primary",
-                ),
-                target_handle_kind=target_handle_kind,
-                target_handle_id=target_handle_id,
-                upstream_object_handle_ids=upstream_object_handle_ids,
-                upstream_result_handle_ids=upstream_result_handle_ids,
-                arbitration_reason=arbitration_reason,
-            )
-        elif bindings.active_dataset:
-            subset_constraints = self._dataset_subset_constraints(owner_task)
-            followup_query = message if subset_constraints else self._dataset_followup_query(message, owner_task)
-            structured_binding = StructuredDatasetBinding(
-                dataset_path=bindings.active_dataset,
-                target_object=bindings.active_entity,
-                source="binding_owner",
-                confidence=1.0,
-                binding_identity=str(
-                    bindings.active_binding_identity or str(bindings.active_dataset or "").replace("\\", "/").strip().lower()
-                ),
-                derived_from_task_id=owner_task.task_id,
-            )
-            request = WorkerRequest(
-                request_id=f"worker:structured_data:followup:{owner_task.task_id}",
-                session_id=session_id,
-                query=followup_query,
-                worker_route="structured_data",
-                task_frame={
-                    "intent": "structured_followup_query",
-                    "source_kind": "dataset",
-                    "task_kind": context_ref.task_kind or "structured_data",
-                    "modality": "table",
-                },
-                bindings={
-                    key: value
-                    for key, value in {
-                        "active_dataset": bindings.active_dataset,
-                        "active_table": str(context_ref.constraints.active_table or ""),
-                    }.items()
-                    if value not in ("", None)
-                },
-                constraints={
-                    key: value
-                    for key, value in {
-                        "group_by": context_ref.constraints.group_by,
-                        "top_n": context_ref.constraints.top_n,
-                        "active_table": str(context_ref.constraints.active_table or ""),
-                        **subset_constraints,
-                    }.items()
-                    if value not in ("", None)
-                },
-                target_handle_kind=target_handle_kind,
-                target_handle_id=target_handle_id,
-                upstream_object_handle_ids=upstream_object_handle_ids,
-                upstream_result_handle_ids=upstream_result_handle_ids,
-                owner_task_id=owner_task_id,
-                arbitration_reason=arbitration_reason,
-            )
-            query_understanding = QueryUnderstanding(
-                intent="structured_followup_query",
-                source_kind="dataset",
-                task_kind=context_ref.task_kind or "structured_data",
-                modality="table",
-                route="worker",
-                execution_posture="worker",
-                direct_route_reason="binding_owner_dataset_worker",
-                capability_requests=["dataset_analysis"],
-                should_skip_rag=True,
-                reasons=["binding_owner_followup", "binding_owner_dataset_worker"],
-            )
-            return QueryExecutionPlan(
-                message=followup_query,
-                history=list(history),
-                memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
-                query_understanding=query_understanding,
-                structured_binding=structured_binding,
-                execution_kind="worker",
-                execution_posture="worker",
-                worker_plan=WorkerExecutionPlan(
-                    worker_route="structured_data",
-                    request=request,
-                    expected_result="canonical",
-                    fallback_execution_kind="none",
-                    cutover_mode="primary",
-                ),
-                target_handle_kind=target_handle_kind,
-                target_handle_id=target_handle_id,
-                upstream_object_handle_ids=upstream_object_handle_ids,
-                upstream_result_handle_ids=upstream_result_handle_ids,
-                arbitration_reason=arbitration_reason,
-            )
-        elif bindings.active_location:
+        if bindings.active_location:
             tool_name = tool_name or "get_weather"
             tool_input["location"] = bindings.active_location
             query_understanding = QueryUnderstanding(
@@ -351,7 +216,7 @@ class RuntimeFollowupCoordinator:
                 modality="realtime",
                 route="tool",
                 execution_posture="direct_tool",
-                direct_route_reason="binding_owner_weather",
+                direct_route_reason="scalar_binding_weather",
                 tool_name=tool_name,
                 tool_input=dict(tool_input),
                 should_skip_rag=True,
@@ -365,7 +230,7 @@ class RuntimeFollowupCoordinator:
                 modality="realtime",
                 route="tool",
                 execution_posture="direct_tool",
-                direct_route_reason="binding_owner_finance",
+                direct_route_reason="scalar_binding_finance",
                 tool_name=tool_name,
                 tool_input=dict(tool_input),
                 should_skip_rag=True,
@@ -378,13 +243,222 @@ class RuntimeFollowupCoordinator:
             memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
             query_understanding=query_understanding,
             tool_input=tool_input,
-            structured_binding=structured_binding,
             execution_kind="direct_tool",
             target_handle_kind=target_handle_kind,
             target_handle_id=target_handle_id,
             upstream_object_handle_ids=upstream_object_handle_ids,
             upstream_result_handle_ids=upstream_result_handle_ids,
             arbitration_reason=arbitration_reason,
+        )
+
+    def binding_execution_from_resolution(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        history: list[dict[str, Any]],
+        followup_resolution,
+    ) -> QueryExecutionPlan | None:
+        binding_kind = self.resolved_binding_kind(followup_resolution)
+        binding_identity = self.resolved_binding_identity(followup_resolution)
+        owner_task = self.binding_owner_task(session_id, followup_resolution)
+        if owner_task is not None and binding_kind not in {"active_pdf", "active_dataset"}:
+            return self._scalar_binding_execution_from_task_ref(
+                session_id=session_id,
+                message=message,
+                history=history,
+                owner_task=owner_task,
+            )
+        if binding_kind == "active_pdf":
+            return self._pdf_binding_execution_from_resolution(
+                session_id=session_id,
+                message=message,
+                history=history,
+                followup_resolution=followup_resolution,
+                owner_task=owner_task,
+                active_pdf=binding_identity,
+            )
+        if binding_kind == "active_dataset":
+            return self._dataset_binding_execution_from_resolution(
+                session_id=session_id,
+                message=message,
+                history=history,
+                followup_resolution=followup_resolution,
+                owner_task=owner_task,
+                active_dataset=binding_identity,
+            )
+        return None
+
+    def _pdf_binding_execution_from_resolution(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        history: list[dict[str, Any]],
+        followup_resolution,
+        owner_task,
+        active_pdf: str,
+    ) -> QueryExecutionPlan | None:
+        active_pdf = str(active_pdf or "").strip()
+        if not active_pdf:
+            return None
+        target_handle_kind, target_handle_id, upstream_object_handle_ids, upstream_result_handle_ids = (
+            self._handle_context_from_resolution(followup_resolution, owner_task=owner_task)
+        )
+        owner_task_id = str(getattr(owner_task, "task_id", "") or self.resolved_binding_owner_task_id(followup_resolution) or "").strip()
+        pdf_constraints = self._pdf_constraints_from_message(message, active_pdf=active_pdf)
+        request = WorkerRequest(
+            request_id=f"worker:pdf:followup:{owner_task_id or target_handle_id or 'session'}",
+            session_id=session_id,
+            query=message,
+            worker_route="pdf",
+            task_frame={
+                "intent": "pdf_followup_query",
+                "source_kind": "document",
+                "task_kind": "pdf",
+                "modality": "pdf",
+            },
+            bindings={"active_pdf": active_pdf},
+            constraints=pdf_constraints,
+            target_handle_kind=target_handle_kind,
+            target_handle_id=target_handle_id,
+            upstream_object_handle_ids=upstream_object_handle_ids,
+            upstream_result_handle_ids=upstream_result_handle_ids,
+            owner_task_id=owner_task_id,
+            arbitration_reason="handle_binding_followup",
+        )
+        query_understanding = QueryUnderstanding(
+            intent="pdf_followup_query",
+            source_kind="document",
+            task_kind="pdf",
+            modality="pdf",
+            route="worker",
+            execution_posture="worker",
+            direct_route_reason="handle_binding_pdf_worker",
+            capability_requests=["pdf_read"],
+            should_skip_rag=True,
+            reasons=["handle_binding_followup", "handle_binding_pdf_worker"],
+        )
+        return QueryExecutionPlan(
+            message=message,
+            history=list(history),
+            memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
+            query_understanding=query_understanding,
+            execution_kind="worker",
+            execution_posture="worker",
+            worker_plan=WorkerExecutionPlan(
+                worker_route="pdf",
+                request=request,
+                expected_result="canonical",
+                fallback_execution_kind="none",
+                cutover_mode="primary",
+            ),
+            target_handle_kind=target_handle_kind,
+            target_handle_id=target_handle_id,
+            upstream_object_handle_ids=upstream_object_handle_ids,
+            upstream_result_handle_ids=upstream_result_handle_ids,
+            arbitration_reason="handle_binding_followup",
+        )
+
+    def _dataset_binding_execution_from_resolution(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        history: list[dict[str, Any]],
+        followup_resolution,
+        owner_task,
+        active_dataset: str,
+    ) -> QueryExecutionPlan | None:
+        active_dataset = str(active_dataset or "").strip()
+        if not active_dataset:
+            return None
+        target_handle_kind, target_handle_id, upstream_object_handle_ids, upstream_result_handle_ids = (
+            self._handle_context_from_resolution(followup_resolution, owner_task=owner_task)
+        )
+        owner_task_id = str(getattr(owner_task, "task_id", "") or self.resolved_binding_owner_task_id(followup_resolution) or "").strip()
+        subset_constraints = self._dataset_subset_constraints(owner_task) if owner_task is not None else {}
+        followup_query = message if subset_constraints or owner_task is None else self._dataset_followup_query(message, owner_task)
+        owner_context = getattr(owner_task, "context_ref", None)
+        owner_bindings = getattr(owner_context, "bindings", None)
+        owner_constraints = getattr(owner_context, "constraints", None)
+        active_table = str(getattr(owner_constraints, "active_table", "") or "").strip()
+        structured_binding = StructuredDatasetBinding(
+            dataset_path=active_dataset,
+            target_object=str(getattr(owner_bindings, "active_entity", "") or ""),
+            source="handle_binding",
+            confidence=1.0,
+            binding_identity=str(self.resolved_binding_identity(followup_resolution) or active_dataset.replace("\\", "/").strip().lower()),
+            derived_from_task_id=owner_task_id,
+        )
+        request = WorkerRequest(
+            request_id=f"worker:structured_data:followup:{owner_task_id or target_handle_id or 'session'}",
+            session_id=session_id,
+            query=followup_query,
+            worker_route="structured_data",
+            task_frame={
+                "intent": "structured_followup_query",
+                "source_kind": "dataset",
+                "task_kind": "structured_data",
+                "modality": "table",
+            },
+            bindings={
+                key: value
+                for key, value in {
+                    "active_dataset": active_dataset,
+                    "active_table": active_table,
+                }.items()
+                if value not in ("", None)
+            },
+            constraints={
+                key: value
+                for key, value in {
+                    "group_by": getattr(owner_constraints, "group_by", ""),
+                    "top_n": getattr(owner_constraints, "top_n", None),
+                    "active_table": active_table,
+                    **subset_constraints,
+                }.items()
+                if value not in ("", None)
+            },
+            target_handle_kind=target_handle_kind,
+            target_handle_id=target_handle_id,
+            upstream_object_handle_ids=upstream_object_handle_ids,
+            upstream_result_handle_ids=upstream_result_handle_ids,
+            owner_task_id=owner_task_id,
+            arbitration_reason="handle_binding_followup",
+        )
+        query_understanding = QueryUnderstanding(
+            intent="structured_followup_query",
+            source_kind="dataset",
+            task_kind="structured_data",
+            modality="table",
+            route="worker",
+            execution_posture="worker",
+            direct_route_reason="handle_binding_dataset_worker",
+            capability_requests=["dataset_analysis"],
+            should_skip_rag=True,
+            reasons=["handle_binding_followup", "handle_binding_dataset_worker"],
+        )
+        return QueryExecutionPlan(
+            message=followup_query,
+            history=list(history),
+            memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
+            query_understanding=query_understanding,
+            structured_binding=structured_binding,
+            execution_kind="worker",
+            execution_posture="worker",
+            worker_plan=WorkerExecutionPlan(
+                worker_route="structured_data",
+                request=request,
+                expected_result="canonical",
+                fallback_execution_kind="none",
+                cutover_mode="primary",
+            ),
+            target_handle_kind=target_handle_kind,
+            target_handle_id=target_handle_id,
+            upstream_object_handle_ids=upstream_object_handle_ids,
+            upstream_result_handle_ids=upstream_result_handle_ids,
+            arbitration_reason="handle_binding_followup",
         )
 
     def resolved_task_id(self, followup_resolution) -> str:
@@ -437,20 +511,19 @@ class RuntimeFollowupCoordinator:
         task_summary_refs_from_results: Callable[[list[dict[str, object]]], list[TaskSummaryRef]],
     ) -> AsyncIterator[dict[str, Any]]:
         owner_task = self.binding_owner_task(session_id, followup_resolution)
-        if owner_task is None:
-            return
         if trace is not None:
             trace.annotate(
                 {
                     "app.route": "followup_binding",
-                    "app.binding_owner_task_id": owner_task.task_id,
+                    "app.binding_owner_task_id": str(getattr(owner_task, "task_id", "") or ""),
+                    "app.followup_resolution_scope": str(getattr(followup_resolution, "resolution_scope", "") or ""),
                 }
             )
-        execution = self.binding_execution_from_owner(
+        execution = self.binding_execution_from_resolution(
             session_id=session_id,
             message=message,
             history=history,
-            owner_task=owner_task,
+            followup_resolution=followup_resolution,
         )
         if execution is None:
             return
@@ -583,6 +656,40 @@ class RuntimeFollowupCoordinator:
             handle_ids.insert(0, primary)
         return handle_ids
 
+    def _handle_context_from_resolution(self, followup_resolution, *, owner_task) -> tuple[str, str, list[str], list[str]]:
+        object_handle_ids = [
+            str(item).strip()
+            for item in list(getattr(followup_resolution, "object_handle_ids", []) or [])
+            if str(item).strip()
+        ]
+        object_handle_id = str(getattr(followup_resolution, "object_handle_id", "") or "").strip()
+        if object_handle_id and object_handle_id not in object_handle_ids:
+            object_handle_ids.insert(0, object_handle_id)
+        if not object_handle_ids and owner_task is not None:
+            object_handle_ids = self._owner_object_handle_ids(owner_task)
+
+        result_handle_ids = [
+            str(item).strip()
+            for item in list(getattr(followup_resolution, "result_handle_ids", []) or [])
+            if str(item).strip()
+        ]
+        result_handle_id = str(getattr(followup_resolution, "result_handle_id", "") or "").strip()
+        if result_handle_id and result_handle_id not in result_handle_ids:
+            result_handle_ids.insert(0, result_handle_id)
+        if not result_handle_ids and owner_task is not None:
+            result_handle_ids = self._owner_result_handle_ids(owner_task)
+
+        subset_handle_id = str(getattr(followup_resolution, "subset_handle_id", "") or "").strip()
+        if subset_handle_id:
+            return "subset", subset_handle_id, object_handle_ids, result_handle_ids
+        if result_handle_ids:
+            return "result", result_handle_ids[0], object_handle_ids, result_handle_ids
+        if object_handle_ids:
+            return "object", object_handle_ids[0], object_handle_ids, result_handle_ids
+        if owner_task is not None:
+            return self._target_handle_kind(owner_task), self._target_handle_id(owner_task), object_handle_ids, result_handle_ids
+        return "binding", self.resolved_binding_identity(followup_resolution), object_handle_ids, result_handle_ids
+
     def _owner_result_handle_ids(self, owner_task) -> list[str]:
         context_ref = getattr(owner_task, "context_ref", None)
         result_ref = getattr(owner_task, "result_ref", None)
@@ -627,6 +734,29 @@ class RuntimeFollowupCoordinator:
                 return normalized
         return ""
 
+    def _pdf_constraints_from_message(self, message: str, *, active_pdf: str) -> dict[str, object]:
+        page = self._page_number_from_message(message)
+        constraints: dict[str, object] = {"active_pdf": active_pdf}
+        if page is not None:
+            constraints["mode"] = "page"
+            constraints["page"] = page
+            return constraints
+        constraints["mode"] = "document"
+        return constraints
+
+    def _page_number_from_message(self, message: str) -> int | None:
+        text = str(message or "")
+        match = re.search(r"第\s*(\d+)\s*页", text, flags=re.IGNORECASE)
+        if match:
+            return _positive_int(match.group(1))
+        match = re.search(r"page\s*(\d+)", text, flags=re.IGNORECASE)
+        if match:
+            return _positive_int(match.group(1))
+        chinese_match = re.search(r"第\s*([零一二三四五六七八九十两]+)\s*页", text)
+        if chinese_match:
+            return _chinese_page_number(chinese_match.group(1))
+        return None
+
     def _dataset_followup_query(self, message: str, owner_task) -> str:
         result_ref = getattr(owner_task, "result_ref", None)
         subset_hint_query = str(getattr(result_ref, "subset_hint_query", "") or "").strip()
@@ -648,3 +778,33 @@ class RuntimeFollowupCoordinator:
             "subset_filter_column": subset_filter_column,
             "subset_labels": subset_labels,
         }
+
+
+def _positive_int(value: object) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _chinese_page_number(value: str) -> int | None:
+    normalized = str(value or "").strip().replace("两", "二")
+    if not normalized:
+        return None
+    digits = {"零": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    if normalized in digits:
+        return digits[normalized]
+    if normalized == "十":
+        return 10
+    if normalized.startswith("十") and len(normalized) == 2:
+        ones = digits.get(normalized[1])
+        return 10 + ones if ones is not None else None
+    if "十" in normalized:
+        tens_raw, ones_raw = normalized.split("十", 1)
+        tens = digits.get(tens_raw)
+        if tens is None:
+            return None
+        ones = digits.get(ones_raw, 0) if ones_raw else 0
+        return tens * 10 + ones
+    return None

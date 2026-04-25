@@ -45,11 +45,16 @@ def main() -> None:
     assert "typical_queries" not in by_name["get_gold_price"]
 
     assert by_name["structured_data_analysis"]["safe_for_auto_route"] is True
+    assert by_name["structured_data_analysis"]["runtime_visibility"] == "agent_internal"
+    assert by_name["structured_data_analysis"]["prompt_exposure_policy"] == "hidden"
+    assert by_name["structured_data_analysis"]["resource_exposure_policy"] == "handle_only"
     assert "table" in by_name["structured_data_analysis"]["supported_modalities"]
     assert by_name["structured_data_analysis"]["contract"]["owner_scope"] == "active_binding_or_explicit_path"
     assert by_name["structured_data_analysis"]["contract"]["required_bindings"] == ["active_dataset"]
 
     assert by_name["search_knowledge"]["safe_for_auto_route"] is False
+    assert by_name["search_knowledge"]["runtime_visibility"] == "agent_internal"
+    assert by_name["search_knowledge"]["schema_identity"] == "local.tools/search_knowledge"
     assert "faq" in by_name["search_knowledge"]["capability_tags"]
     assert "retrieval" in by_name["search_knowledge"]["safety_tags"]
     assert by_name["search_knowledge"]["contract"]["missing_binding_behavior"] == "fallback_to_rag"

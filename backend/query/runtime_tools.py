@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from typing import Any, Callable
 
 from query.output_boundary import sanitize_visible_assistant_content
@@ -11,6 +12,7 @@ from runtime.model_runtime import stringify_content
 from tasks.context_models import TaskConstraints
 from tools.contracts import ToolContractDecision, ToolContractGate, ToolScope
 from tools.definitions import get_tool_definition_map
+from tools.mcp_adapter import MCP_COMPATIBLE_PROTOCOL_VERSION, get_mcp_tool_view
 
 
 class RuntimeToolBridge:
@@ -77,7 +79,7 @@ class RuntimeToolBridge:
         )
 
     def _without_worker_only_tools(self, tool_names: list[str] | set[str] | tuple[str, ...]) -> set[str]:
-        # RAG is now a RetrievalWorker capability. Keeping the legacy facade out
+        # RAG is now a RetrievalWorker capability. Keeping the retrieval facade out
         # of the model-visible tool schema prevents bounded-agent retrieval loops.
         return {str(name) for name in list(tool_names or []) if str(name) != "search_knowledge"}
 
@@ -90,6 +92,8 @@ class RuntimeToolBridge:
     ):
         tool_name = str(execution.query_understanding.tool_name or "").strip()
         tool_input = dict(execution.tool_input or execution.query_understanding.tool_input or {"query": execution.message})
+        mcp_metadata = self._mcp_event_metadata(tool_name)
+        message_id = f"mcp-tool-message:{uuid.uuid4().hex}"
         contract_decision = self.evaluate_tool_contract(
             tool_name=tool_name,
             tool_input=tool_input,
@@ -115,6 +119,9 @@ class RuntimeToolBridge:
                 "answer_fallback_reason": "tool_contract_blocked",
                 "answer_leak_flags": [],
                 "contract": contract_decision.to_dict(),
+                "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
+                "message_id": message_id,
+                "mcp": mcp_metadata,
             }
             return
 
@@ -132,6 +139,9 @@ class RuntimeToolBridge:
                 "answer_source": "permission_guard",
                 "answer_fallback_reason": "tool_permission_denied",
                 "answer_leak_flags": [],
+                "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
+                "message_id": message_id,
+                "mcp": mcp_metadata,
             }
             return
 
@@ -144,6 +154,9 @@ class RuntimeToolBridge:
                 "answer_source": "tool_runtime",
                 "answer_fallback_reason": "tool_unavailable",
                 "answer_leak_flags": [],
+                "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
+                "message_id": message_id,
+                "mcp": mcp_metadata,
             }
             return
 
@@ -170,6 +183,9 @@ class RuntimeToolBridge:
             "tool": tool_name,
             "input": tool_input,
             "contract": contract_decision.to_dict(),
+            "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
+            "message_id": message_id,
+            "mcp": mcp_metadata,
             "structured_binding": (
                 execution.structured_binding.to_dict()
                 if getattr(execution, "structured_binding", None) is not None
@@ -236,7 +252,15 @@ class RuntimeToolBridge:
             else None
         )
         task_summary_ref = self._task_summary_ref_from_task(task)
-        yield {"type": "tool_end", "tool": tool_name, "output": tool_content, "structured_binding": binding_payload}
+        yield {
+            "type": "tool_end",
+            "tool": tool_name,
+            "output": tool_content,
+            "structured_binding": binding_payload,
+            "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
+            "message_id": message_id,
+            "mcp": mcp_metadata,
+        }
         yield {
             "type": "done",
             "content": visible_content,
@@ -257,6 +281,10 @@ class RuntimeToolBridge:
             "binding_owner_task_id": str(task.metadata.get("binding_owner_task_id", "") or task.task_id),
             "degraded_reason_typed": str(task.metadata.get("degraded_reason_typed", "") or ""),
             "execution_protocol": "direct_tool",
+            "tool_protocol": MCP_COMPATIBLE_PROTOCOL_VERSION,
+            "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
+            "message_id": message_id,
+            "mcp": mcp_metadata,
             "answer_channel": tool_decision.selected_channel,
             "answer_source": tool_decision.selected_source,
             "answer_fallback_reason": tool_decision.fallback_reason,
@@ -264,6 +292,20 @@ class RuntimeToolBridge:
             "contract": contract_decision.to_dict(),
             "task_summary_refs": [task_summary_ref.to_dict()] if task_summary_ref is not None else [],
         }
+
+    def _mcp_event_metadata(self, tool_name: str) -> dict[str, Any]:
+        view = get_mcp_tool_view(tool_name)
+        if view is None:
+            return {
+                "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
+                "server_name": "local-tools",
+                "tool_name": str(tool_name or "").strip(),
+                "schema_identity": "",
+                "runtime_visibility": "unknown",
+                "prompt_exposure_policy": "hidden",
+                "resource_exposure_policy": "none",
+            }
+        return view.to_event_metadata()
 
     def evaluate_tool_contract(
         self,

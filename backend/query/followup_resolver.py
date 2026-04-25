@@ -28,7 +28,7 @@ class QueryFollowupResolver:
 
         tasks = self.task_coordinator.list_tasks(session_id=session_id)
         if not tasks:
-            return FollowupResolution()
+            return self._resolve_session_binding(session_id=session_id, message=normalized)
 
         ordinal_targets = self._resolve_ordinal_tasks(normalized, tasks)
         if ordinal_targets:
@@ -325,6 +325,9 @@ class QueryFollowupResolver:
                     "binding_identity": committed_pdf.replace("\\", "/").lower(),
                     "binding_owner_task_id": str(payload.get("committed_pdf_owner_task_id", "") or "").strip(),
                     "task_kind": "pdf_followup_query",
+                    "object_handle_id": str(payload.get("active_object_handle_id", "") or "").strip(),
+                    "result_handle_id": str(payload.get("active_result_handle_id", "") or "").strip(),
+                    "subset_handle_id": str(payload.get("active_subset_handle_id", "") or "").strip(),
                 }
             )
         committed_dataset = str(payload.get("committed_dataset", "") or "").strip()
@@ -335,6 +338,9 @@ class QueryFollowupResolver:
                     "binding_identity": committed_dataset.replace("\\", "/").lower(),
                     "binding_owner_task_id": str(payload.get("committed_dataset_owner_task_id", "") or "").strip(),
                     "task_kind": "structured_followup_query",
+                    "object_handle_id": str(payload.get("active_object_handle_id", "") or "").strip(),
+                    "result_handle_id": str(payload.get("active_result_handle_id", "") or "").strip(),
+                    "subset_handle_id": str(payload.get("active_subset_handle_id", "") or "").strip(),
                 }
             )
         return candidates
@@ -347,11 +353,26 @@ class QueryFollowupResolver:
         resolved_task_ids = [binding_owner_task_id] if binding_owner_task_id else []
         task_getter = getattr(self.task_coordinator, "get_task", None)
         owner_task = task_getter(binding_owner_task_id) if binding_owner_task_id and callable(task_getter) else None
+        handle_payload = {
+            "object_handle_id": str(candidate.get("object_handle_id", "") or "").strip(),
+            "result_handle_id": str(candidate.get("result_handle_id", "") or "").strip(),
+            "subset_handle_id": str(candidate.get("subset_handle_id", "") or "").strip(),
+        }
+        handle_payload["object_handle_ids"] = [handle_payload["object_handle_id"]] if handle_payload["object_handle_id"] else []
+        handle_payload["result_handle_ids"] = [handle_payload["result_handle_id"]] if handle_payload["result_handle_id"] else []
+        if handle_payload["subset_handle_id"]:
+            handle_payload["resolution_scope"] = "subset"
+        elif handle_payload["result_handle_id"]:
+            handle_payload["resolution_scope"] = "result"
+        elif handle_payload["object_handle_id"]:
+            handle_payload["resolution_scope"] = "object"
+        else:
+            handle_payload["resolution_scope"] = "binding"
         return FollowupResolution(
             mode="binding_ref",
             target_kind="binding",
             resolved_target_kind="binding",
-            **self._task_resolution_payload(owner_task),
+            **{**self._task_resolution_payload(owner_task), **{key: value for key, value in handle_payload.items() if value}},
             task_id=binding_owner_task_id,
             resolved_task_id=binding_owner_task_id,
             resolved_task_kind=task_kind,
