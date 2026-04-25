@@ -61,6 +61,7 @@ class TaskResultRef:
     result_handle_ids: list[str] = field(default_factory=list)
     subset_handle_id: str = ""
     subset_labels: list[str] = field(default_factory=list)
+    subset_filter_column: str = ""
     subset_hint_query: str = ""
     created_at: float = field(default_factory=time)
 

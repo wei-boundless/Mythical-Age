@@ -71,7 +71,7 @@ class UnderstandingReconciler:
                 preserve_previous_flow=True,
                 restore_goal_hint=previous_state.active_goal,
                 restore_flow_hint=previous_state.flow_state.flow_type,
-                needs_clarification=confidence < 0.4,
+                needs_clarification=confidence < 0.45,
                 reason="low_confidence_understanding_on_existing_flow",
                 notes=[
                     "Understanding confidence is low; keep the prior flow as a restore hint while preserving the current-turn goal.",

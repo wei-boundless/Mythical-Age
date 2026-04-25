@@ -9,6 +9,10 @@ from typing import Any
 
 from agents import EXPLORER_AGENT, WORKER_AGENT
 from query.binding_models import StructuredDatasetBinding
+from structured_data.subset_selection import (
+    extract_structured_subset_selection,
+    subset_hint_query as build_subset_hint_query,
+)
 from tasks.context_models import TaskBindings, TaskConstraints, TaskContextRef, TaskResultRef, TaskSummary
 from tasks.models import TaskRecord
 
@@ -377,52 +381,53 @@ class TaskCoordinator:
             handles.append(_stable_handle_id("artifact:table_candidate", active_table))
         return handles
 
-    def _extract_subset_labels(self, query: str, content: str, context_ref: TaskContextRef | None) -> list[str]:
+    def _is_structured_task_context(self, context_ref: TaskContextRef | None) -> bool:
         if context_ref is None:
-            return []
-        task_kind = str(context_ref.task_kind or "")
-        if task_kind not in {"structured_data", "dataset_query", "table_query"}:
-            return []
-        if context_ref.constraints.top_n is None and "前 " not in content and "前 " not in query:
-            return []
-        lines = [line.rstrip() for line in str(content or "").splitlines()]
-        start_index = -1
-        for idx, line in enumerate(lines):
-            if any(marker in line for marker in ("前 ", "前", "结果（前", "前 5 条记录", "前 10 条记录", "前 5 项", "前 10 项")):
-                start_index = idx + 1
-                break
-        if start_index < 0:
-            return []
-        data_lines = [line.strip() for line in lines[start_index:] if line.strip()]
-        if len(data_lines) < 2:
-            return []
-        labels: list[str] = []
-        for raw in data_lines[1:]:
-            line = raw.strip()
-            if not line or line.startswith("数据源：") or line.startswith("筛选条件："):
-                continue
-            parts = re.split(r"\s+", line)
-            if not parts:
-                continue
-            if parts[0].isdigit() and len(parts) >= 2:
-                label = parts[1]
-            else:
-                label = parts[0]
-            label = str(label or "").strip()
-            if len(label) >= 2 and label not in labels:
-                labels.append(label)
-        return labels[:20]
+            return False
+        if str(context_ref.bindings.active_dataset or "").strip():
+            return True
+        if str(context_ref.bindings.source_kind or "").strip() == "dataset":
+            return True
+        return str(context_ref.task_kind or "") in {
+            "structured_data",
+            "dataset_query",
+            "table_query",
+            "structured_followup_query",
+        }
+
+    def _is_pdf_task_context(self, context_ref: TaskContextRef | None) -> bool:
+        if context_ref is None:
+            return False
+        if str(context_ref.bindings.active_pdf or "").strip():
+            return True
+        if str(context_ref.bindings.source_kind or "").strip() == "pdf":
+            return True
+        return str(context_ref.task_kind or "") in {
+            "pdf",
+            "pdf_query",
+            "pdf_followup_query",
+            "document_page",
+            "document_section",
+        }
+
+    def _extract_subset_selection(self, query: str, content: str, context_ref: TaskContextRef | None) -> tuple[list[str], str]:
+        if not self._is_structured_task_context(context_ref):
+            return [], ""
+        if context_ref.constraints.top_n is None and "前" not in content and "前" not in query:
+            return [], ""
+        selection = extract_structured_subset_selection(content)
+        return list(selection.labels), str(selection.filter_column or "")
 
     def _subset_hint_query(self, context_ref: TaskContextRef | None, labels: list[str]) -> str:
         if context_ref is None or not labels:
             return ""
         if context_ref.constraints.group_by:
             subject = "以下对象"
-        elif str(context_ref.task_kind or "") in {"structured_data", "dataset_query", "table_query"}:
+        elif self._is_structured_task_context(context_ref):
             subject = "以下记录"
         else:
             subject = "以下对象"
-        return f"仅基于{subject}：{'、'.join(labels)}。"
+        return build_subset_hint_query(labels, subject=subject)
 
     def _attach_protocol_handles(
         self,
@@ -434,6 +439,7 @@ class TaskCoordinator:
         primary_result_handle_id: str = "",
         subset_handle_id: str = "",
         subset_labels: list[str] | None = None,
+        subset_filter_column: str = "",
         subset_hint_query: str = "",
         binding_owner_task_id: str = "",
         degraded_reason_typed: str = "",
@@ -445,14 +451,16 @@ class TaskCoordinator:
         inferred_result_ids = list(result_handle_ids or [])
         if not inferred_result_ids and str(content or "").strip():
             base_kind = "answer"
-            if context_ref.task_kind in {"structured_data", "dataset_query", "table_query"}:
+            if self._is_structured_task_context(context_ref):
                 base_kind = "structured_answer"
-            elif context_ref.task_kind in {"pdf", "pdf_query", "document_page", "document_section"}:
+            elif self._is_pdf_task_context(context_ref):
                 base_kind = "pdf_answer"
             inferred_result_ids.append(f"result:{base_kind}:{task.task_id}:primary")
         if not primary_result_handle_id and inferred_result_ids:
             primary_result_handle_id = inferred_result_ids[0]
-        labels = list(subset_labels or self._extract_subset_labels(task.query, content, context_ref))
+        inferred_labels, inferred_filter_column = self._extract_subset_selection(task.query, content, context_ref)
+        labels = list(subset_labels or inferred_labels)
+        filter_column = str(subset_filter_column or inferred_filter_column or "").strip()
         if not subset_handle_id and labels:
             subset_handle_id = f"subset:selection:{task.task_id}:primary"
         if not subset_hint_query and labels:
@@ -477,6 +485,7 @@ class TaskCoordinator:
             task.result_ref.result_handle_ids = list(inferred_result_ids)
             task.result_ref.subset_handle_id = subset_handle_id
             task.result_ref.subset_labels = labels
+            task.result_ref.subset_filter_column = filter_column
             task.result_ref.subset_hint_query = subset_hint_query
 
     def create_completed_execution_task(
@@ -497,6 +506,7 @@ class TaskCoordinator:
         primary_result_handle_id: str = "",
         subset_handle_id: str = "",
         subset_labels: list[str] | None = None,
+        subset_filter_column: str = "",
         subset_hint_query: str = "",
         binding_owner_task_id: str = "",
         degraded_reason_typed: str = "",
@@ -566,6 +576,7 @@ class TaskCoordinator:
             primary_result_handle_id=primary_result_handle_id,
             subset_handle_id=subset_handle_id,
             subset_labels=subset_labels,
+            subset_filter_column=subset_filter_column,
             subset_hint_query=subset_hint_query,
             binding_owner_task_id=binding_owner_task_id,
             degraded_reason_typed=degraded_reason_typed,
@@ -791,6 +802,7 @@ class TaskCoordinator:
             task.add_event("tool_task_error", message=str(exc))
             raise
         visible_content = render_content(raw_result) if render_content is not None else str(raw_result)
+        protocol_content = str(raw_result) if isinstance(raw_result, str) and str(raw_result).strip() else visible_content
         task.mark_completed(visible_content)
         task.result_ref = self._persist_result_ref(
             session_id=session_id,
@@ -798,7 +810,7 @@ class TaskCoordinator:
             content=visible_content,
         )
         task.summary = self._build_task_summary(task.query, visible_content, task.context_ref)
-        self._attach_protocol_handles(task=task, content=visible_content)
+        self._attach_protocol_handles(task=task, content=protocol_content)
         if task.context_ref is not None:
             task.context_ref.status = "completed"
             task.context_ref.summary = task.summary.response

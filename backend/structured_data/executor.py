@@ -117,9 +117,16 @@ class StructuredQueryExecutor:
             if condition.operator == "~":
                 clauses.append(f"LOWER(CAST({column} AS TEXT)) LIKE LOWER(?)")
                 params.append(f"%{condition.value}%")
+            elif condition.operator == "in":
+                values = [str(item) for item in list(condition.value or []) if str(item).strip()]
+                if not values:
+                    continue
+                placeholders = ", ".join("?" for _ in values)
+                clauses.append(f"CAST({column} AS TEXT) IN ({placeholders})")
+                params.extend(values)
             else:
                 clauses.append(f"CAST({column} AS TEXT) = ?")
-                params.append(condition.value)
+                params.append(str(condition.value))
         return f"WHERE {' AND '.join(clauses)} ", params
 
     def _metric_expression(self, query_plan: StructuredQueryPlan) -> str:

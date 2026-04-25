@@ -1462,6 +1462,21 @@ class QueryRuntime:
             active_binding_identity=self._binding_identity_from_constraints(
                 self._merge_constraints_from_results(constraints, [result_payload])
             ),
+            active_object_handle_id=(
+                str(getattr(task.context_ref, "primary_object_handle_id", "") or "")
+                if getattr(task, "context_ref", None) is not None
+                else ""
+            ),
+            active_result_handle_id=(
+                str(getattr(task.context_ref, "primary_result_handle_id", "") or "")
+                if getattr(task, "context_ref", None) is not None
+                else ""
+            ),
+            active_subset_handle_id=(
+                str(getattr(task.context_ref, "active_subset_handle_id", "") or "")
+                if getattr(task, "context_ref", None) is not None
+                else ""
+            ),
             followup_mode="task_ref",
             followup_resolution_source="task_record",
             followup_target_task_id=task.task_id,
@@ -1576,6 +1591,7 @@ class QueryRuntime:
                 or ""
             ),
             subset_labels=list(presentation_hints.get("subset_labels", []) or []),
+            subset_filter_column=str(presentation_hints.get("subset_filter_column", "") or ""),
             subset_hint_query=str(presentation_hints.get("subset_hint_query", "") or ""),
             binding_owner_task_id=str(event.get("binding_owner_task_id", "") or ""),
             degraded_reason_typed=degraded_reason_typed,

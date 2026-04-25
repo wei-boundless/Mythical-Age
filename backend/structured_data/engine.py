@@ -40,6 +40,11 @@ class StructuredDataEngine:
     def _apply_filters(self, df: pd.DataFrame, filters: list[str]) -> pd.DataFrame:
         filtered = df.copy()
         for rule in filters:
+            if " in [" in rule:
+                column, raw_values = rule.split(" in [", 1)
+                values = [item.strip() for item in raw_values.rstrip("] ").split(",") if item.strip()]
+                if column in filtered.columns and values:
+                    filtered = filtered[filtered[column].astype(str).isin(values)]
             if "=" in rule:
                 column, value = rule.split("=", 1)
                 if column in filtered.columns:

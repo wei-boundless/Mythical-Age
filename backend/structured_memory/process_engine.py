@@ -730,14 +730,23 @@ class ProcessStateEngine:
         previous_state: DialogueState,
         file_hints: list[str],
     ) -> str:
+        active_pdf, active_dataset = self._extract_slots_from_active_goal(active_goal)
         lowered = normalize_storage_text(active_goal).lower()
-        if any(item.lower().endswith(".pdf") for item in file_hints) or understanding.modality == "pdf":
+        if active_dataset:
+            return "structured_data_flow"
+        if active_pdf:
             return "pdf_analysis_flow"
-        if understanding.modality == "table" or any(
+        if understanding.modality == "table":
+            return "structured_data_flow"
+        if understanding.modality == "pdf":
+            return "pdf_analysis_flow"
+        if any(
             item.lower().endswith((".csv", ".xlsx", ".xls", ".parquet"))
             for item in file_hints
         ):
             return "structured_data_flow"
+        if any(item.lower().endswith(".pdf") for item in file_hints):
+            return "pdf_analysis_flow"
         if understanding.modality in {"realtime", "web"}:
             return "external_lookup_flow"
         if self._looks_like_coding_request(active_goal):

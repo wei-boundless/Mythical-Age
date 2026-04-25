@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 class StructuredFilter:
     column: str
     operator: str
-    value: str
+    value: str | list[str]
 
     @property
     def legacy_rule(self) -> str:
+        if self.operator == "in" and isinstance(self.value, list):
+            return f"{self.column} in [{', '.join(str(item) for item in self.value)}]"
         separator = "=" if self.operator == "=" else "~"
         return f"{self.column}{separator}{self.value}"
 

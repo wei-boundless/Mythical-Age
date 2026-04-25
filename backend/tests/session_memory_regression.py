@@ -907,6 +907,41 @@ def test_message_pipeline_does_not_carry_forward_stale_pdf_slot() -> None:
         )
 
 
+def test_message_pipeline_switches_flow_to_dataset_when_goal_rebinds_from_pdf() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionMemoryManager(Path(tmp))
+        summary = manager.update_from_messages(
+            [
+                Message(role="user", content="请分析 report.pdf 第3页的结论"),
+                Message(role="assistant", content="结论：第3页主要讲供应链风险。"),
+                Message(role="user", content="现在换成 inventory.xlsx，按仓库汇总前五。"),
+            ]
+        )
+
+        state = manager.load_state()
+
+        _assert(
+            state.flow_state.flow_type == "structured_data_flow",
+            "current dataset goal should take ownership of flow type instead of being overridden by historical pdf file hints",
+        )
+        _assert(
+            state.context_slots.active_dataset == "inventory.xlsx",
+            "dataset switch should materialize the current dataset slot",
+        )
+        _assert(
+            not state.context_slots.active_pdf,
+            "dataset switch should not keep the previous pdf as an active slot",
+        )
+        _assert(
+            "cross_flow_slot_contamination" not in state.risk_flags,
+            "once the current goal clearly rebinding to dataset is recognized, cross-flow contamination should not survive as the steady-state outcome",
+        )
+        _assert(
+            "pdf_analysis_flow" not in summary,
+            "rendered summary should not continue exposing the retired pdf flow after rebinding to a dataset goal",
+        )
+
+
 def test_low_confidence_flow_switch_stays_on_previous_flow_until_clarified() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         manager = SessionMemoryManager(Path(tmp))

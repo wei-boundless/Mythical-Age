@@ -248,6 +248,12 @@ class RuntimeToolBridge:
             "structured_binding": binding_payload,
             "object_handle_ids": list(task.metadata.get("object_handle_ids", []) or []),
             "result_handle_ids": list(task.metadata.get("result_handle_ids", []) or []),
+            "presentation_hints": {
+                "subset_handle_id": str(getattr(task.result_ref, "subset_handle_id", "") or ""),
+                "subset_labels": list(getattr(task.result_ref, "subset_labels", []) or []),
+                "subset_filter_column": str(getattr(task.result_ref, "subset_filter_column", "") or ""),
+                "subset_hint_query": str(getattr(task.result_ref, "subset_hint_query", "") or ""),
+            },
             "binding_owner_task_id": str(task.metadata.get("binding_owner_task_id", "") or task.task_id),
             "degraded_reason_typed": str(task.metadata.get("degraded_reason_typed", "") or ""),
             "execution_protocol": "direct_tool",

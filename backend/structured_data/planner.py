@@ -54,6 +54,10 @@ class StructuredDataPlanner:
         diagnostic = self._is_diagnostic_query(lowered)
         filters = self._build_filters(query, df, diagnostic=diagnostic)
         structured_filters = self._build_structured_filters(filters)
+        subset_filters = self._build_subset_filters_from_hints(df, semantic_hints)
+        if subset_filters:
+            structured_filters.extend(subset_filters)
+            filters.extend(item.legacy_rule for item in subset_filters)
         metric = self._detect_metric_column(
             query,
             df,
@@ -298,6 +302,27 @@ class StructuredDataPlanner:
                 column, value = rule.split("~", 1)
                 parsed.append(StructuredFilter(column=column, operator="~", value=value))
         return parsed
+
+    def _build_subset_filters_from_hints(
+        self,
+        df: pd.DataFrame,
+        semantic_hints: dict[str, object],
+    ) -> list[StructuredFilter]:
+        column = str(semantic_hints.get("subset_filter_column", "") or "").strip()
+        if not column or column not in df.columns:
+            return []
+        values = [
+            str(item or "").strip()
+            for item in list(semantic_hints.get("subset_allowed_values", []) or [])
+            if str(item or "").strip()
+        ]
+        if not values:
+            return []
+        unique_values: list[str] = []
+        for value in values:
+            if value not in unique_values:
+                unique_values.append(value)
+        return [StructuredFilter(column=column, operator="in", value=unique_values)]
 
     def _infer_limit(self, query: str, default_limit: int) -> int:
         lowered = (query or "").lower()

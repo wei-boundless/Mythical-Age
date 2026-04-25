@@ -13,6 +13,7 @@ from pdf_agent import PDFCanonicalEvidence, PDFCanonicalResult
 from query import QueryRuntime
 from query.binding_models import StructuredDatasetBinding
 from query.followup_models import FollowupResolution
+from query.runtime_followup import RuntimeFollowupCoordinator
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryExecutionPlan, QueryPlan
 from query.worker_models import CanonicalResult, WorkerRequest, WorkerResult
@@ -612,6 +613,114 @@ def test_direct_tool_route_normalizes_final_content() -> None:
     assert events[-1]["main_context"]["active_binding_identity"].endswith("inventory.xlsx")
     assert events[-1]["task_summary_refs"]
     assert str(events[-1]["task_summary_refs"][0]["task_id"]).startswith("tool-session-tool-structured_data_analysis-")
+
+
+def test_direct_tool_route_materializes_structured_subset_protocol() -> None:
+    tool_output = (
+        "数据源：employees.xlsx\n"
+        "筛选条件：无\n"
+        "查询模式：记录排序\n"
+        "排序字段：薪水\n\n"
+        "前 5 条记录：\n"
+        "姓名    薪水\n"
+        "罗凯    34900\n"
+        "唐琳    34800\n"
+        "许晨    34700\n"
+        "刘洋    34600\n"
+        "张敏    34500"
+    )
+    tool = SimpleNamespace(invoke=lambda _tool_input: tool_output)
+    plan = QueryPlan(
+        session_id="tool-subset-session",
+        message="找出薪资前五的人。",
+        history=[],
+        subqueries=["找出薪资前五的人。"],
+        memory_intent=MemoryIntent(should_skip_rag=True),
+        query_understanding=QueryUnderstanding(
+            intent="tool_query",
+            route="tool",
+            modality="table",
+            tool_name="structured_data_analysis",
+            task_kind="structured_followup_query",
+            should_skip_rag=True,
+        ),
+        active_skill=None,
+        tool_input={"query": "找出薪资前五的人。"},
+        structured_binding=StructuredDatasetBinding(
+            dataset_path="knowledge/E-commerce Data/employees.xlsx",
+            target_object="employees",
+            source="test",
+            confidence=1.0,
+        ),
+        execution_kind="direct_tool",
+    )
+    events, _retrieval, _model_runtime, _memory_facade = asyncio.run(
+        _collect_events(
+            plan,
+            rag_mode=False,
+            direct_tools={"structured_data_analysis": tool},
+        )
+    )
+
+    done = next(event for event in reversed(events) if event.get("type") == "done")
+    result_ref = dict(done["result_ref"])
+    main_context = dict(done["main_context"])
+
+    assert result_ref["subset_handle_id"].startswith("subset:selection:")
+    assert result_ref["subset_filter_column"] == "name"
+    assert result_ref["subset_labels"] == ["罗凯", "唐琳", "许晨", "刘洋", "张敏"]
+    assert "姓名" not in result_ref["subset_labels"]
+    assert main_context["active_subset_handle_id"] == result_ref["subset_handle_id"]
+
+
+def test_binding_followup_from_direct_tool_owner_passes_subset_constraints_structurally() -> None:
+    coordinator = TaskCoordinator()
+    top_n_output = (
+        "数据源：employees.xlsx\n"
+        "筛选条件：无\n"
+        "查询模式：记录排序\n"
+        "排序字段：薪水\n\n"
+        "前 5 条记录：\n"
+        "姓名    薪水\n"
+        "罗凯    34900\n"
+        "唐琳    34800\n"
+        "许晨    34700\n"
+        "刘洋    34600\n"
+        "张敏    34500"
+    )
+
+    async def _seed() -> None:
+        await coordinator.run_tool_task(
+            "session-1",
+            "structured_data_analysis",
+            lambda: asyncio.sleep(0, result=top_n_output),
+            query="找出薪资前五的人。",
+            tool_input={
+                "query": "找出薪资前五的人。",
+                "path": "knowledge/E-commerce Data/employees.xlsx",
+            },
+            task_kind="structured_followup_query",
+        )
+
+    asyncio.run(_seed())
+    owner_task = coordinator.list_tasks(session_id="session-1")[0]
+    followup = RuntimeFollowupCoordinator(task_coordinator=coordinator)
+
+    execution = followup.binding_execution_from_owner(
+        session_id="session-1",
+        message="按部门汇总这些高薪员工。",
+        history=[],
+        owner_task=owner_task,
+    )
+
+    assert execution is not None
+    assert execution.worker_plan is not None
+    request = execution.worker_plan.request
+    assert execution.target_handle_kind == "subset"
+    assert request.query == "按部门汇总这些高薪员工。"
+    assert request.constraints["subset_filter_column"] == "name"
+    assert request.constraints["subset_labels"] == ["罗凯", "唐琳", "许晨", "刘洋", "张敏"]
+    assert request.bindings["active_dataset"].endswith("employees.xlsx")
 
 
 def test_runtime_uses_session_committed_dataset_binding_for_tool_promotion() -> None:

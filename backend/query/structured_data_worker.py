@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import re
 from typing import Any
 
 from query.evidence_models import EvidenceArtifact, EvidenceEnvelope, EvidenceItem, SourceObjectRef
 from query.worker_models import CanonicalResult, WorkerRequest, WorkerResult
+from structured_data.subset_selection import extract_structured_subset_selection, subset_hint_query
 
 
 class StructuredDataWorker:
@@ -52,13 +52,15 @@ class StructuredDataWorker:
         tool_input = {
             "query": str(request.query or "").strip(),
             "path": dataset_path,
+            "semantic_hints": _semantic_hints_from_request(request),
         }
         raw_output = await asyncio.to_thread(tool.invoke, tool_input)
         answer = _visible_answer(raw_output)
         ok = bool(answer) and not answer.startswith("结构化分析失败")
         source_object_id = _stable_id("source:dataset", dataset_path)
         result_handle_ids = [f"result:structured_answer:{source_object_id.split(':')[-1]}:primary"] if dataset_path else []
-        subset_labels = _extract_subset_labels(answer)
+        subset_selection = extract_structured_subset_selection(answer)
+        subset_labels = list(subset_selection.labels)
         subset_handle_id = f"subset:selection:{source_object_id.split(':')[-1]}:primary" if subset_labels else ""
         return WorkerResult(
             worker_name="structured_data",
@@ -87,7 +89,8 @@ class StructuredDataWorker:
                 presentation_hints={
                     "subset_handle_id": subset_handle_id,
                     "subset_labels": subset_labels,
-                    "subset_hint_query": _subset_hint_query(subset_labels),
+                    "subset_filter_column": str(subset_selection.filter_column or ""),
+                    "subset_hint_query": subset_hint_query(subset_labels),
                 },
             ),
             emitted_object_handles=[
@@ -114,6 +117,7 @@ class StructuredDataWorker:
                         "subset_kind": "selection",
                         "result_handle_id": result_handle_ids[0] if result_handle_ids else "",
                         "labels": subset_labels,
+                        "filter_column": str(subset_selection.filter_column or ""),
                     }
                 ]
                 if subset_handle_id
@@ -196,38 +200,27 @@ def _stable_id(prefix: str, value: str) -> str:
     return f"{prefix}:{digest}"
 
 
-def _extract_subset_labels(answer: str) -> list[str]:
-    lines = [line.rstrip() for line in str(answer or "").splitlines()]
-    start_index = -1
-    for idx, line in enumerate(lines):
-        if any(marker in line for marker in ("前 ", "前", "结果（前", "前 5 条记录", "前 10 条记录", "前 5 项", "前 10 项")):
-            start_index = idx + 1
-            break
-    if start_index < 0:
-        return []
-    candidates = [line.strip() for line in lines[start_index:] if line.strip()]
-    if len(candidates) < 2:
-        return []
-    labels: list[str] = []
-    for raw in candidates[1:]:
-        parts = re.split(r"\s+", raw)
-        if not parts:
-            continue
-        label = parts[1] if parts[0].isdigit() and len(parts) >= 2 else parts[0]
-        label = str(label or "").strip()
-        if len(label) >= 2 and label not in labels:
-            labels.append(label)
-    return labels[:20]
-
-
-def _subset_hint_query(labels: list[str]) -> str:
-    if not labels:
-        return ""
-    return f"仅基于以下对象：{'、'.join(labels)}。"
-
-
 def _typed_structured_degraded_reason(answer: str) -> str:
     normalized = str(answer or "")
     if "没有匹配记录" in normalized:
         return "empty_filtered_result"
     return "evidence_insufficient_for_synthesis"
+
+
+def _semantic_hints_from_request(request: WorkerRequest) -> dict[str, Any]:
+    constraints = dict(request.constraints or {})
+    semantic_hints = dict(constraints.get("semantic_hints") or {})
+    for key in ("analysis_type_hint", "state_kind", "group_hint", "metric_hint", "query_mode_hint"):
+        value = constraints.get(key)
+        if value not in ("", None) and key not in semantic_hints:
+            semantic_hints[key] = value
+    subset_filter_column = str(constraints.get("subset_filter_column", "") or "").strip()
+    subset_labels = [
+        str(item or "").strip()
+        for item in list(constraints.get("subset_labels", []) or [])
+        if str(item or "").strip()
+    ]
+    if subset_filter_column and subset_labels:
+        semantic_hints["subset_filter_column"] = subset_filter_column
+        semantic_hints["subset_allowed_values"] = subset_labels
+    return semantic_hints

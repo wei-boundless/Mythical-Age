@@ -260,7 +260,8 @@ class RuntimeFollowupCoordinator:
                 arbitration_reason=arbitration_reason,
             )
         elif bindings.active_dataset:
-            followup_query = self._dataset_followup_query(message, owner_task)
+            subset_constraints = self._dataset_subset_constraints(owner_task)
+            followup_query = message if subset_constraints else self._dataset_followup_query(message, owner_task)
             structured_binding = StructuredDatasetBinding(
                 dataset_path=bindings.active_dataset,
                 target_object=bindings.active_entity,
@@ -296,6 +297,7 @@ class RuntimeFollowupCoordinator:
                         "group_by": context_ref.constraints.group_by,
                         "top_n": context_ref.constraints.top_n,
                         "active_table": str(context_ref.constraints.active_table or ""),
+                        **subset_constraints,
                     }.items()
                     if value not in ("", None)
                 },
@@ -631,3 +633,18 @@ class RuntimeFollowupCoordinator:
         if not subset_hint_query:
             return message
         return f"{subset_hint_query} {message}".strip()
+
+    def _dataset_subset_constraints(self, owner_task) -> dict[str, object]:
+        result_ref = getattr(owner_task, "result_ref", None)
+        subset_filter_column = str(getattr(result_ref, "subset_filter_column", "") or "").strip()
+        subset_labels = [
+            str(item or "").strip()
+            for item in list(getattr(result_ref, "subset_labels", []) or [])
+            if str(item or "").strip()
+        ]
+        if not subset_filter_column or not subset_labels:
+            return {}
+        return {
+            "subset_filter_column": subset_filter_column,
+            "subset_labels": subset_labels,
+        }
