@@ -21,6 +21,12 @@ class WorkerRequest:
     constraints: dict[str, Any] = field(default_factory=dict)
     artifact_refs: list[str] = field(default_factory=list)
     evidence_policy: dict[str, Any] = field(default_factory=dict)
+    target_handle_kind: str = "none"
+    target_handle_id: str = ""
+    upstream_object_handle_ids: list[str] = field(default_factory=list)
+    upstream_result_handle_ids: list[str] = field(default_factory=list)
+    owner_task_id: str = ""
+    arbitration_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -37,6 +43,11 @@ class CanonicalResult:
     projection_policy: str = "do_not_persist"
     degraded_reason: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
+    object_handle_ids: list[str] = field(default_factory=list)
+    result_handle_ids: list[str] = field(default_factory=list)
+    primary_result_handle_id: str = ""
+    degraded_reason_typed: str = ""
+    presentation_hints: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -51,6 +62,9 @@ class WorkerResult:
     canonical_result: CanonicalResult | None = None
     binding_candidates: list[BindingCandidate] = field(default_factory=list)
     diagnostics: dict[str, Any] = field(default_factory=dict)
+    emitted_object_handles: list[dict[str, Any]] = field(default_factory=list)
+    emitted_result_handles: list[dict[str, Any]] = field(default_factory=list)
+    binding_owner_task_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +75,9 @@ class WorkerResult:
             "canonical_result": self.canonical_result.to_dict() if self.canonical_result is not None else None,
             "binding_candidates": [item.to_dict() for item in self.binding_candidates],
             "diagnostics": dict(self.diagnostics),
+            "emitted_object_handles": [dict(item) for item in self.emitted_object_handles],
+            "emitted_result_handles": [dict(item) for item in self.emitted_result_handles],
+            "binding_owner_task_id": self.binding_owner_task_id,
         }
 
 

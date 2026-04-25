@@ -108,6 +108,11 @@ class EvidenceOrchestrator:
             "worker": worker_route,
             "result": canonical.to_dict(),
             "binding_candidates": [item.to_dict() for item in worker_result.binding_candidates],
+            "object_handle_ids": list(canonical.object_handle_ids or []),
+            "result_handle_ids": list(canonical.result_handle_ids or []),
+            "binding_owner_task_id": str(getattr(worker_result, "binding_owner_task_id", "") or ""),
+            "degraded_reason_typed": str(canonical.degraded_reason_typed or canonical.degraded_reason or ""),
+            "presentation_hints": dict(canonical.presentation_hints or {}),
         }
         yield self._done_event(
             canonical=canonical,
@@ -139,6 +144,9 @@ class EvidenceOrchestrator:
                     artifact_refs=_artifact_refs(worker_result),
                     projection_policy="persist_canonical",
                     diagnostics={"answer_source": "rag_answer_finalization"},
+                    object_handle_ids=_source_object_ids(worker_result),
+                    result_handle_ids=[f"result:rag_answer:{_slug(query)}:primary"],
+                    primary_result_handle_id=f"result:rag_answer:{_slug(query)}:primary",
                 )
 
         candidate_answer = _candidate_clarification_answer(worker_result)
@@ -152,6 +160,8 @@ class EvidenceOrchestrator:
                 projection_policy="do_not_persist",
                 degraded_reason="candidate_needs_binding",
                 diagnostics={"answer_source": "evidence_candidate_clarification"},
+                object_handle_ids=_source_object_ids(worker_result),
+                degraded_reason_typed="missing_object_handle",
             )
 
         return CanonicalResult(
@@ -163,6 +173,8 @@ class EvidenceOrchestrator:
             projection_policy="do_not_persist",
             degraded_reason="rag_missing_answer",
             diagnostics={"answer_source": "fallback_policy"},
+            object_handle_ids=_source_object_ids(worker_result),
+            degraded_reason_typed="evidence_insufficient_for_synthesis",
         )
 
     def _done_event(
@@ -187,6 +199,12 @@ class EvidenceOrchestrator:
             "content": canonical.answer,
             "main_context": projection.main_context.to_dict(),
             "task_summary_refs": [item.to_dict() for item in projection.task_summary_refs],
+            "object_handle_ids": list(projection.object_handle_ids),
+            "result_handle_ids": list(projection.result_handle_ids),
+            "binding_owner_task_id": projection.binding_owner_task_id,
+            "degraded_reason_typed": projection.degraded_reason_typed,
+            "presentation_hints": dict(canonical.presentation_hints or {}),
+            "execution_protocol": "worker",
             "answer_channel": "answer_candidate" if canonical.ok else "fallback_answer",
             "answer_source": answer_source,
             "answer_canonical_state": "stable_answer" if canonical.ok else "missing_answer",
@@ -242,3 +260,16 @@ def _evidence_refs(worker_result: WorkerResult) -> list[str]:
 
 def _artifact_refs(worker_result: WorkerResult) -> list[str]:
     return _evidence_refs(worker_result)
+
+
+def _source_object_ids(worker_result: WorkerResult) -> list[str]:
+    envelope = worker_result.evidence_envelope
+    if envelope is None:
+        return []
+    return [item.object_id for item in envelope.source_objects if item.object_id]
+
+
+def _slug(value: str) -> str:
+    compact = "".join(ch.lower() if ch.isalnum() else "-" for ch in str(value or "")).strip("-")
+    compact = "-".join(item for item in compact.split("-") if item)
+    return compact[:48] or "main"

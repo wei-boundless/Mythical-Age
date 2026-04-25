@@ -68,6 +68,11 @@ class QueryExecutionPlan:
     worker_plan: WorkerExecutionPlan | None = None
     evidence_envelope: EvidenceEnvelope | None = None
     artifact_graph_delta: dict[str, Any] | None = None
+    target_handle_kind: str = "none"
+    target_handle_id: str = ""
+    upstream_object_handle_ids: list[str] = field(default_factory=list)
+    upstream_result_handle_ids: list[str] = field(default_factory=list)
+    arbitration_reason: str = ""
     ephemeral_system_messages: list[str] = field(default_factory=list)
     subtask_id: str = ""
     subtask_goal: str = ""
@@ -146,6 +151,11 @@ class QueryPlan:
                 worker_plan=getattr(self, "worker_plan", None),
                 evidence_envelope=getattr(self, "evidence_envelope", None),
                 artifact_graph_delta=getattr(self, "artifact_graph_delta", None),
+                target_handle_kind=getattr(self, "target_handle_kind", "none"),
+                target_handle_id=getattr(self, "target_handle_id", ""),
+                upstream_object_handle_ids=list(getattr(self, "upstream_object_handle_ids", []) or []),
+                upstream_result_handle_ids=list(getattr(self, "upstream_result_handle_ids", []) or []),
+                arbitration_reason=str(getattr(self, "arbitration_reason", "") or ""),
                 subtask_id=(self.subtasks[0].subtask_id if self.subtasks else "main"),
                 subtask_goal=(self.subtasks[0].goal if self.subtasks else self.message),
                 subtask_title=(self.subtasks[0].user_visible_title if self.subtasks else self.message),

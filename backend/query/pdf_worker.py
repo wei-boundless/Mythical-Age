@@ -40,6 +40,7 @@ class PDFWorker:
                     projection_policy="do_not_persist",
                     degraded_reason="missing_pdf_binding",
                     diagnostics={"answer_source": "pdf_worker"},
+                    degraded_reason_typed="missing_object_handle",
                 ),
             )
 
@@ -56,6 +57,7 @@ class PDFWorker:
                     projection_policy="do_not_persist",
                     degraded_reason=str(exc) or "pdf_path_resolution_failed",
                     diagnostics={"answer_source": "pdf_worker"},
+                    degraded_reason_typed="missing_object_handle",
                 ),
             )
 
@@ -81,12 +83,22 @@ class PDFWorker:
                 active_pdf=relative_path,
             ),
             canonical_result=self._to_worker_canonical(canonical, active_pdf=relative_path),
+            emitted_object_handles=[
+                {
+                    "handle_id": _stable_id("source:pdf", relative_path),
+                    "handle_kind": "source_object",
+                    "object_type": "pdf",
+                    "uri": relative_path,
+                }
+            ],
+            emitted_result_handles=_result_handles_from_canonical(canonical, active_pdf=relative_path),
             diagnostics={
                 "active_pdf": relative_path,
                 "requested_mode": canonical.requested_mode,
                 "effective_mode": canonical.effective_mode,
                 "pages": list(canonical.pages),
             },
+            binding_owner_task_id=str(request.owner_task_id or "").strip(),
         )
 
     def _to_evidence_envelope(
@@ -239,6 +251,10 @@ class PDFWorker:
                 "effective_mode": canonical.effective_mode,
                 "metadata": dict(canonical.metadata or {}),
             },
+            object_handle_ids=[_stable_id("source:pdf", active_pdf), *[f"artifact:pdf_page:{_stable_id('source:pdf', active_pdf).split(':')[-1]}:p{page}" for page in canonical.pages if int(page or 0) > 0]],
+            result_handle_ids=_result_handle_ids(canonical, active_pdf=active_pdf),
+            primary_result_handle_id=_primary_result_handle_id(canonical, active_pdf=active_pdf),
+            degraded_reason_typed="" if ok else _typed_degraded_reason(canonical),
         )
 
     def _resolve_error_message(self, reason: str) -> str:
@@ -276,3 +292,42 @@ def _safe_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
 def _stable_id(prefix: str, value: str) -> str:
     digest = hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:16]
     return f"{prefix}:{digest}"
+
+
+def _primary_result_handle_id(canonical: PDFCanonicalResult, *, active_pdf: str) -> str:
+    mode = canonical.effective_mode or canonical.requested_mode or "document"
+    if mode == "section":
+        return f"result:pdf_section_summary:{_stable_id('source:pdf', active_pdf).split(':')[-1]}:primary"
+    return f"result:pdf_summary:{_stable_id('source:pdf', active_pdf).split(':')[-1]}:primary"
+
+
+def _result_handle_ids(canonical: PDFCanonicalResult, *, active_pdf: str) -> list[str]:
+    return [_primary_result_handle_id(canonical, active_pdf=active_pdf)] if str(active_pdf or "").strip() else []
+
+
+def _result_handles_from_canonical(canonical: PDFCanonicalResult, *, active_pdf: str) -> list[dict[str, Any]]:
+    primary = _primary_result_handle_id(canonical, active_pdf=active_pdf)
+    return (
+        [
+            {
+                "handle_id": primary,
+                "handle_kind": "result",
+                "result_kind": "pdf_section_summary" if "section" in primary else "pdf_summary",
+                "object_handle_id": _stable_id("source:pdf", active_pdf),
+                "mode": canonical.effective_mode or canonical.requested_mode or "document",
+            }
+        ]
+        if primary
+        else []
+    )
+
+
+def _typed_degraded_reason(canonical: PDFCanonicalResult) -> str:
+    reason = str(canonical.degraded_reason or canonical.error or "").strip().lower()
+    if "no_stable_text" in reason or "no_text" in reason:
+        return "page_has_no_text"
+    if "section_not_located" in reason:
+        return "section_not_located"
+    if "ocr" in reason:
+        return "ocr_unstable"
+    return "evidence_insufficient_for_synthesis"

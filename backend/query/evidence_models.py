@@ -38,6 +38,37 @@ class EvidenceArtifact:
 
 
 @dataclass(frozen=True, slots=True)
+class ResultHandle:
+    result_id: str
+    result_kind: str
+    owner_task_id: str = ""
+    source_object_id: str = ""
+    artifact_id: str = ""
+    identity: str = ""
+    locator: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SubsetHandle:
+    subset_id: str
+    subset_kind: str
+    owner_task_id: str = ""
+    result_id: str = ""
+    source_object_id: str = ""
+    artifact_id: str = ""
+    identity: str = ""
+    locator: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class EvidenceItem:
     kind: str
     source: str

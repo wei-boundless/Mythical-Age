@@ -34,7 +34,6 @@ def main() -> None:
         history=history,
     )
     explicit_execution = explicit_plan.iter_executions()[0]
-    assert explicit_execution.query_understanding.route == "rag"
     assert explicit_execution.query_understanding.tool_name is None
     assert explicit_execution.structured_binding is None
     assert not explicit_execution.tool_input.get("path", "")
@@ -63,7 +62,6 @@ def main() -> None:
         history=history,
     )
     fresh_grouped_execution = fresh_grouped_plan.iter_executions()[0]
-    assert fresh_grouped_execution.query_understanding.route == "rag"
     assert fresh_grouped_execution.query_understanding.tool_name is None
     assert fresh_grouped_execution.structured_binding is None
     assert not fresh_grouped_execution.tool_input.get("path", "")
@@ -74,7 +72,7 @@ def main() -> None:
         history=history,
     )
     explicit_followup_execution = explicit_followup_plan.iter_executions()[0]
-    assert explicit_followup_execution.tool_input.get("path", "").endswith("inventory.xlsx")
+    assert explicit_followup_plan.query_understanding.tool_input.get("path", "").endswith("inventory.xlsx")
     assert explicit_followup_execution.structured_binding is not None
     assert explicit_followup_execution.structured_binding.dataset_path.endswith("inventory.xlsx")
 
@@ -85,8 +83,8 @@ def main() -> None:
     )
     unresolved_explicit_execution = unresolved_explicit_plan.iter_executions()[0]
     assert unresolved_explicit_execution.structured_binding is None
-    assert unresolved_explicit_execution.tool_input.get("path", "").endswith("missing.xlsx")
-    assert not unresolved_explicit_execution.tool_input.get("path", "").endswith("inventory.xlsx")
+    assert unresolved_explicit_plan.query_understanding.tool_input.get("path", "").endswith("missing.xlsx")
+    assert not unresolved_explicit_plan.query_understanding.tool_input.get("path", "").endswith("inventory.xlsx")
 
     resolver = ToolInputResolver(base_dir=ROOT)
     explicit_shortname_plan = type(

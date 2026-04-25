@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class FollowupResolution(BaseModel):
     mode: str = "none"
+    resolution_scope: str = "none"
     target_kind: str = "none"
     resolved_target_kind: str = ""
     bundle_id: str = ""
@@ -20,6 +21,12 @@ class FollowupResolution(BaseModel):
     binding_kind: str = ""
     binding_identity: str = ""
     binding_owner_task_id: str = ""
+    object_handle_id: str = ""
+    object_handle_ids: list[str] = Field(default_factory=list)
+    result_handle_id: str = ""
+    result_handle_ids: list[str] = Field(default_factory=list)
+    subset_handle_id: str = ""
+    owner_task_id: str = ""
     resolved_binding_ref: str = ""
     resolved_binding_kind: str = ""
     resolved_binding_identity: str = ""
@@ -76,5 +83,20 @@ class FollowupResolution(BaseModel):
             self.resolved_binding_owner_task_id = self.binding_owner_task_id
         if not self.binding_owner_task_id:
             self.binding_owner_task_id = self.resolved_binding_owner_task_id
+
+        if not self.owner_task_id:
+            self.owner_task_id = self.resolved_binding_owner_task_id or self.resolved_task_id
+
+        if not self.resolution_scope:
+            if self.subset_handle_id:
+                self.resolution_scope = "subset"
+            elif self.result_handle_id:
+                self.resolution_scope = "result"
+            elif self.object_handle_id:
+                self.resolution_scope = "object"
+            elif self.resolved_task_id:
+                self.resolution_scope = "task"
+            else:
+                self.resolution_scope = "none"
 
         return self

@@ -32,6 +32,9 @@ class MainContextState:
     active_goal: str = ""
     active_work_item: str = ""
     active_binding_identity: str = ""
+    active_object_handle_id: str = ""
+    active_result_handle_id: str = ""
+    active_subset_handle_id: str = ""
     followup_mode: str = ""
     followup_resolution_source: str = ""
     followup_target_task_id: str | None = None
@@ -54,6 +57,12 @@ class MainContextState:
             lines.append(f"- Active Work Item: {self.active_work_item}")
         if self.active_binding_identity:
             lines.append(f"- Active Binding Identity: {self.active_binding_identity}")
+        if self.active_object_handle_id:
+            lines.append("- Active Evidence Object: available")
+        if self.active_result_handle_id:
+            lines.append("- Active Evidence Result: available")
+        if self.active_subset_handle_id:
+            lines.append("- Active Evidence Subset: available")
         if self.followup_mode:
             lines.append(f"- Follow-up Mode: {self.followup_mode}")
         if self.followup_resolution_source:

@@ -670,6 +670,15 @@ class QueryRuntime:
                 "selection_source": selection.selection_source,
             },
             bindings={"active_dataset": dataset_path},
+            target_handle_kind="object",
+            target_handle_id=str(getattr(candidate, "source_object_id", "") or dataset_path),
+            upstream_object_handle_ids=[
+                str(item)
+                for item in [getattr(candidate, "source_object_id", ""), dataset_path]
+                if str(item or "").strip()
+            ],
+            owner_task_id=str(getattr(selection, "source_task_id", "") or ""),
+            arbitration_reason=str(selection.selection_source or "evidence_candidate_selection"),
         )
         self.binding_candidate_store.clear(session_id)
         return QueryExecutionPlan(
@@ -692,6 +701,14 @@ class QueryRuntime:
             structured_binding=binding,
             execution_kind="worker",
             execution_posture="worker",
+            target_handle_kind="object",
+            target_handle_id=str(getattr(candidate, "source_object_id", "") or dataset_path),
+            upstream_object_handle_ids=[
+                str(item)
+                for item in [getattr(candidate, "source_object_id", ""), dataset_path]
+                if str(item or "").strip()
+            ],
+            arbitration_reason=str(selection.selection_source or "evidence_candidate_selection"),
             worker_plan=WorkerExecutionPlan(
                 worker_route="structured_data",
                 request=request,
@@ -732,6 +749,15 @@ class QueryRuntime:
                 "selection_source": selection.selection_source,
             },
             bindings=bindings,
+            target_handle_kind="artifact",
+            target_handle_id=table_identity,
+            upstream_object_handle_ids=[
+                str(item)
+                for item in [table_identity, dataset_path]
+                if str(item or "").strip()
+            ],
+            owner_task_id=str(getattr(selection, "source_task_id", "") or ""),
+            arbitration_reason=str(selection.selection_source or "evidence_candidate_selection"),
         )
         self.binding_candidate_store.clear(session_id)
         return QueryExecutionPlan(
@@ -753,6 +779,14 @@ class QueryRuntime:
             active_skill=execution.active_skill,
             execution_kind="worker",
             execution_posture="worker",
+            target_handle_kind="artifact",
+            target_handle_id=table_identity,
+            upstream_object_handle_ids=[
+                str(item)
+                for item in [table_identity, dataset_path]
+                if str(item or "").strip()
+            ],
+            arbitration_reason=str(selection.selection_source or "evidence_candidate_selection"),
             worker_plan=WorkerExecutionPlan(
                 worker_route="structured_data",
                 request=request,
@@ -843,6 +877,15 @@ class QueryRuntime:
             },
             bindings={"active_pdf": document_path},
             constraints={"mode": "document"},
+            target_handle_kind="object",
+            target_handle_id=str(getattr(candidate, "source_object_id", "") or document_path),
+            upstream_object_handle_ids=[
+                str(item)
+                for item in [getattr(candidate, "source_object_id", ""), document_path]
+                if str(item or "").strip()
+            ],
+            owner_task_id=str(getattr(selection, "source_task_id", "") or ""),
+            arbitration_reason=str(selection.selection_source or "evidence_candidate_selection"),
         )
         self.binding_candidate_store.clear(session_id)
         return QueryExecutionPlan(
@@ -864,6 +907,14 @@ class QueryRuntime:
             active_skill=execution.active_skill,
             execution_kind="worker",
             execution_posture="worker",
+            target_handle_kind="object",
+            target_handle_id=str(getattr(candidate, "source_object_id", "") or document_path),
+            upstream_object_handle_ids=[
+                str(item)
+                for item in [getattr(candidate, "source_object_id", ""), document_path]
+                if str(item or "").strip()
+            ],
+            arbitration_reason=str(selection.selection_source or "evidence_candidate_selection"),
             worker_plan=WorkerExecutionPlan(
                 worker_route="pdf",
                 request=request,
@@ -926,6 +977,12 @@ class QueryRuntime:
                     main_context=context.main_context,
                     trace=trace,
                 ):
+                    if event.get("type") == "done":
+                        event = self._materialize_worker_done_event(
+                            session_id=session_id,
+                            execution=execution,
+                            event=dict(event),
+                        )
                     yield event
                 self._persist_evidence_state_to_session(session_id)
                 return
@@ -1445,8 +1502,8 @@ class QueryRuntime:
                     task_id=task_id,
                     query=query,
                     summary=str(summary_payload.get("response", "") or ""),
-                    task_kind=str(
-                        context_ref_payload.get("task_kind", "") if isinstance(context_ref_payload, dict) else ""
+                    task_kind=self._normalize_task_kind(
+                        str(context_ref_payload.get("task_kind", "") if isinstance(context_ref_payload, dict) else "")
                     ),
                     response_style=str(summary_payload.get("response_style", "") or ""),
                     key_points=list(summary_payload.get("key_points", []) or []),
@@ -1459,7 +1516,7 @@ class QueryRuntime:
             return None
         task_kind = ""
         if task.context_ref is not None:
-            task_kind = str(task.context_ref.task_kind or "")
+            task_kind = self._normalize_task_kind(str(task.context_ref.task_kind or ""))
         return TaskSummaryRef(
             task_id=str(task.task_id or ""),
             query=str(task.query or ""),
@@ -1468,6 +1525,100 @@ class QueryRuntime:
             response_style=str(task.summary.response_style or ""),
             key_points=list(task.summary.key_points or []),
         )
+
+    def _materialize_worker_done_event(
+        self,
+        *,
+        session_id: str,
+        execution: QueryExecutionPlan,
+        event: dict[str, Any],
+    ) -> dict[str, Any]:
+        if str(event.get("task_id", "") or "").strip():
+            return event
+        content = str(event.get("content", "") or "")
+        main_context_payload = dict(event.get("main_context") or {})
+        active_constraints = dict(main_context_payload.get("active_constraints") or {})
+        committed_bindings = dict(event.get("committed_bindings") or {})
+        bindings = {
+            key: value
+            for key, value in {
+                "active_pdf": committed_bindings.get("active_pdf") or active_constraints.get("active_pdf"),
+                "active_dataset": committed_bindings.get("active_dataset") or active_constraints.get("active_dataset"),
+                "active_binding_identity": active_constraints.get("active_binding_identity", ""),
+                "active_entity": active_constraints.get("active_entity", ""),
+                "active_location": active_constraints.get("active_location", ""),
+                "source_kind": active_constraints.get("source_kind", "") or getattr(execution.query_understanding, "source_kind", ""),
+            }.items()
+            if value not in ("", None)
+        }
+        object_handle_ids = [str(item).strip() for item in list(event.get("object_handle_ids", []) or []) if str(item).strip()]
+        result_handle_ids = [str(item).strip() for item in list(event.get("result_handle_ids", []) or []) if str(item).strip()]
+        degraded_reason_typed = str(event.get("degraded_reason_typed", "") or "").strip()
+        presentation_hints = dict(event.get("presentation_hints") or {})
+        task = self.task_coordinator.create_completed_execution_task(
+            session_id=session_id,
+            query=execution.message,
+            content=content,
+            execution_kind="worker",
+            task_kind=str(getattr(execution.query_understanding, "task_kind", "") or ""),
+            source_kind=str(getattr(execution.query_understanding, "source_kind", "") or ""),
+            worker_name=str(getattr(getattr(execution, "worker_plan", None), "worker_route", "") or ""),
+            bindings=bindings,
+            constraints=active_constraints,
+            object_handle_ids=object_handle_ids,
+            result_handle_ids=result_handle_ids,
+            primary_result_handle_id=(
+                result_handle_ids[0] if result_handle_ids else str(main_context_payload.get("active_result_handle_id", "") or "")
+            ),
+            subset_handle_id=str(
+                main_context_payload.get("active_subset_handle_id", "")
+                or presentation_hints.get("subset_handle_id", "")
+                or ""
+            ),
+            subset_labels=list(presentation_hints.get("subset_labels", []) or []),
+            subset_hint_query=str(presentation_hints.get("subset_hint_query", "") or ""),
+            binding_owner_task_id=str(event.get("binding_owner_task_id", "") or ""),
+            degraded_reason_typed=degraded_reason_typed,
+            metadata={
+                "answer_channel": str(event.get("answer_channel", "") or ""),
+                "answer_source": str(event.get("answer_source", "") or ""),
+                "answer_fallback_reason": str(event.get("answer_fallback_reason", "") or ""),
+                "execution_protocol": str(event.get("execution_protocol", "") or "worker"),
+            },
+        )
+        context_ref_payload = task.context_ref.to_dict() if task.context_ref is not None else None
+        result_ref_payload = task.result_ref.to_dict() if task.result_ref is not None else None
+        summary_payload = task.summary.to_dict() if task.summary is not None else None
+        task_summary_ref = self._task_summary_ref_from_task(task)
+        main_context_payload.setdefault("followup_mode", "task_ref")
+        main_context_payload["followup_target_task_id"] = task.task_id
+        main_context_payload["followup_target_task_ids"] = [task.task_id]
+        main_context_payload["followup_binding_owner_task_id"] = task.task_id
+        if task.context_ref is not None:
+            if task.context_ref.primary_object_handle_id:
+                main_context_payload["active_object_handle_id"] = task.context_ref.primary_object_handle_id
+            if task.context_ref.primary_result_handle_id:
+                main_context_payload["active_result_handle_id"] = task.context_ref.primary_result_handle_id
+            if task.context_ref.active_subset_handle_id:
+                main_context_payload["active_subset_handle_id"] = task.context_ref.active_subset_handle_id
+        event.update(
+            {
+                "task_id": task.task_id,
+                "summary": summary_payload,
+                "context_ref": context_ref_payload,
+                "result_ref": result_ref_payload,
+                "main_context": main_context_payload,
+                "task_summary_refs": [task_summary_ref.to_dict()] if task_summary_ref is not None else list(event.get("task_summary_refs", []) or []),
+                "object_handle_ids": list(task.metadata.get("object_handle_ids", []) or object_handle_ids),
+                "result_handle_ids": list(task.metadata.get("result_handle_ids", []) or result_handle_ids),
+                "binding_owner_task_id": str(
+                    task.metadata.get("binding_owner_task_id", "")
+                    or event.get("binding_owner_task_id", "")
+                    or task.task_id
+                ),
+            }
+        )
+        return event
 
     def _build_single_execution_task_summaries(
         self,
@@ -1511,11 +1662,27 @@ class QueryRuntime:
                 task_id=f"{execution.query_understanding.route or 'main'}:{task_slug}",
                 query=execution.message,
                 summary=summary[:280],
-                task_kind=source_kind or str(getattr(execution.query_understanding, "task_kind", "") or ""),
+                task_kind=self._normalize_task_kind(
+                    source_kind or str(getattr(execution.query_understanding, "task_kind", "") or "")
+                ),
                 response_style=str(constraints.get("response_style", "") or ""),
                 key_points=key_points,
             )
         ]
+
+    def _normalize_task_kind(self, raw: str) -> str:
+        lowered = str(raw or "").strip().lower()
+        if not lowered:
+            return ""
+        if any(marker in lowered for marker in ("structured", "dataset", "table")):
+            return "structured_data"
+        if "pdf" in lowered or lowered.startswith("document_"):
+            return "pdf"
+        if "weather" in lowered:
+            return "weather"
+        if "finance" in lowered or "gold" in lowered:
+            return "finance"
+        return str(raw or "")
 
     def _merge_constraints_from_results(
         self,
@@ -1628,11 +1795,13 @@ class QueryRuntime:
     def _binding_execution_from_owner(
         self,
         *,
+        session_id: str,
         message: str,
         history: list[dict[str, Any]],
         owner_task,
     ) -> QueryExecutionPlan | None:
         return self._followup.binding_execution_from_owner(
+            session_id=session_id,
             message=message,
             history=history,
             owner_task=owner_task,

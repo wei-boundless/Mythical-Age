@@ -7,6 +7,7 @@ from query.binding_models import StructuredDatasetBinding
 from query.context_models import MainContextState, TaskSummaryRef
 from query.models import QueryExecutionPlan, QueryPlan
 from query.output_boundary import contains_internal_protocol, sanitize_visible_assistant_content
+from query.worker_models import WorkerExecutionPlan, WorkerRequest
 from understanding import MemoryIntent, QueryUnderstanding
 
 
@@ -143,7 +144,8 @@ class RuntimeFollowupCoordinator:
         if len(executions) != 1:
             return False
         execution = executions[0]
-        if str(getattr(execution.query_understanding, "route", "") or "") != "tool":
+        route = str(getattr(execution.query_understanding, "route", "") or "").strip()
+        if route in {"memory", "compound", "bundle"}:
             return False
         binding_kind = self.resolved_binding_kind(followup_resolution)
         tool_name = str(getattr(execution.query_understanding, "tool_name", "") or "").strip()
@@ -154,10 +156,14 @@ class RuntimeFollowupCoordinator:
         owner_bindings = getattr(owner_context, "bindings", None)
         if binding_kind == "active_pdf":
             owner_path = self.normalize_binding_identity(str(getattr(owner_bindings, "active_pdf", "") or ""))
-            return tool_name == "pdf_analysis" and (not normalized_path or normalized_path == owner_path)
+            if normalized_path and normalized_path != owner_path:
+                return False
+            return route != "memory"
         if binding_kind == "active_dataset":
             owner_path = self.normalize_binding_identity(str(getattr(owner_bindings, "active_dataset", "") or ""))
-            return tool_name == "structured_data_analysis" and (not normalized_path or normalized_path == owner_path)
+            if normalized_path and normalized_path != owner_path:
+                return False
+            return route != "memory"
         if binding_kind == "active_location":
             owner_location = str(getattr(owner_bindings, "active_location", "") or "").strip()
             return tool_name == "get_weather" and (not normalized_location or normalized_location == owner_location)
@@ -172,6 +178,7 @@ class RuntimeFollowupCoordinator:
     def binding_execution_from_owner(
         self,
         *,
+        session_id: str,
         message: str,
         history: list[dict[str, Any]],
         owner_task,
@@ -184,25 +191,76 @@ class RuntimeFollowupCoordinator:
         query_understanding: QueryUnderstanding | None = None
         structured_binding: StructuredDatasetBinding | None = None
         tool_input: dict[str, Any] = {"query": message}
+        target_handle_kind = self._target_handle_kind(owner_task)
+        target_handle_id = self._target_handle_id(owner_task)
+        upstream_object_handle_ids = self._owner_object_handle_ids(owner_task)
+        upstream_result_handle_ids = self._owner_result_handle_ids(owner_task)
+        owner_task_id = str(getattr(owner_task, "task_id", "") or "").strip()
+        arbitration_reason = "binding_owner_followup"
 
         if bindings.active_pdf:
-            tool_name = tool_name or "pdf_analysis"
-            tool_input["path"] = bindings.active_pdf
+            request = WorkerRequest(
+                request_id=f"worker:pdf:followup:{owner_task.task_id}",
+                session_id=session_id,
+                query=message,
+                worker_route="pdf",
+                task_frame={
+                    "intent": "pdf_followup_query",
+                    "source_kind": "document",
+                    "task_kind": context_ref.task_kind or "pdf",
+                    "modality": "pdf",
+                },
+                bindings={"active_pdf": bindings.active_pdf},
+                constraints={
+                    key: value
+                    for key, value in {
+                        "active_pdf": bindings.active_pdf,
+                        "mode": str(context_ref.constraints.pdf_mode or "") or "document",
+                        "page": context_ref.constraints.page,
+                    }.items()
+                    if value not in ("", None)
+                },
+                target_handle_kind=target_handle_kind,
+                target_handle_id=target_handle_id,
+                upstream_object_handle_ids=upstream_object_handle_ids,
+                upstream_result_handle_ids=upstream_result_handle_ids,
+                owner_task_id=owner_task_id,
+                arbitration_reason=arbitration_reason,
+            )
             query_understanding = QueryUnderstanding(
                 intent="pdf_followup_query",
-                source_kind="pdf",
+                source_kind="document",
                 task_kind=context_ref.task_kind or "pdf",
                 modality="pdf",
-                route="tool",
-                execution_posture="direct_tool",
-                direct_route_reason="binding_owner_pdf",
-                tool_name=tool_name,
-                tool_input=dict(tool_input),
+                route="worker",
+                execution_posture="worker",
+                direct_route_reason="binding_owner_pdf_worker",
+                capability_requests=["pdf_read"],
                 should_skip_rag=True,
+                reasons=["binding_owner_followup", "binding_owner_pdf_worker"],
+            )
+            return QueryExecutionPlan(
+                message=message,
+                history=list(history),
+                memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
+                query_understanding=query_understanding,
+                execution_kind="worker",
+                execution_posture="worker",
+                worker_plan=WorkerExecutionPlan(
+                    worker_route="pdf",
+                    request=request,
+                    expected_result="canonical",
+                    fallback_execution_kind="none",
+                    cutover_mode="primary",
+                ),
+                target_handle_kind=target_handle_kind,
+                target_handle_id=target_handle_id,
+                upstream_object_handle_ids=upstream_object_handle_ids,
+                upstream_result_handle_ids=upstream_result_handle_ids,
+                arbitration_reason=arbitration_reason,
             )
         elif bindings.active_dataset:
-            tool_name = tool_name or "structured_data_analysis"
-            tool_input["path"] = bindings.active_dataset
+            followup_query = self._dataset_followup_query(message, owner_task)
             structured_binding = StructuredDatasetBinding(
                 dataset_path=bindings.active_dataset,
                 target_object=bindings.active_entity,
@@ -213,17 +271,73 @@ class RuntimeFollowupCoordinator:
                 ),
                 derived_from_task_id=owner_task.task_id,
             )
+            request = WorkerRequest(
+                request_id=f"worker:structured_data:followup:{owner_task.task_id}",
+                session_id=session_id,
+                query=followup_query,
+                worker_route="structured_data",
+                task_frame={
+                    "intent": "structured_followup_query",
+                    "source_kind": "dataset",
+                    "task_kind": context_ref.task_kind or "structured_data",
+                    "modality": "table",
+                },
+                bindings={
+                    key: value
+                    for key, value in {
+                        "active_dataset": bindings.active_dataset,
+                        "active_table": str(context_ref.constraints.active_table or ""),
+                    }.items()
+                    if value not in ("", None)
+                },
+                constraints={
+                    key: value
+                    for key, value in {
+                        "group_by": context_ref.constraints.group_by,
+                        "top_n": context_ref.constraints.top_n,
+                        "active_table": str(context_ref.constraints.active_table or ""),
+                    }.items()
+                    if value not in ("", None)
+                },
+                target_handle_kind=target_handle_kind,
+                target_handle_id=target_handle_id,
+                upstream_object_handle_ids=upstream_object_handle_ids,
+                upstream_result_handle_ids=upstream_result_handle_ids,
+                owner_task_id=owner_task_id,
+                arbitration_reason=arbitration_reason,
+            )
             query_understanding = QueryUnderstanding(
                 intent="structured_followup_query",
                 source_kind="dataset",
                 task_kind=context_ref.task_kind or "structured_data",
                 modality="table",
-                route="tool",
-                execution_posture="direct_tool",
-                direct_route_reason="binding_owner_dataset",
-                tool_name=tool_name,
-                tool_input=dict(tool_input),
+                route="worker",
+                execution_posture="worker",
+                direct_route_reason="binding_owner_dataset_worker",
+                capability_requests=["dataset_analysis"],
                 should_skip_rag=True,
+                reasons=["binding_owner_followup", "binding_owner_dataset_worker"],
+            )
+            return QueryExecutionPlan(
+                message=followup_query,
+                history=list(history),
+                memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
+                query_understanding=query_understanding,
+                structured_binding=structured_binding,
+                execution_kind="worker",
+                execution_posture="worker",
+                worker_plan=WorkerExecutionPlan(
+                    worker_route="structured_data",
+                    request=request,
+                    expected_result="canonical",
+                    fallback_execution_kind="none",
+                    cutover_mode="primary",
+                ),
+                target_handle_kind=target_handle_kind,
+                target_handle_id=target_handle_id,
+                upstream_object_handle_ids=upstream_object_handle_ids,
+                upstream_result_handle_ids=upstream_result_handle_ids,
+                arbitration_reason=arbitration_reason,
             )
         elif bindings.active_location:
             tool_name = tool_name or "get_weather"
@@ -264,6 +378,11 @@ class RuntimeFollowupCoordinator:
             tool_input=tool_input,
             structured_binding=structured_binding,
             execution_kind="direct_tool",
+            target_handle_kind=target_handle_kind,
+            target_handle_id=target_handle_id,
+            upstream_object_handle_ids=upstream_object_handle_ids,
+            upstream_result_handle_ids=upstream_result_handle_ids,
+            arbitration_reason=arbitration_reason,
         )
 
     def resolved_task_id(self, followup_resolution) -> str:
@@ -326,6 +445,7 @@ class RuntimeFollowupCoordinator:
                 }
             )
         execution = self.binding_execution_from_owner(
+            session_id=session_id,
             message=message,
             history=history,
             owner_task=owner_task,
@@ -365,6 +485,12 @@ class RuntimeFollowupCoordinator:
                         "resolved_task_id": resolved_followup_task_id,
                         "task_ids": resolved_followup_task_ids,
                         "resolved_task_ids": resolved_followup_task_ids,
+                        "owner_task_id": resolved_followup_task_id,
+                        "object_handle_id": str(event.get("object_handle_ids", [None])[0] or ""),
+                        "object_handle_ids": list(event.get("object_handle_ids", []) or []),
+                        "result_handle_id": str(event.get("result_handle_ids", [None])[0] or ""),
+                        "result_handle_ids": list(event.get("result_handle_ids", []) or []),
+                        "subset_handle_id": str(dict(event.get("main_context") or {}).get("active_subset_handle_id", "") or ""),
                     }
                 )
                 main_context = build_followup_main_context(
@@ -431,6 +557,9 @@ class RuntimeFollowupCoordinator:
             active_goal=message.strip(),
             active_work_item=work_item,
             active_binding_identity=active_binding_identity,
+            active_object_handle_id=str(getattr(followup_resolution, "object_handle_id", "") or ""),
+            active_result_handle_id=str(getattr(followup_resolution, "result_handle_id", "") or ""),
+            active_subset_handle_id=str(getattr(followup_resolution, "subset_handle_id", "") or ""),
             followup_mode=str(followup_resolution.mode or ""),
             followup_resolution_source=str(getattr(followup_resolution, "resolution_source", "") or ""),
             followup_target_task_id=target_task_id or None,
@@ -442,3 +571,63 @@ class RuntimeFollowupCoordinator:
             latest_correction=extract_latest_correction(message),
             next_step="answer_selected_task_results",
         )
+
+    def _owner_object_handle_ids(self, owner_task) -> list[str]:
+        metadata = dict(getattr(owner_task, "metadata", {}) or {})
+        context_ref = getattr(owner_task, "context_ref", None)
+        primary = str(getattr(context_ref, "primary_object_handle_id", "") or "").strip()
+        handle_ids = [str(item).strip() for item in list(metadata.get("object_handle_ids", []) or []) if str(item).strip()]
+        if primary and primary not in handle_ids:
+            handle_ids.insert(0, primary)
+        return handle_ids
+
+    def _owner_result_handle_ids(self, owner_task) -> list[str]:
+        context_ref = getattr(owner_task, "context_ref", None)
+        result_ref = getattr(owner_task, "result_ref", None)
+        primary = str(
+            getattr(result_ref, "primary_result_handle_id", "")
+            or getattr(context_ref, "primary_result_handle_id", "")
+            or ""
+        ).strip()
+        handle_ids = [
+            str(item).strip()
+            for item in list(getattr(result_ref, "result_handle_ids", []) or getattr(context_ref, "result_handle_ids", []) or [])
+            if str(item).strip()
+        ]
+        if primary and primary not in handle_ids:
+            handle_ids.insert(0, primary)
+        return handle_ids
+
+    def _target_handle_kind(self, owner_task) -> str:
+        result_ref = getattr(owner_task, "result_ref", None)
+        context_ref = getattr(owner_task, "context_ref", None)
+        if str(getattr(result_ref, "subset_handle_id", "") or getattr(context_ref, "active_subset_handle_id", "") or "").strip():
+            return "subset"
+        if str(getattr(result_ref, "primary_result_handle_id", "") or getattr(context_ref, "primary_result_handle_id", "") or "").strip():
+            return "result"
+        if str(getattr(context_ref, "primary_object_handle_id", "") or "").strip():
+            return "object"
+        return "task"
+
+    def _target_handle_id(self, owner_task) -> str:
+        result_ref = getattr(owner_task, "result_ref", None)
+        context_ref = getattr(owner_task, "context_ref", None)
+        for value in (
+            getattr(result_ref, "subset_handle_id", ""),
+            getattr(context_ref, "active_subset_handle_id", ""),
+            getattr(result_ref, "primary_result_handle_id", ""),
+            getattr(context_ref, "primary_result_handle_id", ""),
+            getattr(context_ref, "primary_object_handle_id", ""),
+            getattr(owner_task, "task_id", ""),
+        ):
+            normalized = str(value or "").strip()
+            if normalized:
+                return normalized
+        return ""
+
+    def _dataset_followup_query(self, message: str, owner_task) -> str:
+        result_ref = getattr(owner_task, "result_ref", None)
+        subset_hint_query = str(getattr(result_ref, "subset_hint_query", "") or "").strip()
+        if not subset_hint_query:
+            return message
+        return f"{subset_hint_query} {message}".strip()

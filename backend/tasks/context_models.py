@@ -22,6 +22,7 @@ class TaskConstraints:
     top_n: int | None = None
     group_by: str = ""
     page: int | None = None
+    active_table: str = ""
     response_style: str = ""
     pdf_mode: str = ""
     pdf_section: str = ""
@@ -42,6 +43,8 @@ class TaskSummary:
     response: str = ""
     key_points: list[str] = field(default_factory=list)
     response_style: str = ""
+    primary_result_handle_id: str = ""
+    result_handle_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -54,6 +57,11 @@ class TaskResultRef:
     storage_path: str = ""
     content_preview: str = ""
     content_type: str = "text/plain"
+    primary_result_handle_id: str = ""
+    result_handle_ids: list[str] = field(default_factory=list)
+    subset_handle_id: str = ""
+    subset_labels: list[str] = field(default_factory=list)
+    subset_hint_query: str = ""
     created_at: float = field(default_factory=time)
 
     def to_dict(self) -> dict[str, object]:
@@ -75,6 +83,11 @@ class TaskContextRef:
     summary: str = ""
     result_ref_id: str = ""
     owner_scope: str = "task"
+    primary_object_handle_id: str = ""
+    primary_result_handle_id: str = ""
+    active_subset_handle_id: str = ""
+    result_handle_ids: list[str] = field(default_factory=list)
+    artifact_handle_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -91,4 +104,9 @@ class TaskContextRef:
             "summary": self.summary,
             "result_ref_id": self.result_ref_id,
             "owner_scope": self.owner_scope,
+            "primary_object_handle_id": self.primary_object_handle_id,
+            "primary_result_handle_id": self.primary_result_handle_id,
+            "active_subset_handle_id": self.active_subset_handle_id,
+            "result_handle_ids": list(self.result_handle_ids),
+            "artifact_handle_ids": list(self.artifact_handle_ids),
         }

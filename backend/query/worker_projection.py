@@ -13,6 +13,10 @@ class WorkerProjection:
     main_context: MainContextState
     task_summary_refs: list[TaskSummaryRef] = field(default_factory=list)
     candidate_refs: list[str] = field(default_factory=list)
+    object_handle_ids: list[str] = field(default_factory=list)
+    result_handle_ids: list[str] = field(default_factory=list)
+    binding_owner_task_id: str = ""
+    degraded_reason_typed: str = ""
     memory_policy: str = "session_context_only"
 
 
@@ -42,6 +46,16 @@ class WorkerProjectionAdapter:
                 for candidate in list(getattr(worker_result, "binding_candidates", []) or [])
                 if str(candidate.candidate_id or "").strip()
             ],
+            object_handle_ids=list(canonical_result.object_handle_ids or []),
+            result_handle_ids=list(canonical_result.result_handle_ids or []),
+            binding_owner_task_id=str(
+                getattr(worker_result, "binding_owner_task_id", "")
+                or getattr(canonical_result, "diagnostics", {}).get("binding_owner_task_id", "")
+                or ""
+            ).strip(),
+            degraded_reason_typed=str(
+                canonical_result.degraded_reason_typed or canonical_result.degraded_reason or ""
+            ).strip(),
             memory_policy=self._memory_policy(canonical_result),
         )
 
@@ -91,6 +105,19 @@ class WorkerProjectionAdapter:
             )
         if active_table:
             projected.active_constraints["active_table"] = active_table
+        object_handle_ids = [str(item).strip() for item in list(canonical_result.object_handle_ids or []) if str(item).strip()]
+        result_handle_ids = [str(item).strip() for item in list(canonical_result.result_handle_ids or []) if str(item).strip()]
+        if object_handle_ids:
+            projected.active_object_handle_id = object_handle_ids[0]
+        if result_handle_ids:
+            projected.active_result_handle_id = result_handle_ids[0]
+            projected.followup_mode = "task_ref"
+            synthetic_task_id = f"{canonical_result.result_kind or 'worker'}:{_slug(query)}"
+            projected.followup_target_task_id = projected.followup_target_task_id or synthetic_task_id
+            projected.followup_target_task_ids = list(projected.followup_target_task_ids or [synthetic_task_id])
+        subset_handle_id = str(dict(canonical_result.presentation_hints or {}).get("subset_handle_id", "") or "").strip()
+        if subset_handle_id:
+            projected.active_subset_handle_id = subset_handle_id
         return projected
 
     def _project_task_summary_refs(
@@ -138,6 +165,9 @@ class WorkerProjectionAdapter:
                 active_goal=source.active_goal or fallback_goal,
                 active_work_item=source.active_work_item,
                 active_binding_identity=source.active_binding_identity,
+                active_object_handle_id=source.active_object_handle_id,
+                active_result_handle_id=source.active_result_handle_id,
+                active_subset_handle_id=source.active_subset_handle_id,
                 followup_mode=source.followup_mode,
                 followup_resolution_source=source.followup_resolution_source,
                 followup_target_task_id=source.followup_target_task_id,

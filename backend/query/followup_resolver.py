@@ -40,6 +40,7 @@ class QueryFollowupResolver:
                         mode="bundle_subset",
                         target_kind="bundle_subset",
                         resolved_target_kind="bundle_subset",
+                        **self._task_resolution_payload(ordinal_targets[0]),
                         bundle_id=bundle_id,
                         bundle_item_id=bundle_item_ids[0] if bundle_item_ids else "",
                         bundle_item_ids=bundle_item_ids,
@@ -58,6 +59,7 @@ class QueryFollowupResolver:
                     mode="bundle_item_ref",
                     target_kind="bundle_item",
                     resolved_target_kind="bundle_item",
+                    **self._task_resolution_payload(ordinal_targets[0]),
                     bundle_id=bundle_id,
                     bundle_item_id=bundle_item_ids[0] if bundle_item_ids else "",
                     bundle_item_ids=bundle_item_ids,
@@ -77,6 +79,7 @@ class QueryFollowupResolver:
                     mode="explicit_fanout_subset",
                     target_kind="task_subset",
                     resolved_target_kind="task_subset",
+                    **self._task_resolution_payload(ordinal_targets[0]),
                     task_id=ordinal_targets[0].task_id,
                     resolved_task_id=ordinal_targets[0].task_id,
                     resolved_task_kind=self._task_kind(ordinal_targets[0]),
@@ -91,6 +94,7 @@ class QueryFollowupResolver:
                 mode="task_ref",
                 target_kind="task",
                 resolved_target_kind="task",
+                **self._task_resolution_payload(ordinal_targets[0]),
                 task_id=ordinal_targets[0].task_id,
                 resolved_task_id=ordinal_targets[0].task_id,
                 resolved_task_kind=self._task_kind(ordinal_targets[0]),
@@ -111,6 +115,7 @@ class QueryFollowupResolver:
                 mode="binding_ref",
                 target_kind="binding",
                 resolved_target_kind="binding",
+                **self._task_resolution_payload(binding_target),
                 task_id=binding_target.task_id,
                 resolved_task_id=binding_target.task_id,
                 resolved_task_kind=self._task_kind(binding_target),
@@ -340,10 +345,13 @@ class QueryFollowupResolver:
         binding_owner_task_id = str(candidate.get("binding_owner_task_id", "") or "")
         task_kind = str(candidate.get("task_kind", "") or "")
         resolved_task_ids = [binding_owner_task_id] if binding_owner_task_id else []
+        task_getter = getattr(self.task_coordinator, "get_task", None)
+        owner_task = task_getter(binding_owner_task_id) if binding_owner_task_id and callable(task_getter) else None
         return FollowupResolution(
             mode="binding_ref",
             target_kind="binding",
             resolved_target_kind="binding",
+            **self._task_resolution_payload(owner_task),
             task_id=binding_owner_task_id,
             resolved_task_id=binding_owner_task_id,
             resolved_task_kind=task_kind,
@@ -617,6 +625,47 @@ class QueryFollowupResolver:
         if self._has_committed_dataset_binding(task):
             return str(task.context_ref.bindings.active_dataset or "").replace("\\", "/").strip().lower()
         return ""
+
+    def _task_resolution_payload(self, task) -> dict[str, object]:
+        if task is None:
+            return {}
+        context_ref = getattr(task, "context_ref", None)
+        result_ref = getattr(task, "result_ref", None)
+        metadata = dict(getattr(task, "metadata", {}) or {})
+        object_handle_id = str(getattr(context_ref, "primary_object_handle_id", "") or "").strip()
+        result_handle_id = str(
+            getattr(result_ref, "primary_result_handle_id", "")
+            or getattr(context_ref, "primary_result_handle_id", "")
+            or ""
+        ).strip()
+        subset_handle_id = str(getattr(result_ref, "subset_handle_id", "") or getattr(context_ref, "active_subset_handle_id", "") or "").strip()
+        object_handle_ids = [str(item).strip() for item in list(metadata.get("object_handle_ids", []) or []) if str(item).strip()]
+        if object_handle_id and object_handle_id not in object_handle_ids:
+            object_handle_ids.insert(0, object_handle_id)
+        result_handle_ids = [
+            str(item).strip()
+            for item in list(getattr(result_ref, "result_handle_ids", []) or getattr(context_ref, "result_handle_ids", []) or [])
+            if str(item).strip()
+        ]
+        if result_handle_id and result_handle_id not in result_handle_ids:
+            result_handle_ids.insert(0, result_handle_id)
+        payload: dict[str, object] = {
+            "owner_task_id": str(getattr(task, "task_id", "") or "").strip(),
+            "object_handle_id": object_handle_id,
+            "object_handle_ids": object_handle_ids,
+            "result_handle_id": result_handle_id,
+            "result_handle_ids": result_handle_ids,
+            "subset_handle_id": subset_handle_id,
+        }
+        if subset_handle_id:
+            payload["resolution_scope"] = "subset"
+        elif result_handle_id:
+            payload["resolution_scope"] = "result"
+        elif object_handle_id:
+            payload["resolution_scope"] = "object"
+        else:
+            payload["resolution_scope"] = "task"
+        return payload
 
     def _task_kind(self, task) -> str:
         context_ref = getattr(task, "context_ref", None)

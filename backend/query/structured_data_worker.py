@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from typing import Any
 
 from query.evidence_models import EvidenceArtifact, EvidenceEnvelope, EvidenceItem, SourceObjectRef
@@ -31,6 +32,7 @@ class StructuredDataWorker:
                     projection_policy="do_not_persist",
                     degraded_reason="missing_dataset_binding",
                     diagnostics={"answer_source": "structured_data_worker"},
+                    degraded_reason_typed="missing_object_handle",
                 ),
             )
         tool = self.tool_runtime.get_instance("structured_data_analysis")
@@ -43,6 +45,7 @@ class StructuredDataWorker:
                     ok=False,
                     answer="结构化数据分析能力当前不可用。",
                     degraded_reason="structured_tool_unavailable",
+                    degraded_reason_typed="contract_blocked",
                 ),
             )
 
@@ -53,6 +56,10 @@ class StructuredDataWorker:
         raw_output = await asyncio.to_thread(tool.invoke, tool_input)
         answer = _visible_answer(raw_output)
         ok = bool(answer) and not answer.startswith("结构化分析失败")
+        source_object_id = _stable_id("source:dataset", dataset_path)
+        result_handle_ids = [f"result:structured_answer:{source_object_id.split(':')[-1]}:primary"] if dataset_path else []
+        subset_labels = _extract_subset_labels(answer)
+        subset_handle_id = f"subset:selection:{source_object_id.split(':')[-1]}:primary" if subset_labels else ""
         return WorkerResult(
             worker_name="structured_data",
             status="ok" if ok else "degraded",
@@ -73,8 +80,47 @@ class StructuredDataWorker:
                 projection_policy="persist_canonical" if ok else "do_not_persist",
                 degraded_reason="" if ok else "structured_analysis_missing_answer",
                 diagnostics={"tool": "structured_data_analysis", "answer_source": "structured_data_worker"},
+                object_handle_ids=[source_object_id] if dataset_path else [],
+                result_handle_ids=result_handle_ids,
+                primary_result_handle_id=result_handle_ids[0] if result_handle_ids else "",
+                degraded_reason_typed="" if ok else _typed_structured_degraded_reason(answer),
+                presentation_hints={
+                    "subset_handle_id": subset_handle_id,
+                    "subset_labels": subset_labels,
+                    "subset_hint_query": _subset_hint_query(subset_labels),
+                },
+            ),
+            emitted_object_handles=[
+                {
+                    "handle_id": source_object_id,
+                    "handle_kind": "source_object",
+                    "object_type": "dataset",
+                    "uri": dataset_path,
+                }
+            ] if dataset_path else [],
+            emitted_result_handles=[
+                {
+                    "handle_id": result_handle_ids[0],
+                    "handle_kind": "result",
+                    "result_kind": "structured_answer",
+                    "object_handle_id": source_object_id,
+                }
+            ]
+            + (
+                [
+                    {
+                        "handle_id": subset_handle_id,
+                        "handle_kind": "subset",
+                        "subset_kind": "selection",
+                        "result_handle_id": result_handle_ids[0] if result_handle_ids else "",
+                        "labels": subset_labels,
+                    }
+                ]
+                if subset_handle_id
+                else []
             ),
             diagnostics={"tool_input": tool_input},
+            binding_owner_task_id=str(request.owner_task_id or "").strip(),
         )
 
     def _to_evidence_envelope(
@@ -148,3 +194,40 @@ def _visible_answer(output: Any) -> str:
 def _stable_id(prefix: str, value: str) -> str:
     digest = hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:16]
     return f"{prefix}:{digest}"
+
+
+def _extract_subset_labels(answer: str) -> list[str]:
+    lines = [line.rstrip() for line in str(answer or "").splitlines()]
+    start_index = -1
+    for idx, line in enumerate(lines):
+        if any(marker in line for marker in ("前 ", "前", "结果（前", "前 5 条记录", "前 10 条记录", "前 5 项", "前 10 项")):
+            start_index = idx + 1
+            break
+    if start_index < 0:
+        return []
+    candidates = [line.strip() for line in lines[start_index:] if line.strip()]
+    if len(candidates) < 2:
+        return []
+    labels: list[str] = []
+    for raw in candidates[1:]:
+        parts = re.split(r"\s+", raw)
+        if not parts:
+            continue
+        label = parts[1] if parts[0].isdigit() and len(parts) >= 2 else parts[0]
+        label = str(label or "").strip()
+        if len(label) >= 2 and label not in labels:
+            labels.append(label)
+    return labels[:20]
+
+
+def _subset_hint_query(labels: list[str]) -> str:
+    if not labels:
+        return ""
+    return f"仅基于以下对象：{'、'.join(labels)}。"
+
+
+def _typed_structured_degraded_reason(answer: str) -> str:
+    normalized = str(answer or "")
+    if "没有匹配记录" in normalized:
+        return "empty_filtered_result"
+    return "evidence_insufficient_for_synthesis"

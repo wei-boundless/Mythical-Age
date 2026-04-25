@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
@@ -98,6 +99,44 @@ class TaskCoordinator:
                 },
             )
         )
+
+    def _execution_task(
+        self,
+        session_id: str,
+        execution_kind: str,
+        *,
+        query: str,
+        parent_query_id: str,
+        task_kind: str = "",
+        source_kind: str = "",
+        tool_name: str = "",
+        worker_name: str = "",
+    ) -> TaskRecord:
+        name = tool_name or worker_name or task_kind or execution_kind or "execution"
+        task_id = f"{session_id}-{execution_kind}-{_slug(name)}-{len(self._tasks) + 1}"
+        task = TaskRecord(
+            task_id=task_id,
+            task_type=execution_kind,
+            query=query,
+            parent_query_id=parent_query_id,
+            agent_type=WORKER_AGENT.agent_type,
+            context_ref=self._build_task_context_ref(
+                task_id=task_id,
+                parent_query_id=parent_query_id,
+                query=query,
+            ),
+            metadata={
+                "session_id": session_id,
+                "parent_query_id": parent_query_id,
+                "execution_kind": execution_kind,
+                "tool_name": tool_name,
+                "worker_name": worker_name,
+                "source_kind": source_kind,
+            },
+        )
+        if task.context_ref is not None and task_kind:
+            task.context_ref.task_kind = task_kind
+        return self._register(task)
 
     def _build_task_context_ref(
         self,
@@ -223,6 +262,8 @@ class TaskCoordinator:
             key_points.append(f"top_n={context_ref.constraints.top_n}")
         if context_ref is not None and context_ref.constraints.page is not None:
             key_points.append(f"page={context_ref.constraints.page}")
+        if context_ref is not None and context_ref.constraints.active_table:
+            key_points.append(f"table={context_ref.constraints.active_table}")
         if context_ref is not None and context_ref.constraints.pdf_mode:
             key_points.append(f"pdf_mode={context_ref.constraints.pdf_mode}")
         if context_ref is not None and context_ref.constraints.pdf_section:
@@ -321,6 +362,227 @@ class TaskCoordinator:
             storage_path=str(result_path),
             content_preview=preview,
         )
+
+    def _source_object_handle_ids(self, context_ref: TaskContextRef | None) -> list[str]:
+        if context_ref is None:
+            return []
+        bindings = context_ref.bindings
+        handles: list[str] = []
+        if bindings.active_pdf:
+            handles.append(_stable_handle_id("source:pdf", bindings.active_pdf))
+        if bindings.active_dataset:
+            handles.append(_stable_handle_id("source:dataset", bindings.active_dataset))
+        active_table = str(context_ref.constraints.active_table or "")
+        if active_table:
+            handles.append(_stable_handle_id("artifact:table_candidate", active_table))
+        return handles
+
+    def _extract_subset_labels(self, query: str, content: str, context_ref: TaskContextRef | None) -> list[str]:
+        if context_ref is None:
+            return []
+        task_kind = str(context_ref.task_kind or "")
+        if task_kind not in {"structured_data", "dataset_query", "table_query"}:
+            return []
+        if context_ref.constraints.top_n is None and "前 " not in content and "前 " not in query:
+            return []
+        lines = [line.rstrip() for line in str(content or "").splitlines()]
+        start_index = -1
+        for idx, line in enumerate(lines):
+            if any(marker in line for marker in ("前 ", "前", "结果（前", "前 5 条记录", "前 10 条记录", "前 5 项", "前 10 项")):
+                start_index = idx + 1
+                break
+        if start_index < 0:
+            return []
+        data_lines = [line.strip() for line in lines[start_index:] if line.strip()]
+        if len(data_lines) < 2:
+            return []
+        labels: list[str] = []
+        for raw in data_lines[1:]:
+            line = raw.strip()
+            if not line or line.startswith("数据源：") or line.startswith("筛选条件："):
+                continue
+            parts = re.split(r"\s+", line)
+            if not parts:
+                continue
+            if parts[0].isdigit() and len(parts) >= 2:
+                label = parts[1]
+            else:
+                label = parts[0]
+            label = str(label or "").strip()
+            if len(label) >= 2 and label not in labels:
+                labels.append(label)
+        return labels[:20]
+
+    def _subset_hint_query(self, context_ref: TaskContextRef | None, labels: list[str]) -> str:
+        if context_ref is None or not labels:
+            return ""
+        if context_ref.constraints.group_by:
+            subject = "以下对象"
+        elif str(context_ref.task_kind or "") in {"structured_data", "dataset_query", "table_query"}:
+            subject = "以下记录"
+        else:
+            subject = "以下对象"
+        return f"仅基于{subject}：{'、'.join(labels)}。"
+
+    def _attach_protocol_handles(
+        self,
+        *,
+        task: TaskRecord,
+        content: str,
+        object_handle_ids: list[str] | None = None,
+        result_handle_ids: list[str] | None = None,
+        primary_result_handle_id: str = "",
+        subset_handle_id: str = "",
+        subset_labels: list[str] | None = None,
+        subset_hint_query: str = "",
+        binding_owner_task_id: str = "",
+        degraded_reason_typed: str = "",
+    ) -> None:
+        context_ref = task.context_ref
+        if context_ref is None:
+            return
+        inferred_object_ids = list(object_handle_ids or self._source_object_handle_ids(context_ref))
+        inferred_result_ids = list(result_handle_ids or [])
+        if not inferred_result_ids and str(content or "").strip():
+            base_kind = "answer"
+            if context_ref.task_kind in {"structured_data", "dataset_query", "table_query"}:
+                base_kind = "structured_answer"
+            elif context_ref.task_kind in {"pdf", "pdf_query", "document_page", "document_section"}:
+                base_kind = "pdf_answer"
+            inferred_result_ids.append(f"result:{base_kind}:{task.task_id}:primary")
+        if not primary_result_handle_id and inferred_result_ids:
+            primary_result_handle_id = inferred_result_ids[0]
+        labels = list(subset_labels or self._extract_subset_labels(task.query, content, context_ref))
+        if not subset_handle_id and labels:
+            subset_handle_id = f"subset:selection:{task.task_id}:primary"
+        if not subset_hint_query and labels:
+            subset_hint_query = self._subset_hint_query(context_ref, labels)
+
+        context_ref.primary_object_handle_id = inferred_object_ids[0] if inferred_object_ids else ""
+        context_ref.primary_result_handle_id = primary_result_handle_id
+        context_ref.active_subset_handle_id = subset_handle_id
+        context_ref.result_handle_ids = list(inferred_result_ids)
+        context_ref.artifact_handle_ids = [item for item in inferred_object_ids if item.startswith("artifact:")]
+        task.metadata["object_handle_ids"] = list(inferred_object_ids)
+        task.metadata["result_handle_ids"] = list(inferred_result_ids)
+        if binding_owner_task_id:
+            task.metadata["binding_owner_task_id"] = binding_owner_task_id
+        if degraded_reason_typed:
+            task.metadata["degraded_reason_typed"] = degraded_reason_typed
+        if task.summary is not None:
+            task.summary.primary_result_handle_id = primary_result_handle_id
+            task.summary.result_handle_ids = list(inferred_result_ids)
+        if task.result_ref is not None:
+            task.result_ref.primary_result_handle_id = primary_result_handle_id
+            task.result_ref.result_handle_ids = list(inferred_result_ids)
+            task.result_ref.subset_handle_id = subset_handle_id
+            task.result_ref.subset_labels = labels
+            task.result_ref.subset_hint_query = subset_hint_query
+
+    def create_completed_execution_task(
+        self,
+        *,
+        session_id: str,
+        query: str,
+        content: str,
+        execution_kind: str,
+        task_kind: str = "",
+        source_kind: str = "",
+        tool_name: str = "",
+        worker_name: str = "",
+        bindings: dict[str, Any] | None = None,
+        constraints: dict[str, Any] | None = None,
+        object_handle_ids: list[str] | None = None,
+        result_handle_ids: list[str] | None = None,
+        primary_result_handle_id: str = "",
+        subset_handle_id: str = "",
+        subset_labels: list[str] | None = None,
+        subset_hint_query: str = "",
+        binding_owner_task_id: str = "",
+        degraded_reason_typed: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> TaskRecord:
+        parent_query_id = f"{session_id}-{execution_kind}-parent-{len(self._tasks) + 1}"
+        task = self._execution_task(
+            session_id,
+            execution_kind,
+            query=query or tool_name or worker_name or execution_kind,
+            parent_query_id=parent_query_id,
+            task_kind=task_kind,
+            source_kind=source_kind,
+            tool_name=tool_name,
+            worker_name=worker_name,
+        )
+        if metadata:
+            task.metadata.update(dict(metadata))
+        if task.context_ref is not None:
+            if task_kind:
+                task.context_ref.task_kind = task_kind
+            if source_kind and not task.context_ref.bindings.source_kind:
+                task.context_ref.bindings.source_kind = source_kind
+            for key, value in dict(bindings or {}).items():
+                if value in ("", None):
+                    continue
+                if hasattr(task.context_ref.bindings, key):
+                    setattr(task.context_ref.bindings, key, value)
+                elif key == "active_table":
+                    task.context_ref.constraints.active_table = str(value)
+            normalized_constraints = dict(constraints or {})
+            if normalized_constraints:
+                task.context_ref.constraints = TaskConstraints(
+                    top_n=normalized_constraints.get("top_n"),
+                    group_by=str(normalized_constraints.get("group_by", "") or ""),
+                    page=normalized_constraints.get("page"),
+                    active_table=str(normalized_constraints.get("active_table", "") or ""),
+                    response_style=str(normalized_constraints.get("response_style", "") or ""),
+                    pdf_mode=str(normalized_constraints.get("pdf_mode", "") or ""),
+                    pdf_section=str(normalized_constraints.get("pdf_section", "") or ""),
+                    pdf_focus_pages=list(normalized_constraints.get("pdf_focus_pages", []) or []),
+                    total_pages=normalized_constraints.get("total_pages"),
+                    readable_pages=normalized_constraints.get("readable_pages"),
+                    usable_pages=normalized_constraints.get("usable_pages"),
+                    must_exclude=list(normalized_constraints.get("must_exclude", []) or []),
+                    must_include=list(normalized_constraints.get("must_include", []) or []),
+                )
+            active_identity = str(task.context_ref.bindings.active_binding_identity or "").strip()
+            if not active_identity:
+                if task.context_ref.bindings.active_pdf:
+                    task.context_ref.bindings.active_binding_identity = (
+                        str(task.context_ref.bindings.active_pdf).replace("\\", "/").strip().lower()
+                    )
+                elif task.context_ref.bindings.active_dataset:
+                    task.context_ref.bindings.active_binding_identity = (
+                        str(task.context_ref.bindings.active_dataset).replace("\\", "/").strip().lower()
+                    )
+        task.mark_running()
+        task.mark_completed(content)
+        task.result_ref = self._persist_result_ref(session_id=session_id, task_id=task.task_id, content=content)
+        task.summary = self._build_task_summary(task.query, content, task.context_ref)
+        self._attach_protocol_handles(
+            task=task,
+            content=content,
+            object_handle_ids=object_handle_ids,
+            result_handle_ids=result_handle_ids,
+            primary_result_handle_id=primary_result_handle_id,
+            subset_handle_id=subset_handle_id,
+            subset_labels=subset_labels,
+            subset_hint_query=subset_hint_query,
+            binding_owner_task_id=binding_owner_task_id,
+            degraded_reason_typed=degraded_reason_typed,
+        )
+        if task.context_ref is not None:
+            task.context_ref.status = "completed"
+            task.context_ref.summary = task.summary.response
+            task.context_ref.result_ref_id = task.result_ref.result_id
+        task.add_event(
+            f"{execution_kind}_task_end",
+            payload={
+                "summary": task.summary.to_dict() if task.summary is not None else None,
+                "context_ref": task.context_ref.to_dict() if task.context_ref is not None else None,
+                "result_ref": task.result_ref.to_dict() if task.result_ref is not None else None,
+            },
+        )
+        return task
 
     async def run_query_tasks(
         self,
@@ -455,6 +717,7 @@ class TaskCoordinator:
                 content=final_subcontent,
             )
             task.summary = self._build_task_summary(subquery, final_subcontent, task.context_ref)
+            self._attach_protocol_handles(task=task, content=final_subcontent)
             if task.context_ref is not None:
                 task.context_ref.status = "completed"
                 task.context_ref.summary = task.summary.response
@@ -535,6 +798,7 @@ class TaskCoordinator:
             content=visible_content,
         )
         task.summary = self._build_task_summary(task.query, visible_content, task.context_ref)
+        self._attach_protocol_handles(task=task, content=visible_content)
         if task.context_ref is not None:
             task.context_ref.status = "completed"
             task.context_ref.summary = task.summary.response
@@ -566,6 +830,7 @@ class TaskCoordinator:
             content=normalized,
         )
         task.summary = self._build_task_summary(task.query, normalized, task.context_ref)
+        self._attach_protocol_handles(task=task, content=normalized)
         if task.context_ref is not None:
             task.context_ref.status = "completed"
             task.context_ref.summary = task.summary.response
@@ -579,3 +844,13 @@ class TaskCoordinator:
             },
         )
         return task
+
+
+def _slug(value: str) -> str:
+    compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", str(value or "").lower()).strip("-")
+    return compact[:48] or "main"
+
+
+def _stable_handle_id(prefix: str, value: str) -> str:
+    digest = hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}:{digest}"

@@ -1031,6 +1031,8 @@ def test_binding_followup_executes_from_owner_task_without_replanning() -> None:
         direct_tools={"pdf_analysis": tool},
         task_coordinator=coordinator,
     )
+    pdf_worker = _PDFWorkerStub(answer="三条行动建议：先立规则，再建审计，最后做责任归口。")
+    runtime.evidence_orchestrator.pdf_worker = pdf_worker
 
     initial_plan = QueryPlan(
         session_id="binding-session",
@@ -1107,7 +1109,7 @@ def test_binding_followup_executes_from_owner_task_without_replanning() -> None:
     assert memory_facade.prefetch_queries == []
     assert model_runtime.last_tools == []
     assert plan_calls["count"] == 1
-    assert "tool_start" in [event["type"] for event in events]
+    assert "worker_start" in [event["type"] for event in events]
     done = next(event for event in reversed(events) if event.get("type") == "done")
     assert done["followup_mode"] == "binding_ref"
     assert done["main_context"]["active_work_item"] == "followup_task_binding_execution"
@@ -1118,6 +1120,9 @@ def test_binding_followup_executes_from_owner_task_without_replanning() -> None:
     assert done["main_context"]["active_binding_identity"].endswith(".pdf")
     assert done["main_context"]["followup_target_task_id"]
     assert done["main_context"]["active_constraints"]["active_pdf"].endswith(".pdf")
+    assert pdf_worker.requests
+    assert pdf_worker.requests[0].owner_task_id
+    assert pdf_worker.requests[0].target_handle_kind in {"task", "object", "result"}
     assert done["task_summary_refs"]
     assert done["task_summary_refs"][0]["task_id"] == done["main_context"]["followup_target_task_id"]
 
