@@ -19,6 +19,7 @@ from query.continuation_resolver import QueryContinuationResolver
 from query.models import BundleItemPlan, BundlePlan, QueryExecutionPlan, QueryPlan, SubtaskPlan
 from query.subtask_planner import QuerySubtaskPlanner
 from query.tool_input_resolver import ToolInputResolver
+from query.worker_models import WorkerExecutionPlan
 
 
 class QueryPlanner:
@@ -100,6 +101,7 @@ class QueryPlanner:
             tool_input = {}
             structured_binding = None
             execution_kind = "agent"
+            worker_plan = None
         elif len(subtasks) <= 1:
             subqueries = [subtask.execution_message for subtask in subtasks]
             executions = [self._attach_subtask_metadata(root_execution, subtasks[0] if subtasks else SubtaskPlan.single(message))]
@@ -108,6 +110,7 @@ class QueryPlanner:
             tool_input = dict(root_execution.tool_input)
             structured_binding = root_execution.structured_binding
             execution_kind = root_execution.execution_kind
+            worker_plan = root_execution.worker_plan
         else:
             subqueries = [subtask.execution_message for subtask in subtasks]
             executions = self._build_compound_executions(
@@ -131,6 +134,7 @@ class QueryPlanner:
             structured_binding = None
             execution_kind = "agent"
             execution_mode = "explicit_fanout"
+            worker_plan = None
         return QueryPlan(
             session_id=session_id,
             message=message,
@@ -148,6 +152,7 @@ class QueryPlanner:
             executions=executions,
             ephemeral_system_messages=list(ephemeral_system_messages or []),
             dispatch_plan=getattr(root_execution, "dispatch_plan", None),
+            worker_plan=worker_plan,
         )
 
     def _build_compound_executions(
@@ -278,6 +283,7 @@ class QueryPlanner:
             active_skill=active_skill,
             tool_registry=self.tool_runtime.registry,
         )
+        worker_plan = self._worker_plan_from_dispatch(dispatch_plan)
         structured_binding = self.binding_resolver.resolve(
             message=message,
             understanding=query_understanding,
@@ -292,7 +298,9 @@ class QueryPlanner:
             structured_binding.source = "compound_authority"
         tool_input = {}
         execution_kind = "agent"
-        if query_understanding.route == "tool" and query_understanding.tool_name:
+        if worker_plan is not None and worker_plan.cutover_mode == "primary":
+            execution_kind = "worker"
+        elif query_understanding.route == "tool" and query_understanding.tool_name:
             tool_input = self.tool_input_resolver.resolve(
                 plan=SimpleNamespace(
                     message=message,
@@ -314,7 +322,20 @@ class QueryPlanner:
             execution_kind=execution_kind,
             execution_posture=str(getattr(query_understanding, "execution_posture", "") or ""),
             dispatch_plan=dispatch_plan,
+            worker_plan=worker_plan,
             ephemeral_system_messages=list(ephemeral_system_messages or []),
+        )
+
+    def _worker_plan_from_dispatch(self, dispatch_plan) -> WorkerExecutionPlan | None:
+        request = getattr(dispatch_plan, "selected_worker_request", None)
+        if request is None:
+            return None
+        return WorkerExecutionPlan(
+            worker_route=str(getattr(request, "worker_route", "") or "retrieval"),
+            request=request,
+            expected_result="evidence",
+            fallback_execution_kind="agent",
+            cutover_mode="primary",
         )
 
     def _authoritative_context_from_execution(

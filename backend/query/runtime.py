@@ -15,8 +15,13 @@ from pdf_agent import PDFCanonicalResult
 from query.answer_assembler import AnswerAssembler
 from query.answer_finalizer import RAGEvidencePack
 from query.context_models import MainContextState, TaskSummaryRef
+from query.evidence_orchestrator import EvidenceOrchestrator
+from query.evidence_store import BindingCandidateStore
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryContext, QueryExecutionPlan, QueryPlan, QueryRequest
+from query.retrieval_worker import RetrievalWorker
+from query.structured_data_worker import StructuredDataWorker
+from query.binding_models import StructuredDatasetBinding
 from query.output_boundary import AssistantOutputBoundary, contains_internal_protocol, sanitize_visible_assistant_content
 from query.runtime_context_state import RuntimeContextState
 from query.runtime_followup import RuntimeFollowupCoordinator
@@ -25,11 +30,12 @@ from query.runtime_output_policy import RuntimeOutputPolicy
 from query.runtime_tools import RuntimeToolBridge
 from query.prompt_builder import build_system_prompt
 from query.planner import QueryPlanner
+from query.worker_models import WorkerExecutionPlan, WorkerRequest
 from runtime.model_runtime import ModelRuntime, ModelRuntimeError, stringify_content
 from skill_system import SkillDefinition
 from tasks.coordinator import TaskCoordinator
 from tools.contracts import ToolContractDecision, ToolContractGate, ToolScope
-from understanding import analyze_memory_intent, evaluate_memory_write
+from understanding import QueryUnderstanding, analyze_memory_intent, evaluate_memory_write
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +77,15 @@ class QueryRuntime:
             stringify_tool_output=self._stringify_tool_output,
         )
         self._persistence = RuntimePersistenceAssembler(hidden_skill_notice=HIDDEN_SKILL_NOTICE)
+        self.binding_candidate_store = BindingCandidateStore()
+        self.retrieval_worker = RetrievalWorker(retrieval_service=retrieval_service)
+        self.structured_data_worker = StructuredDataWorker(tool_runtime=tool_runtime)
+        self.evidence_orchestrator = EvidenceOrchestrator(
+            retrieval_worker=self.retrieval_worker,
+            structured_data_worker=self.structured_data_worker,
+            candidate_store=self.binding_candidate_store,
+            output_policy=self._output_policy,
+        )
         self._session_memory_projection: dict[str, dict[str, Any]] = {}
         self._context_state = RuntimeContextState(
             memory_facade=memory_facade,
@@ -458,6 +473,8 @@ class QueryRuntime:
                 explicit_subtasks=explicit_subtasks,
             )
         executions = plan.iter_executions()
+        if executions:
+            executions[0] = self._maybe_build_candidate_selection_execution(session_id, executions[0])
         if trace is not None:
             trace.annotate(
                 {
@@ -578,8 +595,78 @@ class QueryRuntime:
         )
         executions = plan.iter_executions()
         execution = executions[0]
+        execution = self._maybe_build_candidate_selection_execution(session_id, execution)
         async for event in self._stream_planned_execution(session_id, execution, trace=trace):
             yield event
+
+    def _maybe_build_candidate_selection_execution(
+        self,
+        session_id: str,
+        execution: QueryExecutionPlan,
+    ) -> QueryExecutionPlan:
+        selection = self.binding_candidate_store.resolve_selection(session_id, execution.message)
+        if selection is None:
+            return execution
+        candidate = selection.candidate
+        if candidate.kind != "dataset":
+            return execution
+        dataset_path = str(candidate.identity or "").strip()
+        if not dataset_path:
+            return execution
+        source_query = str(selection.source_query or execution.message or "").strip()
+        binding = StructuredDatasetBinding(
+            dataset_path=dataset_path,
+            target_object=str(candidate.display_label or ""),
+            source="evidence_candidate_selection",
+            confidence=float(candidate.confidence or 0.0),
+            binding_identity=dataset_path.replace("\\", "/").strip().lower(),
+            explicit_switch=True,
+        )
+        request = WorkerRequest(
+            request_id=f"worker:structured_data:{candidate.candidate_id}",
+            session_id=session_id,
+            query=source_query,
+            worker_route="structured_data",
+            task_frame={
+                "intent": "structured_candidate_followup",
+                "source_kind": "dataset",
+                "task_kind": "dataset_query",
+                "modality": "table",
+                "selection_source": selection.selection_source,
+            },
+            bindings={"active_dataset": dataset_path},
+        )
+        self.binding_candidate_store.clear(session_id)
+        return QueryExecutionPlan(
+            message=source_query,
+            history=list(execution.history),
+            memory_intent=execution.memory_intent,
+            query_understanding=QueryUnderstanding(
+                intent="structured_candidate_followup",
+                source_kind="dataset",
+                task_kind="dataset_query",
+                modality="table",
+                route="worker",
+                execution_posture="worker",
+                direct_route_reason="evidence_candidate_selection",
+                capability_requests=["dataset_analysis"],
+                should_skip_rag=True,
+                reasons=["evidence_candidate_selection", selection.selection_source],
+            ),
+            active_skill=execution.active_skill,
+            structured_binding=binding,
+            execution_kind="worker",
+            execution_posture="worker",
+            worker_plan=WorkerExecutionPlan(
+                worker_route="structured_data",
+                request=request,
+                expected_result="canonical",
+                candidate_refs=[candidate.candidate_id],
+                fallback_execution_kind="none",
+                cutover_mode="primary",
+            ),
+            ephemeral_system_messages=list(execution.ephemeral_system_messages),
+        )
 
     async def _stream_planned_execution(
         self,
@@ -623,6 +710,17 @@ class QueryRuntime:
                     context.augmented_history,
                 )
             yield {"type": "context_management", "context": context.context_compaction}
+
+            if execution.execution_kind == "worker" and execution.worker_plan is not None:
+                async for event in self.evidence_orchestrator.stream_execution(
+                    session_id=session_id,
+                    execution=execution,
+                    worker_plan=execution.worker_plan,
+                    main_context=context.main_context,
+                    trace=trace,
+                ):
+                    yield event
+                return
 
             if execution.execution_kind == "direct_tool" and execution.query_understanding.tool_name:
                 async for event in self._stream_direct_tool_execution(session_id, execution, trace=trace):

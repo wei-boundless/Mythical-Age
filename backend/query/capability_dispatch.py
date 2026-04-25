@@ -5,6 +5,7 @@ from typing import Any
 
 from skill_system import SkillDefinition
 from tools.contracts import ToolScope
+from query.worker_models import WorkerRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,8 @@ class DispatchPlan:
     effective_tool_scope: ToolScope = field(default_factory=ToolScope)
     tool_candidates: tuple[ToolCandidate, ...] = ()
     selected_tool_request: ToolInvocationRequest | None = None
+    selected_worker_request: WorkerRequest | None = None
+    worker_route: str = ""
     prompt_exposure: PromptExposurePlan = field(default_factory=PromptExposurePlan)
     reasons: tuple[str, ...] = ()
 
@@ -98,6 +101,7 @@ class CapabilityDispatchScheduler:
             for name in candidate_names
         )
         selected_request = self._selected_tool_request(task_frame, candidates)
+        selected_worker_request = self._selected_worker_request(task_frame)
         prompt_exposure = self._prompt_exposure(active_skill=active_skill, candidates=candidates)
         return DispatchPlan(
             route=route,
@@ -105,8 +109,15 @@ class CapabilityDispatchScheduler:
             effective_tool_scope=tool_scope,
             tool_candidates=candidates,
             selected_tool_request=selected_request,
+            selected_worker_request=selected_worker_request,
+            worker_route=str(getattr(selected_worker_request, "worker_route", "") or ""),
             prompt_exposure=prompt_exposure,
-            reasons=self._reasons(task_frame, active_skill=active_skill, selected_request=selected_request),
+            reasons=self._reasons(
+                task_frame,
+                active_skill=active_skill,
+                selected_request=selected_request,
+                selected_worker_request=selected_worker_request,
+            ),
         )
 
     def _candidate_names(
@@ -153,6 +164,36 @@ class CapabilityDispatchScheduler:
             contract_status="selected_existing_tool",
         )
 
+    def _selected_worker_request(self, task_frame: Any) -> WorkerRequest | None:
+        route = str(getattr(task_frame, "route", "") or "").strip()
+        execution_posture = str(getattr(task_frame, "execution_posture", "") or "").strip()
+        if route != "rag" or execution_posture not in {"", "direct_rag"}:
+            return None
+        if bool(getattr(task_frame, "should_skip_rag", False)):
+            return None
+        capabilities = {str(item or "").strip() for item in list(getattr(task_frame, "capability_requests", []) or [])}
+        if "knowledge_lookup" not in capabilities and "faq" not in capabilities:
+            return None
+        query = str(dict(getattr(task_frame, "tool_input", {}) or {}).get("query", "") or "").strip()
+        if not query:
+            query = str(getattr(task_frame, "message", "") or "").strip()
+        if not query:
+            query = str(getattr(task_frame, "target_object", "") or "").strip()
+        return WorkerRequest(
+            request_id="worker:retrieval:main",
+            query=query,
+            worker_route="retrieval",
+            task_frame={
+                "intent": str(getattr(task_frame, "intent", "") or ""),
+                "source_kind": str(getattr(task_frame, "source_kind", "") or ""),
+                "task_kind": str(getattr(task_frame, "task_kind", "") or ""),
+                "modality": str(getattr(task_frame, "modality", "") or ""),
+                "route": route,
+                "capability_requests": list(getattr(task_frame, "capability_requests", []) or []),
+            },
+            constraints=dict(getattr(task_frame, "structural_signals", {}) or {}),
+        )
+
     def _prompt_exposure(
         self,
         *,
@@ -177,12 +218,15 @@ class CapabilityDispatchScheduler:
         *,
         active_skill: SkillDefinition | None,
         selected_request: ToolInvocationRequest | None,
+        selected_worker_request: WorkerRequest | None,
     ) -> tuple[str, ...]:
         reasons = ["dispatch_shadow_recorded"]
         if active_skill is not None:
             reasons.append("skill_policy_attached")
         if selected_request is not None:
             reasons.append("tool_request_preserved")
+        if selected_worker_request is not None:
+            reasons.append("worker_request_selected")
         if str(getattr(task_frame, "route", "") or "") != "tool":
             reasons.append("non_tool_route")
         return tuple(reasons)

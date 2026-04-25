@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from query.binding_models import StructuredDatasetBinding
 from query.context_models import EvidenceSummary, MainContextState, TaskSummaryRef
+from query.evidence_models import EvidenceEnvelope
+from query.worker_models import WorkerExecutionPlan
 from skill_system import SkillDefinition
 from understanding import MemoryIntent, QueryUnderstanding
 
@@ -60,9 +62,12 @@ class QueryExecutionPlan:
     active_skill: SkillDefinition | None = None
     tool_input: dict[str, Any] = field(default_factory=dict)
     structured_binding: StructuredDatasetBinding | None = None
-    execution_kind: Literal["agent", "direct_tool"] = "agent"
+    execution_kind: Literal["agent", "direct_tool", "worker"] = "agent"
     execution_posture: str = ""
     dispatch_plan: Any | None = None
+    worker_plan: WorkerExecutionPlan | None = None
+    evidence_envelope: EvidenceEnvelope | None = None
+    artifact_graph_delta: dict[str, Any] | None = None
     ephemeral_system_messages: list[str] = field(default_factory=list)
     subtask_id: str = ""
     subtask_goal: str = ""
@@ -114,8 +119,11 @@ class QueryPlan:
     active_skill: SkillDefinition | None = None
     tool_input: dict[str, Any] = field(default_factory=dict)
     structured_binding: StructuredDatasetBinding | None = None
-    execution_kind: Literal["agent", "direct_tool"] = "agent"
+    execution_kind: Literal["agent", "direct_tool", "worker"] = "agent"
     dispatch_plan: Any | None = None
+    worker_plan: WorkerExecutionPlan | None = None
+    evidence_envelope: EvidenceEnvelope | None = None
+    artifact_graph_delta: dict[str, Any] | None = None
     executions: list[QueryExecutionPlan] = field(default_factory=list)
     ephemeral_system_messages: list[str] = field(default_factory=list)
 
@@ -135,6 +143,9 @@ class QueryPlan:
                 execution_kind=self.execution_kind,
                 execution_posture=str(getattr(self.query_understanding, "execution_posture", "") or ""),
                 dispatch_plan=getattr(self, "dispatch_plan", None),
+                worker_plan=getattr(self, "worker_plan", None),
+                evidence_envelope=getattr(self, "evidence_envelope", None),
+                artifact_graph_delta=getattr(self, "artifact_graph_delta", None),
                 subtask_id=(self.subtasks[0].subtask_id if self.subtasks else "main"),
                 subtask_goal=(self.subtasks[0].goal if self.subtasks else self.message),
                 subtask_title=(self.subtasks[0].user_visible_title if self.subtasks else self.message),
