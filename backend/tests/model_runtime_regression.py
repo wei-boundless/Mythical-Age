@@ -52,6 +52,29 @@ class _FakeModel:
         return self.outcome
 
 
+class _AsyncCloseable:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _SyncCloseable:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _CloseableFakeModel(_FakeModel):
+    def __init__(self, outcome) -> None:
+        super().__init__(outcome)
+        self.root_async_client = _AsyncCloseable()
+        self.root_client = _SyncCloseable()
+
+
 class _FakeAgent:
     def __init__(self, *, items=None, error: Exception | None = None) -> None:
         self.items = list(items or [])
@@ -137,6 +160,47 @@ def test_model_runtime_retries_stream_before_first_event(monkeypatch: pytest.Mon
     items = asyncio.run(_collect())
 
     assert items == [("messages", (SimpleNamespace(content="ok"), {}))]
+
+
+def test_model_runtime_closes_model_clients_after_invoke(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _runtime(retries=0)
+    model = _CloseableFakeModel(SimpleNamespace(content="ok"))
+    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: model)
+
+    response = asyncio.run(runtime.invoke_messages([{"role": "user", "content": "hello"}]))
+
+    assert response.content == "ok"
+    assert model.root_async_client.closed is True
+    assert model.root_client.closed is True
+
+
+def test_model_runtime_closes_model_clients_after_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _runtime(retries=0)
+    model = _CloseableFakeModel(SimpleNamespace(content="unused"))
+    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: model)
+    monkeypatch.setattr(
+        runtime,
+        "_create_raw_agent",
+        lambda **_kwargs: _FakeAgent(items=[("messages", (SimpleNamespace(content="ok"), {}))]),
+    )
+
+    wrapper = runtime.create_conversation_agent(
+        system_prompt="system",
+        tools=[],
+        agent_definition=MAIN_AGENT,
+    )
+
+    async def _collect():
+        items = []
+        async for item in wrapper.astream({"messages": []}, stream_mode=["messages"]):
+            items.append(item)
+        return items
+
+    items = asyncio.run(_collect())
+
+    assert items == [("messages", (SimpleNamespace(content="ok"), {}))]
+    assert model.root_async_client.closed is True
+    assert model.root_client.closed is True
 
 
 def test_model_runtime_appends_cross_provider_fallback_candidate() -> None:

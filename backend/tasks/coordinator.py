@@ -9,10 +9,7 @@ from typing import Any
 
 from agents import EXPLORER_AGENT, WORKER_AGENT
 from query.binding_models import StructuredDatasetBinding
-from structured_data.subset_selection import (
-    extract_structured_subset_selection,
-    subset_hint_query as build_subset_hint_query,
-)
+from structured_data.subset_selection import extract_structured_subset_selection
 from tasks.context_models import TaskBindings, TaskConstraints, TaskContextRef, TaskResultRef, TaskSummary
 from tasks.models import TaskRecord
 
@@ -418,17 +415,6 @@ class TaskCoordinator:
         selection = extract_structured_subset_selection(content)
         return list(selection.labels), str(selection.filter_column or "")
 
-    def _subset_hint_query(self, context_ref: TaskContextRef | None, labels: list[str]) -> str:
-        if context_ref is None or not labels:
-            return ""
-        if context_ref.constraints.group_by:
-            subject = "以下对象"
-        elif self._is_structured_task_context(context_ref):
-            subject = "以下记录"
-        else:
-            subject = "以下对象"
-        return build_subset_hint_query(labels, subject=subject)
-
     def _attach_protocol_handles(
         self,
         *,
@@ -440,7 +426,6 @@ class TaskCoordinator:
         subset_handle_id: str = "",
         subset_labels: list[str] | None = None,
         subset_filter_column: str = "",
-        subset_hint_query: str = "",
         binding_owner_task_id: str = "",
         degraded_reason_typed: str = "",
     ) -> None:
@@ -463,8 +448,6 @@ class TaskCoordinator:
         filter_column = str(subset_filter_column or inferred_filter_column or "").strip()
         if not subset_handle_id and labels:
             subset_handle_id = f"subset:selection:{task.task_id}:primary"
-        if not subset_hint_query and labels:
-            subset_hint_query = self._subset_hint_query(context_ref, labels)
 
         context_ref.primary_object_handle_id = inferred_object_ids[0] if inferred_object_ids else ""
         context_ref.primary_result_handle_id = primary_result_handle_id
@@ -486,7 +469,6 @@ class TaskCoordinator:
             task.result_ref.subset_handle_id = subset_handle_id
             task.result_ref.subset_labels = labels
             task.result_ref.subset_filter_column = filter_column
-            task.result_ref.subset_hint_query = subset_hint_query
 
     def create_completed_execution_task(
         self,
@@ -507,7 +489,6 @@ class TaskCoordinator:
         subset_handle_id: str = "",
         subset_labels: list[str] | None = None,
         subset_filter_column: str = "",
-        subset_hint_query: str = "",
         binding_owner_task_id: str = "",
         degraded_reason_typed: str = "",
         metadata: dict[str, Any] | None = None,
@@ -577,7 +558,6 @@ class TaskCoordinator:
             subset_handle_id=subset_handle_id,
             subset_labels=subset_labels,
             subset_filter_column=subset_filter_column,
-            subset_hint_query=subset_hint_query,
             binding_owner_task_id=binding_owner_task_id,
             degraded_reason_typed=degraded_reason_typed,
         )

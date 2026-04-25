@@ -17,6 +17,7 @@ from query.context_models import MainContextState, TaskSummaryRef
 from query.evidence_orchestrator import EvidenceOrchestrator
 from query.evidence_graph import EvidenceArtifactGraph
 from query.evidence_store import BindingCandidateStore, EvidenceGraphStore
+from query.followup_models import FollowupResolution
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryContext, QueryExecutionPlan, QueryPlan, QueryRequest
 from query.pdf_worker import PDFWorker
@@ -388,13 +389,24 @@ class QueryRuntime:
         trace=None,
     ):
         authority_context = self._load_session_authoritative_context(session_id)
+        followup_risk_snapshot = self._preview_followup_runtime_risk(
+            session_id=session_id,
+            history=history,
+            message=message,
+        )
         followup_resolution = self.followup_resolver.resolve(session_id=session_id, message=message)
+        followup_resolution = self._guard_followup_resolution_by_runtime_risk(
+            message=message,
+            followup_resolution=followup_resolution,
+            risk_snapshot=followup_risk_snapshot,
+        )
         followup_results = self._followup_results_from_resolution(session_id, followup_resolution)
         if trace is not None:
             trace.annotate(
                 {
                     "app.followup_mode": followup_resolution.mode,
                     "app.followup_source": followup_resolution.resolution_source,
+                    "app.followup_risk_flags": ",".join(list(followup_risk_snapshot.get("risk_flags", []) or [])),
                     "app.followup_task_id": (
                         self._resolved_binding_owner_task_id(followup_resolution)
                         or self._resolved_task_id(followup_resolution)
@@ -1129,6 +1141,9 @@ class QueryRuntime:
                 ):
                     if mode == "messages":
                         chunk, _metadata = payload
+                        chunk_type = str(getattr(chunk, "type", "") or "").strip().lower()
+                        if chunk_type == "tool":
+                            continue
                         text = stringify_content(getattr(chunk, "content", ""))
                         if text:
                             visible_delta = output_boundary.ingest_stream_text(text)
@@ -1578,7 +1593,6 @@ class QueryRuntime:
             ),
             subset_labels=list(presentation_hints.get("subset_labels", []) or []),
             subset_filter_column=str(presentation_hints.get("subset_filter_column", "") or ""),
-            subset_hint_query=str(presentation_hints.get("subset_hint_query", "") or ""),
             binding_owner_task_id=str(event.get("binding_owner_task_id", "") or ""),
             degraded_reason_typed=degraded_reason_typed,
             metadata={
@@ -1711,6 +1725,124 @@ class QueryRuntime:
 
     def _load_session_authoritative_context(self, session_id: str) -> dict[str, Any]:
         return self._context_state.load_session_authoritative_context(session_id)
+
+    def _preview_followup_runtime_risk(
+        self,
+        *,
+        session_id: str,
+        history: list[dict[str, Any]],
+        message: str,
+    ) -> dict[str, Any]:
+        session_memory = getattr(self.memory_facade, "session_memory", None)
+        manager_factory = getattr(session_memory, "manager", None)
+        if session_memory is None or not callable(manager_factory):
+            return {}
+        try:
+            manager = manager_factory(session_id)
+            preview_history = [*list(history or []), {"role": "user", "content": message}]
+            preview_messages = self.memory_facade.adapter.to_messages(preview_history, session_id=session_id)
+            state = manager.preview_state(preview_messages)
+        except Exception:
+            logger.exception("Failed to preview follow-up runtime risk for %s", session_id)
+            return {}
+        return {
+            "risk_flags": [
+                str(item or "").strip()
+                for item in list(getattr(state, "risk_flags", []) or [])
+                if str(item or "").strip()
+            ],
+            "flow_type": str(getattr(getattr(state, "flow_state", None), "flow_type", "") or "").strip(),
+            "active_pdf": str(getattr(getattr(state, "context_slots", None), "active_pdf", "") or "").strip(),
+            "active_dataset": str(getattr(getattr(state, "context_slots", None), "active_dataset", "") or "").strip(),
+        }
+
+    def _guard_followup_resolution_by_runtime_risk(
+        self,
+        *,
+        message: str,
+        followup_resolution,
+        risk_snapshot: dict[str, Any] | None,
+    ):
+        if str(getattr(followup_resolution, "mode", "") or "").strip() != "binding_ref":
+            return followup_resolution
+        flags = {
+            str(item or "").strip()
+            for item in list((risk_snapshot or {}).get("risk_flags", []) or [])
+            if str(item or "").strip()
+        }
+        if not flags:
+            return followup_resolution
+        binding_kind = str(getattr(followup_resolution, "resolved_binding_kind", "") or getattr(followup_resolution, "binding_kind", "") or "").strip()
+        if self._message_has_strong_binding_anchor(message, binding_kind=binding_kind):
+            return followup_resolution
+        if "clarification_required" in flags:
+            return FollowupResolution(
+                mode="clarify",
+                target_kind=str(getattr(followup_resolution, "target_kind", "") or "binding"),
+                resolved_target_kind=str(getattr(followup_resolution, "resolved_target_kind", "") or "binding"),
+                task_id=str(getattr(followup_resolution, "task_id", "") or ""),
+                task_ids=list(getattr(followup_resolution, "task_ids", []) or []),
+                resolved_task_id=str(getattr(followup_resolution, "resolved_task_id", "") or ""),
+                resolved_task_ids=list(getattr(followup_resolution, "resolved_task_ids", []) or []),
+                binding_key=str(getattr(followup_resolution, "binding_key", "") or ""),
+                binding_kind=binding_kind,
+                binding_identity=str(getattr(followup_resolution, "binding_identity", "") or ""),
+                binding_owner_task_id=str(getattr(followup_resolution, "binding_owner_task_id", "") or ""),
+                resolved_binding_kind=binding_kind,
+                resolved_binding_identity=str(getattr(followup_resolution, "resolved_binding_identity", "") or ""),
+                resolved_binding_owner_task_id=str(getattr(followup_resolution, "resolved_binding_owner_task_id", "") or ""),
+                resolution_source="runtime_risk_gate",
+                confidence=0.0,
+                reason="runtime_risk_clarification_required",
+                requires_clarification=True,
+                clarification_prompt="当前会话上下文存在任务漂移风险。请直接说明你要继续的是哪一个对象、文件或结果。",
+            )
+        suppressing_flags = {"cross_flow_slot_contamination", "implicit_goal_jump"}
+        if suppressing_flags & flags:
+            return FollowupResolution(
+                resolution_source="runtime_risk_gate",
+                reason="runtime_risk_binding_suppressed",
+            )
+        if "low_flow_confidence" in flags and str(getattr(followup_resolution, "resolution_source", "") or "").strip() == "session_committed_binding":
+            return FollowupResolution(
+                resolution_source="runtime_risk_gate",
+                reason="runtime_low_confidence_binding_suppressed",
+            )
+        return followup_resolution
+
+    def _message_has_strong_binding_anchor(self, message: str, *, binding_kind: str) -> bool:
+        normalized = str(message or "").strip().lower()
+        if not normalized:
+            return False
+        if binding_kind == "active_pdf":
+            if ".pdf" in normalized:
+                return True
+            if re.search(r"第\s*\d+\s*页", message):
+                return True
+            if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message):
+                return True
+            if re.search(r"page\s*\d+", normalized):
+                return True
+            if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)", message):
+                return True
+            return any(
+                marker in message or marker in normalized
+                for marker in (
+                    "这份 pdf",
+                    "那个 pdf",
+                    "这份PDF",
+                    "那个PDF",
+                    "回到刚才 pdf",
+                    "回到刚才 PDF",
+                    "刚才那份 pdf",
+                    "刚才那份 PDF",
+                    "这份文档",
+                    "那个文档",
+                )
+            )
+        if binding_kind == "active_dataset":
+            return any(ext in normalized for ext in (".xlsx", ".csv", ".xls", ".json", ".parquet"))
+        return False
 
     def _is_stale_non_worker_rag_plan(self, execution: QueryExecutionPlan) -> bool:
         if not self.settings_service.get_rag_mode():

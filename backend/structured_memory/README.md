@@ -66,13 +66,13 @@ messages -> session summary -> compact older history -> build runtime prompt
 
 ```text
 your-agent/
-  context_profile/
-    constitution/
-      SOUL.md
-      IDENTITY.md
-    profile/
-      USER.md
-      AGENTS.md
+  soul/
+    agent_core/
+      CORE.md
+      ACTIVE_SEED.md
+      seeds/
+        *.md
+    agent.md
   durable_memory/
     notes/
       *.md

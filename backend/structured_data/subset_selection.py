@@ -53,15 +53,6 @@ def extract_structured_subset_selection(text: str) -> StructuredSubsetSelection:
         if label not in labels:
             labels.append(label)
     return StructuredSubsetSelection(labels=labels[:20], filter_column=filter_column)
-
-
-def subset_hint_query(labels: list[str], *, subject: str = "以下对象") -> str:
-    normalized = [str(label or "").strip() for label in labels if str(label or "").strip()]
-    if not normalized:
-        return ""
-    return f"仅基于{subject}：{'、'.join(normalized)}。"
-
-
 def _find_result_block_start(lines: list[str]) -> int:
     for idx, line in enumerate(lines):
         if _RESULT_BLOCK_RE.match(str(line or "").strip()):

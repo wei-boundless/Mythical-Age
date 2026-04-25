@@ -38,7 +38,7 @@ export function ChatMessage({
           </div>
           <div>
             <p className="archive-message-shell__label text-sm font-medium">
-              {isUser ? "用户输入" : assistantName}
+              {isUser ? "用户" : assistantName}
             </p>
             <p className="archive-message-shell__eyebrow text-xs uppercase tracking-[0.24em] text-[var(--color-text-soft)]">
               {isUser ? "User" : "Current Style"}

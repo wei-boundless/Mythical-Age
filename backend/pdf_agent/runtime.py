@@ -117,6 +117,7 @@ class PDFReadAgentRuntime:
                 "route_reason": route.reason,
                 "target_page": route.target_page,
                 "target_section": route.target_section,
+                "target_section_key": self._section_result_key(route.target_section),
                 "document_total_pages": prepared.total_pages,
                 "readable_pages": prepared.readable_pages,
                 "usable_pages": prepared.usable_pages,
@@ -317,17 +318,9 @@ class PDFReadAgentRuntime:
         target_section = route.target_section.strip()
         section_pages = self._match_section_pages(prepared=prepared, target_section=target_section)
         if not section_pages:
-            ranked = self._rank_pages(query=query, pages=prepared.pages)
-            selected = ranked[: max(1, min(max_chunks, 3))]
-            evidence = [self._evidence_from_page(page, score=score) for page, score in selected]
-            if not evidence:
-                return _PDFExecutionOutcome(
-                    degraded_reason="target_section_not_located",
-                    evidence=[],
-                )
             return _PDFExecutionOutcome(
                 degraded_reason="target_section_not_located",
-                evidence=evidence,
+                evidence=[],
             )
         selected_pages = [page for page in section_pages if self._page_eligible_for_section_summary(page)][
             : max(1, min(max_chunks, 4))
@@ -405,7 +398,7 @@ class PDFReadAgentRuntime:
         normalized_target = self._normalize_section_label(target_section)
         matched: list[PDFPreparedPage] = []
         for page in prepared.pages:
-            haystacks = [page.section, self._heading_candidate(page.text), self._first_line(page.text), page.text[:200]]
+            haystacks = [page.section, self._heading_candidate(page.text)]
             normalized_haystacks = [self._normalize_section_label(item) for item in haystacks if item]
             if any(normalized_target and normalized_target in hay for hay in normalized_haystacks):
                 if page.page_has_text:
@@ -554,6 +547,12 @@ class PDFReadAgentRuntime:
         if preserve_surface:
             return normalized
         return _CHINESE_NUMERAL_RE.sub(lambda item: str(self._parse_chinese_number(item.group(0)) or item.group(0)), normalized)
+
+    def _section_result_key(self, text: str) -> str:
+        normalized = self._normalize_section_label(text)
+        if not normalized:
+            return ""
+        return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", normalized.lower()).strip("-")
 
     def _looks_sparse(self, text: str) -> bool:
         normalized = self._collapse(text)

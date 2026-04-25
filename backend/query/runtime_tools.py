@@ -5,6 +5,7 @@ import json
 import uuid
 from typing import Any, Callable
 
+from pdf_agent import PDFCanonicalResult
 from query.output_boundary import sanitize_visible_assistant_content
 from query.output_classifier import build_output_decision, classify_output_candidate
 from query.tool_output_adapter import build_tool_result_envelope
@@ -276,7 +277,6 @@ class RuntimeToolBridge:
                 "subset_handle_id": str(getattr(task.result_ref, "subset_handle_id", "") or ""),
                 "subset_labels": list(getattr(task.result_ref, "subset_labels", []) or []),
                 "subset_filter_column": str(getattr(task.result_ref, "subset_filter_column", "") or ""),
-                "subset_hint_query": str(getattr(task.result_ref, "subset_hint_query", "") or ""),
             },
             "binding_owner_task_id": str(task.metadata.get("binding_owner_task_id", "") or task.task_id),
             "degraded_reason_typed": str(task.metadata.get("degraded_reason_typed", "") or ""),
@@ -433,6 +433,12 @@ class RuntimeToolBridge:
         )
 
     def prepare_direct_tool_output_candidate(self, output: Any, *, tool_name: str = "") -> tuple[str, bool]:
+        if tool_name == "pdf_analysis":
+            normalized = stringify_content(output)
+            if isinstance(normalized, str):
+                stripped = normalized.strip()
+                if PDFCanonicalResult.from_tool_output(stripped) is not None:
+                    return stripped, False
         envelope = build_tool_result_envelope(
             output,
             tool_name=tool_name,

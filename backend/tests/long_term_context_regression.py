@@ -27,9 +27,9 @@ def _write(path: Path, content: str) -> None:
 def test_long_term_context_bundle_layers_workspace_and_memory() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        _write(root / "context_profile" / "agent_core" / "CORE.md", "# Agent Core\n\nCalm and direct.")
-        _write(root / "context_profile" / "agent_core" / "ACTIVE_SEED.md", "# Active Soul Seed\n\nRiver-like and restrained.")
-        _write(root / "context_profile" / "profile" / "agent.md", "# Agent Profile\n\nPrefer Chinese.")
+        _write(root / "soul" / "agent_core" / "CORE.md", "# Agent Core\n\nCalm and direct.")
+        _write(root / "soul" / "agent_core" / "ACTIVE_SEED.md", "# Active Soul Seed\n\nRiver-like and restrained.")
+        _write(root / "soul" / "agent.md", "# Agent Profile\n\nPrefer Chinese.")
         _write(root / "durable_memory" / "index" / "MEMORY.md", "# Memory Index\n\n- [PowerShell](powershell.md) - Prefer PowerShell.")
 
         bundle = build_long_term_context_bundle(root)
@@ -40,6 +40,10 @@ def test_long_term_context_bundle_layers_workspace_and_memory() -> None:
         _assert("### 稳定原则" in rendered and "Calm and direct." in rendered, "agent core should map into semantic stable-principles label")
         _assert("### 当前风格" in rendered and "River-like and restrained." in rendered, "active seed should map into semantic current-style label")
         _assert("### 用户与项目偏好" in rendered and "Prefer Chinese." in rendered, "agent profile should map into semantic preferences label")
+        _assert(
+            rendered.index("### 当前风格") < rendered.index("### 稳定原则") < rendered.index("### 用户与项目偏好"),
+            "long-term static block should keep the fixed order: active seed -> core -> profile",
+        )
         _assert("PowerShell" in rendered, "durable memory should be included as dynamic memory")
 
 
@@ -47,9 +51,9 @@ def test_system_prompt_uses_unified_long_term_context_block() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         _write(root / "SKILLS_SNAPSHOT.md", "# Skills Snapshot\n\n- structured-data-analysis")
-        _write(root / "context_profile" / "agent_core" / "CORE.md", "# Agent Core\n\nCalm and direct.")
-        _write(root / "context_profile" / "agent_core" / "ACTIVE_SEED.md", "# Active Soul Seed\n\nRiver-like and restrained.")
-        _write(root / "context_profile" / "profile" / "agent.md", "# Agent Profile\n\nPrefer Chinese.")
+        _write(root / "soul" / "agent_core" / "CORE.md", "# Agent Core\n\nCalm and direct.")
+        _write(root / "soul" / "agent_core" / "ACTIVE_SEED.md", "# Active Soul Seed\n\nRiver-like and restrained.")
+        _write(root / "soul" / "agent.md", "# Agent Profile\n\nPrefer Chinese.")
         _write(root / "durable_memory" / "index" / "MEMORY.md", "# Memory Index\n\n- [PowerShell](powershell.md) - Prefer PowerShell.")
 
         prompt = build_system_prompt(

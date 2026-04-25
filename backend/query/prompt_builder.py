@@ -13,6 +13,19 @@ STATIC_COMPONENTS: tuple[tuple[str, str], ...] = (
     ("Skills Snapshot", "SKILLS_SNAPSHOT.md"),
 )
 
+STATIC_PROMPT_ASSEMBLY_ORDER: tuple[str, ...] = (
+    "capability_summary",
+    "soul_static_context",
+    "retrieval_grounding_guard",
+    "static_prompt_concealment_guard",
+)
+
+SYSTEM_PROMPT_ASSEMBLY_ORDER: tuple[str, ...] = (
+    "static_prompt",
+    "session_prompt",
+    "turn_prompt",
+)
+
 
 def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:

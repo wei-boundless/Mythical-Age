@@ -113,8 +113,38 @@ def test_pdf_agent_runtime_routes_section_query_to_section_scope() -> None:
     assert result.ok
     assert result.effective_mode == "section"
     assert result.metadata["target_section"].startswith("第")
+    assert result.metadata["target_section_key"] == "第2部分"
     assert result.pages[:2] == [2, 3]
     assert "第二部分" in result.summary
+
+
+def test_pdf_agent_runtime_section_miss_fails_closed_without_ranked_fallback_pages() -> None:
+    parser = _FakeParser(
+        pages=[
+            (1, "第一部分 背景介绍。本页说明背景。"),
+            (2, "附录 A。这里没有第二部分。"),
+            (3, "参考文献 References Smith 2024; Brown 2023; bibliography and references list."),
+        ],
+        segments=[
+            PdfSegment(text="第一部分 背景介绍", page=1, section="第一部分 背景介绍"),
+            PdfSegment(text="附录 A", page=2, section="附录 A"),
+        ],
+    )
+    runtime = PDFReadAgentRuntime(root_dir=ROOT, parser=parser)
+    result = runtime.run(
+        request=PDFReadRequest(
+            query="回到刚才 PDF，第二部分强调的约束是什么？",
+            mode="document",
+            max_chunks=4,
+        ),
+        file_path=ROOT / "knowledge" / "test.pdf",
+    )
+
+    assert result.status == "degraded"
+    assert result.effective_mode == "section"
+    assert result.degraded_reason == "target_section_not_located"
+    assert result.pages == []
+    assert result.evidence == []
 
 
 def test_pdf_agent_runtime_quality_gate_suppresses_reference_pages() -> None:

@@ -182,10 +182,12 @@ class RuntimePersistenceAssembler:
         normalized = sanitize_visible_assistant_content(str(content or "")).strip()
         if not normalized:
             return ""
+        if looks_like_procedural_promise_text(normalized):
+            return "当前还没有形成真实查询结果。"
+        if looks_like_tool_claim_without_receipt(normalized):
+            return "当前还没有形成真实查询结果。"
         if self.has_completed_tool_receipt(tool_calls):
             return normalized
-        if looks_like_procedural_promise_text(normalized) or looks_like_tool_claim_without_receipt(normalized):
-            return "当前还没有形成真实查询结果。"
         return normalized
 
     def has_completed_tool_receipt(self, tool_calls: list[dict[str, Any]]) -> bool:

@@ -11,7 +11,7 @@ from tools.skills_scanner import scan_skills
 
 router = APIRouter()
 
-ALLOWED_PREFIXES = ("context_profile/", "durable_memory/", "skills/", "knowledge/")
+ALLOWED_PREFIXES = ("soul/", "durable_memory/", "skills/", "knowledge/")
 ALLOWED_ROOT_FILES = {"SKILLS_SNAPSHOT.md", "SKILLS_REGISTRY.json", "TOOLS_REGISTRY.json"}
 
 

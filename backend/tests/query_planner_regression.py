@@ -187,13 +187,11 @@ def main() -> None:
         history=[],
         authority_context={"active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"},
     )
-    assert session_pdf_authority_plan.query_understanding.route == "tool"
+    session_pdf_execution = session_pdf_authority_plan.iter_executions()[0]
     assert session_pdf_authority_plan.query_understanding.tool_name == "pdf_analysis"
-    assert (
-        session_pdf_authority_plan.iter_executions()[0].worker_plan.request.bindings["active_pdf"]
-        == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
-    )
-    _assert_pdf_worker(session_pdf_authority_plan.iter_executions()[0], mode="section")
+    if session_pdf_execution.worker_plan is not None:
+        assert "active_pdf" not in session_pdf_execution.worker_plan.request.bindings
+    assert "path" not in session_pdf_execution.tool_input
 
     structured_followup_history = [
         {"role": "user", "content": "给我 inventory.xlsx 最缺货的前三个仓库"},
@@ -223,11 +221,9 @@ def main() -> None:
         authority_context={"active_dataset": "knowledge/E-commerce Data/inventory.xlsx"},
     )
     session_structured_execution = session_structured_authority_plan.iter_executions()[0]
-    assert session_structured_authority_plan.query_understanding.route == "tool"
-    assert session_structured_authority_plan.query_understanding.tool_name == "structured_data_analysis"
-    assert session_structured_execution.tool_input["path"] == "knowledge/E-commerce Data/inventory.xlsx"
-    assert session_structured_execution.structured_binding is not None
-    assert session_structured_execution.structured_binding.source == "compound_authority"
+    assert session_structured_authority_plan.query_understanding.tool_name != "structured_data_analysis"
+    assert not session_structured_execution.tool_input.get("path", "")
+    assert session_structured_execution.structured_binding is None
 
     non_structured_followup_plan = planner.build_plan(
         session_id="planner-regression",
@@ -272,10 +268,7 @@ def main() -> None:
     assert authority_protected_bundle_plan.execution_mode == "bundle_execution"
     authority_protected_executions = authority_protected_bundle_plan.iter_executions()
     _assert_pdf_worker(authority_protected_executions[0])
-    assert (
-        authority_protected_executions[0].worker_plan.request.bindings["active_pdf"]
-        == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
-    )
+    assert "active_pdf" not in authority_protected_executions[0].worker_plan.request.bindings
 
     summary_plan = planner.build_plan(
         session_id="planner-regression",
@@ -303,6 +296,14 @@ def main() -> None:
     )
     assert protected_summary_understanding.route == "rag"
     assert protected_summary_understanding.tool_name is None
+
+    protected_pdf_followup_understanding = continuation_resolver.apply_authoritative_context(
+        message="第二部分的约束重点是什么？",
+        understanding=QueryUnderstanding(route="rag", task_kind="knowledge_lookup", source_kind="knowledge_base"),
+        authority_context={"active_pdf": "knowledge/reports/test.pdf"},
+    )
+    assert protected_pdf_followup_understanding.route == "rag"
+    assert protected_pdf_followup_understanding.tool_name is None
 
     print("ALL PASSED (query planner regression)")
 

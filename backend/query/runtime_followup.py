@@ -306,7 +306,11 @@ class RuntimeFollowupCoordinator:
             self._handle_context_from_resolution(followup_resolution, owner_task=owner_task)
         )
         owner_task_id = str(getattr(owner_task, "task_id", "") or self.resolved_binding_owner_task_id(followup_resolution) or "").strip()
-        pdf_constraints = self._pdf_constraints_from_message(message, active_pdf=active_pdf)
+        pdf_constraints = self._pdf_constraints_from_message(
+            message,
+            active_pdf=active_pdf,
+            owner_task=owner_task,
+        )
         request = WorkerRequest(
             request_id=f"worker:pdf:followup:{owner_task_id or target_handle_id or 'session'}",
             session_id=session_id,
@@ -378,7 +382,6 @@ class RuntimeFollowupCoordinator:
         )
         owner_task_id = str(getattr(owner_task, "task_id", "") or self.resolved_binding_owner_task_id(followup_resolution) or "").strip()
         subset_constraints = self._dataset_subset_constraints(owner_task) if owner_task is not None else {}
-        followup_query = message if subset_constraints or owner_task is None else self._dataset_followup_query(message, owner_task)
         owner_context = getattr(owner_task, "context_ref", None)
         owner_bindings = getattr(owner_context, "bindings", None)
         owner_constraints = getattr(owner_context, "constraints", None)
@@ -394,7 +397,7 @@ class RuntimeFollowupCoordinator:
         request = WorkerRequest(
             request_id=f"worker:structured_data:followup:{owner_task_id or target_handle_id or 'session'}",
             session_id=session_id,
-            query=followup_query,
+            query=message,
             worker_route="structured_data",
             task_frame={
                 "intent": "structured_followup_query",
@@ -440,7 +443,7 @@ class RuntimeFollowupCoordinator:
             reasons=["handle_binding_followup", "handle_binding_dataset_worker"],
         )
         return QueryExecutionPlan(
-            message=followup_query,
+            message=message,
             history=list(history),
             memory_intent=MemoryIntent(intent="session_continuity_query", memory_read_mode="session_state", should_skip_rag=True),
             query_understanding=query_understanding,
@@ -734,12 +737,28 @@ class RuntimeFollowupCoordinator:
                 return normalized
         return ""
 
-    def _pdf_constraints_from_message(self, message: str, *, active_pdf: str) -> dict[str, object]:
+    def _pdf_constraints_from_message(
+        self,
+        message: str,
+        *,
+        active_pdf: str,
+        owner_task=None,
+    ) -> dict[str, object]:
         page = self._page_number_from_message(message)
         constraints: dict[str, object] = {"active_pdf": active_pdf}
         if page is not None:
             constraints["mode"] = "page"
             constraints["page"] = page
+            return constraints
+        explicit_section = self._section_from_message(message)
+        if explicit_section:
+            constraints["mode"] = "section"
+            constraints["pdf_section"] = explicit_section
+            constraints["pdf_section_key"] = self._section_key(explicit_section)
+            return constraints
+        inherited = self._owner_pdf_followup_constraints(owner_task)
+        if inherited:
+            constraints.update(inherited)
             return constraints
         constraints["mode"] = "document"
         return constraints
@@ -757,12 +776,45 @@ class RuntimeFollowupCoordinator:
             return _chinese_page_number(chinese_match.group(1))
         return None
 
-    def _dataset_followup_query(self, message: str, owner_task) -> str:
-        result_ref = getattr(owner_task, "result_ref", None)
-        subset_hint_query = str(getattr(result_ref, "subset_hint_query", "") or "").strip()
-        if not subset_hint_query:
-            return message
-        return f"{subset_hint_query} {message}".strip()
+    def _section_from_message(self, message: str) -> str:
+        text = str(message or "")
+        digit_match = re.search(r"(第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节))", text, flags=re.IGNORECASE)
+        if digit_match:
+            return str(digit_match.group(1) or "").strip()
+        for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节"):
+            if marker in text:
+                return marker
+        return ""
+
+    def _owner_pdf_followup_constraints(self, owner_task) -> dict[str, object]:
+        if owner_task is None:
+            return {}
+        context_ref = getattr(owner_task, "context_ref", None)
+        constraints = getattr(context_ref, "constraints", None)
+        if constraints is None:
+            return {}
+        mode = str(getattr(constraints, "pdf_mode", "") or "").strip()
+        if mode == "section":
+            section = str(getattr(constraints, "pdf_section", "") or "").strip()
+            if section:
+                payload: dict[str, object] = {
+                    "mode": "section",
+                    "pdf_section": section,
+                    "pdf_section_key": self._section_key(section),
+                }
+                focus_pages = [int(page) for page in list(getattr(constraints, "pdf_focus_pages", []) or []) if _positive_int(page) is not None]
+                if focus_pages:
+                    payload["pdf_focus_pages"] = focus_pages
+                return payload
+        return {}
+
+    def _section_key(self, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if not normalized:
+            return ""
+        normalized = normalized.replace(" ", "")
+        normalized = normalized.replace("这一", "第1").replace("那一", "第1")
+        return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", normalized).strip("-")
 
     def _dataset_subset_constraints(self, owner_task) -> dict[str, object]:
         result_ref = getattr(owner_task, "result_ref", None)

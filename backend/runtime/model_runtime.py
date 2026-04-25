@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -138,6 +139,8 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
+                finally:
+                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -165,11 +168,12 @@ class ModelRuntime:
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self.max_retries + 2):
                 emitted = False
+                model = self._build_chat_model_for_spec(spec)
                 agent = self._create_raw_agent(
                     system_prompt=system_prompt,
                     tools=tools,
                     agent_definition=agent_definition,
-                    model_spec=spec,
+                    model=model,
                 )
                 try:
                     stream = agent.astream(payload, stream_mode=stream_mode)
@@ -194,6 +198,8 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
+                finally:
+                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -325,13 +331,34 @@ class ModelRuntime:
         system_prompt: str,
         tools: list[Any],
         agent_definition: AgentDefinition,
-        model_spec: ModelSpec,
+        model: Any,
     ):
         return create_agent(
-            model=self._build_chat_model_for_spec(model_spec),
+            model=model,
             tools=tools,
             system_prompt=system_prompt,
         )
+
+    async def _aclose_chat_model(self, model: Any) -> None:
+        close_targets = []
+        for attr_name in ("root_async_client", "root_client", "http_async_client", "http_client"):
+            target = getattr(model, attr_name, None)
+            if target is None:
+                continue
+            if any(existing is target for existing in close_targets):
+                continue
+            close_targets.append(target)
+
+        for target in close_targets:
+            close_method = getattr(target, "close", None)
+            if not callable(close_method):
+                continue
+            try:
+                result = close_method()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.debug("Failed to close model runtime client", exc_info=True)
 
     async def _iterate_with_timeout(self, stream):
         while True:

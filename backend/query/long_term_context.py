@@ -21,8 +21,7 @@ def _strip_leading_markdown_title(content: str) -> str:
 
 @dataclass(slots=True)
 class LongTermContextBundle:
-    constitution_sections: list[tuple[str, str]]
-    profile_sections: list[tuple[str, str]]
+    static_sections: list[tuple[str, str]]
     memory_block: str
 
     def render(
@@ -33,30 +32,13 @@ class LongTermContextBundle:
         include_memory_block: bool = True,
     ) -> str:
         sections: list[str] = []
-        visible_label_map = {
-            "Agent Core": "稳定原则",
-            "Active Soul Seed": "当前风格",
-            "Agent Profile": "用户与项目偏好",
-        }
-
-        if self.constitution_sections:
+        if self.static_sections:
             sections.append("## 当前延续生效的设定")
-            for label, content in self.constitution_sections:
+            for heading, content in self.static_sections:
                 sections.extend(
                     [
                         "",
-                        f"### {visible_label_map.get(label, label)}",
-                        truncate(_strip_leading_markdown_title(content), limit),
-                    ]
-                )
-
-        if self.profile_sections:
-            sections.append("")
-            for label, content in self.profile_sections:
-                sections.extend(
-                    [
-                        "",
-                        f"### {visible_label_map.get(label, label)}",
+                        f"### {heading}",
                         truncate(_strip_leading_markdown_title(content), limit),
                     ]
                 )
@@ -88,7 +70,9 @@ def build_long_term_context_bundle(
             memory_block = "[missing component: durable_memory/index/MEMORY.md]"
 
     return LongTermContextBundle(
-        constitution_sections=list(static_context.constitution_sections),
-        profile_sections=list(static_context.profile_sections),
+        static_sections=[
+            (entry.prompt_heading, entry.content)
+            for entry in static_context.ordered_sections()
+        ],
         memory_block=memory_block,
     )

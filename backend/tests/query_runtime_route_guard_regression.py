@@ -10,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from pdf_agent import PDFCanonicalEvidence, PDFCanonicalResult
+from memory.messages import MemoryMessageAdapter
 from query import QueryRuntime
 from query.binding_models import StructuredDatasetBinding
 from query.followup_models import FollowupResolution
@@ -17,6 +18,7 @@ from query.runtime_followup import RuntimeFollowupCoordinator
 from query.followup_resolver import QueryFollowupResolver
 from query.models import QueryExecutionPlan, QueryPlan
 from query.worker_models import CanonicalResult, WorkerExecutionPlan, WorkerRequest, WorkerResult
+from runtime.model_runtime import ModelRuntimeError
 from tasks import TaskCoordinator
 from understanding import MemoryIntent, QueryUnderstanding
 
@@ -62,6 +64,9 @@ class _SessionStateStub:
         }
         defaults.update(context_slots)
         self.context_slots = SimpleNamespace(**defaults)
+        self.flow_state = SimpleNamespace(flow_type="general_problem_solving_flow", confidence=1.0)
+        self.risk_flags: list[str] = []
+        self.risk_notes: list[str] = []
 
 
 class _ContextPackageStub:
@@ -85,10 +90,14 @@ class _MemoryFacadeStub:
     ) -> None:
         self.prefetch_queries: list[str] = []
         self.persistent_queries: list[str] = []
+        self.adapter = MemoryMessageAdapter()
         self._session_state = session_state or _SessionStateStub()
         self._context_package = context_package
         self.session_memory = SimpleNamespace(
-            manager=lambda _session_id: SimpleNamespace(load_state=lambda: self._session_state)
+            manager=lambda _session_id: SimpleNamespace(
+                load_state=lambda: self._session_state,
+                preview_state=lambda _messages: self._session_state,
+            )
         )
 
     def compact_history_for_query(self, _session_id: str, history: list[dict[str, object]]):
@@ -254,6 +263,54 @@ def _build_runtime(
         task_coordinator=task_coordinator or TaskCoordinator(),
     )
     return runtime, retrieval, model_runtime, memory_facade
+
+
+def test_runtime_risk_gate_suppresses_weak_binding_followup() -> None:
+    runtime, _, _, _ = _build_runtime(rag_mode=False)
+    resolution = FollowupResolution(
+        mode="binding_ref",
+        target_kind="binding",
+        resolved_target_kind="binding",
+        binding_key="active_dataset",
+        binding_kind="active_dataset",
+        resolved_binding_kind="active_dataset",
+        binding_identity="knowledge/e-commerce data/inventory.xlsx",
+        resolved_binding_identity="knowledge/e-commerce data/inventory.xlsx",
+        resolution_source="session_committed_binding",
+    )
+
+    guarded = runtime._guard_followup_resolution_by_runtime_risk(  # type: ignore[attr-defined]
+        message="按部门汇总这些高薪员工。",
+        followup_resolution=resolution,
+        risk_snapshot={"risk_flags": ["cross_flow_slot_contamination"]},
+    )
+
+    assert guarded.mode == "none"
+    assert guarded.reason == "runtime_risk_binding_suppressed"
+
+
+def test_runtime_risk_gate_preserves_strong_pdf_anchor() -> None:
+    runtime, _, _, _ = _build_runtime(rag_mode=False)
+    resolution = FollowupResolution(
+        mode="binding_ref",
+        target_kind="binding",
+        resolved_target_kind="binding",
+        binding_key="active_pdf",
+        binding_kind="active_pdf",
+        resolved_binding_kind="active_pdf",
+        binding_identity="knowledge/reports/ai治理报告.pdf",
+        resolved_binding_identity="knowledge/reports/ai治理报告.pdf",
+        resolution_source="session_committed_binding",
+    )
+
+    guarded = runtime._guard_followup_resolution_by_runtime_risk(  # type: ignore[attr-defined]
+        message="回到刚才 PDF，第二部分的约束重点是什么？",
+        followup_resolution=resolution,
+        risk_snapshot={"risk_flags": ["cross_flow_slot_contamination"]},
+    )
+
+    assert guarded.mode == "binding_ref"
+    assert guarded.resolved_binding_kind == "active_pdf"
 
 
 async def _seed_compound_tasks(coordinator: TaskCoordinator) -> None:
@@ -697,6 +754,7 @@ def test_direct_tool_route_materializes_structured_subset_protocol() -> None:
     assert result_ref["subset_filter_column"] == "name"
     assert result_ref["subset_labels"] == ["罗凯", "唐琳", "许晨", "刘洋", "张敏"]
     assert "姓名" not in result_ref["subset_labels"]
+    assert "subset_hint_query" not in result_ref
     assert main_context["active_subset_handle_id"] == result_ref["subset_handle_id"]
 
 
@@ -760,6 +818,7 @@ def test_binding_followup_from_direct_tool_owner_passes_subset_constraints_struc
     assert request.query == "按部门汇总这些高薪员工。"
     assert request.constraints["subset_filter_column"] == "name"
     assert request.constraints["subset_labels"] == ["罗凯", "唐琳", "许晨", "刘洋", "张敏"]
+    assert "subset_hint_query" not in request.constraints
     assert request.bindings["active_dataset"].endswith("employees.xlsx")
 
 
@@ -806,7 +865,59 @@ def test_pdf_binding_followup_from_page_owner_does_not_inherit_page_mode_without
     assert "page" not in request.constraints
 
 
-def test_runtime_uses_session_committed_dataset_binding_for_tool_promotion() -> None:
+def test_pdf_binding_followup_from_section_owner_preserves_section_scope() -> None:
+    coordinator = TaskCoordinator()
+
+    async def _seed() -> None:
+        await coordinator.run_tool_task(
+            "session-1",
+            "pdf_analysis",
+            lambda: asyncio.sleep(0, result={"answer": "第二部分强调权限边界与审计归口。"}),
+            query="回到刚才 PDF，第二部分强调的约束是什么？",
+            tool_input={
+                "query": "回到刚才 PDF，第二部分强调的约束是什么？",
+                "path": "knowledge/demo.pdf",
+                "mode": "section",
+            },
+            task_kind="pdf_followup_query",
+        )
+
+    asyncio.run(_seed())
+    owner_task = coordinator.list_tasks(session_id="session-1")[0]
+    owner_task.context_ref.constraints.pdf_mode = "section"
+    owner_task.context_ref.constraints.pdf_section = "第二部分"
+    owner_task.context_ref.constraints.pdf_focus_pages = [2, 3]
+    followup = RuntimeFollowupCoordinator(task_coordinator=coordinator)
+
+    execution = followup.binding_execution_from_resolution(
+        session_id="session-1",
+        message="再用两句话说清楚。",
+        history=[],
+        followup_resolution=FollowupResolution(
+            mode="binding_ref",
+            binding_kind="active_pdf",
+            resolved_binding_kind="active_pdf",
+            binding_identity="knowledge/demo.pdf",
+            resolved_binding_identity="knowledge/demo.pdf",
+            binding_owner_task_id=owner_task.task_id,
+            resolved_binding_owner_task_id=owner_task.task_id,
+            task_id=owner_task.task_id,
+            resolved_task_id=owner_task.task_id,
+            result_handle_id=str(getattr(owner_task.result_ref, "primary_result_handle_id", "") or ""),
+            result_handle_ids=list(getattr(owner_task.result_ref, "result_handle_ids", []) or []),
+        ),
+    )
+
+    assert execution is not None
+    assert execution.worker_plan is not None
+    request = execution.worker_plan.request
+    assert request.constraints["mode"] == "section"
+    assert request.constraints["pdf_section"] == "第二部分"
+    assert request.constraints["pdf_section_key"] == "第二部分"
+    assert request.constraints["pdf_focus_pages"] == [2, 3]
+
+
+def test_runtime_does_not_promote_session_committed_dataset_binding_without_strong_anchor() -> None:
     tool = SimpleNamespace(invoke=lambda _tool_input: {"answer": "已按仓库汇总前五。"})
     runtime, _retrieval, model_runtime, _memory_facade = _build_runtime(
         rag_mode=False,
@@ -827,19 +938,13 @@ def test_runtime_uses_session_committed_dataset_binding_for_tool_promotion() -> 
         return events
 
     events = asyncio.run(_run())
-    worker_start = next(event for event in events if event.get("type") == "worker_start")
     done = events[-1]
 
-    assert worker_start["worker"] == "structured_data"
-    assert worker_start["agent_id"] == "agent:data:structured"
-    assert str(worker_start["request"]["bindings"]["active_dataset"]).endswith("inventory.xlsx")
-    assert worker_start["request"]["target_handle_kind"] == "subset"
-    assert worker_start["request"]["target_handle_id"] == "subset:selection:inventory:primary"
-    assert worker_start["request"]["upstream_result_handle_ids"] == ["result:structured:inventory:primary"]
-    assert done["answer_source"] == "structured_data_worker"
-    assert done["answer_fallback_reason"] == ""
-    assert done["content"] == "已按仓库汇总前五。"
-    assert model_runtime.last_tools == []
+    assert not any(event.get("type") == "worker_start" for event in events)
+    assert done["type"] == "done"
+    assert done["answer_source"] != "structured_data_worker"
+    assert "structured_data_analysis" not in model_runtime.last_tools
+    assert model_runtime.last_tools == ["web_search"]
 
 
 def test_runtime_uses_session_committed_pdf_binding_for_tool_promotion() -> None:
@@ -870,7 +975,9 @@ def test_runtime_uses_session_committed_pdf_binding_for_tool_promotion() -> None
     assert str(pdf_worker.requests[0].bindings["active_pdf"]).endswith(".pdf")
     assert pdf_worker.requests[0].target_handle_kind == "result"
     assert pdf_worker.requests[0].target_handle_id == "result:pdf_summary:governance:primary"
-    assert pdf_worker.requests[0].constraints["mode"] == "document"
+    assert pdf_worker.requests[0].constraints["mode"] == "section"
+    assert pdf_worker.requests[0].constraints["pdf_section"] == "第二部分"
+    assert pdf_worker.requests[0].constraints["pdf_section_key"] == "第二部分"
     assert done["answer_source"] == "pdf_worker"
     assert done["answer_fallback_reason"] == ""
     assert "权限边界" in str(done["content"])
@@ -1096,7 +1203,7 @@ def test_general_memory_adjacent_query_still_prefetches_durable_context() -> Non
     )
     events, retrieval, model_runtime, memory_facade = asyncio.run(_collect_events(plan, rag_mode=True))
 
-    assert retrieval.queries == ["以后我问复杂问题时，你应该先怎么回答？"]
+    assert retrieval.queries == []
     assert memory_facade.prefetch_queries == ["以后我问复杂问题时，你应该先怎么回答？"]
     assert model_runtime.last_tools == []
     assert any(event.get("type") == "memory_context" for event in events)
@@ -1440,7 +1547,7 @@ def test_binding_followup_candidate_yields_to_memory_plan_when_route_conflicts()
     assert done["content"]
 
 
-def test_ambiguous_binding_followup_requests_clarification_without_replanning() -> None:
+def test_ambiguous_binding_followup_no_longer_hijacks_planning() -> None:
     coordinator = TaskCoordinator()
     tool = SimpleNamespace(invoke=lambda _tool_input: {"answer": "unused"})
     runtime, retrieval, model_runtime, memory_facade = _build_runtime(
@@ -1472,11 +1579,23 @@ def test_ambiguous_binding_followup_requests_clarification_without_replanning() 
             pass
 
     asyncio.run(_seed_tasks())
-
-    def _unexpected_plan(**_kwargs):
-        raise AssertionError("planner should not run when follow-up resolution requests clarification")
-
-    runtime.planner.build_plan = _unexpected_plan  # type: ignore[method-assign]
+    plan_calls = {"count": 0}
+    runtime.planner.build_plan = lambda *, session_id, message, history: (
+        plan_calls.__setitem__("count", plan_calls["count"] + 1) or QueryPlan(
+            session_id=session_id,
+            message=message,
+            history=history,
+            subqueries=[message],
+            memory_intent=MemoryIntent(),
+            query_understanding=QueryUnderstanding(
+                intent="general_query",
+                route="agent",
+                modality="general",
+                should_skip_rag=False,
+            ),
+            active_skill=None,
+        )
+    )  # type: ignore[method-assign]
 
     async def _run() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -1490,17 +1609,11 @@ def test_ambiguous_binding_followup_requests_clarification_without_replanning() 
 
     events = asyncio.run(_run())
 
+    assert plan_calls["count"] == 1
     assert retrieval.queries == []
-    assert memory_facade.prefetch_queries == []
-    assert model_runtime.last_tools == []
-    assert [event["type"] for event in events] == ["done"]
-    done = events[0]
-    assert done["followup_mode"] == "clarify"
-    assert "请直接说文件名" in str(done["content"])
-    assert done["main_context"]["active_work_item"] == "clarify_followup_owner"
-    assert done["main_context"]["followup_mode"] == "clarify"
-    assert done["main_context"]["followup_resolution_source"] == "task_registry_binding"
-    assert done["task_summary_refs"] == []
+    assert any(event["type"] == "memory_context" for event in events)
+    done = next(event for event in reversed(events) if event.get("type") == "done")
+    assert done["type"] == "done"
 
 
 def test_session_committed_pdf_binding_breaks_registry_ambiguity() -> None:
@@ -2544,6 +2657,68 @@ def test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_cont
     assert "工具 `structured_data_analysis` 已执行，但当前结果尚未形成可直接展示的答案。" == done_text
 
 
+def test_runtime_stream_ignores_tool_message_chunks_before_provider_error() -> None:
+    plan = QueryPlan(
+        session_id="tool-message-leak-session",
+        message="把 PDF 部分压成两条行动项。",
+        history=[],
+        subqueries=["把 PDF 部分压成两条行动项。"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(
+            intent="general_query",
+            route="agent",
+            modality="general",
+            execution_posture="bounded_agent",
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, _model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+
+    class _ToolChunkThenErrorAgent:
+        async def astream(self, *_args, **_kwargs):
+            yield ("messages", (SimpleNamespace(type="ai", content="我先读取 PDF。"), {}))
+            yield (
+                "messages",
+                (
+                    SimpleNamespace(
+                        type="tool",
+                        content=(
+                            "PDF_CANONICAL_RESULT::{\"status\":\"degraded\"}\n"
+                            "Read failed: path is a directory."
+                        ),
+                    ),
+                    {},
+                ),
+            )
+            raise ModelRuntimeError(
+                code="provider_error",
+                provider="test",
+                model="test-model",
+                detail="simulated stream failure",
+                retryable=False,
+                user_message="模型调用失败，请稍后重试。",
+            )
+
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ToolChunkThenErrorAgent()  # type: ignore[method-assign]
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        try:
+            async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+                events.append(event)
+        except ModelRuntimeError:
+            pass
+        return events
+
+    events = asyncio.run(_run())
+    streamed_text = "".join(str(event.get("content", "") or "") for event in events if event.get("type") == "token")
+
+    assert "我先读取 PDF。" in streamed_text
+    assert "PDF_CANONICAL_RESULT::" not in streamed_text
+    assert "Read failed:" not in streamed_text
+
+
 def test_direct_tool_pdf_raw_dump_does_not_become_done_content() -> None:
     raw_pdf_dump = (
         "Source: knowledge/test.pdf\n"
@@ -2822,6 +2997,7 @@ def main() -> None:
     test_runtime_pdf_tool_output_boundary_no_longer_model_finalizes_tool_output()
     test_runtime_pdf_tool_output_boundary_keeps_fallback_without_model_rewrite()
     test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_content()
+    test_runtime_stream_ignores_tool_message_chunks_before_provider_error()
     test_direct_tool_pdf_raw_dump_does_not_become_done_content()
     test_direct_tool_degraded_pdf_facade_projects_generic_fallback_state()
     test_direct_tool_pdf_canonical_facade_projects_minimal_binding_state()

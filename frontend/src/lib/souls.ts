@@ -3,8 +3,6 @@ export type SoulKey = "hebo" | "siyue" | "zhurong" | "xuannv";
 export type SoulSummary = {
   key: SoulKey;
   name: string;
-  purpose: string;
-  bestAt: string[];
   path: string;
   portraitPath: string;
   color: string;
@@ -12,13 +10,13 @@ export type SoulSummary = {
   intro: string;
 };
 
-export const ACTIVE_SOUL_PATH = "context_profile/agent_core/ACTIVE_SEED.md";
+export const ACTIVE_SOUL_PATH = "soul/agent_core/ACTIVE_SEED.md";
 
 export const SOUL_SEED_PATHS: Record<SoulKey, string> = {
-  hebo: "context_profile/agent_core/seeds/hebo.md",
-  siyue: "context_profile/agent_core/seeds/siyue.md",
-  zhurong: "context_profile/agent_core/seeds/zhurong.md",
-  xuannv: "context_profile/agent_core/seeds/xuannv.md"
+  hebo: "soul/agent_core/seeds/hebo.md",
+  siyue: "soul/agent_core/seeds/siyue.md",
+  zhurong: "soul/agent_core/seeds/zhurong.md",
+  xuannv: "soul/agent_core/seeds/xuannv.md"
 };
 
 const SOUL_NAME_TO_KEY: Record<string, SoulKey> = {
@@ -52,13 +50,11 @@ const SOUL_COLORS: Record<SoulKey, { color: string; glow: string; intro: string 
 };
 
 export function parseSoulSeed(path: string, content: string): SoulSummary {
-  const name = extractSectionValue(content, "Seed Name") || inferNameFromPath(path);
+  const name = extractIdentityName(content) || inferNameFromPath(path);
   const key = inferSoulKey(path, name);
   return {
     key,
     name,
-    purpose: extractSectionValue(content, "Seed Purpose"),
-    bestAt: extractBulletSection(content, "Best At"),
     path,
     portraitPath: `/souls/${key}.png`,
     color: SOUL_COLORS[key].color,
@@ -82,29 +78,27 @@ function inferNameFromPath(path: string): string {
   return pair?.[0] || "河伯";
 }
 
-function extractSectionValue(content: string, heading: string): string {
-  const match = content.match(new RegExp(`## ${escapeRegExp(heading)}\\s+([\\s\\S]*?)(?:\\n## |$)`));
-  if (!match) {
+function extractIdentityName(content: string): string {
+  const section = extractSectionBlock(content, "Identity Anchor");
+  if (!section) {
     return "";
   }
-  return match[1]
+  const lines = section
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean)
-    .find((line) => !line.startsWith("-")) || "";
+    .filter((line) => line.startsWith("-"));
+  for (const line of lines) {
+    const match = line.match(/[“"]([^”"]+)[”"]/);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+  return "";
 }
 
-function extractBulletSection(content: string, heading: string): string[] {
+function extractSectionBlock(content: string, heading: string): string {
   const match = content.match(new RegExp(`## ${escapeRegExp(heading)}\\s+([\\s\\S]*?)(?:\\n## |$)`));
-  if (!match) {
-    return [];
-  }
-  return match[1]
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("-"))
-    .map((line) => line.replace(/^-+\s*/, "").trim())
-    .filter(Boolean);
+  return match?.[1] ?? "";
 }
 
 function escapeRegExp(value: string): string {

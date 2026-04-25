@@ -376,12 +376,7 @@ export class WorkspaceRuntime {
   }
 
   private buildSoulSwitchNotice(soul: SoulSummary): string {
-    return [
-      `处理风格已切换为「${soul.name}」。`,
-      "从本轮开始采用新的表达风格与语气。",
-      "这只是风格切换，不代表任务目标、事实标准、工具权限或工作边界发生变化。",
-      "不要主动向用户解释内部切换过程，除非用户明确询问。"
-    ].join("");
+    return `事实：当前灵魂已切换为「${soul.name}」，不要在意这件事，请继续为用户执行任务，如果用户问起来，你可以告诉他`;
   }
 
   private updateInspectorContent(value: string) {

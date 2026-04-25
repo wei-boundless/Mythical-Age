@@ -449,11 +449,45 @@ class QueryFollowupResolver:
         return references
 
     def _binding_hint_kind(self, message: str) -> str:
-        if self._looks_like_pdf_binding_followup(message):
+        if self._has_strong_pdf_binding_anchor(message):
             return "active_pdf"
-        if self._looks_like_dataset_binding_followup(message):
+        if self._has_strong_dataset_binding_anchor(message):
             return "active_dataset"
         return ""
+
+    def _has_strong_pdf_binding_anchor(self, message: str) -> bool:
+        normalized = (message or "").strip().lower()
+        if not normalized:
+            return False
+        if ".pdf" in normalized:
+            return True
+        if re.search(r"第\s*\d+\s*页", message):
+            return True
+        if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message):
+            return True
+        if re.search(r"page\s*\d+", normalized):
+            return True
+        if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)", message):
+            return True
+        explicit_pdf_markers = (
+            "这份 pdf",
+            "那个 pdf",
+            "这份PDF",
+            "那个PDF",
+            "回到刚才 pdf",
+            "回到刚才 PDF",
+            "刚才那份 pdf",
+            "刚才那份 PDF",
+            "这份文档",
+            "那个文档",
+        )
+        return any(marker in message or marker in normalized for marker in explicit_pdf_markers)
+
+    def _has_strong_dataset_binding_anchor(self, message: str) -> bool:
+        normalized = (message or "").strip().lower()
+        if not normalized:
+            return False
+        return any(ext in normalized for ext in (".xlsx", ".csv", ".xls", ".json", ".parquet"))
 
     def _looks_like_generic_followup_hint(self, message: str) -> bool:
         normalized = (message or "").strip().lower()
@@ -492,66 +526,12 @@ class QueryFollowupResolver:
         )
 
     def _looks_like_pdf_binding_followup(self, message: str) -> bool:
-        normalized = (message or "").strip().lower()
-        if not normalized:
-            return False
-        if ".pdf" in normalized:
-            return True
-        if re.search(r"第\s*\d+\s*页", message):
-            return True
-        if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*页", message):
-            return True
-        if re.search(r"page\s*\d+", normalized):
-            return True
-        if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)", message):
-            return True
-
-        document_nouns = ("pdf", "这一页", "那一页", "这页", "那页", "这一章", "那一章")
-        document_actions = (
-            "结论",
-            "行动建议",
-            "约束重点",
-            "重点",
-            "解读",
-            "分析",
-            "总结",
-            "压成",
-            "改写",
-        )
-        return any(noun in normalized or noun in message for noun in document_nouns) and any(
-            action in message for action in document_actions
-        )
+        return self._has_strong_pdf_binding_anchor(message)
 
     def _looks_like_dataset_binding_followup(self, message: str) -> bool:
-        normalized = (message or "").strip().lower()
-        if not normalized:
-            return False
         if self._looks_like_summary_or_rewrite_request(message):
             return False
-        if any(ext in normalized for ext in (".xlsx", ".csv", ".xls", ".json", ".parquet")):
-            return True
-        dataset_nouns = ("表", "数据表", "表格", "工作簿", "sheet", "dataset")
-        structured_actions = (
-            "按仓库",
-            "按地区",
-            "按部门",
-            "按品类",
-            "展开",
-            "汇总",
-            "统计",
-            "分组",
-            "筛选",
-            "排序",
-            "缺货",
-            "补货",
-            "均值",
-            "平均",
-            "总计",
-            "总和",
-        )
-        if any(noun in message for noun in dataset_nouns):
-            return any(action in message for action in structured_actions)
-        return any(action in message for action in structured_actions)
+        return self._has_strong_dataset_binding_anchor(message)
 
     def _looks_like_summary_or_rewrite_request(self, message: str) -> bool:
         return any(

@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from memory import MemoryFacade
 from query.prompt_builder import build_system_prompt
-from runtime.session_store import SessionManager
+from runtime.session_store import InvalidSessionId, SessionManager
 from structured_memory import ContextCompactor, Message, SessionMemoryManager
 
 
@@ -29,6 +29,17 @@ def _session_manager_with_summary(tmp: Path) -> tuple[SessionManager, str]:
     manager.save_message(session_id, "user", "New question")
     manager.save_message(session_id, "assistant", "New answer")
     return manager, session_id
+
+
+def test_session_manager_rejects_path_traversal_session_id() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        manager = SessionManager(Path(tmp))
+        try:
+            manager.get_history("../outside")
+        except InvalidSessionId:
+            pass
+        else:
+            raise AssertionError("path traversal session_id should be rejected")
 
 
 def test_session_manager_keeps_archival_summary_out_of_runtime_history() -> None:

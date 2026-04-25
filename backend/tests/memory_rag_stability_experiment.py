@@ -78,15 +78,14 @@ def _prepare_temp_backend_layout(*, copy_workspace: bool = True) -> Path:
         "knowledge",
         "storage",
         "workspace",
-        "context_profile/agent_core",
-        "context_profile/profile",
+        "soul/agent_core",
     ):
         (backend / relative).mkdir(parents=True, exist_ok=True)
     _write(backend / "durable_memory" / "MEMORY.md", "# Memory Index\n\n")
     _write(backend / "SKILLS_SNAPSHOT.md", "# Skills Snapshot\n\n- stability-test\n")
-    _write(backend / "context_profile" / "agent_core" / "CORE.md", "# Agent Core\n\nCalm and direct.")
-    _write(backend / "context_profile" / "agent_core" / "ACTIVE_SEED.md", "# Active Soul Seed\n\nRiver-like and restrained.")
-    _write(backend / "context_profile" / "profile" / "agent.md", "# Agent Profile\n\nPrefer concise grounded answers.")
+    _write(backend / "soul" / "agent_core" / "CORE.md", "# Agent Core\n\nCalm and direct.")
+    _write(backend / "soul" / "agent_core" / "ACTIVE_SEED.md", "# Active Soul Seed\n\nRiver-like and restrained.")
+    _write(backend / "soul" / "agent.md", "# Agent Profile\n\nPrefer concise grounded answers.")
     if copy_workspace:
         source_workspace = BACKEND_DIR / "workspace"
         if source_workspace.exists():

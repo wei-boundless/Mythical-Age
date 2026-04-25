@@ -272,11 +272,6 @@ class QueryPlanner:
             history=history,
             understanding=query_understanding,
         )
-        query_understanding = self.continuation_resolver.apply_authoritative_context(
-            message=message,
-            understanding=query_understanding,
-            authority_context=authority_context,
-        )
         active_skill = self._resolve_active_skill(message, query_understanding)
         dispatch_plan = self.dispatch_scheduler.resolve(
             task_frame=query_understanding,

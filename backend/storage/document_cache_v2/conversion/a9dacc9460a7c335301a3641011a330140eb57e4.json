@@ -1,0 +1,441 @@
+{
+  "doc_id": "a9dacc9460a7c335301a3641011a330140eb57e4",
+  "collection": "durable_memory",
+  "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
+  "source_type": "md",
+  "version_digest": "bb2e94df8051115a5c7453804fd699bfc7f380be",
+  "parser_backend": "docling",
+  "title": "岩-我理解你是想让我展开解释-复杂问题先给结论",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:0",
+      "block_type": "heading",
+      "text": "##",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:1",
+      "block_type": "paragraph",
+      "text": "schema\\_version: durable-memory.v3",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:2",
+      "block_type": "paragraph",
+      "text": "title: 岩，我理解你是想让我展开解释\"复杂问题先给结论，",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:3",
+      "block_type": "paragraph",
+      "text": "summary: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:4",
+      "block_type": "paragraph",
+      "text": "canonical\\_statement: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2. 便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:5",
+      "block_type": "paragraph",
+      "text": "type: user",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:6",
+      "block_type": "paragraph",
+      "text": "memory\\_class: preference",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:7",
+      "block_type": "paragraph",
+      "text": "tags: [user, preference]",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:8",
+      "block_type": "paragraph",
+      "text": "retrieval\\_hints: [岩，我理解你是想让我展开解释\"复杂问题先给结论，, 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2. 便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续]",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:9",
+      "block_type": "paragraph",
+      "text": "created\\_at: 2026-04-24T10:06:07+00:00",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:10",
+      "block_type": "paragraph",
+      "text": "updated\\_at: 2026-04-24T10:06:07+00:00",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:11",
+      "block_type": "paragraph",
+      "text": "created\\_by: durable\\_write\\_agent",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:12",
+      "block_type": "paragraph",
+      "text": "source\\_session\\_id:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:13",
+      "block_type": "paragraph",
+      "text": "source\\_role: private",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:14",
+      "block_type": "paragraph",
+      "text": "source\\_message\\_excerpt: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:15",
+      "block_type": "paragraph",
+      "text": "confidence: medium",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:16",
+      "block_type": "paragraph",
+      "text": "status: active",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:17",
+      "block_type": "paragraph",
+      "text": "last\\_confirmed\\_at:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:18",
+      "block_type": "paragraph",
+      "text": "scope: project",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:19",
+      "block_type": "paragraph",
+      "text": "stability: stable",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:20",
+      "block_type": "paragraph",
+      "text": "source\\_kind:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:21",
+      "block_type": "paragraph",
+      "text": "eligible\\_for\\_injection: true",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:22",
+      "block_type": "paragraph",
+      "text": "review\\_after:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:23",
+      "block_type": "paragraph",
+      "text": "supersedes:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:24",
+      "block_type": "paragraph",
+      "text": "invalidation\\_reason:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    },
+    {
+      "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:25",
+      "block_type": "paragraph",
+      "text": "Canonical: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2. 便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
+    "fallback_used": false
+  }
+}

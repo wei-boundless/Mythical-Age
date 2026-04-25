@@ -62,7 +62,6 @@ class TaskResultRef:
     subset_handle_id: str = ""
     subset_labels: list[str] = field(default_factory=list)
     subset_filter_column: str = ""
-    subset_hint_query: str = ""
     created_at: float = field(default_factory=time)
 
     def to_dict(self) -> dict[str, object]:

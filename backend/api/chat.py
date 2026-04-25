@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
@@ -10,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from query import QueryRequest
+from runtime.session_store import validate_session_id
 
 router = APIRouter()
 
@@ -26,19 +26,29 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _error_status(code: str) -> int:
+    if code == "timeout":
+        return 504
+    if code == "rate_limit":
+        return 429
+    if code == "provider_unavailable":
+        return 503
+    return 500
+
+
 @router.post("/chat")
 async def chat(payload: ChatRequest):
     runtime = require_runtime()
+    session_id = validate_session_id(payload.session_id)
+    request = QueryRequest(
+        session_id=session_id,
+        message=payload.message,
+        ephemeral_system_messages=list(payload.ephemeral_system_messages or []),
+        explicit_subtasks=list(payload.explicit_subtasks or []),
+    )
 
     async def event_generator():
-        async for event in runtime.query_runtime.astream(
-            QueryRequest(
-                session_id=payload.session_id,
-                message=payload.message,
-                ephemeral_system_messages=list(payload.ephemeral_system_messages or []),
-                explicit_subtasks=list(payload.explicit_subtasks or []),
-            )
-        ):
+        async for event in runtime.query_runtime.astream(request):
             event_type = str(event.get("type", "message"))
             data = {key: value for key, value in event.items() if key != "type"}
             yield _sse(event_type, data)
@@ -46,11 +56,24 @@ async def chat(payload: ChatRequest):
     if payload.stream:
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-    final_content = ""
-    async for raw_event in event_generator():
-        if raw_event.startswith("event: done"):
-            data_start = raw_event.find("data:")
-            if data_start >= 0:
-                payload_data = json.loads(raw_event[data_start + 5 :].strip())
-                final_content = str(payload_data.get("content", "") or "")
-    return JSONResponse({"content": final_content})
+    async for event in runtime.query_runtime.astream(request):
+        event_type = str(event.get("type", "message"))
+        if event_type == "done":
+            return JSONResponse({"content": str(event.get("content", "") or "")})
+        if event_type == "error":
+            code = str(event.get("code", "") or "").strip()
+            return JSONResponse(
+                {
+                    "error": str(event.get("error", "") or "Request failed"),
+                    "code": code or None,
+                },
+                status_code=_error_status(code),
+            )
+
+    return JSONResponse(
+        {
+            "error": "Request finished without a final response.",
+            "code": "missing_done",
+        },
+        status_code=500,
+    )

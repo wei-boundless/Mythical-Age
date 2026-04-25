@@ -1,0 +1,61 @@
+{
+  "doc_id": "4817c9b73b170ff4182340273bd997a0daf39d09",
+  "collection": "durable_memory",
+  "source_path": "durable_memory/index/MEMORY.md",
+  "source_type": "md",
+  "version_digest": "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02",
+  "parser_backend": "docling",
+  "title": "MEMORY",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:0",
+      "block_type": "heading",
+      "text": "# Memory Index",
+      "modality": "text",
+      "section_label": "Memory Index",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Memory Index"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/index/MEMORY.md"
+      }
+    },
+    {
+      "block_id": "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1",
+      "block_type": "paragraph",
+      "text": "- [你是想让我展开解释\"复杂问题先给结论，再展开解释](你是想让我展开解释-复杂问题先给结论-再展开解释.md) - 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释\n- [复杂问题回答结构偏好](复杂问题回答结构偏好.md) - 复杂问题先给结论，再展开解释；简单问题保持自然流畅。\n- [天气查询失败：未找到地点：我要 是昨天 不是;](天气查询失败-未找到地点-我要-是昨天-不是.md) - 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E\n- [好，岩。我已经记住这个偏好： 以后遇到复杂问题，](好-岩-我已经记住这个偏好-以后遇到复杂问题.md) - 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。\n- [岩，我理解你是想让我展开解释\"复杂问题先给结论，](岩-我理解你是想让我展开解释-复杂问题先给结论.md) - 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、\n- [以后复杂问题先给结论，再展开解释。](记住-以后复杂问题先给结论-再展开解释.md) - 以后复杂问题先给结论，再展开解释。\n- [以后复杂问题先给结论。](记住-以后复杂问题先给结论.md) - 以后复杂问题先给结论。\n- [回答我时可以直接称呼我岩。](记住-回答我时可以直接称呼我岩.md) - 回答我时可以直接称呼我岩。\n- [项目当前主线](项目当前主线.md) - 我们项目当前主线是优化 Memory 和 RAG。",
+      "modality": "text",
+      "section_label": "Memory Index",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Memory Index"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/index/MEMORY.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "durable_memory/index/MEMORY.md",
+    "fallback_used": false
+  }
+}

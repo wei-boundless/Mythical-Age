@@ -21,6 +21,7 @@ INTERNAL_PROTOCOL_MARKERS = (
     "**工具输出:**",
     "此工具调用为系统自动补全示例",
     "\\end{invoke",
+    "_CANONICAL_RESULT::",
 )
 
 _TOOL_CALL_XML_RE = re.compile(r"<tool_call[^>]*>.*?(?:</tool_call>)?", re.IGNORECASE | re.DOTALL)
@@ -51,6 +52,10 @@ _INVOKE_TAIL_RE = re.compile(r"\\end\{invoke[^\n]*", re.IGNORECASE)
 _FENCE_LINE_RE = re.compile(r"^```(?:json)?\s*$", re.IGNORECASE)
 _SEARCH_PROTOCOL_BLOCK_RE = re.compile(
     r"(?:现在)?(?:我)?(?:再)?(?:检索|搜索|看|查看)[^\n]{0,120}?(?:search_knowledge|searchKnowledge|web_search|retrieve)[^\n{]*\{[\s\S]{0,240}?\}",
+    re.IGNORECASE,
+)
+_CANONICAL_RESULT_BLOCK_RE = re.compile(
+    r"[A-Z_]+_CANONICAL_RESULT::[\s\S]*",
     re.IGNORECASE,
 )
 _INLINE_PSEUDO_TOOL_CALL_RE = re.compile(
@@ -137,9 +142,9 @@ def _sanitize_visible_assistant_content(
     cleaned = _TOOL_ARG_JSON_OBJECT_RE.sub("", cleaned)
     cleaned = _PROTO_ARG_LINE_RE.sub("", cleaned)
     cleaned = _INVOKE_TAIL_RE.sub("", cleaned)
-    if contains_internal_protocol(normalized):
-        cleaned = _FENCED_JSON_RE.sub("", cleaned)
+    cleaned = _FENCED_JSON_RE.sub("", cleaned)
     cleaned = _SEARCH_PROTOCOL_BLOCK_RE.sub("", cleaned)
+    cleaned = _CANONICAL_RESULT_BLOCK_RE.sub("", cleaned)
     cleaned = _INLINE_PSEUDO_TOOL_CALL_RE.sub("", cleaned)
 
     kept_lines: list[str] = []

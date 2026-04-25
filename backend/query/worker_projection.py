@@ -95,6 +95,12 @@ class WorkerProjectionAdapter:
             mode = str(bindings.get("active_pdf_mode", "") or "").strip()
             if mode:
                 projected.active_constraints["active_pdf_mode"] = mode
+            section = str(bindings.get("active_pdf_section", "") or "").strip()
+            if section:
+                projected.active_constraints["active_pdf_section"] = section
+            section_key = str(bindings.get("active_pdf_section_key", "") or "").strip()
+            if section_key:
+                projected.active_constraints["active_pdf_section_key"] = section_key
         elif active_table:
             self._apply_binding(
                 projected,
@@ -141,6 +147,8 @@ class WorkerProjectionAdapter:
             key_points.append(f"pdf={bindings['active_pdf']}")
             if bindings.get("active_pdf_mode"):
                 key_points.append(f"pdf_mode={bindings['active_pdf_mode']}")
+            if bindings.get("active_pdf_section"):
+                key_points.append(f"pdf_section={bindings['active_pdf_section']}")
             pages = bindings.get("active_pdf_pages")
             if isinstance(pages, list) and pages:
                 key_points.append("pdf_pages=" + ",".join(str(page) for page in pages[:8]))

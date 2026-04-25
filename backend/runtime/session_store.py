@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import uuid
@@ -9,6 +10,18 @@ from typing import Any
 
 DEFAULT_SESSION_TITLE = "New Session"
 COMPRESSED_CONTEXT_PREFIX = "[Previous conversation summary]"
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+
+
+class InvalidSessionId(ValueError):
+    pass
+
+
+def validate_session_id(session_id: str) -> str:
+    normalized = str(session_id or "").strip()
+    if not SESSION_ID_PATTERN.fullmatch(normalized):
+        raise InvalidSessionId("Invalid session_id")
+    return normalized
 
 
 class SessionManager:
@@ -21,13 +34,19 @@ class SessionManager:
         self.archive_dir.mkdir(parents=True, exist_ok=True)
 
     def _session_path(self, session_id: str) -> Path:
-        return self.sessions_dir / f"{session_id}.json"
+        normalized = validate_session_id(session_id)
+        candidate = (self.sessions_dir / f"{normalized}.json").resolve()
+        sessions_dir = self.sessions_dir.resolve()
+        if sessions_dir not in candidate.parents:
+            raise InvalidSessionId("Invalid session_id")
+        return candidate
 
     def _default_record(
         self,
         session_id: str,
         title: str = DEFAULT_SESSION_TITLE,
     ) -> dict[str, Any]:
+        session_id = validate_session_id(session_id)
         now = time.time()
         return {
             "id": session_id,
@@ -39,6 +58,7 @@ class SessionManager:
         }
 
     def _read_session_file(self, session_id: str) -> dict[str, Any]:
+        session_id = validate_session_id(session_id)
         path = self._session_path(session_id)
         if not path.exists():
             record = self._default_record(session_id)
@@ -61,7 +81,8 @@ class SessionManager:
         return raw
 
     def _write_session(self, record: dict[str, Any]) -> None:
-        session_id = str(record["id"])
+        session_id = validate_session_id(str(record["id"]))
+        record["id"] = session_id
         path = self._session_path(session_id)
         record["updated_at"] = time.time()
 
@@ -245,6 +266,7 @@ class SessionManager:
                 path.unlink()
 
     def compress_history(self, session_id: str, summary: str, n_messages: int) -> dict[str, int]:
+        session_id = validate_session_id(session_id)
         with self._lock:
             record = self._read_session_file(session_id)
             messages = record.get("messages", [])

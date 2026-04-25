@@ -141,6 +141,57 @@ def test_pdf_worker_degraded_result_does_not_project_stable_summary() -> None:
         assert projection.main_context.active_constraints["active_pdf"] == "knowledge/reports/thin.pdf"
 
 
+def test_pdf_worker_section_result_projects_section_binding_and_handle() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pdf_path = root / "knowledge" / "reports" / "section.pdf"
+        pdf_path.parent.mkdir(parents=True)
+        pdf_path.write_bytes(b"%PDF-1.4\n")
+        runtime = _PDFRuntimeStub(
+            PDFCanonicalResult(
+                status="ok",
+                source="section.pdf",
+                requested_mode="section",
+                effective_mode="section",
+                summary="已定位第二部分。章节要点：先立规则，再补审计。",
+                pages=[2, 3],
+                evidence=[
+                    PDFCanonicalEvidence(page_number=2, score=1.0, snippet="第二部分 约束条件"),
+                    PDFCanonicalEvidence(page_number=3, score=0.9, snippet="继续说明审计归口"),
+                ],
+                metadata={"target_section": "第二部分", "target_section_key": "第二部分"},
+            )
+        )
+
+        worker = PDFWorker(root_dir=root, runtime=runtime)
+        result = asyncio.run(
+            worker.run(
+                WorkerRequest(
+                    request_id="worker:pdf:section",
+                    query="第二部分强调的约束是什么？",
+                    worker_route="pdf",
+                    bindings={"active_pdf": "knowledge/reports/section.pdf"},
+                    constraints={"mode": "section", "pdf_section": "第二部分", "pdf_section_key": "第二部分"},
+                )
+            )
+        )
+        projection = WorkerProjectionAdapter().project_done_event(
+            query="第二部分强调的约束是什么？",
+            canonical_result=result.canonical_result,
+            worker_result=result,
+            previous_main_context=MainContextState(active_goal="读 PDF"),
+        )
+
+        assert result.canonical_result.bindings["active_pdf_section"] == "第二部分"
+        assert result.canonical_result.bindings["active_pdf_section_key"] == "第二部分"
+        assert result.canonical_result.primary_result_handle_id.endswith(":第二部分")
+        assert result.emitted_result_handles[0]["result_kind"] == "pdf_section_summary"
+        assert result.emitted_result_handles[0]["target_section_key"] == "第二部分"
+        assert projection.main_context.active_constraints["active_pdf_mode"] == "section"
+        assert projection.main_context.active_constraints["active_pdf_section"] == "第二部分"
+        assert "pdf_section=第二部分" in projection.task_summary_refs[0].key_points
+
+
 def test_evidence_orchestrator_routes_pdf_worker_to_done_event() -> None:
     with TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -205,6 +256,7 @@ def test_evidence_orchestrator_routes_pdf_worker_to_done_event() -> None:
 def main() -> None:
     test_pdf_worker_ok_result_projects_pdf_binding_pages_and_mode()
     test_pdf_worker_degraded_result_does_not_project_stable_summary()
+    test_pdf_worker_section_result_projects_section_binding_and_handle()
     test_evidence_orchestrator_routes_pdf_worker_to_done_event()
     print("ALL PASSED (pdf worker projection)")
 

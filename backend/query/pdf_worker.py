@@ -241,6 +241,8 @@ class PDFWorker:
                 "active_pdf": active_pdf,
                 "active_pdf_pages": list(canonical.pages),
                 "active_pdf_mode": canonical.effective_mode or canonical.requested_mode or "document",
+                "active_pdf_section": str(canonical.metadata.get("target_section", "") or ""),
+                "active_pdf_section_key": str(canonical.metadata.get("target_section_key", "") or ""),
             },
             projection_policy="persist_canonical" if ok else "do_not_persist",
             degraded_reason="" if ok else degraded_reason or "pdf_missing_stable_answer",
@@ -295,10 +297,16 @@ def _stable_id(prefix: str, value: str) -> str:
 
 
 def _primary_result_handle_id(canonical: PDFCanonicalResult, *, active_pdf: str) -> str:
+    source_suffix = _stable_id("source:pdf", active_pdf).split(":")[-1]
     mode = canonical.effective_mode or canonical.requested_mode or "document"
+    target_page = _safe_int(canonical.metadata.get("target_page"), default=0, minimum=0, maximum=100000)
+    section_key = str(canonical.metadata.get("target_section_key", "") or "").strip()
+    if mode == "page" and target_page > 0:
+        return f"result:pdf_page_summary:{source_suffix}:p{target_page}"
     if mode == "section":
-        return f"result:pdf_section_summary:{_stable_id('source:pdf', active_pdf).split(':')[-1]}:primary"
-    return f"result:pdf_summary:{_stable_id('source:pdf', active_pdf).split(':')[-1]}:primary"
+        section_suffix = section_key or "section"
+        return f"result:pdf_section_summary:{source_suffix}:{section_suffix}"
+    return f"result:pdf_summary:{source_suffix}:primary"
 
 
 def _result_handle_ids(canonical: PDFCanonicalResult, *, active_pdf: str) -> list[str]:
@@ -307,14 +315,24 @@ def _result_handle_ids(canonical: PDFCanonicalResult, *, active_pdf: str) -> lis
 
 def _result_handles_from_canonical(canonical: PDFCanonicalResult, *, active_pdf: str) -> list[dict[str, Any]]:
     primary = _primary_result_handle_id(canonical, active_pdf=active_pdf)
+    mode = canonical.effective_mode or canonical.requested_mode or "document"
+    if mode == "page":
+        result_kind = "pdf_page_summary"
+    elif mode == "section":
+        result_kind = "pdf_section_summary"
+    else:
+        result_kind = "pdf_summary"
     return (
         [
             {
                 "handle_id": primary,
                 "handle_kind": "result",
-                "result_kind": "pdf_section_summary" if "section" in primary else "pdf_summary",
+                "result_kind": result_kind,
                 "object_handle_id": _stable_id("source:pdf", active_pdf),
-                "mode": canonical.effective_mode or canonical.requested_mode or "document",
+                "mode": mode,
+                "target_page": _safe_int(canonical.metadata.get("target_page"), default=0, minimum=0, maximum=100000),
+                "target_section": str(canonical.metadata.get("target_section", "") or ""),
+                "target_section_key": str(canonical.metadata.get("target_section_key", "") or ""),
             }
         ]
         if primary
@@ -328,6 +346,8 @@ def _typed_degraded_reason(canonical: PDFCanonicalResult) -> str:
         return "page_has_no_text"
     if "section_not_located" in reason:
         return "section_not_located"
+    if "section_not_stably_located" in reason:
+        return "section_not_stably_located"
     if "ocr" in reason:
         return "ocr_unstable"
     return "evidence_insufficient_for_synthesis"
