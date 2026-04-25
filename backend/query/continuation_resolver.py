@@ -13,6 +13,10 @@ _SECTION_RE = re.compile(
     r"(?:第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)|这一部分|那一部分|这一章|那一章|这一节|那一节)",
     flags=re.IGNORECASE,
 )
+_DATASET_SOURCE_RE = re.compile(
+    r"数据源[:：]\s*([^\s,，;；|]+?\.(?:xlsx|csv|xls|json|parquet))",
+    flags=re.IGNORECASE,
+)
 
 
 class QueryContinuationResolver:
@@ -109,31 +113,43 @@ class QueryContinuationResolver:
         if understanding.route == "tool":
             return understanding
         explicit_path = self._extract_explicit_dataset_reference(message)
-        if not explicit_path:
-            return understanding
         if not self._has_strong_structured_operation(message):
             return understanding
-        try:
-            resolved = StructuredDataCatalog.resolve_dataset_path(self.base_dir, explicit_path, message)
-        except ValueError:
-            resolved = None
-        if resolved is None:
+        path_reference = explicit_path or self._extract_recent_dataset_reference(history)
+        if not path_reference:
             return understanding
+        if explicit_path:
+            try:
+                resolved = StructuredDataCatalog.resolve_dataset_path(self.base_dir, explicit_path, message)
+            except ValueError:
+                resolved = None
+            if resolved is None:
+                return understanding
+            path_reference = StructuredDataCatalog.relative_path(self.base_dir, resolved)
         return QueryUnderstanding(
             intent="structured_followup_query",
+            source_kind="dataset",
+            task_kind="structured_data",
             modality="table",
             route="tool",
             execution_posture="direct_tool",
-            direct_route_reason="structured_explicit_context",
+            direct_route_reason=(
+                "structured_explicit_context"
+                if explicit_path
+                else "structured_recent_history_context"
+            ),
             tool_name="structured_data_analysis",
             tool_input={
                 "query": message,
                 "analysis_type": "auto",
-                "path": StructuredDataCatalog.relative_path(self.base_dir, resolved),
+                "path": path_reference,
             },
             should_skip_rag=True,
             confidence=max(float(getattr(understanding, "confidence", 0.0) or 0.0), 0.88),
-            reasons=[*list(getattr(understanding, "reasons", []) or []), "structured_explicit_context"],
+            reasons=[
+                *list(getattr(understanding, "reasons", []) or []),
+                "structured_explicit_context" if explicit_path else "structured_recent_history_context",
+            ],
         )
 
     def promote_session_summary_query(
@@ -223,6 +239,22 @@ class QueryContinuationResolver:
             flags=re.IGNORECASE,
         )
         return match.group(1).strip() if match is not None else ""
+
+    def _extract_recent_dataset_reference(self, history: list[dict[str, Any]]) -> str:
+        if not history:
+            return ""
+        recent_messages = list(history[-8:])
+        for item in reversed(recent_messages):
+            content = str(item.get("content", "") or "").strip()
+            if not content:
+                continue
+            explicit_reference = self._extract_explicit_dataset_reference(content)
+            if explicit_reference:
+                return explicit_reference
+            source_match = _DATASET_SOURCE_RE.search(content)
+            if source_match is not None:
+                return str(source_match.group(1) or "").strip()
+        return ""
 
     def _has_strong_structured_operation(self, message: str) -> bool:
         normalized = (message or "").strip().lower()

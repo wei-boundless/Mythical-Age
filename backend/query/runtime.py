@@ -1104,6 +1104,7 @@ class QueryRuntime:
 
             last_ai_message = ""
             pending_tools: dict[str, dict[str, str]] = {}
+            recent_tool_receipts: list[dict[str, str]] = []
             tool_step_count = 0
             output_boundary = AssistantOutputBoundary()
 
@@ -1169,16 +1170,40 @@ class QueryRuntime:
                                 for tool_call in tool_calls:
                                     tool_step_count += 1
                                     if tool_step_count > self.max_tool_steps:
-                                        yield {"type": "done", "content": "调用工具失败"}
+                                        failure_event = self._tool_step_guard_done_event(
+                                            execution=execution,
+                                            recent_tool_receipts=recent_tool_receipts,
+                                        )
+                                        if trace is not None:
+                                            trace.annotate(
+                                                {
+                                                    "app.answer_chars": len(str(failure_event.get("content", "") or "")),
+                                                    "app.answer_channel": str(failure_event.get("answer_channel", "") or ""),
+                                                    "app.answer_source": str(failure_event.get("answer_source", "") or ""),
+                                                    "app.answer_fallback_reason": str(failure_event.get("answer_fallback_reason", "") or ""),
+                                                    "app.output_leak_flags": "",
+                                                    "app.tool_receipt_count": len(recent_tool_receipts),
+                                                }
+                                            )
+                                        yield failure_event
                                         return
                                     call_id = str(tool_call.get("id") or tool_call.get("name"))
                                     tool_name = str(tool_call.get("name", "tool"))
                                     tool_args = tool_call.get("args", "")
                                     if not isinstance(tool_args, str):
                                         tool_args = json.dumps(tool_args, ensure_ascii=False)
+                                    receipt_index = len(recent_tool_receipts)
+                                    recent_tool_receipts.append(
+                                        {
+                                            "tool": tool_name,
+                                            "input": str(tool_args),
+                                            "output": "",
+                                        }
+                                    )
                                     pending_tools[call_id] = {
                                         "tool": tool_name,
                                         "input": str(tool_args),
+                                        "receipt_index": str(receipt_index),
                                     }
                                     output_boundary.ingest_tool_call(tool_name, str(tool_args))
                                     yield {
@@ -1194,6 +1219,11 @@ class QueryRuntime:
                                     {"tool": getattr(agent_message, "name", "tool"), "input": ""},
                                 )
                                 output = stringify_content(getattr(agent_message, "content", ""))
+                                receipt_index_raw = str(pending.get("receipt_index", "") or "").strip()
+                                if receipt_index_raw.isdigit():
+                                    receipt_index = int(receipt_index_raw)
+                                    if 0 <= receipt_index < len(recent_tool_receipts):
+                                        recent_tool_receipts[receipt_index]["output"] = output
                                 output_boundary.ingest_tool_result(str(pending["tool"]), output)
                                 yield {
                                     "type": "tool_end",
@@ -1272,7 +1302,7 @@ class QueryRuntime:
                 logger.exception("Failed to generate title for session %s", session_id)
 
     def refresh_session_memory(self, session_id: str) -> str:
-        projection = self._session_memory_projection.get(session_id)
+        projection = self._context_state.peek_session_memory_projection(session_id)
         if projection is not None:
             try:
                 summary = self.memory_facade.refresh_session_memory_from_context_state(
@@ -1294,28 +1324,26 @@ class QueryRuntime:
         return summary
 
     def commit_durable_memory_extraction(self, session_id: str) -> int:
-        projection = self._session_memory_projection.pop(session_id, None)
-        if projection is not None:
-            return self.memory_facade.commit_durable_memory_extraction_from_context_state(
-                session_id,
-                projection.get("main_context"),
-                task_summaries=list(projection.get("task_summary_refs", []) or []),
-                corrections=list(projection.get("corrections", []) or []),
-            )
+        projections = self._context_state.drain_durable_memory_projections(session_id)
+        if projections:
+            return self._commit_durable_projection_batch(session_id, projections)
         return self.memory_facade.commit_durable_memory_extraction(
             session_id,
             self.session_manager.load_session_for_agent(session_id, include_compressed_context=False),
         )
 
     def schedule_durable_memory_extraction(self, session_id: str) -> int:
-        projection = self._session_memory_projection.pop(session_id, None)
-        if projection is not None:
-            return self.memory_facade.submit_durable_memory_extraction_from_context_state(
-                session_id,
-                projection.get("main_context"),
-                task_summaries=list(projection.get("task_summary_refs", []) or []),
-                corrections=list(projection.get("corrections", []) or []),
-            )
+        pending_projection_count = self._context_state.pending_durable_projection_count(session_id)
+        if pending_projection_count:
+            min_projection_batch = self._durable_projection_batch_threshold()
+            if (
+                pending_projection_count < min_projection_batch
+                and not self._has_explicit_durable_projection(session_id)
+            ):
+                return 0
+            projections = self._context_state.drain_durable_memory_projections(session_id)
+            if projections:
+                return self._commit_durable_projection_batch(session_id, projections)
         return self.memory_facade.submit_durable_memory_extraction(
             session_id,
             self.session_manager.load_session_for_agent(session_id, include_compressed_context=False),
@@ -1755,6 +1783,40 @@ class QueryRuntime:
             "active_pdf": str(getattr(getattr(state, "context_slots", None), "active_pdf", "") or "").strip(),
             "active_dataset": str(getattr(getattr(state, "context_slots", None), "active_dataset", "") or "").strip(),
         }
+
+    def _durable_projection_batch_threshold(self) -> int:
+        durable_layer = getattr(self.memory_facade, "durable_memory", None)
+        scheduler = getattr(durable_layer, "scheduler", None)
+        config = getattr(scheduler, "config", None)
+        threshold = int(getattr(config, "min_messages_between_runs", 1) or 1)
+        return max(1, threshold)
+
+    def _has_explicit_durable_projection(self, session_id: str) -> bool:
+        for projection in self._context_state.peek_durable_memory_projections(session_id):
+            main_context = projection.get("main_context")
+            if isinstance(main_context, dict):
+                active_goal = str(main_context.get("active_goal", "") or "").strip()
+            else:
+                active_goal = str(getattr(main_context, "active_goal", "") or "").strip()
+            intent = analyze_memory_intent(active_goal)
+            if str(getattr(intent, "intent", "") or "") == "durable_memory_statement":
+                return True
+        return False
+
+    def _commit_durable_projection_batch(
+        self,
+        session_id: str,
+        projections: list[dict[str, Any]],
+    ) -> int:
+        total_saved = 0
+        for projection in projections:
+            total_saved += self.memory_facade.commit_durable_memory_extraction_from_context_state(
+                session_id,
+                projection.get("main_context"),
+                task_summaries=list(projection.get("task_summary_refs", []) or []),
+                corrections=list(projection.get("corrections", []) or []),
+            )
+        return total_saved
 
     def _guard_followup_resolution_by_runtime_risk(
         self,
@@ -2248,6 +2310,85 @@ class QueryRuntime:
 
     def _looks_like_rag_procedural_answer(self, answer: str) -> bool:
         return self._output_policy.looks_like_rag_procedural_answer(answer)
+
+    def _tool_step_guard_done_event(
+        self,
+        *,
+        execution: QueryExecutionPlan,
+        recent_tool_receipts: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        content = self._build_tool_step_guard_message(
+            message=execution.message,
+            recent_tool_receipts=recent_tool_receipts,
+        )
+        return {
+            "type": "done",
+            "content": content,
+            "main_context": self._build_main_working_context(execution).to_dict(),
+            "task_summary_refs": [],
+            "answer_channel": "fallback_answer",
+            "answer_source": "tool_step_guard",
+            "answer_fallback_reason": "agent_tool_steps_exceeded",
+            "answer_leak_flags": [],
+        }
+
+    def _build_tool_step_guard_message(
+        self,
+        *,
+        message: str,
+        recent_tool_receipts: list[dict[str, str]],
+    ) -> str:
+        lines = [
+            "这轮我连续尝试了过多工具调用，但还是没有形成稳定答案，所以先停下来，避免继续空转。"
+        ]
+        recent_attempts = [
+            item
+            for item in (self._summarize_tool_step_attempt(receipt) for receipt in recent_tool_receipts[-3:])
+            if item
+        ]
+        if recent_attempts:
+            lines.append("最近几次尝试是：")
+            for item in recent_attempts:
+                lines.append(f"- {item}")
+        if str(message or "").strip():
+            lines.append("如果要继续，最好直接告诉我要延续哪条线程、哪个文件，或你想保留哪份结果。")
+        return "\n".join(lines)
+
+    def _summarize_tool_step_attempt(self, receipt: dict[str, str]) -> str:
+        tool_name = str(receipt.get("tool", "") or "").strip() or "tool"
+        raw_input = str(receipt.get("input", "") or "").strip()
+        raw_output = str(receipt.get("output", "") or "").strip()
+        parsed_input = self._parse_tool_step_input(raw_input)
+        path = str(parsed_input.get("path", "") or "").strip()
+        query = str(parsed_input.get("query", "") or "").strip()
+
+        if tool_name == "read_file" and "path is a directory" in raw_output.lower():
+            target = f"`{path}`" if path else "目标路径"
+            return f"`read_file` 试图读取 {target}，但那里是目录，不是文件。"
+        if tool_name == "pdf_analysis" and "explicit path is required" in raw_output.lower():
+            return "`pdf_analysis` 被用于查找 PDF，但这个工具必须提供明确文件路径。"
+        if tool_name == "structured_data_analysis" and raw_output:
+            dataset = path.rsplit("/", 1)[-1] if path else "当前数据表"
+            return f"`structured_data_analysis` 已拿到 `{dataset}` 的一份结构化结果，但还没有收束成最终回答。"
+        if raw_output:
+            compact_output = " ".join(raw_output.split())
+            compact_output = compact_output[:80] + ("..." if len(compact_output) > 80 else "")
+            return f"`{tool_name}` 返回了：{compact_output}"
+        if query:
+            compact_query = " ".join(query.split())
+            compact_query = compact_query[:60] + ("..." if len(compact_query) > 60 else "")
+            return f"`{tool_name}` 仍在围绕“{compact_query}”反复尝试。"
+        return f"`{tool_name}` 被重复调用，但还没有形成可用结果。"
+
+    def _parse_tool_step_input(self, raw_input: str) -> dict[str, Any]:
+        normalized = str(raw_input or "").strip()
+        if not normalized:
+            return {}
+        try:
+            payload = json.loads(normalized)
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     def _should_isolate_explicit_durable_turn(
         self,

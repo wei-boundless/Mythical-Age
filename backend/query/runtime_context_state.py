@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from typing import Any, Callable
 
 from query.models import QueryExecutionPlan
@@ -20,6 +21,7 @@ class RuntimeContextState:
         self.memory_facade = memory_facade
         self._session_memory_projection = session_memory_projection
         self._normalize_pdf_scope = normalize_pdf_scope
+        self._projection_lock = threading.Lock()
 
     def capture_session_memory_projection(
         self,
@@ -28,17 +30,88 @@ class RuntimeContextState:
         main_context_payload: Any,
         task_summary_payloads: Any,
     ) -> None:
+        projection = self._build_projection_payload(
+            main_context_payload=main_context_payload,
+            task_summary_payloads=task_summary_payloads,
+        )
+        with self._projection_lock:
+            existing = self._session_memory_projection.get(session_id)
+            queued = self._legacy_or_queued_projections(existing)
+            queued.append(projection)
+            self._session_memory_projection[session_id] = {
+                **projection,
+                "durable_projection_queue": queued,
+            }
+
+    def peek_session_memory_projection(self, session_id: str) -> dict[str, Any] | None:
+        with self._projection_lock:
+            payload = self._session_memory_projection.get(session_id)
+            if not isinstance(payload, dict):
+                return None
+            return {
+                "main_context": payload.get("main_context"),
+                "task_summary_refs": list(payload.get("task_summary_refs", []) or []),
+                "corrections": list(payload.get("corrections", []) or []),
+            }
+
+    def pending_durable_projection_count(self, session_id: str) -> int:
+        with self._projection_lock:
+            payload = self._session_memory_projection.get(session_id)
+            return len(self._legacy_or_queued_projections(payload))
+
+    def peek_durable_memory_projections(self, session_id: str) -> list[dict[str, Any]]:
+        with self._projection_lock:
+            payload = self._session_memory_projection.get(session_id)
+            return self._legacy_or_queued_projections(payload)
+
+    def drain_durable_memory_projections(self, session_id: str) -> list[dict[str, Any]]:
+        with self._projection_lock:
+            payload = self._session_memory_projection.pop(session_id, None)
+        return self._legacy_or_queued_projections(payload)
+
+    def _build_projection_payload(
+        self,
+        *,
+        main_context_payload: Any,
+        task_summary_payloads: Any,
+    ) -> dict[str, Any]:
         corrections: list[str] = []
         if isinstance(main_context_payload, dict):
             latest_correction = str(main_context_payload.get("latest_correction", "") or "").strip()
             if latest_correction:
                 corrections.append(latest_correction)
         task_summaries = task_summary_payloads if isinstance(task_summary_payloads, list) else []
-        self._session_memory_projection[session_id] = {
+        return {
             "main_context": main_context_payload,
             "task_summary_refs": task_summaries,
             "corrections": corrections,
         }
+
+    def _legacy_or_queued_projections(self, payload: Any) -> list[dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return []
+        queued = payload.get("durable_projection_queue")
+        if isinstance(queued, list) and queued:
+            normalized: list[dict[str, Any]] = []
+            for item in queued:
+                if not isinstance(item, dict):
+                    continue
+                normalized.append(
+                    {
+                        "main_context": item.get("main_context"),
+                        "task_summary_refs": list(item.get("task_summary_refs", []) or []),
+                        "corrections": list(item.get("corrections", []) or []),
+                    }
+                )
+            if normalized:
+                return normalized
+        return [
+            {
+                "main_context": payload.get("main_context"),
+                "task_summary_refs": list(payload.get("task_summary_refs", []) or []),
+                "corrections": list(payload.get("corrections", []) or []),
+            }
+        ]
 
     def load_session_binding_snapshot(self, session_id: str) -> dict[str, Any]:
         session_memory = getattr(self.memory_facade, "session_memory", None)

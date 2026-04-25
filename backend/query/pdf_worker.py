@@ -273,14 +273,53 @@ class PDFWorker:
 
 def _degraded_pdf_answer(canonical: PDFCanonicalResult) -> str:
     pages = "、".join(f"P{page}" for page in canonical.pages[:5] if int(page or 0) > 0)
-    reason = str(canonical.degraded_reason or canonical.error or "").strip()
-    if pages and reason:
-        return f"已尝试读取这份 PDF 的 {pages}，但没有形成稳定摘要。原因：{reason}。"
+    reason = str(canonical.degraded_reason or canonical.error or "").strip().lower()
+    target_section = str(canonical.metadata.get("target_section", "") or "").strip()
+    evidence_hint = _stable_evidence_hint(canonical)
+    if reason == "target_page_has_no_stable_text":
+        if pages:
+            return f"已定位到 {pages}，但这一页没有稳定可提取的正文，可能是扫描页、图片页、目录页或近乎空白页。"
+        return "已定位到目标页，但这一页没有稳定可提取的正文，可能是扫描页、图片页、目录页或近乎空白页。"
+    if reason == "target_page_text_quality_low":
+        if pages and evidence_hint:
+            return f"已定位到 {pages}，但页面文本质量不稳定，暂时不能可靠概括整页内容。当前只能稳定辨认出：{evidence_hint}。"
+        if pages:
+            return f"已定位到 {pages}，但页面文本质量不稳定，暂时不能可靠概括整页内容。"
+        return "已定位到目标页，但页面文本质量不稳定，暂时不能可靠概括整页内容。"
+    if reason == "target_section_not_located":
+        if target_section:
+            return f"已检索这份 PDF，但当前没有稳定定位到“{target_section}”这一部分。"
+        return "已检索这份 PDF，但当前没有稳定定位到你指定的章节或部分。"
+    if reason == "target_section_not_stably_located":
+        if target_section and pages:
+            return f"已定位到“{target_section}”的相关页码：{pages}，但章节文本不够稳定，暂时不能可靠生成章节摘要。"
+        if target_section:
+            return f"已定位到“{target_section}”的相关线索，但章节文本不够稳定，暂时不能可靠生成章节摘要。"
+        return "已定位到相关章节线索，但章节文本不够稳定，暂时不能可靠生成章节摘要。"
+    if reason == "no_stable_document_evidence":
+        if pages:
+            return f"已读取这份 PDF，并检查了与问题最相关的页面：{pages}，但能稳定提取的正文证据仍然不足，暂时不能可靠总结。"
+        return "已读取这份 PDF，但能稳定提取的正文证据仍然不足，暂时不能可靠总结。"
+    if reason == "document_summary_text_quality_low":
+        if pages and evidence_hint:
+            return f"已读取这份 PDF，并检查了相关页面：{pages}，但清洗后的正文质量仍不稳定。当前只能稳定辨认出：{evidence_hint}。"
+        if pages:
+            return f"已读取这份 PDF，并检查了相关页面：{pages}，但清洗后的正文质量仍不稳定，暂时不能可靠总结。"
+        return "已读取这份 PDF，但清洗后的正文质量仍不稳定，暂时不能可靠总结。"
     if pages:
-        return f"已尝试读取这份 PDF 的 {pages}，但没有形成稳定摘要。"
-    if reason:
-        return f"已尝试读取这份 PDF，但没有形成稳定摘要。原因：{reason}。"
-    return "已尝试读取这份 PDF，但没有形成稳定摘要。"
+        return f"已读取这份 PDF 的 {pages}，但当前还没有形成稳定摘要。"
+    return "已读取这份 PDF，但当前还没有形成稳定摘要。"
+
+
+def _stable_evidence_hint(canonical: PDFCanonicalResult) -> str:
+    for item in list(canonical.evidence or []):
+        snippet = " ".join(str(getattr(item, "snippet", "") or "").split()).strip(" .。;；,，:：")
+        if not snippet:
+            continue
+        compact = snippet[:80].strip()
+        if compact:
+            return compact
+    return ""
 
 
 def _safe_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:

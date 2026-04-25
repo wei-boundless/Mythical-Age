@@ -208,11 +208,12 @@ def main() -> None:
         structured_followup_history,
         QueryUnderstanding(),
     )
-    assert structured_followup_plan.query_understanding.tool_name != "structured_data_analysis"
-    assert promoted_structured.route != "tool"
+    assert structured_followup_plan.query_understanding.tool_name == "structured_data_analysis"
+    assert promoted_structured.route == "tool"
+    assert promoted_structured.tool_name == "structured_data_analysis"
     structured_followup_execution = structured_followup_plan.iter_executions()[0]
-    assert structured_followup_execution.structured_binding is None
-    assert not structured_followup_execution.tool_input.get("path", "")
+    assert structured_followup_execution.structured_binding is not None
+    assert structured_followup_execution.tool_input.get("path", "").endswith("inventory.xlsx")
 
     session_structured_authority_plan = planner.build_plan(
         session_id="planner-regression",

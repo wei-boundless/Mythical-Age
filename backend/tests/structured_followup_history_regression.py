@@ -44,8 +44,9 @@ def main() -> None:
         history=history,
     )
     weak_followup_execution = weak_followup_plan.iter_executions()[0]
-    assert weak_followup_execution.structured_binding is None
-    assert not weak_followup_execution.tool_input.get("path", "")
+    assert weak_followup_execution.query_understanding.tool_name == "structured_data_analysis"
+    assert weak_followup_execution.structured_binding is not None
+    assert weak_followup_execution.tool_input.get("path", "").endswith("inventory.xlsx")
 
     generic_followup_plan = planner.build_plan(
         session_id="structured-followup-regression",
@@ -53,8 +54,9 @@ def main() -> None:
         history=history,
     )
     generic_followup_execution = generic_followup_plan.iter_executions()[0]
-    assert generic_followup_execution.structured_binding is None
-    assert not generic_followup_execution.tool_input.get("path", "")
+    assert generic_followup_execution.query_understanding.tool_name == "structured_data_analysis"
+    assert generic_followup_execution.structured_binding is not None
+    assert generic_followup_execution.tool_input.get("path", "").endswith("inventory.xlsx")
 
     fresh_grouped_plan = planner.build_plan(
         session_id="structured-followup-regression",
@@ -62,9 +64,9 @@ def main() -> None:
         history=history,
     )
     fresh_grouped_execution = fresh_grouped_plan.iter_executions()[0]
-    assert fresh_grouped_execution.query_understanding.tool_name is None
-    assert fresh_grouped_execution.structured_binding is None
-    assert not fresh_grouped_execution.tool_input.get("path", "")
+    assert fresh_grouped_execution.query_understanding.tool_name == "structured_data_analysis"
+    assert fresh_grouped_execution.structured_binding is not None
+    assert fresh_grouped_execution.tool_input.get("path", "").endswith("inventory.xlsx")
 
     explicit_followup_plan = planner.build_plan(
         session_id="structured-followup-regression",
@@ -131,6 +133,20 @@ def main() -> None:
     weak_followup_execution = weak_followup_plan.iter_executions()[0]
     assert weak_followup_execution.structured_binding is None
     assert not weak_followup_execution.tool_input.get("path", "")
+
+    employee_history = [
+        {"role": "user", "content": "现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。"},
+        {"role": "assistant", "content": "数据源：employees.xlsx 筛选条件：无 查询模式：记录排序。"},
+    ]
+    employee_followup_plan = planner.build_plan(
+        session_id="structured-followup-regression",
+        message="按部门汇总这些高薪员工。",
+        history=employee_history,
+    )
+    employee_followup_execution = employee_followup_plan.iter_executions()[0]
+    assert employee_followup_execution.query_understanding.tool_name == "structured_data_analysis"
+    assert employee_followup_execution.structured_binding is not None
+    assert employee_followup_execution.tool_input.get("path", "").endswith("employees.xlsx")
 
     print("ALL PASSED (structured follow-up history regression)")
 

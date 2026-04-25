@@ -135,10 +135,81 @@ def test_pdf_worker_degraded_result_does_not_project_stable_summary() -> None:
         assert result.status == "degraded"
         assert result.canonical_result.ok is False
         assert result.canonical_result.projection_policy == "do_not_persist"
-        assert "target_page_text_quality_low" in result.canonical_result.answer
+        assert "页面文本质量不稳定" in result.canonical_result.answer
         assert projection.memory_policy == "do_not_persist"
         assert projection.task_summary_refs == []
         assert projection.main_context.active_constraints["active_pdf"] == "knowledge/reports/thin.pdf"
+
+
+def test_pdf_worker_degraded_page_uses_stable_evidence_hint_in_user_message() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pdf_path = root / "knowledge" / "reports" / "title-page.pdf"
+        pdf_path.parent.mkdir(parents=True)
+        pdf_path.write_bytes(b"%PDF-1.4\n")
+        runtime = _PDFRuntimeStub(
+            PDFCanonicalResult(
+                status="degraded",
+                source="title-page.pdf",
+                requested_mode="page",
+                effective_mode="page",
+                summary="",
+                degraded_reason="target_page_text_quality_low",
+                pages=[3],
+                evidence=[PDFCanonicalEvidence(page_number=3, score=1.0, snippet="回归现实主义2025年AI治理报告 腾讯研究院")],
+            )
+        )
+
+        worker = PDFWorker(root_dir=root, runtime=runtime)
+        result = asyncio.run(
+            worker.run(
+                WorkerRequest(
+                    request_id="worker:pdf:title-page",
+                    query="第三页讲了什么",
+                    worker_route="pdf",
+                    bindings={"active_pdf": "knowledge/reports/title-page.pdf"},
+                    constraints={"mode": "page"},
+                )
+            )
+        )
+
+        assert "当前只能稳定辨认出" in result.canonical_result.answer
+        assert "回归现实主义2025年AI治理报告 腾讯研究院" in result.canonical_result.answer
+
+
+def test_pdf_worker_blank_page_uses_natural_explanation() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        pdf_path = root / "knowledge" / "reports" / "blank.pdf"
+        pdf_path.parent.mkdir(parents=True)
+        pdf_path.write_bytes(b"%PDF-1.4\n")
+        runtime = _PDFRuntimeStub(
+            PDFCanonicalResult(
+                status="degraded",
+                source="blank.pdf",
+                requested_mode="page",
+                effective_mode="page",
+                summary="",
+                degraded_reason="target_page_has_no_stable_text",
+                pages=[4],
+            )
+        )
+
+        worker = PDFWorker(root_dir=root, runtime=runtime)
+        result = asyncio.run(
+            worker.run(
+                WorkerRequest(
+                    request_id="worker:pdf:blank",
+                    query="第四页讲了什么",
+                    worker_route="pdf",
+                    bindings={"active_pdf": "knowledge/reports/blank.pdf"},
+                    constraints={"mode": "page"},
+                )
+            )
+        )
+
+        assert "没有稳定可提取的正文" in result.canonical_result.answer
+        assert "扫描页、图片页、目录页或近乎空白页" in result.canonical_result.answer
 
 
 def test_pdf_worker_section_result_projects_section_binding_and_handle() -> None:

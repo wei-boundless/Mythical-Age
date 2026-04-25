@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from langchain.agents import create_agent
+from langchain_core.messages import AIMessage, convert_to_messages
 from langchain_openai import ChatOpenAI
 
 try:
@@ -19,6 +20,47 @@ from config import LLM_PROVIDER_DEFAULTS
 from runtime.settings import AppSettingsService
 
 logger = logging.getLogger(__name__)
+
+
+class _DeepSeekReasoningCompatChatModel(ChatDeepSeek):
+    """Preserve DeepSeek thinking payload across tool-call round trips.
+
+    DeepSeek thinking mode requires the previous assistant tool-call message to
+    replay its `reasoning_content` on the next request. LangChain stores that
+    field in `AIMessage.additional_kwargs`, but the default OpenAI-compatible
+    message serializer drops it for chat/completions payloads. We patch the
+    serialized assistant messages here so multi-turn tool loops can continue.
+    """
+
+    def _get_request_payload(
+        self,
+        input_: Any,
+        *,
+        stop: list[str] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        raw_messages = payload.get("messages")
+        if not isinstance(raw_messages, list):
+            return payload
+        try:
+            original_messages = convert_to_messages(input_)
+        except Exception:
+            return payload
+
+        for original_message, serialized_message in zip(original_messages, raw_messages):
+            if not isinstance(original_message, AIMessage):
+                continue
+            if not isinstance(serialized_message, dict):
+                continue
+            if str(serialized_message.get("role", "") or "").strip() != "assistant":
+                continue
+
+            reasoning_content = str(original_message.additional_kwargs.get("reasoning_content", "") or "").strip()
+            if reasoning_content:
+                serialized_message["reasoning_content"] = reasoning_content
+
+        return payload
 
 
 def stringify_content(content: Any) -> str:
@@ -308,7 +350,7 @@ class ModelRuntime:
                 raise RuntimeError("langchain-deepseek is not installed")
             if not spec.api_key:
                 raise RuntimeError("Missing API key for provider deepseek")
-            return ChatDeepSeek(
+            return _DeepSeekReasoningCompatChatModel(
                 model=spec.model,
                 api_key=spec.api_key,
                 base_url=spec.base_url,

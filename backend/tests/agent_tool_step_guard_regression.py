@@ -127,7 +127,11 @@ def test_agent_stops_when_tool_steps_exceed_limit() -> None:
 
     assert len(tool_starts) == 8
     assert done_events
-    assert done_events[-1].get("content") == "调用工具失败"
+    assert "过多工具调用" in str(done_events[-1].get("content", ""))
+    assert "mock_tool" in str(done_events[-1].get("content", ""))
+    assert done_events[-1].get("answer_channel") == "fallback_answer"
+    assert done_events[-1].get("answer_source") == "tool_step_guard"
+    assert done_events[-1].get("answer_fallback_reason") == "agent_tool_steps_exceeded"
 
 
 def main() -> None:

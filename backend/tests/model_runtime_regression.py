@@ -6,13 +6,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from agents import MAIN_AGENT
-from runtime.model_runtime import ModelRuntime, ModelRuntimeError
+from runtime.model_runtime import ModelRuntime, ModelRuntimeError, ModelSpec
 
 
 class _SettingsStub:
@@ -217,3 +218,39 @@ def test_model_runtime_appends_cross_provider_fallback_candidate() -> None:
         ("openai", "gpt-4.1-mini"),
         ("bailian", "qwen3.5-plus"),
     ]
+
+
+def test_deepseek_payload_replays_reasoning_content_for_tool_roundtrip() -> None:
+    runtime = _runtime(retries=0)
+    model = runtime._build_chat_model_for_spec(
+        ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.com",
+        )
+    )
+
+    assistant_message = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "get_date",
+                "args": {},
+                "id": "call_123",
+                "type": "tool_call",
+            }
+        ],
+        additional_kwargs={"reasoning_content": "I should call get_date first."},
+    )
+
+    payload = model._get_request_payload(
+        [
+            HumanMessage(content="明天是什么时候？"),
+            assistant_message,
+            ToolMessage(content="2026-04-26", tool_call_id="call_123"),
+        ]
+    )
+
+    assert payload["messages"][1]["role"] == "assistant"
+    assert payload["messages"][1]["reasoning_content"] == "I should call get_date first."
