@@ -1,0 +1,42 @@
+{
+  "id": "e589efd323a24bf3b19f883cc47d1477",
+  "title": "黄金价格查询",
+  "created_at": 1777178209.4183989,
+  "updated_at": 1777178295.9506314,
+  "compressed_context": "",
+  "messages": [
+    {
+      "role": "user",
+      "content": "查询黄金价格"
+    },
+    {
+      "role": "assistant",
+      "content": "- 当前现货黄金 XAU/USD 参考价约为 4709.5000 美元/盎司。\n- 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg。\n- 使用查询词：gold price today live XAU/USD per ounce\n- 摘要：Gold ; XAUUSD:CUR. Gold Spot. USD/t oz. 4,709.5000 ; XAUEUR:CUR. Gold/Euro Spot. EUR/t oz. 4,019.6300 ; XAUGBP:CUR. Gold/British Pound Spot. GBP/t oz. 3,480.2700.\n- 首条来源：https://www.bloomberg.com/markets/commodities/futures/metals\n\n来源：\n- Precious and Industrial Metals - Bloomberg: https://www.bloomberg.com/markets/commodities/futures/metals\n- XAU to USD Exchange Rate - Bloomberg: https://www.bloomberg.com/quote/XAUUSD:CUR\n- Gold (XAU) Spot Rate - Bloomberg News: https://www.bloomberg.com/quote/XAU:CUR\n\n时间说明：\n- 查询时间：2026-04-26\n- 来源发布日期：未提供",
+      "tool_calls": [
+        {
+          "tool": "get_gold_price",
+          "input": "{'query': '查询黄金价格'}",
+          "output": "- 当前现货黄金 XAU/USD 参考价约为 4709.5000 美元/盎司。\n- 本次优先采用的来源是：Precious and Industrial Metals - Bloomberg。\n- 使用查询词：gold price today live XAU/USD per ounce\n- 摘要：Gold ; XAUUSD:CUR. Gold Spot. USD/t oz. 4,709.5000 ; XAUEUR:CUR. Gold/Euro Spot. EUR/t oz. 4,019.6300 ; XAUGBP:CUR. Gold/British Pound Spot. GBP/t oz. 3,480.2700.\n- 首条来源：https://www.bloomberg.com/markets/commodities/futures/metals\n\n来源：\n- Precious and Industrial Metals - Bloomberg: https://www.bloomberg.com/markets/commodities/futures/metals\n- XAU to USD Exchange Rate - Bloomberg: https://www.bloomberg.com/quote/XAUUSD:CUR\n- Gold (XAU) Spot Rate - Bloomberg News: https://www.bloomberg.com/quote/XAU:CUR\n\n时间说明：\n- 查询时间：2026-04-26\n- 来源发布日期：未提供"
+        }
+      ],
+      "answer_channel": "answer_candidate",
+      "answer_source": "direct_tool.get_gold_price",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    },
+    {
+      "role": "user",
+      "content": "北京是哪个国家的首都"
+    },
+    {
+      "role": "assistant",
+      "content": "北京是中国的首都。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "segment.visible_text",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    }
+  ]
+}

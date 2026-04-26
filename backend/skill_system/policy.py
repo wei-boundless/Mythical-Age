@@ -31,6 +31,42 @@ class SkillPolicyFrame:
 
 
 @dataclass(frozen=True, slots=True)
+class SkillPolicyCandidate:
+    name: str
+    title: str
+    selected: bool = False
+    filtered: bool = False
+    filter_reason: str = ""
+    specificity: tuple[int, int, int, int, int] = (0, 0, 0, 0, 0)
+    reasons: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "title": self.title,
+            "selected": self.selected,
+            "filtered": self.filtered,
+            "filter_reason": self.filter_reason,
+            "specificity": list(self.specificity),
+            "reasons": list(self.reasons),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SkillPolicyInspection:
+    selected: SkillPolicyFrame | None = None
+    candidates: tuple[SkillPolicyCandidate, ...] = ()
+    reasons: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "selected": self.selected.to_dict() if self.selected is not None else None,
+            "candidates": [candidate.to_dict() for candidate in self.candidates],
+            "reasons": list(self.reasons),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class _SkillMatch:
     skill: SkillDefinition
     specificity: tuple[int, int, int, int, int]
@@ -48,30 +84,88 @@ class SkillPolicyResolver:
         *,
         task_frame: Any,
     ) -> SkillPolicyFrame | None:
+        return self.inspect(task_frame=task_frame).selected
+
+    def inspect(
+        self,
+        *,
+        task_frame: Any,
+    ) -> SkillPolicyInspection:
         if str(getattr(task_frame, "execution_posture", "") or "") == "bounded_agent":
-            return None
+            return SkillPolicyInspection(reasons=("bounded_agent_skips_skill_policy",))
 
         explicit_name = str(getattr(task_frame, "skill_name", "") or "").strip()
         if explicit_name:
             skill = self.registry.get_by_name(explicit_name)
             if skill is not None:
-                return self._frame(skill, reasons=("explicit_skill_name",))
+                frame = self._frame(skill, reasons=("explicit_skill_name",))
+                return SkillPolicyInspection(
+                    selected=frame,
+                    candidates=(
+                        SkillPolicyCandidate(
+                            name=skill.name,
+                            title=skill.title,
+                            selected=True,
+                            specificity=(1, 1, 1, 1, 0),
+                            reasons=("explicit_skill_name",),
+                        ),
+                    ),
+                    reasons=("explicit_skill_name",),
+                )
 
         skills = list(getattr(self.registry, "skills", []) or [])
         if not skills:
-            return None
+            return SkillPolicyInspection(reasons=("empty_skill_registry",))
 
-        candidates = [
-            match
-            for skill in skills
-            for match in [self._match(skill, task_frame=task_frame)]
-            if match is not None
+        matches: list[_SkillMatch] = []
+        candidate_views: list[SkillPolicyCandidate] = []
+        for skill in skills:
+            if self._is_forbidden(skill, task_frame):
+                candidate_views.append(
+                    SkillPolicyCandidate(
+                        name=skill.name,
+                        title=skill.title,
+                        filtered=True,
+                        filter_reason="forbidden_route",
+                    )
+                )
+                continue
+            match = self._match(skill, task_frame=task_frame)
+            if match is None:
+                candidate_views.append(
+                    SkillPolicyCandidate(
+                        name=skill.name,
+                        title=skill.title,
+                        filtered=True,
+                        filter_reason="no_structural_contract_match",
+                    )
+                )
+                continue
+            matches.append(match)
+
+        if not matches:
+            return SkillPolicyInspection(
+                candidates=tuple(candidate_views),
+                reasons=("no_skill_contract_match",),
+            )
+        matches.sort(key=lambda item: item.specificity, reverse=True)
+        selected = matches[0]
+        selected_frame = self._frame(selected.skill, reasons=selected.reasons)
+        matched_views = [
+            SkillPolicyCandidate(
+                name=match.skill.name,
+                title=match.skill.title,
+                selected=match.skill.name == selected.skill.name,
+                specificity=match.specificity,
+                reasons=match.reasons,
+            )
+            for match in matches
         ]
-        if not candidates:
-            return None
-        candidates.sort(key=lambda item: item.specificity, reverse=True)
-        selected = candidates[0]
-        return self._frame(selected.skill, reasons=selected.reasons)
+        return SkillPolicyInspection(
+            selected=selected_frame,
+            candidates=tuple([*matched_views, *candidate_views]),
+            reasons=("skill_policy_inspected",),
+        )
 
     def _match(self, skill: SkillDefinition, *, task_frame: Any) -> _SkillMatch | None:
         if self._is_forbidden(skill, task_frame):

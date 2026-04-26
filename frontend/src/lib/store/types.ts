@@ -1,4 +1,4 @@
-import type { RetrievalResult, SessionSummary, ToolCall } from "@/lib/api";
+import type { OrchestrationSnapshot, RetrievalResult, SessionSummary, SystemGraphOverlay, ToolCall } from "@/lib/api";
 import type { SoulKey, SoulSummary } from "@/lib/souls";
 
 export type Message = {
@@ -43,6 +43,31 @@ export type WorkspaceView =
   | "capabilities"
   | "playground";
 
+export type SystemGraphHighlight = {
+  nodeIds: string[];
+  edgeIds: string[];
+  reason: string;
+  source: string;
+};
+
+export type MemoryInspectorTarget = {
+  source: "test-system" | "system-framework" | "manual";
+  runId?: string;
+  turnId?: string;
+  turnIndex?: number;
+  layer?: "conversation" | "state" | "durable";
+  reason?: string;
+};
+
+export type OrchestrationInspectorTarget = {
+  source: "test-system" | "live-session" | "manual";
+  runId?: string;
+  turnId?: string;
+  turnIndex?: number;
+  artifactPath?: string;
+  reason?: string;
+};
+
 export type StoreState = {
   activeWorkspaceView: WorkspaceView;
   sessions: SessionSummary[];
@@ -60,6 +85,11 @@ export type StoreState = {
   sidebarWidth: number;
   inspectorWidth: number;
   tokenStats: TokenStats | null;
+  systemGraphHighlight: SystemGraphHighlight | null;
+  systemGraphOverlay: SystemGraphOverlay | null;
+  memoryInspectorTarget: MemoryInspectorTarget | null;
+  orchestrationSnapshot: OrchestrationSnapshot | null;
+  orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
 };
 
 export type StoreActions = {
@@ -76,6 +106,11 @@ export type StoreActions = {
   saveInspector: () => Promise<void>;
   setSidebarWidth: (width: number) => void;
   setInspectorWidth: (width: number) => void;
+  highlightSystemGraph: (highlight: SystemGraphHighlight | null) => void;
+  setSystemGraphOverlay: (overlay: SystemGraphOverlay | null) => void;
+  setMemoryInspectorTarget: (target: MemoryInspectorTarget | null) => void;
+  setOrchestrationInspectorTarget: (target: OrchestrationInspectorTarget | null) => void;
+  setOrchestrationSnapshot: (snapshot: OrchestrationSnapshot | null) => void;
 };
 
 export type AppStore = StoreState &

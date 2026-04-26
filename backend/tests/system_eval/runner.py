@@ -320,6 +320,7 @@ def _collect_profile_results(profile: str, artifact_root: Path) -> list[Scenario
     if profile == "stable":
         results.extend(_collect_profile_results("smoke", artifact_root))
         results.extend(_results_from_regression_profile("core", artifact_root / "artifacts" / "core"))
+        results.append(_run_frontend_build(artifact_root / "artifacts"))
         return results
 
     if profile in {"full", "benchmark"}:

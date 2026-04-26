@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -10,6 +11,10 @@ from typing import Any
 
 from experiments.artifacts import load_run_artifacts, read_json_file, read_text_tail, summarize_run_result
 from experiments.catalog import get_profile, list_profiles
+from experiments.memory_trace import get_turn_memory_trace
+from experiments.orchestration_trace import build_turn_orchestration_snapshot
+from experiments.prompt_manifest import get_turn_prompt_manifest
+from experiments.trace_graph import build_run_overlay, build_turn_overlay, list_turns
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -66,7 +71,8 @@ class ExperimentRunner:
             "-m",
             "harness.run",
             "--profile",
-            profile.id,
+            profile.harness_profile or profile.id,
+            *list(profile.extra_args),
             "--output-dir",
             str(output_dir),
         ]
@@ -110,12 +116,37 @@ class ExperimentRunner:
         output_dir = self._safe_output_dir(run_id)
         state = self._load_state(output_dir) or self._state_from_artifacts(output_dir)
         state = self._refresh_run_state(state)
+        state["duration_ms"] = self._duration_ms_from_state(state)
         state["log_tail"] = read_text_tail(Path(str(state.get("log_path") or "")), limit=12000)
         return state
 
     def get_artifacts(self, run_id: str) -> dict[str, Any]:
         output_dir = self._safe_output_dir(run_id)
         return load_run_artifacts(output_dir)
+
+    def get_turns(self, run_id: str) -> list[dict[str, Any]]:
+        output_dir = self._safe_output_dir(run_id)
+        return list_turns(output_dir)
+
+    def get_graph_overlay(self, run_id: str) -> dict[str, Any]:
+        output_dir = self._safe_output_dir(run_id)
+        return build_run_overlay(output_dir)
+
+    def get_turn_graph_overlay(self, run_id: str, turn_id: str) -> dict[str, Any]:
+        output_dir = self._safe_output_dir(run_id)
+        return build_turn_overlay(output_dir, turn_id)
+
+    def get_turn_prompt_manifest(self, run_id: str, turn_id: str) -> dict[str, Any]:
+        output_dir = self._safe_output_dir(run_id)
+        return get_turn_prompt_manifest(output_dir, turn_id)
+
+    def get_turn_memory_trace(self, run_id: str, turn_id: str) -> dict[str, Any]:
+        output_dir = self._safe_output_dir(run_id)
+        return get_turn_memory_trace(output_dir, turn_id)
+
+    def get_turn_orchestration_snapshot(self, run_id: str, turn_id: str, *, artifact_path: str = "") -> dict[str, Any]:
+        output_dir = self._safe_output_dir(run_id)
+        return build_turn_orchestration_snapshot(output_dir, turn_id, artifact_path=artifact_path)
 
     def cancel(self, run_id: str) -> dict[str, Any]:
         state = self.get_run(run_id)
@@ -145,6 +176,35 @@ class ExperimentRunner:
         run_id = str(state.get("run_id") or "")
         process = self._processes.get(run_id)
         if process is None:
+            if str(state.get("status") or "") == "running":
+                output_dir = Path(str(state.get("output_dir") or ""))
+                run_result_path = output_dir / "run_result.json"
+                if run_result_path.exists():
+                    artifacts = read_json_file(run_result_path, {})
+                    summary = summarize_run_result(artifacts if isinstance(artifacts, dict) else {})
+                    failed = int(summary.get("failed", 0) or 0)
+                    state["status"] = "failed" if failed else "passed"
+                    state["returncode"] = 1 if failed else 0
+                    state["ended_at"] = run_result_path.stat().st_mtime
+                    state["summary"] = summary
+                    state["duration_ms"] = self._duration_ms_from_state(state)
+                    self._write_state_dict(state)
+                elif self._recorded_process_is_gone(state):
+                    reason = self._stale_running_reason(output_dir)
+                    state["status"] = "failed"
+                    state["returncode"] = -1
+                    state["ended_at"] = max(
+                        self._latest_mtime(output_dir),
+                        float(state.get("started_at") or 0.0),
+                    ) or time.time()
+                    state["summary"] = {
+                        "total": int(dict(state.get("summary") or {}).get("total", 0) or 0),
+                        "passed": int(dict(state.get("summary") or {}).get("passed", 0) or 0),
+                        "failed": 1,
+                        "first_failure": reason,
+                    }
+                    state["duration_ms"] = self._duration_ms_from_state(state)
+                    self._write_state_dict(state)
             return state
         returncode = process.poll()
         if returncode is None:
@@ -156,9 +216,55 @@ class ExperimentRunner:
         state["returncode"] = returncode
         state["ended_at"] = state.get("ended_at") or time.time()
         state["summary"] = summary
+        state["duration_ms"] = self._duration_ms_from_state(state)
         self._write_state_dict(state)
         self._processes.pop(run_id, None)
         return state
+
+    def _duration_ms_from_state(self, state: dict[str, Any]) -> float:
+        try:
+            started_at = float(state.get("started_at") or 0.0)
+            ended_at = float(state.get("ended_at") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        if started_at <= 0:
+            return 0.0
+        end = ended_at if ended_at > 0 else time.time()
+        return round(max(end - started_at, 0.0) * 1000.0, 2)
+
+    def _recorded_process_is_gone(self, state: dict[str, Any]) -> bool:
+        try:
+            pid = int(state.get("pid") or 0)
+        except (TypeError, ValueError):
+            pid = 0
+        if pid <= 0:
+            return False
+        if os.name == "nt":
+            return not _windows_pid_exists(pid)
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+        return False
+
+    def _stale_running_reason(self, output_dir: Path) -> str:
+        log_tail = read_text_tail(output_dir / "runner.log", limit=4000)
+        if "KeyboardInterrupt" in log_tail:
+            return "测试进程被 KeyboardInterrupt 中断，未生成 run_result.json。"
+        if "Traceback" in log_tail:
+            return "测试进程异常退出，未生成 run_result.json。"
+        return "测试进程已不存在，但 run_state 仍停留在 running。"
+
+    def _latest_mtime(self, output_dir: Path) -> float:
+        latest = 0.0
+        if not output_dir.exists():
+            return latest
+        for path in output_dir.rglob("*"):
+            try:
+                latest = max(latest, path.stat().st_mtime)
+            except OSError:
+                continue
+        return latest
 
     def _safe_output_dir(self, run_id: str) -> Path:
         normalized = str(run_id or "").strip()
@@ -183,6 +289,7 @@ class ExperimentRunner:
     def _write_state_dict(self, state: dict[str, Any]) -> None:
         output_dir = Path(str(state.get("output_dir") or ""))
         output_dir.mkdir(parents=True, exist_ok=True)
+        state["duration_ms"] = self._duration_ms_from_state(state)
         (output_dir / "run_state.json").write_text(
             json.dumps(state, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -215,3 +322,18 @@ class ExperimentRunner:
 
 
 experiment_runner = ExperimentRunner()
+
+
+def _windows_pid_exists(pid: int) -> bool:
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return False
+
+    process_query_limited_information = 0x1000
+    handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, wintypes.DWORD(pid))
+    if not handle:
+        return False
+    ctypes.windll.kernel32.CloseHandle(handle)
+    return True

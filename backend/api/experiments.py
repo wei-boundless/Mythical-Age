@@ -48,6 +48,54 @@ async def get_experiment_artifacts(run_id: str) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/experiments/runs/{run_id}/turns")
+async def list_experiment_turns(run_id: str) -> list[dict[str, object]]:
+    try:
+        return experiment_runner.get_turns(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/experiments/runs/{run_id}/graph-overlay")
+async def get_experiment_graph_overlay(run_id: str) -> dict[str, object]:
+    try:
+        return experiment_runner.get_graph_overlay(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/experiments/runs/{run_id}/turns/{turn_id}/graph-overlay")
+async def get_experiment_turn_graph_overlay(run_id: str, turn_id: str) -> dict[str, object]:
+    try:
+        return experiment_runner.get_turn_graph_overlay(run_id, turn_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/experiments/runs/{run_id}/turns/{turn_id}/prompt-manifest")
+async def get_experiment_turn_prompt_manifest(run_id: str, turn_id: str) -> dict[str, object]:
+    try:
+        return experiment_runner.get_turn_prompt_manifest(run_id, turn_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/experiments/runs/{run_id}/turns/{turn_id}/memory-trace")
+async def get_experiment_turn_memory_trace(run_id: str, turn_id: str) -> dict[str, object]:
+    try:
+        return experiment_runner.get_turn_memory_trace(run_id, turn_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/experiments/runs/{run_id}/turns/{turn_id}/orchestration")
+async def get_experiment_turn_orchestration(run_id: str, turn_id: str, artifact_path: str = "") -> dict[str, object]:
+    try:
+        return experiment_runner.get_turn_orchestration_snapshot(run_id, turn_id, artifact_path=artifact_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/experiments/runs/{run_id}/cancel")
 async def cancel_experiment_run(run_id: str) -> dict[str, object]:
     try:

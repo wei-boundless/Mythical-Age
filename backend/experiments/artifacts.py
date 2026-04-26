@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from experiments.graph_mapping import attach_graph_refs
+
 
 def read_json_file(path: Path, fallback: Any) -> Any:
     if not path.exists():
@@ -50,7 +52,7 @@ def load_run_artifacts(output_dir: Path) -> dict[str, Any]:
     trace_tail = read_text_tail(output_dir / "trace.jsonl", limit=20000)
     return {
         "run_result": run_result,
-        "issues": issues if isinstance(issues, list) else [],
+        "issues": attach_graph_refs(issues if isinstance(issues, list) else []),
         "report": report,
         "trace_tail": trace_tail,
         "summary": summarize_run_result(run_result if isinstance(run_result, dict) else {}),

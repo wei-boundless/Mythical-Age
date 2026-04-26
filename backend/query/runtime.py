@@ -12,6 +12,8 @@ from typing import Any
 
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
+from orchestration.behavior_trace import build_behavior_snapshot
+from orchestration.contract_preview import build_contract_previews
 from query.answer_assembler import AnswerAssembler
 from query.context_models import MainContextState, TaskSummaryRef
 from query.evidence_orchestrator import EvidenceOrchestrator
@@ -31,7 +33,8 @@ from query.runtime_followup import RuntimeFollowupCoordinator
 from query.runtime_persistence import RuntimePersistenceAssembler
 from query.runtime_output_policy import RuntimeOutputPolicy
 from query.runtime_tools import RuntimeToolBridge
-from query.prompt_builder import build_system_prompt
+from query.prompt_builder import build_system_prompt, build_system_prompt_with_manifest
+from query.prompt_manifest import PromptManifest, compact_prompt_manifest
 from query.planner import QueryPlanner
 from query.worker_models import WorkerExecutionPlan, WorkerRequest
 from runtime.model_runtime import ModelRuntime, ModelRuntimeError, stringify_content
@@ -243,6 +246,51 @@ class QueryRuntime:
             session_memory=None,
             context_package=context_package,
             active_skill=self._render_execution_skill_prompt(execution),
+        )
+
+    async def _abuild_system_prompt_with_manifest_for_execution(
+        self,
+        *,
+        session_id: str,
+        execution: QueryExecutionPlan,
+        retrieval_results: list[dict[str, Any]] | None = None,
+        relevant_memory_notes: list[Any] | None = None,
+    ) -> tuple[str, PromptManifest]:
+        context_package = self.memory_facade.build_context_package(
+            session_id,
+            history=execution.history,
+            pending_user_message=execution.message,
+            memory_intent=execution.memory_intent,
+            relevant_notes=relevant_memory_notes,
+            retrieval_results=retrieval_results,
+            rebuild_reason="prompt_assembly",
+        )
+        if self._is_session_summary_execution(execution):
+            context_package = self._filter_runtime_sections_from_context_package(context_package)
+
+        async_builder = getattr(self.memory_facade, "abuild_persistent_memory_block", None)
+        if callable(async_builder):
+            persistent_memory = await async_builder(
+                query=execution.message,
+                memory_intent=execution.memory_intent,
+                relevant_notes=relevant_memory_notes,
+            )
+        else:
+            persistent_memory = self.memory_facade.build_persistent_memory_block(
+                query=execution.message,
+                memory_intent=execution.memory_intent,
+                relevant_notes=relevant_memory_notes,
+            )
+
+        return build_system_prompt_with_manifest(
+            self.base_dir,
+            self.settings_service.get_rag_mode(),
+            persistent_memory=persistent_memory,
+            session_memory=None,
+            context_package=context_package,
+            active_skill=self._render_execution_skill_prompt(execution),
+            session_id=session_id,
+            turn_id=str(getattr(execution, "execution_id", "") or getattr(execution, "message", "") or "")[:64],
         )
 
     def _render_active_skill_prompt(self, active_skill: SkillDefinition | None) -> str | None:
@@ -494,6 +542,16 @@ class QueryRuntime:
         executions = plan.iter_executions()
         if executions:
             executions[0] = self._maybe_build_candidate_selection_execution(session_id, executions[0])
+        if executions:
+            yield {
+                "type": "behavior_trace",
+                "snapshot": self._build_live_behavior_snapshot(
+                    session_id=session_id,
+                    message=message,
+                    plan=plan,
+                    execution=executions[0],
+                ),
+            }
         if trace is not None:
             trace.annotate(
                 {
@@ -1088,12 +1146,23 @@ class QueryRuntime:
                 for tool in self.tool_runtime.instances
                 if getattr(tool, "name", "") in allowed_names
             ]
-            system_prompt = await self._abuild_system_prompt_for_execution(
+            system_prompt, prompt_manifest = await self._abuild_system_prompt_with_manifest_for_execution(
                 session_id=session_id,
                 execution=execution,
                 retrieval_results=context.retrieval_results,
                 relevant_memory_notes=context.relevant_memory_notes,
             )
+            compact_manifest = compact_prompt_manifest(prompt_manifest)
+            if trace is not None:
+                trace.annotate(
+                    {
+                        "app.prompt_manifest_id": compact_manifest.get("prompt_id", ""),
+                        "app.prompt_total_chars": compact_manifest.get("total_chars", 0),
+                        "app.prompt_total_sections": compact_manifest.get("total_sections", 0),
+                        "app.prompt_manifest": compact_manifest,
+                    }
+                )
+            yield {"type": "prompt_manifest", "prompt_manifest": compact_manifest}
             agent = self.model_runtime.create_conversation_agent(
                 system_prompt=system_prompt,
                 tools=tools,
@@ -1405,6 +1474,45 @@ class QueryRuntime:
         if "explicit_subtasks" in parameters:
             kwargs["explicit_subtasks"] = explicit_subtasks
         return self.planner.build_plan(**kwargs)
+
+    def _build_live_behavior_snapshot(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        plan: QueryPlan,
+        execution: QueryExecutionPlan,
+    ) -> dict[str, Any]:
+        skill_inspection: dict[str, Any] = {}
+        resolver = getattr(self.planner, "skill_policy_resolver", None)
+        if resolver is not None and hasattr(resolver, "inspect"):
+            try:
+                task_frame = copy.copy(getattr(execution, "query_understanding", None))
+                if task_frame is not None and getattr(task_frame, "skill_name", None):
+                    task_frame.skill_name = None
+                inspection = resolver.inspect(task_frame=task_frame)
+                skill_inspection = inspection.to_dict() if hasattr(inspection, "to_dict") else {}
+            except Exception:
+                logger.exception("Failed to inspect live skill policy")
+
+        contract_previews: list[dict[str, Any]] = []
+        try:
+            contract_previews = build_contract_previews(runtime=self, execution=execution)
+        except Exception:
+            logger.exception("Failed to build live contract previews")
+
+        return build_behavior_snapshot(
+            source="live-session",
+            session_id=session_id,
+            message=message,
+            plan=plan,
+            execution=execution,
+            skill_inspection=skill_inspection,
+            context_preview={},
+            prompt_manifest={},
+            contract_previews=contract_previews,
+            warnings=[],
+        )
 
     def _build_agent_messages(self, context: QueryContext) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []

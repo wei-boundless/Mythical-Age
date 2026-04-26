@@ -1,8 +1,8 @@
 {
   "collection": "durable_memory",
   "status": "ready",
-  "dense_documents": 45,
-  "dense_documents_indexed": 45,
+  "dense_documents": 9,
+  "dense_documents_indexed": 9,
   "parser_backends": [
     "docling"
   ],
@@ -16,12 +16,12 @@
     "vector_backend": "qdrant",
     "available": true,
     "query_ok": true,
-    "points_count": 45,
+    "points_count": 9,
     "status": "ready"
   },
   "dense_vector_name": "dense",
   "lexical_enabled": true,
-  "lexical_documents": 25,
+  "lexical_documents": 3,
   "lexical_status": "ready",
   "strategy_name": "baseline_dense_lexical",
   "chain_version": "baseline_dense_lexical__qdrant_dense__app_bm25__app_fusion__coalesce_v1",
@@ -41,11 +41,11 @@
       "coalesce"
     ]
   },
-  "build_id": "durable_memory-1240aeb09a3a",
-  "build_started_at_utc": "2026-04-25T13:39:54.089826Z",
+  "build_id": "durable_memory-53b26f5f6ed3",
+  "build_started_at_utc": "2026-04-26T03:20:37.347027Z",
   "metadata_schema_version": "retrieval_v2_meta_v1",
   "layout_root": "D:\\AI应用\\langchain-agent\\backend\\storage\\indexes_v2",
   "collection_dir": "D:\\AI应用\\langchain-agent\\backend\\storage\\indexes_v2\\durable_memory",
   "metadata_path": "D:\\AI应用\\langchain-agent\\backend\\storage\\indexes_v2\\durable_memory\\meta.json",
-  "written_at_utc": "2026-04-25T13:40:03.415204Z"
+  "written_at_utc": "2026-04-26T03:20:39.033925Z"
 }

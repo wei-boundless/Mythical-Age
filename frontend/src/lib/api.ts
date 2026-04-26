@@ -38,6 +38,8 @@ export type ExperimentProfile = {
   command_preview: string;
   risk: string;
   estimated_duration: string;
+  harness_profile?: string;
+  extra_args?: string[];
   requires_confirmation: boolean;
 };
 
@@ -68,6 +70,313 @@ export type ExperimentArtifacts = {
   report: string;
   trace_tail: string;
   summary: ExperimentRun["summary"];
+};
+
+export type ExperimentTurn = {
+  turn_id: string;
+  index: number;
+  scenario: string;
+  session_alias: string;
+  status: string;
+  summary: string;
+  artifact_path: string;
+  issue_count: number;
+  has_trace: boolean;
+  has_prompt_manifest: boolean;
+  has_memory_trace: boolean;
+};
+
+export type SystemGraphOverlayItem = {
+  id: string;
+  status: "passed" | "failed" | "warning" | "unknown";
+  label: string;
+  events: string[];
+  latency_ms: number | null;
+  reason: string;
+};
+
+export type SystemGraphOverlay = {
+  run_id: string;
+  turn_id: string | null;
+  mode: "inferred" | "observed";
+  status: "passed" | "failed" | "warning" | "unknown";
+  summary: string;
+  nodes: SystemGraphOverlayItem[];
+  edges: SystemGraphOverlayItem[];
+  artifacts: Record<string, string>;
+  prompt_manifest_id: string | null;
+};
+
+export type OrchestrationNodeStatus = "idle" | "visited" | "warning" | "failed" | "success" | "blocked" | "skipped";
+
+export type OrchestrationNode = {
+  id: string;
+  index: number;
+  label: string;
+  description: string;
+  status: OrchestrationNodeStatus;
+  summary: string;
+  source_event: string;
+  source_module?: string;
+  reasons?: string[];
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  refs?: Record<string, unknown>;
+};
+
+export type OrchestrationEdge = {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  status: OrchestrationNodeStatus;
+  summary: string;
+};
+
+export type OrchestrationEvent = {
+  index: number;
+  event: string;
+  node_id: string;
+  summary: string;
+  ts_ms?: number | null;
+  data: Record<string, unknown>;
+};
+
+export type OrchestrationSnapshot = {
+  source: "live-session" | "test-turn" | "inferred" | "dry-run" | string;
+  session_id: string;
+  run_id?: string;
+  turn_id?: string;
+  turn_index?: number;
+  execution_mode: string;
+  route: string;
+  status: "idle" | "running" | "success" | "warning" | "failed" | string;
+  summary: string;
+  problem_node_id?: string;
+  nodes: OrchestrationNode[];
+  edges: OrchestrationEdge[];
+  events: OrchestrationEvent[];
+  artifacts?: Record<string, string>;
+  decision_trace?: Record<string, unknown>;
+  dry_run?: Record<string, unknown>;
+};
+
+export type PromptManifestSection = {
+  id: string;
+  title: string;
+  layer: "static" | "session" | "turn" | string;
+  source: string;
+  model_visible: boolean;
+  chars: number;
+  preview: string;
+  order: number;
+};
+
+export type PromptManifest = {
+  prompt_id: string;
+  session_id: string;
+  turn_id: string;
+  assembly_order: string[];
+  total_chars: number;
+  total_sections: number;
+  sections: PromptManifestSection[];
+  debug_policy: string;
+};
+
+export type PromptManifestResponse = {
+  status: "available" | "missing_manifest";
+  reason: string;
+  prompt_manifest: PromptManifest | null;
+};
+
+export type MemoryTraceSection = {
+  id: string;
+  label: string;
+  items: string[];
+  count: number;
+};
+
+export type ExperimentTurnMemoryTrace = {
+  run_id: string;
+  turn_id: string;
+  has_memory_signal: boolean;
+  turn_context?: {
+    index: number;
+    session_alias: string;
+    speaker: string;
+    user_input: string;
+    assistant_output: string;
+    status: string;
+    failed_checks: string[];
+    artifact_path: string;
+  };
+  summary: string;
+  context_management: {
+    pressure_level: string;
+    strategy: string;
+    selected_sections: string[];
+    debug_selected_sections: string[];
+    dropped_sections: string[];
+    token_accounting: Record<string, number>;
+  };
+  session_memory: {
+    section_count: number;
+    model_sections: MemoryTraceSection[];
+    debug_sections: MemoryTraceSection[];
+    active_goal: string;
+    flow_state: Record<string, unknown>;
+    task_state: Record<string, unknown>;
+    context_slots: Record<string, unknown>;
+  };
+  durable_memory: {
+    exact_count: number;
+    relevant_count: number;
+    exact_matches: Array<Record<string, unknown>>;
+    relevant_notes: Array<Record<string, unknown>>;
+    model_sections: MemoryTraceSection[];
+    debug_sections: MemoryTraceSection[];
+  };
+  prompt_injection: {
+    section_count: number;
+    total_chars: number;
+    sections: Array<{
+      id: string;
+      title: string;
+      layer: string;
+      source: string;
+      chars: number;
+      preview: string;
+      order: number;
+    }>;
+  };
+};
+
+export type ExperimentTurnMemoryTraceResponse = {
+  status: "available" | "missing_trace";
+  reason: string;
+  memory_trace: ExperimentTurnMemoryTrace | null;
+};
+
+export type MemoryHeader = {
+  note_id: string;
+  filename: string;
+  memory_type: string;
+  memory_class: string;
+  title: string;
+  description: string;
+  status: string;
+  confidence: string;
+  updated_at: string;
+  retrieval_hints: string[];
+  eligible_for_injection: boolean;
+  canonical_statement: string;
+  summary: string;
+};
+
+export type MemorySessionInspect = {
+  present: boolean;
+  preview: string;
+  model_preview: string;
+  debug_preview: string;
+  active_goal: string;
+  flow_state: Record<string, unknown>;
+  task_state: Record<string, unknown>;
+  context_slots: Record<string, unknown>;
+  risk: Record<string, unknown>;
+  warm_snapshots: Array<Record<string, unknown>>;
+  storage: Record<string, unknown>;
+  context_management: Record<string, unknown>;
+  durable_matches: Record<string, unknown>;
+};
+
+export type MemorySessionFile = {
+  id: string;
+  label: string;
+  description: string;
+  path: string;
+  kind: "json" | "markdown" | string;
+  exists: boolean;
+  size: number;
+  updated_at: number | null;
+  preview: string;
+};
+
+export type MemorySessionFilesResponse = {
+  session_id: string;
+  root: string;
+  present: boolean;
+  existing_count: number;
+  missing_count: number;
+  files: MemorySessionFile[];
+};
+
+export type MemoryOverview = {
+  session_id: string;
+  query: string;
+  durable_memory: {
+    total: number;
+    active: number;
+    injectable: number;
+    by_type: Record<string, number>;
+    by_class: Record<string, number>;
+    headers: MemoryHeader[];
+    extraction_runtime: Record<string, unknown>;
+  };
+  session_memory: MemorySessionInspect | null;
+};
+
+export type MemoryRecallPreview = {
+  query: string;
+  session_id: string;
+  intent: {
+    intent: string;
+    read_mode: string;
+    write_mode: string;
+    explicit_read_inventory: boolean;
+    ignore_memory: boolean;
+    preferred_types: string[];
+    preferred_memory_classes: string[];
+  };
+  selection: {
+    should_recall: boolean;
+    selected_note_ids: string[];
+    reason: string;
+    confidence: number;
+    needs_verification: boolean;
+    manifest_only: boolean;
+    ignore_memory: boolean;
+  };
+  selected_headers: MemoryHeader[];
+  selected_notes: Array<{
+    note_id: string;
+    filename: string;
+    title: string;
+    summary: string;
+    canonical_statement: string;
+    content_preview: string;
+    memory_type: string;
+    memory_class: string;
+    confidence: string;
+    status: string;
+    retrieval_hints: string[];
+    eligible_for_injection: boolean;
+  }>;
+  rendered_summary: string;
+  context_preview: MemorySessionInspect | null;
+};
+
+export type MemoryGovernanceResponse = {
+  ok: boolean;
+  action: string;
+  filename: string;
+  merged?: string[];
+  header?: MemoryHeader | null;
+};
+
+export type DurableMemoryNoteDetail = {
+  header: MemoryHeader | null;
+  content_preview: string;
+  path: string;
 };
 
 export type StreamHandlers = {
@@ -192,6 +501,84 @@ export async function setPermissionMode(mode: string) {
   });
 }
 
+export async function getMemoryOverview(sessionId?: string, query = "") {
+  const params = new URLSearchParams();
+  if (sessionId) {
+    params.set("session_id", sessionId);
+  }
+  if (query.trim()) {
+    params.set("query", query.trim());
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<MemoryOverview>(`/memory/overview${suffix}`);
+}
+
+export async function getSessionMemoryFiles(sessionId: string) {
+  return request<MemorySessionFilesResponse>(`/memory/session/${encodeURIComponent(sessionId)}/files`);
+}
+
+export async function recallMemoryPreview(payload: { query: string; session_id?: string; limit?: number }) {
+  return request<MemoryRecallPreview>("/memory/recall-preview", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function createDurableMemory(payload: {
+  title: string;
+  canonical_statement: string;
+  summary?: string;
+  memory_type?: string;
+  memory_class?: string;
+  retrieval_hints?: string[];
+  confidence?: string;
+  source_kind?: string;
+  source_message_excerpt?: string;
+}) {
+  return request<MemoryGovernanceResponse>("/memory/durable", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function disableDurableMemory(filename: string, reason = "") {
+  return request<MemoryGovernanceResponse>(`/memory/durable/${encodeURIComponent(filename)}/disable`, {
+    method: "POST",
+    body: JSON.stringify({ reason })
+  });
+}
+
+export async function activateDurableMemory(filename: string, reason = "") {
+  return request<MemoryGovernanceResponse>(`/memory/durable/${encodeURIComponent(filename)}/activate`, {
+    method: "POST",
+    body: JSON.stringify({ reason })
+  });
+}
+
+export async function archiveDurableMemory(filename: string, reason = "") {
+  return request<MemoryGovernanceResponse>(`/memory/durable/${encodeURIComponent(filename)}/archive`, {
+    method: "POST",
+    body: JSON.stringify({ reason })
+  });
+}
+
+export async function getDurableMemoryNote(filename: string) {
+  return request<DurableMemoryNoteDetail>(`/memory/durable/${encodeURIComponent(filename)}`);
+}
+
+export async function mergeDurableMemories(payload: {
+  filenames: string[];
+  title: string;
+  canonical_statement: string;
+  summary?: string;
+  reason?: string;
+}) {
+  return request<MemoryGovernanceResponse>("/memory/durable/merge", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function listExperimentProfiles() {
   return request<ExperimentProfile[]>("/experiments/profiles");
 }
@@ -213,6 +600,55 @@ export async function getExperimentRun(runId: string) {
 
 export async function getExperimentArtifacts(runId: string) {
   return request<ExperimentArtifacts>(`/experiments/runs/${encodeURIComponent(runId)}/artifacts`);
+}
+
+export async function listExperimentTurns(runId: string) {
+  return request<ExperimentTurn[]>(`/experiments/runs/${encodeURIComponent(runId)}/turns`);
+}
+
+export async function getExperimentGraphOverlay(runId: string) {
+  return request<SystemGraphOverlay>(`/experiments/runs/${encodeURIComponent(runId)}/graph-overlay`);
+}
+
+export async function getExperimentTurnGraphOverlay(runId: string, turnId: string) {
+  return request<SystemGraphOverlay>(
+    `/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/graph-overlay`
+  );
+}
+
+export async function getExperimentTurnPromptManifest(runId: string, turnId: string) {
+  return request<PromptManifestResponse>(
+    `/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/prompt-manifest`
+  );
+}
+
+export async function getExperimentTurnMemoryTrace(runId: string, turnId: string) {
+  return request<ExperimentTurnMemoryTraceResponse>(
+    `/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/memory-trace`
+  );
+}
+
+export async function getExperimentTurnOrchestration(runId: string, turnId: string, artifactPath = "") {
+  const params = new URLSearchParams();
+  if (artifactPath.trim()) {
+    params.set("artifact_path", artifactPath.trim());
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<OrchestrationSnapshot>(
+    `/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/orchestration${suffix}`
+  );
+}
+
+export async function runOrchestrationDryRun(payload: {
+  session_id: string;
+  message: string;
+  ephemeral_system_messages?: string[];
+  explicit_subtasks?: Array<Record<string, unknown>>;
+}) {
+  return request<OrchestrationSnapshot>("/orchestration/dry-run", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function cancelExperimentRun(runId: string) {

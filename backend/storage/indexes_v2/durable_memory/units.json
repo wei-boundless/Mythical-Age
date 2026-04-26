@@ -1,11 +1,11 @@
 [
   {
-    "unit_id": "66745a680fa2835cbd6e25ddb1da07b3277062d0",
+    "unit_id": "e4b6c5031709dd7f04e06a840c24e4364c912d23",
     "unit_type": "parent_section",
     "collection": "durable_memory",
-    "doc_id": "4817c9b73b170ff4182340273bd997a0daf39d09",
+    "doc_id": "49266ff0bb26d0b049e957c8c0f6d884b436aa92",
     "source_path": "durable_memory/index/MEMORY.md",
-    "text": "# Memory Index\n\n- [你是想让我展开解释\"复杂问题先给结论，再展开解释](你是想让我展开解释-复杂问题先给结论-再展开解释.md) - 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释 - [复杂问题回答结构偏好](复杂问题回答结构偏好.md) - 复杂问题先给结论，再展开解释；简单问题保持自然流畅。\n\n- [天气查询失败：未找到地点：我要 是昨天 不是;](天气查询失败-未找到地点-我要-是昨天-不是.md) - 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E - [好，岩。我已经记住这个偏好： 以后遇到复杂问题，](好-岩-我已经记住这个偏好-以后遇到复杂问题.md) - 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。\n\n- [岩，我理解你是想让我展开解释\"复杂问题先给结论，](岩-我理解你是想让我展开解释-复杂问题先给结论.md) - 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、 - [以后复杂问题先给结论，再展开解释。](记住-以后复杂问题先给结论-再展开解释.md) - 以后复杂问题先给结论，再展开解释。\n\n- [以后复杂问题先给结论。](记住-以后复杂问题先给结论.md) - 以后复杂问题先给结论。 - [回答我时可以直接称呼我岩。](记住-回答我时可以直接...",
+    "text": "# Memory Index - [以后复杂问题先给结论，再展开解释](以后复杂问题先给结论-再展开解释.md) - 以后复杂问题先给结论，再展开解释。 - [以后复杂问题先给结论。](记住-以后复杂问题先给结论.md) - 以后复杂问题先给结论。",
     "modality": "text",
     "block_id": null,
     "object_ref_id": null,
@@ -35,32 +35,25 @@
       ],
       "unit_view": "parent_section",
       "child_unit_ids": [
-        "ca1dcf826e28cd2e7b7a6533e559a889fb8b3783",
-        "340cb69183cfa29e7a1ee6016b58009e854d6b99",
-        "b493ce5176b48dd151f1107ba144fa6aa3e70f51",
-        "48ab0f685a0a83ac54979c0857fabf12627557aa",
-        "8d3712520e09b7de23f594556f768574a37c590c"
+        "7e1a6263c71c22b2a64192cce9eb6ea7a3151aff"
       ],
       "merged_block_ids": [
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:0",
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1",
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1",
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1",
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1"
+        "706a7fbb202ffe1346435c152e2d6db00eb4b341:0",
+        "706a7fbb202ffe1346435c152e2d6db00eb4b341:1"
       ],
-      "token_count": 674
+      "token_count": 81
     },
     "quality_flags": []
   },
   {
-    "unit_id": "ca1dcf826e28cd2e7b7a6533e559a889fb8b3783",
+    "unit_id": "7e1a6263c71c22b2a64192cce9eb6ea7a3151aff",
     "unit_type": "content_block",
     "collection": "durable_memory",
-    "doc_id": "4817c9b73b170ff4182340273bd997a0daf39d09",
+    "doc_id": "49266ff0bb26d0b049e957c8c0f6d884b436aa92",
     "source_path": "durable_memory/index/MEMORY.md",
-    "text": "# Memory Index",
+    "text": "# Memory Index\n\n- [以后复杂问题先给结论，再展开解释](以后复杂问题先给结论-再展开解释.md) - 以后复杂问题先给结论，再展开解释。 - [以后复杂问题先给结论。](记住-以后复杂问题先给结论.md) - 以后复杂问题先给结论。",
     "modality": "text",
-    "block_id": "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:0",
+    "block_id": "706a7fbb202ffe1346435c152e2d6db00eb4b341:0",
     "object_ref_id": null,
     "page": null,
     "block_type": "heading",
@@ -89,191 +82,20 @@
       ],
       "unit_view": "leaf_block",
       "block_ids": [
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:0"
+        "706a7fbb202ffe1346435c152e2d6db00eb4b341:0",
+        "706a7fbb202ffe1346435c152e2d6db00eb4b341:1"
       ],
-      "token_count": 2
+      "token_count": 81
     },
     "quality_flags": []
   },
   {
-    "unit_id": "340cb69183cfa29e7a1ee6016b58009e854d6b99",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "4817c9b73b170ff4182340273bd997a0daf39d09",
-    "source_path": "durable_memory/index/MEMORY.md",
-    "text": "- [你是想让我展开解释\"复杂问题先给结论，再展开解释](你是想让我展开解释-复杂问题先给结论-再展开解释.md) - 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释 - [复杂问题回答结构偏好](复杂问题回答结构偏好.md) - 复杂问题先给结论，再展开解释；简单问题保持自然流畅。",
-    "modality": "text",
-    "block_id": "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [
-      "Memory Index"
-    ],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/index/MEMORY.md",
-      "parser_backend": "docling",
-      "section_label": "Memory Index",
-      "structure_role": "content",
-      "title": "MEMORY",
-      "section": "Memory Index",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1"
-      ],
-      "token_count": 197
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "b493ce5176b48dd151f1107ba144fa6aa3e70f51",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "4817c9b73b170ff4182340273bd997a0daf39d09",
-    "source_path": "durable_memory/index/MEMORY.md",
-    "text": "- [天气查询失败：未找到地点：我要 是昨天 不是;](天气查询失败-未找到地点-我要-是昨天-不是.md) - 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E - [好，岩。我已经记住这个偏好： 以后遇到复杂问题，](好-岩-我已经记住这个偏好-以后遇到复杂问题.md) - 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。",
-    "modality": "text",
-    "block_id": "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [
-      "Memory Index"
-    ],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/index/MEMORY.md",
-      "parser_backend": "docling",
-      "section_label": "Memory Index",
-      "structure_role": "content",
-      "title": "MEMORY",
-      "section": "Memory Index",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1"
-      ],
-      "token_count": 186
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "48ab0f685a0a83ac54979c0857fabf12627557aa",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "4817c9b73b170ff4182340273bd997a0daf39d09",
-    "source_path": "durable_memory/index/MEMORY.md",
-    "text": "- [岩，我理解你是想让我展开解释\"复杂问题先给结论，](岩-我理解你是想让我展开解释-复杂问题先给结论.md) - 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、 - [以后复杂问题先给结论，再展开解释。](记住-以后复杂问题先给结论-再展开解释.md) - 以后复杂问题先给结论，再展开解释。",
-    "modality": "text",
-    "block_id": "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [
-      "Memory Index"
-    ],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/index/MEMORY.md",
-      "parser_backend": "docling",
-      "section_label": "Memory Index",
-      "structure_role": "content",
-      "title": "MEMORY",
-      "section": "Memory Index",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1"
-      ],
-      "token_count": 190
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "8d3712520e09b7de23f594556f768574a37c590c",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "4817c9b73b170ff4182340273bd997a0daf39d09",
-    "source_path": "durable_memory/index/MEMORY.md",
-    "text": "- [以后复杂问题先给结论。](记住-以后复杂问题先给结论.md) - 以后复杂问题先给结论。 - [回答我时可以直接称呼我岩。](记住-回答我时可以直接称呼我岩.md) - 回答我时可以直接称呼我岩。 - [项目当前主线](项目当前主线.md) - 我们项目当前主线是优化 Memory 和 RAG。",
-    "modality": "text",
-    "block_id": "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [
-      "Memory Index"
-    ],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/index/MEMORY.md",
-      "parser_backend": "docling",
-      "section_label": "Memory Index",
-      "structure_role": "content",
-      "title": "MEMORY",
-      "section": "Memory Index",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "b3ac6b0ea1b66f55f90e354adbd3dfa4b6853d02:1"
-      ],
-      "token_count": 99
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "772343aa44e6166ad92a5ad5f0626c2b8f2b2f1e",
+    "unit_id": "4b17f2835e8e8daec29986b26edc2bb1bed6f3c8",
     "unit_type": "document_summary",
     "collection": "durable_memory",
-    "doc_id": "4817c9b73b170ff4182340273bd997a0daf39d09",
+    "doc_id": "49266ff0bb26d0b049e957c8c0f6d884b436aa92",
     "source_path": "durable_memory/index/MEMORY.md",
-    "text": "# Memory Index\n\n- [你是想让我展开解释\"复杂问题先给结论，再展开解释](你是想让我展开解释-复杂问题先给结论-再展开解释.md) - 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释 - [复杂问题回答结构偏好](复杂问题回答结构偏好.md) - 复杂问题先给结论，再展开解释；简单问题保持自然流畅。\n\n- [天气查询失败：未找到地点：我要 是昨天 不是;](天气查询失败-未找到地点-我要-是昨天-不是.md) - 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E - [好，岩。我已经记住这个偏好： 以后遇到复杂问题，](好-岩-我已经记住这个偏好-以后遇到复杂问题.md) - 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。\n\n- [岩，我理解你是想让我展开解释\"复杂问题先给结论，](岩-我理解你是想让我展开解释-复杂问题先给结论.md) - 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、 - [以后复杂问题先给结论，再展开解释。](记住-以后复杂问题先给结论-再展开解释.md) - 以后复杂问题先给结论，再展开解释。\n\n- [以后复杂问题先给结论。](记住-以后复杂问题先给结论.md) - 以后复杂问题先给结论。 - [回答我时可以直接称呼我岩。](记住-回答我时可以直接称呼我岩.md) - 回答我时可以直接称呼我岩。 - [项目当前主线](项目当前主线.md) - 我们项目当前主线是优化 Memory 和 RAG。",
+    "text": "# Memory Index - [以后复杂问题先给结论，再展开解释](以后复杂问题先给结论-再展开解释.md) - 以后复杂问题先给结论，再展开解释。 - [以后复杂问题先给结论。](记住-以后复杂问题先给结论.md) - 以后复杂问题先给结论。",
     "modality": "text",
     "block_id": null,
     "object_ref_id": null,
@@ -290,19 +112,19 @@
         "context_only"
       ],
       "child_unit_ids": [
-        "66745a680fa2835cbd6e25ddb1da07b3277062d0"
+        "e4b6c5031709dd7f04e06a840c24e4364c912d23"
       ],
       "fallback_used": false
     },
     "quality_flags": []
   },
   {
-    "unit_id": "ed202ba8b6c183ff3b03a90c4792728bf5987993",
+    "unit_id": "170c810f58aab234f2977165c2e03948cf71e96d",
     "unit_type": "parent_section",
     "collection": "durable_memory",
-    "doc_id": "f34f1133eb6850dda90c3b52466fa07a28d631bd",
-    "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-    "text": "schema\\_version: durable-memory.v3 title: 你是想让我展开解释\"复杂问题先给结论，再展开解释 summary: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释\n\ncanonical\\_statement: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。 type: user memory\\_class: preference tags: [user, preference]\n\nretrieval\\_hints: [你是想让我展开解释\"复杂问题先给结论，再展开解释, 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。] created\\_at: 2026-04-24T10:03:45+00:00 updated\\_at: 2026-04-24T10:03:45+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private\n\nsource\\_message\\_excerpt: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。 confidence: m...",
+    "doc_id": "e139194eefa1c531546ab467d6153613bd250581",
+    "source_path": "durable_memory/notes/以后复杂问题先给结论-再展开解释.md",
+    "text": "schema\\_version: durable-memory.v3 title: 以后复杂问题先给结论，再展开解释 summary: 以后复杂问题先给结论，再展开解释。 canonical\\_statement: 以后复杂问题先给结论，再展开解释。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [以后复杂问题先给结论，再展开解释, 以后复杂问题先给结论，再展开解释。] created\\_at: 2026-04-26T02:20:09+00:00 updated\\_at: 2026-04-26T03:20:37+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论，再展开解释。 confidence: medium status: archived last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: false review\\_after: supersedes: invalidation\\_reason: Archived from memory governance UI Canonical: 以后复杂问题先给结论，再展开解释。 Why: Durable memory candidate Evidence: 以后复杂问题先给结论，再展开解释。",
     "modality": "text",
     "block_id": null,
     "object_ref_id": null,
@@ -311,11 +133,11 @@
     "section_path": [],
     "metadata": {
       "source_type": "md",
-      "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
+      "source_path": "durable_memory/notes/以后复杂问题先给结论-再展开解释.md",
       "parser_backend": "docling",
       "section_label": "",
       "structure_role": "content",
-      "title": "你是想让我展开解释-复杂问题先给结论-再展开解释",
+      "title": "以后复杂问题先给结论-再展开解释",
       "section": "",
       "structure_contract_version": "structure_contract_v1",
       "parser_route": [
@@ -330,63 +152,59 @@
       ],
       "unit_view": "parent_section",
       "child_unit_ids": [
-        "aedee7f9e49db559fa48b92a7c7877e6842f9432",
-        "a6b0b66fd8b94a7cdc2b2db4361496451175b3af",
-        "b6bdd81754045f444a0260dfcf6c4a6f6ce3772b",
-        "d13937b0d43bb47cb26f63afe68661b062ad8b5f",
-        "e90379ae310a4a2a2dbab2b0476ae45f3c980697"
+        "0aa6a31f7c37405c8c59a632ad128ac97b274487"
       ],
       "merged_block_ids": [
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:1",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:2",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:3",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:4",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:5",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:6",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:7",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:8",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:9",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:10",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:11",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:12",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:13",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:14",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:15",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:16",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:17",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:18",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:19",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:20",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:21",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:22",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:23",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:24",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:25"
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:1",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:2",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:3",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:4",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:5",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:6",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:7",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:8",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:9",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:10",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:11",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:12",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:13",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:14",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:15",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:16",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:17",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:18",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:19",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:20",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:21",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:22",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:23",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:24",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:25"
       ],
-      "token_count": 795
+      "token_count": 204
     },
     "quality_flags": []
   },
   {
-    "unit_id": "aedee7f9e49db559fa48b92a7c7877e6842f9432",
+    "unit_id": "0aa6a31f7c37405c8c59a632ad128ac97b274487",
     "unit_type": "content_block",
     "collection": "durable_memory",
-    "doc_id": "f34f1133eb6850dda90c3b52466fa07a28d631bd",
-    "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-    "text": "schema\\_version: durable-memory.v3\n\ntitle: 你是想让我展开解释\"复杂问题先给结论，再展开解释\n\nsummary: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释",
+    "doc_id": "e139194eefa1c531546ab467d6153613bd250581",
+    "source_path": "durable_memory/notes/以后复杂问题先给结论-再展开解释.md",
+    "text": "schema\\_version: durable-memory.v3\n\ntitle: 以后复杂问题先给结论，再展开解释\n\nsummary: 以后复杂问题先给结论，再展开解释。\n\ncanonical\\_statement: 以后复杂问题先给结论，再展开解释。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: [user, preference]\n\nretrieval\\_hints: [以后复杂问题先给结论，再展开解释, 以后复杂问题先给结论，再展开解释。]\n\ncreated\\_at: 2026-04-26T02:20:09+00:00\n\nupdated\\_at: 2026-04-26T03:20:37+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private\n\nsource\\_message\\_excerpt: 以后复杂问题先给结论，再展开解释。\n\nconfidence: medium\n\nstatus: archived\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: false\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason: Archived from memory governance UI\n\nCanonical: 以后复杂问题先给结论，再展开解释。 Why: Durable memory candidate Evidence: 以后复杂问题先给结论，再展开解释。",
     "modality": "text",
-    "block_id": "e27e619c5bfe9b801ce9340dbc29db49772afe18:1",
+    "block_id": "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:1",
     "object_ref_id": null,
     "page": null,
     "block_type": "paragraph",
     "section_path": [],
     "metadata": {
       "source_type": "md",
-      "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
+      "source_path": "durable_memory/notes/以后复杂问题先给结论-再展开解释.md",
       "parser_backend": "docling",
       "section_label": "",
       "structure_role": "content",
-      "title": "你是想让我展开解释-复杂问题先给结论-再展开解释",
+      "title": "以后复杂问题先给结论-再展开解释",
       "section": "",
       "structure_contract_version": "structure_contract_v1",
       "parser_route": [
@@ -402,203 +220,43 @@
       ],
       "unit_view": "leaf_block",
       "block_ids": [
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:1",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:2",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:3"
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:1",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:2",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:3",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:4",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:5",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:6",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:7",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:8",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:9",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:10",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:11",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:12",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:13",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:14",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:15",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:16",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:17",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:18",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:19",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:20",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:21",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:22",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:23",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:24",
+        "8bdd5fa9726484dcffbfbab3e04851bb5fead12a:25"
       ],
-      "token_count": 137
+      "token_count": 204
     },
     "quality_flags": []
   },
   {
-    "unit_id": "a6b0b66fd8b94a7cdc2b2db4361496451175b3af",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "f34f1133eb6850dda90c3b52466fa07a28d631bd",
-    "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-    "text": "canonical\\_statement: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: [user, preference]",
-    "modality": "text",
-    "block_id": "e27e619c5bfe9b801ce9340dbc29db49772afe18:4",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "你是想让我展开解释-复杂问题先给结论-再展开解释",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:4",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:5",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:6",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:7"
-      ],
-      "token_count": 120
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "b6bdd81754045f444a0260dfcf6c4a6f6ce3772b",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "f34f1133eb6850dda90c3b52466fa07a28d631bd",
-    "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-    "text": "retrieval\\_hints: [你是想让我展开解释\"复杂问题先给结论，再展开解释, 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。]\n\ncreated\\_at: 2026-04-24T10:03:45+00:00\n\nupdated\\_at: 2026-04-24T10:03:45+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private",
-    "modality": "text",
-    "block_id": "e27e619c5bfe9b801ce9340dbc29db49772afe18:8",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "你是想让我展开解释-复杂问题先给结论-再展开解释",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:8",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:9",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:10",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:11",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:12",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:13"
-      ],
-      "token_count": 163
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "d13937b0d43bb47cb26f63afe68661b062ad8b5f",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "f34f1133eb6850dda90c3b52466fa07a28d631bd",
-    "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-    "text": "source\\_message\\_excerpt: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:",
-    "modality": "text",
-    "block_id": "e27e619c5bfe9b801ce9340dbc29db49772afe18:14",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "你是想让我展开解释-复杂问题先给结论-再展开解释",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:14",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:15",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:16",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:17",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:18",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:19",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:20",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:21",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:22",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:23",
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:24"
-      ],
-      "token_count": 135
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "e90379ae310a4a2a2dbab2b0476ae45f3c980697",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "f34f1133eb6850dda90c3b52466fa07a28d631bd",
-    "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-    "text": "Canonical: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。",
-    "modality": "text",
-    "block_id": "e27e619c5bfe9b801ce9340dbc29db49772afe18:25",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "你是想让我展开解释-复杂问题先给结论-再展开解释",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "e27e619c5bfe9b801ce9340dbc29db49772afe18:25"
-      ],
-      "token_count": 240
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "c857c3d316308ff674832d661bdcb1bf8181eef0",
+    "unit_id": "b0869a092915a1a9be05d6de2f36011a05d0ee1d",
     "unit_type": "document_summary",
     "collection": "durable_memory",
-    "doc_id": "f34f1133eb6850dda90c3b52466fa07a28d631bd",
-    "source_path": "durable_memory/notes/你是想让我展开解释-复杂问题先给结论-再展开解释.md",
-    "text": "schema\\_version: durable-memory.v3 title: 你是想让我展开解释\"复杂问题先给结论，再展开解释 summary: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释\n\ncanonical\\_statement: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。 type: user memory\\_class: preference tags: [user, preference]\n\nretrieval\\_hints: [你是想让我展开解释\"复杂问题先给结论，再展开解释, 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。] created\\_at: 2026-04-24T10:03:45+00:00 updated\\_at: 2026-04-24T10:03:45+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private\n\nsource\\_message\\_excerpt: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解释什么。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason:\n\nCanonical: 你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身，还是想让我对之前某个具体问题展开解释？ 如果是前者，我可以说明这个偏好的含义、适用边界和具体用法。 如果是后者，我目前没有看到之前讨论的具体问题内容，需要你提醒我一下要展开解...",
+    "doc_id": "e139194eefa1c531546ab467d6153613bd250581",
+    "source_path": "durable_memory/notes/以后复杂问题先给结论-再展开解释.md",
+    "text": "schema\\_version: durable-memory.v3 title: 以后复杂问题先给结论，再展开解释 summary: 以后复杂问题先给结论，再展开解释。 canonical\\_statement: 以后复杂问题先给结论，再展开解释。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [以后复杂问题先给结论，再展开解释, 以后复杂问题先给结论，再展开解释。] created\\_at: 2026-04-26T02:20:09+00:00 updated\\_at: 2026-04-26T03:20:37+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论，再展开解释。 confidence: medium status: archived last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: false review\\_after: supersedes: invalidation\\_reason: Archived from memory governance UI Canonical: 以后复杂问题先给结论，再展开解释。 Why: Durable memory candidate Evidence: 以后复杂问题先给结论，再展开解释。",
     "modality": "text",
     "block_id": null,
     "object_ref_id": null,
@@ -606,7 +264,7 @@
     "block_type": "document_summary",
     "section_path": [],
     "metadata": {
-      "title": "你是想让我展开解释-复杂问题先给结论-再展开解释",
+      "title": "以后复杂问题先给结论-再展开解释",
       "parser_backend": "docling",
       "source_type": "md",
       "structure_contract_version": "structure_contract_v1",
@@ -615,1113 +273,19 @@
         "context_only"
       ],
       "child_unit_ids": [
-        "ed202ba8b6c183ff3b03a90c4792728bf5987993"
+        "170c810f58aab234f2977165c2e03948cf71e96d"
       ],
       "fallback_used": false
     },
     "quality_flags": []
   },
   {
-    "unit_id": "55a0853d5d3f7ae0ef3abfea9f3ca849931ba8c3",
+    "unit_id": "f7bdf083acbb18172a5e9c2813a2bd6e8e859a6c",
     "unit_type": "parent_section",
     "collection": "durable_memory",
-    "doc_id": "c9ffec3d1c725c690669772588e409145d512fee",
-    "source_path": "durable_memory/notes/复杂问题回答结构偏好.md",
-    "text": "schema\\_version: durable-memory.v3 title: 复杂问题回答结构偏好 summary: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。 canonical\\_statement: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [复杂问题回答结构偏好, 复杂问题先给结论，再展开解释；简单问题保持自然流畅。] created\\_at: 2026-04-24T03:33:11+00:00 updated\\_at: 2026-04-24T03:33:11+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。 Why: Durable memory candidate Evidence: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "parent_section",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/复杂问题回答结构偏好.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "复杂问题回答结构偏好",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "context_only"
-      ],
-      "unit_view": "parent_section",
-      "child_unit_ids": [
-        "a9a3327bb86eac5f9b1be72c0f323b56ce093ea5"
-      ],
-      "merged_block_ids": [
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:1",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:2",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:3",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:4",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:5",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:6",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:7",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:8",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:9",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:10",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:11",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:12",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:13",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:14",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:15",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:16",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:17",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:18",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:19",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:20",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:21",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:22",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:23",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:24",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:25"
-      ],
-      "token_count": 237
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "a9a3327bb86eac5f9b1be72c0f323b56ce093ea5",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "c9ffec3d1c725c690669772588e409145d512fee",
-    "source_path": "durable_memory/notes/复杂问题回答结构偏好.md",
-    "text": "schema\\_version: durable-memory.v3\n\ntitle: 复杂问题回答结构偏好\n\nsummary: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。\n\ncanonical\\_statement: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: [user, preference]\n\nretrieval\\_hints: [复杂问题回答结构偏好, 复杂问题先给结论，再展开解释；简单问题保持自然流畅。]\n\ncreated\\_at: 2026-04-24T03:33:11+00:00\n\nupdated\\_at: 2026-04-24T03:33:11+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private\n\nsource\\_message\\_excerpt: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。 Why: Durable memory candidate Evidence: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。",
-    "modality": "text",
-    "block_id": "4854d7ab3127f48d4a29afaedd7bccf455232b33:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/复杂问题回答结构偏好.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "复杂问题回答结构偏好",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:1",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:2",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:3",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:4",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:5",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:6",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:7",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:8",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:9",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:10",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:11",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:12",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:13",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:14",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:15",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:16",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:17",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:18",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:19",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:20",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:21",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:22",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:23",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:24",
-        "4854d7ab3127f48d4a29afaedd7bccf455232b33:25"
-      ],
-      "token_count": 237
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "1a5a133ee5b1131ea64fd2bfdf0adaa598051196",
-    "unit_type": "document_summary",
-    "collection": "durable_memory",
-    "doc_id": "c9ffec3d1c725c690669772588e409145d512fee",
-    "source_path": "durable_memory/notes/复杂问题回答结构偏好.md",
-    "text": "schema\\_version: durable-memory.v3 title: 复杂问题回答结构偏好 summary: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。 canonical\\_statement: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [复杂问题回答结构偏好, 复杂问题先给结论，再展开解释；简单问题保持自然流畅。] created\\_at: 2026-04-24T03:33:11+00:00 updated\\_at: 2026-04-24T03:33:11+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。 Why: Durable memory candidate Evidence: 复杂问题先给结论，再展开解释；简单问题保持自然流畅。",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "document_summary",
-    "section_path": [],
-    "metadata": {
-      "title": "复杂问题回答结构偏好",
-      "parser_backend": "docling",
-      "source_type": "md",
-      "structure_contract_version": "structure_contract_v1",
-      "unit_view": "document_summary",
-      "index_profiles": [
-        "context_only"
-      ],
-      "child_unit_ids": [
-        "55a0853d5d3f7ae0ef3abfea9f3ca849931ba8c3"
-      ],
-      "fallback_used": false
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "e6b1a29b38485deae08a339efc1167adbcd73aef",
-    "unit_type": "parent_section",
-    "collection": "durable_memory",
-    "doc_id": "4e67fe9164a171bac0919655e6f4987bb6e85d13",
-    "source_path": "durable_memory/notes/天气查询失败-未找到地点-我要-是昨天-不是.md",
-    "text": "schema\\_version: durable-memory.v3 title: 天气查询失败：未找到地点：我要 是昨天 不是; summary: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E canonical\\_statement: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D%E6%98%AF?format=j1' For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500 type: reference memory\\_class: work tags: [reference, work] retrieval\\_hints: [天气查询失败：未找到地点：我要 是昨天 不是;, 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D%E6%98%AF?format=j1' For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500] created\\_at: 2026-04-25T13:39:48+00:00 u...",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "parent_section",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/天气查询失败-未找到地点-我要-是昨天-不是.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "天气查询失败-未找到地点-我要-是昨天-不是",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "context_only"
-      ],
-      "unit_view": "parent_section",
-      "child_unit_ids": [
-        "3676ab74d09fb31c7ce9073f944ae3415f3c586b",
-        "764941b043989530076df92c09c3cc678bfb5206"
-      ],
-      "merged_block_ids": [
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:1",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:2",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:3",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:4",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:5",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:6",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:7",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:8",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:9",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:10",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:11",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:12",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:13",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:14",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:15",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:16",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:17",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:18",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:19",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:20",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:21",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:22",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:23",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:24",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:25"
-      ],
-      "token_count": 509
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "3676ab74d09fb31c7ce9073f944ae3415f3c586b",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "4e67fe9164a171bac0919655e6f4987bb6e85d13",
-    "source_path": "durable_memory/notes/天气查询失败-未找到地点-我要-是昨天-不是.md",
-    "text": "schema\\_version: durable-memory.v3\n\ntitle: 天气查询失败：未找到地点：我要 是昨天 不是;\n\nsummary: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E\n\ncanonical\\_statement: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D%E6%98%AF?format=j1' For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500\n\ntype: reference\n\nmemory\\_class: work\n\ntags: [reference, work]\n\nretrieval\\_hints: [天气查询失败：未找到地点：我要 是昨天 不是;, 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D%E6%98%AF?format=j1' For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500]\n\ncreated\\_at: 2026-04-25T13:39:48+00:00\n\nupdated\\_at: 2026-04-25T13:39:48+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private",
-    "modality": "text",
-    "block_id": "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/天气查询失败-未找到地点-我要-是昨天-不是.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "天气查询失败-未找到地点-我要-是昨天-不是",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:1",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:2",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:3",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:4",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:5",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:6",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:7",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:8",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:9",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:10",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:11",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:12",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:13"
-      ],
-      "token_count": 277
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "764941b043989530076df92c09c3cc678bfb5206",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "4e67fe9164a171bac0919655e6f4987bb6e85d13",
-    "source_path": "durable_memory/notes/天气查询失败-未找到地点-我要-是昨天-不是.md",
-    "text": "source\\_message\\_excerpt: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D%E6\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D%E6%98%AF?format=j1' For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500 Why: stable\\_reference\\_pointer How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D%E6",
-    "modality": "text",
-    "block_id": "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:14",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/天气查询失败-未找到地点-我要-是昨天-不是.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "天气查询失败-未找到地点-我要-是昨天-不是",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:14",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:15",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:16",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:17",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:18",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:19",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:20",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:21",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:22",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:23",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:24",
-        "2ceafc4bd4613c0b6380a353b18d7c7c7425c7d8:25"
-      ],
-      "token_count": 232
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "7f6108db4d5427147c0156c4f12e5e196d70f52a",
-    "unit_type": "document_summary",
-    "collection": "durable_memory",
-    "doc_id": "4e67fe9164a171bac0919655e6f4987bb6e85d13",
-    "source_path": "durable_memory/notes/天气查询失败-未找到地点-我要-是昨天-不是.md",
-    "text": "schema\\_version: durable-memory.v3 title: 天气查询失败：未找到地点：我要 是昨天 不是; summary: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E canonical\\_statement: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D%E6%98%AF?format=j1' For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500 type: reference memory\\_class: work tags: [reference, work] retrieval\\_hints: [天气查询失败：未找到地点：我要 是昨天 不是;, 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D%E6%98%AF?format=j1' For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500] created\\_at: 2026-04-25T13:39:48+00:00 updated\\_at: 2026-04-25T13:39:48+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private\n\nsource\\_message\\_excerpt: 天气查询失败：未找到地点：我要 是昨天 不是; 备用源也失败：Server error '500 Internal Server Error' for url 'https://wttr.in/%E6%88%91%E8%A6%81%20%E6%98%AF%E6%98%A8%E5%A4%A9%20%E4%B8%8D...",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "document_summary",
-    "section_path": [],
-    "metadata": {
-      "title": "天气查询失败-未找到地点-我要-是昨天-不是",
-      "parser_backend": "docling",
-      "source_type": "md",
-      "structure_contract_version": "structure_contract_v1",
-      "unit_view": "document_summary",
-      "index_profiles": [
-        "context_only"
-      ],
-      "child_unit_ids": [
-        "e6b1a29b38485deae08a339efc1167adbcd73aef"
-      ],
-      "fallback_used": false
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "4fe5bcf9c9cad46c50b4af4a8050f36e62435171",
-    "unit_type": "parent_section",
-    "collection": "durable_memory",
-    "doc_id": "ba0648419269d3d9fb15f0d49f05637bef6e7b01",
-    "source_path": "durable_memory/notes/好-岩-我已经记住这个偏好-以后遇到复杂问题.md",
-    "text": "schema\\_version: durable-memory.v3 title: 好，岩。我已经记住这个偏好： 以后遇到复杂问题， summary: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。 canonical\\_statement: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [好，岩。我已经记住这个偏好： 以后遇到复杂问题，, 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。] created\\_at: 2026-04-24T03:20:47+00:00 updated\\_at: 2026-04-24T03:20:47+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private\n\nsource\\_message\\_excerpt: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical:...",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "parent_section",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/好-岩-我已经记住这个偏好-以后遇到复杂问题.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "好-岩-我已经记住这个偏好-以后遇到复杂问题",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "context_only"
-      ],
-      "unit_view": "parent_section",
-      "child_unit_ids": [
-        "ff553180556368cd13a171ef73e095d830e4d18d",
-        "aee2ed4058549fd32d436c4216ad76e114c7cab0"
-      ],
-      "merged_block_ids": [
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:1",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:2",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:3",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:4",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:5",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:6",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:7",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:8",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:9",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:10",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:11",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:12",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:13",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:14",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:15",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:16",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:17",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:18",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:19",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:20",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:21",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:22",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:23",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:24",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:25"
-      ],
-      "token_count": 533
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "ff553180556368cd13a171ef73e095d830e4d18d",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "ba0648419269d3d9fb15f0d49f05637bef6e7b01",
-    "source_path": "durable_memory/notes/好-岩-我已经记住这个偏好-以后遇到复杂问题.md",
-    "text": "schema\\_version: durable-memory.v3\n\ntitle: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，\n\nsummary: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。\n\ncanonical\\_statement: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: [user, preference]\n\nretrieval\\_hints: [好，岩。我已经记住这个偏好： 以后遇到复杂问题，, 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。]\n\ncreated\\_at: 2026-04-24T03:20:47+00:00\n\nupdated\\_at: 2026-04-24T03:20:47+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private",
-    "modality": "text",
-    "block_id": "74ca4ac78684e98b2542f0f9fe67e1880795be3c:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/好-岩-我已经记住这个偏好-以后遇到复杂问题.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "好-岩-我已经记住这个偏好-以后遇到复杂问题",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:1",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:2",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:3",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:4",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:5",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:6",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:7",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:8",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:9",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:10",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:11",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:12",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:13"
-      ],
-      "token_count": 287
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "aee2ed4058549fd32d436c4216ad76e114c7cab0",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "ba0648419269d3d9fb15f0d49f05637bef6e7b01",
-    "source_path": "durable_memory/notes/好-岩-我已经记住这个偏好-以后遇到复杂问题.md",
-    "text": "source\\_message\\_excerpt: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。",
-    "modality": "text",
-    "block_id": "74ca4ac78684e98b2542f0f9fe67e1880795be3c:14",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/好-岩-我已经记住这个偏好-以后遇到复杂问题.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "好-岩-我已经记住这个偏好-以后遇到复杂问题",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:14",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:15",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:16",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:17",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:18",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:19",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:20",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:21",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:22",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:23",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:24",
-        "74ca4ac78684e98b2542f0f9fe67e1880795be3c:25"
-      ],
-      "token_count": 246
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "5531d886cc65e84f2eb751095d97d731bee3aec7",
-    "unit_type": "document_summary",
-    "collection": "durable_memory",
-    "doc_id": "ba0648419269d3d9fb15f0d49f05637bef6e7b01",
-    "source_path": "durable_memory/notes/好-岩-我已经记住这个偏好-以后遇到复杂问题.md",
-    "text": "schema\\_version: durable-memory.v3 title: 好，岩。我已经记住这个偏好： 以后遇到复杂问题， summary: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。 canonical\\_statement: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [好，岩。我已经记住这个偏好： 以后遇到复杂问题，, 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。] created\\_at: 2026-04-24T03:20:47+00:00 updated\\_at: 2026-04-24T03:20:47+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private\n\nsource\\_message\\_excerpt: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 好，岩。我已经记住这个偏好： 以后遇到复杂问题，先给结论，再展开解释。 这会作为我回答复杂问题时的默认结构。简单问题保持自然流畅即可，不必刻意套用这个框架。",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "document_summary",
-    "section_path": [],
-    "metadata": {
-      "title": "好-岩-我已经记住这个偏好-以后遇到复杂问题",
-      "parser_backend": "docling",
-      "source_type": "md",
-      "structure_contract_version": "structure_contract_v1",
-      "unit_view": "document_summary",
-      "index_profiles": [
-        "context_only"
-      ],
-      "child_unit_ids": [
-        "4fe5bcf9c9cad46c50b4af4a8050f36e62435171"
-      ],
-      "fallback_used": false
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "2455e2a2ba81a50eb39c9afbb07b1aa1d496a977",
-    "unit_type": "parent_section",
-    "collection": "durable_memory",
-    "doc_id": "a9dacc9460a7c335301a3641011a330140eb57e4",
-    "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-    "text": "schema\\_version: durable-memory.v3 title: 岩，我理解你是想让我展开解释\"复杂问题先给结论， summary: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、\n\ncanonical\\_statement: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2. 便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续 type: user memory\\_class: preference tags: [user, preference]\n\nretrieval\\_hints: [岩，我理解你是想让我展开解释\"复杂问题先给结论，, 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2. 便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续] create...",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "parent_section",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "岩-我理解你是想让我展开解释-复杂问题先给结论",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "context_only"
-      ],
-      "unit_view": "parent_section",
-      "child_unit_ids": [
-        "3c21fb569743b8d1e1f73a01999a48ad9ff2ffce",
-        "5d18e8c1527af51c3c78bef41bfe83ffa4fd61ad",
-        "87ebfacadda8d865a4fff7b9cbeb54247d284a6d",
-        "75b0640c6e2ea02d5c68ed3677a1368a6b84f697",
-        "e88ec164540e800f3a4b15118509e0ace2843d4e",
-        "6c232ded4ca7502bfc22b4c9e374e6b4e70adc13"
-      ],
-      "merged_block_ids": [
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:1",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:2",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:3",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:4",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:5",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:6",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:7",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:8",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:9",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:10",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:11",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:12",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:13",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:14",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:15",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:16",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:17",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:18",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:19",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:20",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:21",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:22",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:23",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:24",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:25",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:25"
-      ],
-      "token_count": 1173
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "3c21fb569743b8d1e1f73a01999a48ad9ff2ffce",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "a9dacc9460a7c335301a3641011a330140eb57e4",
-    "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-    "text": "schema\\_version: durable-memory.v3\n\ntitle: 岩，我理解你是想让我展开解释\"复杂问题先给结论，\n\nsummary: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、",
-    "modality": "text",
-    "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "岩-我理解你是想让我展开解释-复杂问题先给结论",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:1",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:2",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:3"
-      ],
-      "token_count": 127
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "5d18e8c1527af51c3c78bef41bfe83ffa4fd61ad",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "a9dacc9460a7c335301a3641011a330140eb57e4",
-    "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-    "text": "canonical\\_statement: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2. 便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续\n\ntype: user\n\nmemory\\_class: preference\n\ntags: [user, preference]",
-    "modality": "text",
-    "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:4",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "岩-我理解你是想让我展开解释-复杂问题先给结论",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:4",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:5",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:6",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:7"
-      ],
-      "token_count": 239
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "87ebfacadda8d865a4fff7b9cbeb54247d284a6d",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "a9dacc9460a7c335301a3641011a330140eb57e4",
-    "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-    "text": "retrieval\\_hints: [岩，我理解你是想让我展开解释\"复杂问题先给结论，, 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2. 便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续]\n\ncreated\\_at: 2026-04-24T10:06:07+00:00\n\nupdated\\_at: 2026-04-24T10:06:07+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private",
-    "modality": "text",
-    "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:8",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "岩-我理解你是想让我展开解释-复杂问题先给结论",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:8",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:9",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:10",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:11",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:12",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:13"
-      ],
-      "token_count": 281
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "75b0640c6e2ea02d5c68ed3677a1368a6b84f697",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "a9dacc9460a7c335301a3641011a330140eb57e4",
-    "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-    "text": "source\\_message\\_excerpt: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:",
-    "modality": "text",
-    "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:14",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "岩-我理解你是想让我展开解释-复杂问题先给结论",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:14",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:15",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:16",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:17",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:18",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:19",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:20",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:21",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:22",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:23",
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:24"
-      ],
-      "token_count": 151
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "e88ec164540e800f3a4b15118509e0ace2843d4e",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "a9dacc9460a7c335301a3641011a330140eb57e4",
-    "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-    "text": "Canonical: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2.",
-    "modality": "text",
-    "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:25",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "岩-我理解你是想让我展开解释-复杂问题先给结论",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:25"
-      ],
-      "token_count": 181
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "6c232ded4ca7502bfc22b4c9e374e6b4e70adc13",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "a9dacc9460a7c335301a3641011a330140eb57e4",
-    "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-    "text": "便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂",
-    "modality": "text",
-    "block_id": "bb2e94df8051115a5c7453804fd699bfc7f380be:25",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "岩-我理解你是想让我展开解释-复杂问题先给结论",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "bb2e94df8051115a5c7453804fd699bfc7f380be:25"
-      ],
-      "token_count": 194
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "e5908a2baca04935667511b6ef749645e56802aa",
-    "unit_type": "document_summary",
-    "collection": "durable_memory",
-    "doc_id": "a9dacc9460a7c335301a3641011a330140eb57e4",
-    "source_path": "durable_memory/notes/岩-我理解你是想让我展开解释-复杂问题先给结论.md",
-    "text": "schema\\_version: durable-memory.v3 title: 岩，我理解你是想让我展开解释\"复杂问题先给结论， summary: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、\n\ncanonical\\_statement: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2. 便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续 type: user memory\\_class: preference tags: [user, preference]\n\nretrieval\\_hints: [岩，我理解你是想让我展开解释\"复杂问题先给结论，, 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推导，最后才说出结论。 --- 为什么这样设定： 1. 降低认知负担——复杂问题本身信息量大，如果先堆材料再给结论，听的人要一直悬着\"你到底想说什么\"。先给结论，等于给了锚点，后面的解释都有了归处。 2. 便于快速决策——很多场景下，用户需要的是判断和建议，而不是完整论证过程。先给结论，用户可以快速判断是否需要继续] created\\_at: 2026-04-24T10:06:07+00:00 updated\\_at: 2026-04-24T10:06:07+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private\n\nsource\\_message\\_excerpt: 岩，我理解你是想让我展开解释\"复杂问题先给结论，再展开解释\"这个偏好本身。 --- 核心含义：先给判断，再给依据。 面对复杂问题时，先给出明确结论或判断，然后再展开解释这个结论是怎么来的、依据是什么、边界在哪里。而不是先铺垫背景、罗列信息、逐步推...",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "document_summary",
-    "section_path": [],
-    "metadata": {
-      "title": "岩-我理解你是想让我展开解释-复杂问题先给结论",
-      "parser_backend": "docling",
-      "source_type": "md",
-      "structure_contract_version": "structure_contract_v1",
-      "unit_view": "document_summary",
-      "index_profiles": [
-        "context_only"
-      ],
-      "child_unit_ids": [
-        "2455e2a2ba81a50eb39c9afbb07b1aa1d496a977"
-      ],
-      "fallback_used": false
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "962a0635c57bd5a71a9877cf073243bf056b4932",
-    "unit_type": "parent_section",
-    "collection": "durable_memory",
-    "doc_id": "fc81a4c4ed31f6efb94d21b7c99f45dd21261054",
-    "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
-    "text": "schema\\_version: durable-memory.v3 title: 以后复杂问题先给结论，再展开解释。 summary: 以后复杂问题先给结论，再展开解释。 canonical\\_statement: 以后复杂问题先给结论，再展开解释。 type: user memory\\_class: preference tags: [] retrieval\\_hints: [以后复杂问题先给结论，再展开解释。] created\\_at: 2026-04-24T13:51:31+00:00 updated\\_at: 2026-04-24T14:20:07+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论，再展开解释。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：以后复杂问题先给结论，再展开解释。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论，再展开解释。",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "parent_section",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "记住-以后复杂问题先给结论-再展开解释",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "context_only"
-      ],
-      "unit_view": "parent_section",
-      "child_unit_ids": [
-        "0c23a993e8713d90204a741cbefe894e766641a4"
-      ],
-      "merged_block_ids": [
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:1",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:2",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:3",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:4",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:5",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:6",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:7",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:8",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:9",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:10",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:11",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:12",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:13",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:14",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:15",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:16",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:17",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:18",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:19",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:20",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:21",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:22",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:23",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:24",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:25"
-      ],
-      "token_count": 200
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "0c23a993e8713d90204a741cbefe894e766641a4",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "fc81a4c4ed31f6efb94d21b7c99f45dd21261054",
-    "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
-    "text": "schema\\_version: durable-memory.v3\n\ntitle: 以后复杂问题先给结论，再展开解释。\n\nsummary: 以后复杂问题先给结论，再展开解释。\n\ncanonical\\_statement: 以后复杂问题先给结论，再展开解释。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: []\n\nretrieval\\_hints: [以后复杂问题先给结论，再展开解释。]\n\ncreated\\_at: 2026-04-24T13:51:31+00:00\n\nupdated\\_at: 2026-04-24T14:20:07+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private\n\nsource\\_message\\_excerpt: 以后复杂问题先给结论，再展开解释。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 记住：以后复杂问题先给结论，再展开解释。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论，再展开解释。",
-    "modality": "text",
-    "block_id": "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "记住-以后复杂问题先给结论-再展开解释",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:1",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:2",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:3",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:4",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:5",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:6",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:7",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:8",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:9",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:10",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:11",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:12",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:13",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:14",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:15",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:16",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:17",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:18",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:19",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:20",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:21",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:22",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:23",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:24",
-        "6bb31df626ff1ebf795811fe11bf9fd93b87b74e:25"
-      ],
-      "token_count": 200
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "15c57b3981c5b9d9dda7a265e591f03e9816c0ce",
-    "unit_type": "document_summary",
-    "collection": "durable_memory",
-    "doc_id": "fc81a4c4ed31f6efb94d21b7c99f45dd21261054",
-    "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
-    "text": "schema\\_version: durable-memory.v3 title: 以后复杂问题先给结论，再展开解释。 summary: 以后复杂问题先给结论，再展开解释。 canonical\\_statement: 以后复杂问题先给结论，再展开解释。 type: user memory\\_class: preference tags: [] retrieval\\_hints: [以后复杂问题先给结论，再展开解释。] created\\_at: 2026-04-24T13:51:31+00:00 updated\\_at: 2026-04-24T14:20:07+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论，再展开解释。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：以后复杂问题先给结论，再展开解释。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论，再展开解释。",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "document_summary",
-    "section_path": [],
-    "metadata": {
-      "title": "记住-以后复杂问题先给结论-再展开解释",
-      "parser_backend": "docling",
-      "source_type": "md",
-      "structure_contract_version": "structure_contract_v1",
-      "unit_view": "document_summary",
-      "index_profiles": [
-        "context_only"
-      ],
-      "child_unit_ids": [
-        "962a0635c57bd5a71a9877cf073243bf056b4932"
-      ],
-      "fallback_used": false
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "ed991db41b5aecb7b2959fe523df7d0be7f03175",
-    "unit_type": "parent_section",
-    "collection": "durable_memory",
-    "doc_id": "221b3b7e96b3d146562fd8cb0846390a49286076",
+    "doc_id": "841db6b1aaeb4e5a7e09393a9b02249bd6c938af",
     "source_path": "durable_memory/notes/记住-以后复杂问题先给结论.md",
-    "text": "schema\\_version: durable-memory.v3 title: 以后复杂问题先给结论。 summary: 以后复杂问题先给结论。 canonical\\_statement: 以后复杂问题先给结论。 type: user memory\\_class: preference tags: [] retrieval\\_hints: [以后复杂问题先给结论。] created\\_at: 2026-04-25T06:50:33+00:00 updated\\_at: 2026-04-25T10:17:52+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：以后复杂问题先给结论。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论。",
+    "text": "schema\\_version: durable-memory.v3 title: 以后复杂问题先给结论。 summary: 以后复杂问题先给结论。 canonical\\_statement: 以后复杂问题先给结论。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [以后复杂问题先给结论。, 复杂问题优先给结论] created\\_at: 2026-04-25T21:23:33+00:00 updated\\_at: 2026-04-25T23:02:04+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论。 confidence: medium status: active last\\_confirmed\\_at: 2026-04-25T23:02:04+00:00 scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：以后复杂问题先给结论。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论。",
     "modality": "text",
     "block_id": null,
     "object_ref_id": null,
@@ -1749,48 +313,48 @@
       ],
       "unit_view": "parent_section",
       "child_unit_ids": [
-        "af1440e530e4c08f33ddb67a62bbc2bbdae4f80c"
+        "957e59084ecdcade50056ba5ca26d496d40e8d51"
       ],
       "merged_block_ids": [
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:1",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:2",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:3",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:4",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:5",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:6",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:7",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:8",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:9",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:10",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:11",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:12",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:13",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:14",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:15",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:16",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:17",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:18",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:19",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:20",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:21",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:22",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:23",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:24",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:25"
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:1",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:2",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:3",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:4",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:5",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:6",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:7",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:8",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:9",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:10",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:11",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:12",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:13",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:14",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:15",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:16",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:17",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:18",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:19",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:20",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:21",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:22",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:23",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:24",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:25"
       ],
-      "token_count": 165
+      "token_count": 183
     },
     "quality_flags": []
   },
   {
-    "unit_id": "af1440e530e4c08f33ddb67a62bbc2bbdae4f80c",
+    "unit_id": "957e59084ecdcade50056ba5ca26d496d40e8d51",
     "unit_type": "content_block",
     "collection": "durable_memory",
-    "doc_id": "221b3b7e96b3d146562fd8cb0846390a49286076",
+    "doc_id": "841db6b1aaeb4e5a7e09393a9b02249bd6c938af",
     "source_path": "durable_memory/notes/记住-以后复杂问题先给结论.md",
-    "text": "schema\\_version: durable-memory.v3\n\ntitle: 以后复杂问题先给结论。\n\nsummary: 以后复杂问题先给结论。\n\ncanonical\\_statement: 以后复杂问题先给结论。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: []\n\nretrieval\\_hints: [以后复杂问题先给结论。]\n\ncreated\\_at: 2026-04-25T06:50:33+00:00\n\nupdated\\_at: 2026-04-25T10:17:52+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private\n\nsource\\_message\\_excerpt: 以后复杂问题先给结论。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 记住：以后复杂问题先给结论。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论。",
+    "text": "schema\\_version: durable-memory.v3\n\ntitle: 以后复杂问题先给结论。\n\nsummary: 以后复杂问题先给结论。\n\ncanonical\\_statement: 以后复杂问题先给结论。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: [user, preference]\n\nretrieval\\_hints: [以后复杂问题先给结论。, 复杂问题优先给结论]\n\ncreated\\_at: 2026-04-25T21:23:33+00:00\n\nupdated\\_at: 2026-04-25T23:02:04+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private\n\nsource\\_message\\_excerpt: 以后复杂问题先给结论。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at: 2026-04-25T23:02:04+00:00\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 记住：以后复杂问题先给结论。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论。",
     "modality": "text",
-    "block_id": "36358c7a46e2381c98edda0909e82af7df0a42c0:1",
+    "block_id": "a54798c5f7a62e47c20ac624e5124bdc796497c2:1",
     "object_ref_id": null,
     "page": null,
     "block_type": "paragraph",
@@ -1817,43 +381,43 @@
       ],
       "unit_view": "leaf_block",
       "block_ids": [
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:1",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:2",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:3",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:4",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:5",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:6",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:7",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:8",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:9",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:10",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:11",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:12",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:13",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:14",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:15",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:16",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:17",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:18",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:19",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:20",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:21",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:22",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:23",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:24",
-        "36358c7a46e2381c98edda0909e82af7df0a42c0:25"
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:1",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:2",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:3",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:4",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:5",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:6",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:7",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:8",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:9",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:10",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:11",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:12",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:13",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:14",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:15",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:16",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:17",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:18",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:19",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:20",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:21",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:22",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:23",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:24",
+        "a54798c5f7a62e47c20ac624e5124bdc796497c2:25"
       ],
-      "token_count": 165
+      "token_count": 183
     },
     "quality_flags": []
   },
   {
-    "unit_id": "aadad6fb30be168b003806e92e941414ca30b508",
+    "unit_id": "babc7ef72d899ef89bdcb00411afbca512c88f3e",
     "unit_type": "document_summary",
     "collection": "durable_memory",
-    "doc_id": "221b3b7e96b3d146562fd8cb0846390a49286076",
+    "doc_id": "841db6b1aaeb4e5a7e09393a9b02249bd6c938af",
     "source_path": "durable_memory/notes/记住-以后复杂问题先给结论.md",
-    "text": "schema\\_version: durable-memory.v3 title: 以后复杂问题先给结论。 summary: 以后复杂问题先给结论。 canonical\\_statement: 以后复杂问题先给结论。 type: user memory\\_class: preference tags: [] retrieval\\_hints: [以后复杂问题先给结论。] created\\_at: 2026-04-25T06:50:33+00:00 updated\\_at: 2026-04-25T10:17:52+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：以后复杂问题先给结论。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论。",
+    "text": "schema\\_version: durable-memory.v3 title: 以后复杂问题先给结论。 summary: 以后复杂问题先给结论。 canonical\\_statement: 以后复杂问题先给结论。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [以后复杂问题先给结论。, 复杂问题优先给结论] created\\_at: 2026-04-25T21:23:33+00:00 updated\\_at: 2026-04-25T23:02:04+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论。 confidence: medium status: active last\\_confirmed\\_at: 2026-04-25T23:02:04+00:00 scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：以后复杂问题先给结论。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论。",
     "modality": "text",
     "block_id": null,
     "object_ref_id": null,
@@ -1870,329 +434,7 @@
         "context_only"
       ],
       "child_unit_ids": [
-        "ed991db41b5aecb7b2959fe523df7d0be7f03175"
-      ],
-      "fallback_used": false
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "6f2535ee63cd8a7efd61d41dee5d608b224c8fe9",
-    "unit_type": "parent_section",
-    "collection": "durable_memory",
-    "doc_id": "54d58b2d2bc81c327b5640d1b078b295a1e01bae",
-    "source_path": "durable_memory/notes/记住-回答我时可以直接称呼我岩.md",
-    "text": "schema\\_version: durable-memory.v3 title: 回答我时可以直接称呼我岩。 summary: 回答我时可以直接称呼我岩。 canonical\\_statement: 回答我时可以直接称呼我岩。 type: user memory\\_class: preference tags: [] retrieval\\_hints: [回答我时可以直接称呼我岩。] created\\_at: 2026-04-25T06:50:53+00:00 updated\\_at: 2026-04-25T10:17:52+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 回答我时可以直接称呼我岩。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：回答我时可以直接称呼我岩。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：回答我时可以直接称呼我岩。",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "parent_section",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/记住-回答我时可以直接称呼我岩.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "记住-回答我时可以直接称呼我岩",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "context_only"
-      ],
-      "unit_view": "parent_section",
-      "child_unit_ids": [
-        "fbcab7871d33caa41bbff58060cbb759534d18ed"
-      ],
-      "merged_block_ids": [
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:1",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:2",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:3",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:4",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:5",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:6",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:7",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:8",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:9",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:10",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:11",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:12",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:13",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:14",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:15",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:16",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:17",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:18",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:19",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:20",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:21",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:22",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:23",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:24",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:25"
-      ],
-      "token_count": 179
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "fbcab7871d33caa41bbff58060cbb759534d18ed",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "54d58b2d2bc81c327b5640d1b078b295a1e01bae",
-    "source_path": "durable_memory/notes/记住-回答我时可以直接称呼我岩.md",
-    "text": "schema\\_version: durable-memory.v3\n\ntitle: 回答我时可以直接称呼我岩。\n\nsummary: 回答我时可以直接称呼我岩。\n\ncanonical\\_statement: 回答我时可以直接称呼我岩。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: []\n\nretrieval\\_hints: [回答我时可以直接称呼我岩。]\n\ncreated\\_at: 2026-04-25T06:50:53+00:00\n\nupdated\\_at: 2026-04-25T10:17:52+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private\n\nsource\\_message\\_excerpt: 回答我时可以直接称呼我岩。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 记住：回答我时可以直接称呼我岩。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：回答我时可以直接称呼我岩。",
-    "modality": "text",
-    "block_id": "bf21f397fe4aa36a179a6e4af2af4432e52a9498:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/记住-回答我时可以直接称呼我岩.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "记住-回答我时可以直接称呼我岩",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:1",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:2",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:3",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:4",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:5",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:6",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:7",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:8",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:9",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:10",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:11",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:12",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:13",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:14",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:15",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:16",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:17",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:18",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:19",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:20",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:21",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:22",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:23",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:24",
-        "bf21f397fe4aa36a179a6e4af2af4432e52a9498:25"
-      ],
-      "token_count": 179
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "99331bcb41aa20a91eafb9d51cb72eb2eff7d9cc",
-    "unit_type": "document_summary",
-    "collection": "durable_memory",
-    "doc_id": "54d58b2d2bc81c327b5640d1b078b295a1e01bae",
-    "source_path": "durable_memory/notes/记住-回答我时可以直接称呼我岩.md",
-    "text": "schema\\_version: durable-memory.v3 title: 回答我时可以直接称呼我岩。 summary: 回答我时可以直接称呼我岩。 canonical\\_statement: 回答我时可以直接称呼我岩。 type: user memory\\_class: preference tags: [] retrieval\\_hints: [回答我时可以直接称呼我岩。] created\\_at: 2026-04-25T06:50:53+00:00 updated\\_at: 2026-04-25T10:17:52+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 回答我时可以直接称呼我岩。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：回答我时可以直接称呼我岩。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：回答我时可以直接称呼我岩。",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "document_summary",
-    "section_path": [],
-    "metadata": {
-      "title": "记住-回答我时可以直接称呼我岩",
-      "parser_backend": "docling",
-      "source_type": "md",
-      "structure_contract_version": "structure_contract_v1",
-      "unit_view": "document_summary",
-      "index_profiles": [
-        "context_only"
-      ],
-      "child_unit_ids": [
-        "6f2535ee63cd8a7efd61d41dee5d608b224c8fe9"
-      ],
-      "fallback_used": false
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "e6ce6bfc3ae84419adb01b9533ff2a3504f47128",
-    "unit_type": "parent_section",
-    "collection": "durable_memory",
-    "doc_id": "f3b32defd70dd0d0c6539fc6498c9517bc9f92b1",
-    "source_path": "durable_memory/notes/项目当前主线.md",
-    "text": "schema\\_version: durable-memory.v3 title: 项目当前主线 summary: 我们项目当前主线是优化 Memory 和 RAG。 canonical\\_statement: 我们项目当前主线是优化 Memory 和 RAG。 type: project memory\\_class: work tags: [project, work] retrieval\\_hints: [项目当前主线, 我们项目当前主线是优化 Memory 和 RAG。] created\\_at: 2026-04-24T03:34:44+00:00 updated\\_at: 2026-04-24T03:34:44+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 我们项目当前主线是优化 Memory 和 RAG。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 我们项目当前主线是优化 Memory 和 RAG。 Why: Durable memory candidate Evidence: 我们项目当前主线是优化 Memory 和 RAG。",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "parent_section",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/项目当前主线.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "项目当前主线",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "context_only"
-      ],
-      "unit_view": "parent_section",
-      "child_unit_ids": [
-        "385c70b17c170b74440ec818c9b8e6b713f5a7c1"
-      ],
-      "merged_block_ids": [
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:1",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:2",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:3",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:4",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:5",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:6",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:7",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:8",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:9",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:10",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:11",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:12",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:13",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:14",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:15",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:16",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:17",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:18",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:19",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:20",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:21",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:22",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:23",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:24",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:25"
-      ],
-      "token_count": 175
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "385c70b17c170b74440ec818c9b8e6b713f5a7c1",
-    "unit_type": "content_block",
-    "collection": "durable_memory",
-    "doc_id": "f3b32defd70dd0d0c6539fc6498c9517bc9f92b1",
-    "source_path": "durable_memory/notes/项目当前主线.md",
-    "text": "schema\\_version: durable-memory.v3\n\ntitle: 项目当前主线\n\nsummary: 我们项目当前主线是优化 Memory 和 RAG。\n\ncanonical\\_statement: 我们项目当前主线是优化 Memory 和 RAG。\n\ntype: project\n\nmemory\\_class: work\n\ntags: [project, work]\n\nretrieval\\_hints: [项目当前主线, 我们项目当前主线是优化 Memory 和 RAG。]\n\ncreated\\_at: 2026-04-24T03:34:44+00:00\n\nupdated\\_at: 2026-04-24T03:34:44+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private\n\nsource\\_message\\_excerpt: 我们项目当前主线是优化 Memory 和 RAG。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 我们项目当前主线是优化 Memory 和 RAG。 Why: Durable memory candidate Evidence: 我们项目当前主线是优化 Memory 和 RAG。",
-    "modality": "text",
-    "block_id": "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:1",
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "paragraph",
-    "section_path": [],
-    "metadata": {
-      "source_type": "md",
-      "source_path": "durable_memory/notes/项目当前主线.md",
-      "parser_backend": "docling",
-      "section_label": "",
-      "structure_role": "content",
-      "title": "项目当前主线",
-      "section": "",
-      "structure_contract_version": "structure_contract_v1",
-      "parser_route": [
-        "docling"
-      ],
-      "fallback_used": false,
-      "cleaning_flags": [],
-      "eligibility": "keep",
-      "drop_reasons": [],
-      "index_profiles": [
-        "dense_main",
-        "lexical_main"
-      ],
-      "unit_view": "leaf_block",
-      "block_ids": [
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:1",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:2",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:3",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:4",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:5",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:6",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:7",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:8",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:9",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:10",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:11",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:12",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:13",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:14",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:15",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:16",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:17",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:18",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:19",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:20",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:21",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:22",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:23",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:24",
-        "0ba2e47da13bc5d6b224aa731086ba97b943f4f2:25"
-      ],
-      "token_count": 175
-    },
-    "quality_flags": []
-  },
-  {
-    "unit_id": "74877b52e1ee37e8f2f8492fabd87ee61ba7407a",
-    "unit_type": "document_summary",
-    "collection": "durable_memory",
-    "doc_id": "f3b32defd70dd0d0c6539fc6498c9517bc9f92b1",
-    "source_path": "durable_memory/notes/项目当前主线.md",
-    "text": "schema\\_version: durable-memory.v3 title: 项目当前主线 summary: 我们项目当前主线是优化 Memory 和 RAG。 canonical\\_statement: 我们项目当前主线是优化 Memory 和 RAG。 type: project memory\\_class: work tags: [project, work] retrieval\\_hints: [项目当前主线, 我们项目当前主线是优化 Memory 和 RAG。] created\\_at: 2026-04-24T03:34:44+00:00 updated\\_at: 2026-04-24T03:34:44+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 我们项目当前主线是优化 Memory 和 RAG。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 我们项目当前主线是优化 Memory 和 RAG。 Why: Durable memory candidate Evidence: 我们项目当前主线是优化 Memory 和 RAG。",
-    "modality": "text",
-    "block_id": null,
-    "object_ref_id": null,
-    "page": null,
-    "block_type": "document_summary",
-    "section_path": [],
-    "metadata": {
-      "title": "项目当前主线",
-      "parser_backend": "docling",
-      "source_type": "md",
-      "structure_contract_version": "structure_contract_v1",
-      "unit_view": "document_summary",
-      "index_profiles": [
-        "context_only"
-      ],
-      "child_unit_ids": [
-        "e6ce6bfc3ae84419adb01b9533ff2a3504f47128"
+        "f7bdf083acbb18172a5e9c2813a2bd6e8e859a6c"
       ],
       "fallback_used": false
     },

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from config import get_settings
 from query.long_term_context import build_long_term_context_bundle
+from query.prompt_manifest import PromptManifest, build_prompt_manifest, prompt_section
 
 if TYPE_CHECKING:
     from context_management import ContextPackage
@@ -230,3 +231,169 @@ def build_system_prompt(
         ),
     ]
     return "\n\n".join(part for part in parts if part.strip())
+
+
+def build_system_prompt_with_manifest(
+    base_dir: Path,
+    rag_mode: bool,
+    persistent_memory: str | None = None,
+    session_memory: str | None = None,
+    context_package: ContextPackage | None = None,
+    active_skill: str | None = None,
+    *,
+    session_id: str = "",
+    turn_id: str = "",
+) -> tuple[str, PromptManifest]:
+    settings = get_settings()
+    long_term_context = build_long_term_context_bundle(
+        base_dir,
+        persistent_memory=persistent_memory,
+    )
+    static_prompt = build_static_prompt(
+        base_dir,
+        rag_mode,
+        long_term_context_bundle=long_term_context,
+    )
+    session_prompt = build_session_memoized_prompt(
+        context_package=context_package,
+        session_memory=session_memory,
+        active_skill=active_skill,
+    )
+    turn_prompt = build_turn_prompt(
+        persistent_memory=persistent_memory,
+        context_package=context_package,
+        long_term_context_bundle=long_term_context,
+    )
+    prompt = "\n\n".join(part for part in [static_prompt, session_prompt, turn_prompt] if part.strip())
+    sections = []
+    order = 0
+
+    for label, relative_path in STATIC_COMPONENTS:
+        order += 1
+        sections.append(
+            prompt_section(
+                section_id="capability_summary",
+                title="当前可用能力摘要",
+                layer="static",
+                source=relative_path,
+                content=_read_component(base_dir, relative_path, settings.component_char_limit),
+                order=order,
+            )
+        )
+
+    for heading, content in long_term_context.static_sections:
+        order += 1
+        sections.append(
+            prompt_section(
+                section_id=f"static_context_{order}",
+                title=heading,
+                layer="static",
+                source=_static_context_source(heading),
+                content=content,
+                order=order,
+            )
+        )
+
+    if rag_mode:
+        order += 1
+        sections.append(
+            prompt_section(
+                section_id="retrieval_grounding_guard",
+                title="检索证据优先约束",
+                layer="static",
+                source="query/prompt_builder.py:retrieval_grounding_guard",
+                content="当检索证据可用时，应把它当作当前问题的直接依据。",
+                order=order,
+            )
+        )
+
+    order += 1
+    sections.append(
+        prompt_section(
+            section_id="static_prompt_concealment_guard",
+            title="实现细节隐藏约束",
+            layer="static",
+            source="query/prompt_builder.py:static_prompt_concealment_guard",
+            content="不要在回答中提及 internal file paths, directory names, filenames, schema labels, storage layout。",
+            order=order,
+        )
+    )
+
+    if active_skill:
+        order += 1
+        sections.append(
+            prompt_section(
+                section_id="active_skill",
+                title="当前工作指引",
+                layer="session",
+                source="SkillDefinition.render_prompt_block",
+                content=active_skill,
+                order=order,
+            )
+        )
+
+    rendered_session_memory = (
+        _render_context_package_block(context_package, include_durable_context=False)
+        if context_package is not None
+        else (session_memory or "").strip()
+    )
+    if rendered_session_memory:
+        order += 1
+        sections.append(
+            prompt_section(
+                section_id="session_context",
+                title="当前情境",
+                layer="session",
+                source="memory_facade.build_context_package",
+                content=rendered_session_memory,
+                order=order,
+            )
+        )
+
+    package_durable_memory = (
+        _render_context_package_block(
+            context_package,
+            include_durable_context=True,
+            include_runtime_context=False,
+        )
+        if context_package is not None
+        else ""
+    )
+    durable_memory_block = (
+        persistent_memory
+        if persistent_memory is not None
+        else package_durable_memory
+        if package_durable_memory
+        else long_term_context.memory_block
+    ).strip()
+    if durable_memory_block:
+        order += 1
+        sections.append(
+            prompt_section(
+                section_id="turn_relevant_memory",
+                title="当前最相关的已记住事实",
+                layer="turn",
+                source="durable_memory / context_package",
+                content=durable_memory_block,
+                order=order,
+            )
+        )
+
+    manifest = build_prompt_manifest(
+        prompt_text=prompt,
+        sections=sections,
+        session_id=session_id,
+        turn_id=turn_id,
+        assembly_order=SYSTEM_PROMPT_ASSEMBLY_ORDER,
+    )
+    return prompt, manifest
+
+
+def _static_context_source(heading: str) -> str:
+    if heading == "当前风格":
+        return "soul/agent_core/ACTIVE_SEED.md"
+    if heading == "稳定原则":
+        return "soul/agent_core/CORE.md"
+    if heading == "用户与项目偏好":
+        return "soul/agent.md"
+    return "memory.static_loader"

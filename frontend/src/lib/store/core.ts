@@ -48,6 +48,11 @@ export function getDefaultState(): StoreState {
     inspectorDirty: false,
     sidebarWidth: 308,
     inspectorWidth: 300,
-    tokenStats: null
+    tokenStats: null,
+    systemGraphHighlight: null,
+    systemGraphOverlay: null,
+    memoryInspectorTarget: null,
+    orchestrationSnapshot: null,
+    orchestrationInspectorTarget: null
   };
 }

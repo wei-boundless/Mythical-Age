@@ -75,6 +75,21 @@ export class WorkspaceRuntime {
       },
       setInspectorWidth: (width) => {
         this.setInspectorWidth(width);
+      },
+      highlightSystemGraph: (highlight) => {
+        this.highlightSystemGraph(highlight);
+      },
+      setSystemGraphOverlay: (overlay) => {
+        this.setSystemGraphOverlay(overlay);
+      },
+      setMemoryInspectorTarget: (target) => {
+        this.setMemoryInspectorTarget(target);
+      },
+      setOrchestrationInspectorTarget: (target) => {
+        this.setOrchestrationInspectorTarget(target);
+      },
+      setOrchestrationSnapshot: (snapshot) => {
+        this.setOrchestrationSnapshot(snapshot);
       }
     };
   }
@@ -407,5 +422,25 @@ export class WorkspaceRuntime {
 
   private setWorkspaceView(view: WorkspaceView) {
     this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
+  }
+
+  private highlightSystemGraph(highlight: StoreState["systemGraphHighlight"]) {
+    this.store.setState((prev) => ({ ...prev, systemGraphHighlight: highlight }));
+  }
+
+  private setSystemGraphOverlay(overlay: StoreState["systemGraphOverlay"]) {
+    this.store.setState((prev) => ({ ...prev, systemGraphOverlay: overlay }));
+  }
+
+  private setMemoryInspectorTarget(target: StoreState["memoryInspectorTarget"]) {
+    this.store.setState((prev) => ({ ...prev, memoryInspectorTarget: target }));
+  }
+
+  private setOrchestrationInspectorTarget(target: StoreState["orchestrationInspectorTarget"]) {
+    this.store.setState((prev) => ({ ...prev, orchestrationInspectorTarget: target }));
+  }
+
+  private setOrchestrationSnapshot(snapshot: StoreState["orchestrationSnapshot"]) {
+    this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: snapshot }));
   }
 }

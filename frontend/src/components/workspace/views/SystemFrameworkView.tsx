@@ -18,8 +18,14 @@ import {
   TestTube2,
   Workflow
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import {
+  getExperimentTurnMemoryTrace,
+  getExperimentTurnPromptManifest,
+  type ExperimentTurnMemoryTrace,
+  type PromptManifest
+} from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import type { WorkspaceView } from "@/lib/store/types";
 
@@ -464,10 +470,192 @@ function midpoint(edge: GraphEdge) {
   };
 }
 
+function overlayStatusLabel(status: string) {
+  if (status === "failed") {
+    return "失败";
+  }
+  if (status === "warning") {
+    return "警告";
+  }
+  if (status === "passed") {
+    return "通过";
+  }
+  return "未知";
+}
+
+function overlayProblemLabel(status: string) {
+  return status === "failed" || status === "warning" ? "问题" : "经过";
+}
+
+function promptLayerLabel(layer: string) {
+  if (layer === "static") {
+    return "静态层";
+  }
+  if (layer === "session") {
+    return "会话层";
+  }
+  if (layer === "turn") {
+    return "当前轮层";
+  }
+  return layer || "未分层";
+}
+
+function promptLayerTone(layer: string) {
+  if (layer === "static") {
+    return "身份与规则";
+  }
+  if (layer === "session") {
+    return "会话现场";
+  }
+  if (layer === "turn") {
+    return "本轮输入";
+  }
+  return "其他来源";
+}
+
+function compactValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean).join(" / ") || "空";
+  }
+  if (typeof value === "boolean") {
+    return value ? "是" : "否";
+  }
+  return String(value ?? "").trim() || "空";
+}
+
 export function SystemFrameworkView() {
-  const { setWorkspaceView } = useAppStore();
+  const {
+    setWorkspaceView,
+    systemGraphHighlight,
+    highlightSystemGraph,
+    systemGraphOverlay,
+    setSystemGraphOverlay,
+    setMemoryInspectorTarget
+  } = useAppStore();
   const [selectedEdgeId, setSelectedEdgeId] = useState(graphEdges[0].id);
+  const [selectedOverlayItem, setSelectedOverlayItem] = useState<{ kind: "node" | "edge"; id: string } | null>(null);
+  const [promptManifest, setPromptManifest] = useState<PromptManifest | null>(null);
+  const [promptManifestStatus, setPromptManifestStatus] = useState("");
+  const [promptPanelOpen, setPromptPanelOpen] = useState(false);
+  const [memoryTrace, setMemoryTrace] = useState<ExperimentTurnMemoryTrace | null>(null);
+  const [memoryTraceStatus, setMemoryTraceStatus] = useState("");
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
   const selectedEdge = graphEdges.find((edge) => edge.id === selectedEdgeId) ?? graphEdges[0];
+  const promptManifestAvailable = Boolean(promptManifest || systemGraphOverlay?.prompt_manifest_id);
+  const memoryTraceAvailable = Boolean(memoryTrace?.has_memory_signal || systemGraphOverlay?.artifacts?.memory_trace);
+  const highlightedNodeIds = new Set(systemGraphHighlight?.nodeIds ?? []);
+  const highlightedEdgeIds = new Set(systemGraphHighlight?.edgeIds ?? []);
+  const overlayNodes = useMemo(
+    () => new Map((systemGraphOverlay?.nodes ?? []).map((node) => [node.id, node])),
+    [systemGraphOverlay]
+  );
+  const overlayEdges = useMemo(
+    () => new Map((systemGraphOverlay?.edges ?? []).map((edge) => [edge.id, edge])),
+    [systemGraphOverlay]
+  );
+  const selectedOverlay =
+    selectedOverlayItem?.kind === "node"
+      ? overlayNodes.get(selectedOverlayItem.id)
+      : selectedOverlayItem?.kind === "edge"
+        ? overlayEdges.get(selectedOverlayItem.id)
+        : overlayEdges.get(selectedEdgeId);
+  const overlayNodePath = (systemGraphOverlay?.nodes ?? [])
+    .slice(0, 8)
+    .map((node) => node.label || node.id);
+  const overlayHotspots = [
+    ...(systemGraphOverlay?.nodes ?? []),
+    ...(systemGraphOverlay?.edges ?? [])
+  ].filter((item) => item.status === "failed" || item.status === "warning");
+  const overlayArtifacts = Object.entries(systemGraphOverlay?.artifacts ?? {}).slice(0, 4);
+  const overlayNodeOrder = useMemo(
+    () => new Map((systemGraphOverlay?.nodes ?? []).map((node, index) => [node.id, index + 1])),
+    [systemGraphOverlay]
+  );
+  const overlayEdgeOrder = useMemo(() => {
+    const items = new Map<string, string>();
+    for (const edge of graphEdges) {
+      const fromIndex = overlayNodeOrder.get(edge.from);
+      const toIndex = overlayNodeOrder.get(edge.to);
+      if (fromIndex && toIndex) {
+        items.set(edge.id, `${fromIndex}→${toIndex}`);
+      }
+    }
+    return items;
+  }, [overlayNodeOrder]);
+  const selectedProblemPosition =
+    selectedOverlayItem?.kind === "node"
+      ? overlayNodeOrder.get(selectedOverlayItem.id)
+      : selectedOverlayItem?.kind === "edge"
+        ? overlayEdgeOrder.get(selectedOverlayItem.id)
+        : selectedOverlay ? overlayEdgeOrder.get(selectedOverlay.id) ?? overlayNodeOrder.get(selectedOverlay.id) : undefined;
+  const firstProblem = overlayHotspots[0];
+  const firstProblemPosition = firstProblem
+    ? overlayNodeOrder.get(firstProblem.id) ?? overlayEdgeOrder.get(firstProblem.id)
+    : undefined;
+  const promptSectionsByLayer = useMemo(() => {
+    const grouped = new Map<string, PromptManifest["sections"]>();
+    for (const section of promptManifest?.sections ?? []) {
+      const bucket = grouped.get(section.layer) ?? [];
+      bucket.push(section);
+      grouped.set(section.layer, bucket);
+    }
+    return grouped;
+  }, [promptManifest]);
+  const promptLayerStats = useMemo(
+    () => ["static", "session", "turn"].map((layer) => {
+      const sections = promptSectionsByLayer.get(layer) ?? [];
+      return {
+        layer,
+        count: sections.length,
+        chars: sections.reduce((total, section) => total + section.chars, 0),
+      };
+    }),
+    [promptSectionsByLayer]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setPromptManifest(null);
+    setPromptManifestStatus("");
+    setPromptPanelOpen(false);
+    setMemoryTrace(null);
+    setMemoryTraceStatus("");
+    setMemoryPanelOpen(false);
+    if (!systemGraphOverlay?.run_id || !systemGraphOverlay.turn_id) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    void (async () => {
+      try {
+        const payload = await getExperimentTurnPromptManifest(systemGraphOverlay.run_id, systemGraphOverlay.turn_id ?? "");
+        if (cancelled) {
+          return;
+        }
+        setPromptManifest(payload.prompt_manifest);
+        setPromptManifestStatus(payload.status === "available" ? "" : payload.reason);
+      } catch (exc) {
+        if (!cancelled) {
+          setPromptManifestStatus(exc instanceof Error ? exc.message : "加载 Prompt Manifest 失败");
+        }
+      }
+      try {
+        const payload = await getExperimentTurnMemoryTrace(systemGraphOverlay.run_id, systemGraphOverlay.turn_id ?? "");
+        if (cancelled) {
+          return;
+        }
+        setMemoryTrace(payload.memory_trace);
+        setMemoryTraceStatus(payload.status === "available" ? "" : payload.reason);
+      } catch (exc) {
+        if (!cancelled) {
+          setMemoryTraceStatus(exc instanceof Error ? exc.message : "加载 Memory Trace 失败");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [systemGraphOverlay?.run_id, systemGraphOverlay?.turn_id]);
 
   return (
     <div className="system-framework-visual system-framework-visual--graph">
@@ -480,11 +668,18 @@ export function SystemFrameworkView() {
         <span>会话</span>
       </button>
 
-      <div className="project-network">
+      <div className={`project-network ${systemGraphOverlay ? "project-network--overlay-active" : ""}`}>
         <header className="project-network__header">
           <div>
             <p>后端代码地图</p>
             <h1>项目运行关系全图</h1>
+            {systemGraphOverlay ? (
+              <div className="project-network__overlay-ribbon">
+                <span>{overlayStatusLabel(systemGraphOverlay.status)}</span>
+                <strong>{systemGraphOverlay.turn_id ?? systemGraphOverlay.run_id}</strong>
+                <em>{systemGraphOverlay.summary}</em>
+              </div>
+            ) : null}
           </div>
           <div className={`project-network__edge-card project-network__edge-card--${selectedEdge.route}`}>
             <span>{selectedEdge.label}</span>
@@ -492,6 +687,219 @@ export function SystemFrameworkView() {
               {selectedEdge.bidirectional ? "双向交互" : "单向流转"} · {selectedEdge.route === "storage" ? "持久化链路" : "运行链路"}
             </strong>
             <p>{selectedEdge.detail}</p>
+            {systemGraphHighlight ? (
+              <div className="project-network__debug-focus">
+                <small>测试定位：{systemGraphHighlight.source}</small>
+                <p>{systemGraphHighlight.reason}</p>
+                <button onClick={() => highlightSystemGraph(null)} type="button">清除定位</button>
+              </div>
+            ) : null}
+            {systemGraphOverlay ? (
+              <div className={`project-network__debug-focus project-network__debug-focus--${systemGraphOverlay.status}`}>
+                <small>
+                  {systemGraphOverlay.mode === "observed" ? "观测链路" : "推断链路"}：
+                  {systemGraphOverlay.turn_id ?? systemGraphOverlay.run_id}
+                </small>
+                <strong className="project-network__selected-title">
+                  {selectedOverlay?.label ?? "当前运行路径"}
+                  {selectedOverlay ? ` · ${overlayStatusLabel(selectedOverlay.status)}` : ""}
+                </strong>
+                {(selectedProblemPosition || firstProblemPosition) ? (
+                  <div className="project-network__problem-position">
+                    {selectedProblemPosition
+                      ? `当前选中：${typeof selectedProblemPosition === "number" ? `第 ${selectedProblemPosition} 个节点` : `第 ${selectedProblemPosition} 段链路`}`
+                      : `首个异常：${typeof firstProblemPosition === "number" ? `第 ${firstProblemPosition} 个节点` : `第 ${firstProblemPosition} 段链路`}`}
+                  </div>
+                ) : null}
+                <p>{selectedOverlay?.reason ?? systemGraphOverlay.summary}</p>
+                {selectedOverlay?.events?.length ? (
+                  <div className="project-network__event-tags">
+                    {selectedOverlay.events.slice(0, 4).map((event) => (
+                      <span key={event}>{event}</span>
+                    ))}
+                  </div>
+                ) : null}
+                {overlayNodePath.length ? (
+                  <div className="project-network__path-strip">
+                    {overlayNodePath.map((label, index) => (
+                      <span key={`${label}-${index}`}>{label}</span>
+                    ))}
+                  </div>
+                ) : null}
+                {overlayHotspots.length ? (
+                  <div className="project-network__hotspots">
+                    <small>异常焦点</small>
+                    {overlayHotspots.slice(0, 4).map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          if (overlayNodes.has(item.id)) {
+                            setSelectedOverlayItem({ kind: "node", id: item.id });
+                          } else {
+                            setSelectedEdgeId(item.id);
+                            setSelectedOverlayItem({ kind: "edge", id: item.id });
+                          }
+                        }}
+                        type="button"
+                      >
+                        {overlayNodeOrder.get(item.id)
+                          ? `第 ${overlayNodeOrder.get(item.id)} 节点 · ${item.label}`
+                          : overlayEdgeOrder.get(item.id)
+                            ? `第 ${overlayEdgeOrder.get(item.id)} 段 · ${item.label}`
+                            : item.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {overlayArtifacts.length ? (
+                  <div className="project-network__artifacts">
+                    {overlayArtifacts.map(([key, value]) => (
+                      <span key={key}>{key}: {value}</span>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="project-network__prompt-entry">
+                  <button
+                    disabled={!systemGraphOverlay.turn_id}
+                    onClick={() => setPromptPanelOpen((value) => !value)}
+                    type="button"
+                  >
+                    {promptManifest ? "查看 Prompt 来源装配" : "Prompt 来源暂不可用"}
+                  </button>
+                  {promptManifest ? (
+                    <span>已记录 · {promptManifest.total_sections} 个来源 · {promptManifest.total_chars} chars · {promptManifest.debug_policy}</span>
+                  ) : (
+                    <span>{promptManifestStatus || "旧测试产物没有记录 prompt manifest。"}</span>
+                  )}
+                </div>
+                {promptPanelOpen && promptManifest ? (
+                  <div className="prompt-manifest-panel">
+                    <header>
+                      <small>Prompt Manifest</small>
+                      <strong>{promptManifest.prompt_id}</strong>
+                      <span>{promptManifest.debug_policy === "preview_only" ? "默认只展示来源摘要和 preview，不暴露完整 prompt。" : promptManifest.debug_policy}</span>
+                    </header>
+                    <div className="prompt-manifest-flow" aria-label="Prompt 三层装配摘要">
+                      {promptLayerStats.map((stat, index) => (
+                        <div className={`prompt-manifest-flow__node prompt-manifest-flow__node--${stat.layer}`} key={stat.layer}>
+                          <b>{index + 1}</b>
+                          <strong>{promptLayerLabel(stat.layer)}</strong>
+                          <span>{promptLayerTone(stat.layer)}</span>
+                          <em>{stat.count} 来源 · {stat.chars} chars</em>
+                        </div>
+                      ))}
+                    </div>
+                    {["static", "session", "turn"].map((layer) => {
+                      const sections = promptSectionsByLayer.get(layer) ?? [];
+                      if (!sections.length) {
+                        return null;
+                      }
+                      return (
+                        <section className={`prompt-manifest-layer prompt-manifest-layer--${layer}`} key={layer}>
+                          <h4>{promptLayerLabel(layer)}</h4>
+                          {sections.map((section) => (
+                            <article className="prompt-manifest-section" key={section.id}>
+                              <div>
+                                <strong>{section.order}. {section.title}</strong>
+                                <span>{section.source} · {section.chars} chars</span>
+                              </div>
+                              <p>{section.preview || "无 preview"}</p>
+                            </article>
+                          ))}
+                        </section>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <div className="project-network__memory-entry">
+                  <button
+                    disabled={!systemGraphOverlay.turn_id}
+                    onClick={() => setMemoryPanelOpen((value) => !value)}
+                    type="button"
+                  >
+                    {memoryTraceAvailable ? "查看本轮记忆链路" : "记忆链路暂不可用"}
+                  </button>
+                  {memoryTrace ? (
+                    <span>{memoryTrace.summary}</span>
+                  ) : (
+                    <span>{memoryTraceStatus || "旧测试产物没有记录可解析的记忆链路。"}</span>
+                  )}
+                  <button
+                    disabled={!systemGraphOverlay.run_id || !systemGraphOverlay.turn_id}
+                    onClick={() => {
+                      setMemoryInspectorTarget({
+                        source: "system-framework",
+                        runId: systemGraphOverlay.run_id,
+                        turnId: systemGraphOverlay.turn_id ?? undefined,
+                        layer: "state",
+                        reason: systemGraphOverlay.summary
+                      });
+                      setWorkspaceView("memory");
+                    }}
+                    type="button"
+                  >
+                    去状态记忆阅读
+                  </button>
+                </div>
+                {memoryPanelOpen && memoryTrace ? (
+                  <div className="memory-trace-panel">
+                    <header>
+                      <small>Memory Trace</small>
+                      <strong>{memoryTrace.turn_id || systemGraphOverlay.turn_id}</strong>
+                      <span>{memoryTrace.context_management.pressure_level} · {memoryTrace.context_management.strategy}</span>
+                    </header>
+                    <div className="memory-trace-flow">
+                      <article>
+                        <b>1</b>
+                        <strong>状态记忆</strong>
+                        <span>{memoryTrace.session_memory.section_count} 段上下文</span>
+                      </article>
+                      <article>
+                        <b>2</b>
+                        <strong>长期召回</strong>
+                        <span>{memoryTrace.durable_memory.exact_count} exact · {memoryTrace.durable_memory.relevant_count} relevant</span>
+                      </article>
+                      <article>
+                        <b>3</b>
+                        <strong>Prompt 注入</strong>
+                        <span>{memoryTrace.prompt_injection.section_count} 段 · {memoryTrace.prompt_injection.total_chars} chars</span>
+                      </article>
+                    </div>
+                    <div className="memory-trace-grid">
+                      <section>
+                        <h4>模型可见状态</h4>
+                        {(memoryTrace.session_memory.model_sections.length ? memoryTrace.session_memory.model_sections : memoryTrace.session_memory.debug_sections).slice(0, 4).map((section) => (
+                          <div className="memory-trace-section" key={section.id}>
+                            <strong>{section.label} · {section.count}</strong>
+                            {section.items.slice(0, 3).map((item, index) => <p key={`${section.id}-${index}`}>{item}</p>)}
+                          </div>
+                        ))}
+                        {!memoryTrace.session_memory.model_sections.length && !memoryTrace.session_memory.debug_sections.length ? <p>没有状态记忆片段进入本轮上下文。</p> : null}
+                      </section>
+                      <section>
+                        <h4>长期记忆</h4>
+                        {memoryTrace.durable_memory.model_sections.slice(0, 4).map((section) => (
+                          <div className="memory-trace-section" key={section.id}>
+                            <strong>{section.label} · {section.count}</strong>
+                            {section.items.slice(0, 3).map((item, index) => <p key={`${section.id}-${index}`}>{item}</p>)}
+                          </div>
+                        ))}
+                        {!memoryTrace.durable_memory.model_sections.length ? <p>没有长期记忆进入模型可见上下文。</p> : null}
+                      </section>
+                    </div>
+                    {Object.keys(memoryTrace.session_memory.context_slots).length ? (
+                      <div className="memory-trace-slots">
+                        {Object.entries(memoryTrace.session_memory.context_slots).slice(0, 8).map(([key, value]) => (
+                          <span key={key}><b>{key}</b>{compactValue(value)}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                <button onClick={() => setWorkspaceView("test-system")} type="button">返回测试系统</button>
+                <button onClick={() => setSystemGraphOverlay(null)} type="button">清除链路</button>
+              </div>
+            ) : null}
           </div>
         </header>
 
@@ -506,10 +914,15 @@ export function SystemFrameworkView() {
               const from = pointFor(edge.from);
               const to = pointFor(edge.to);
               const selected = selectedEdge.id === edge.id;
+              const highlighted = highlightedEdgeIds.has(edge.id);
+              const overlay = overlayEdges.get(edge.id);
+              const muted = Boolean(systemGraphOverlay && !overlay);
               const labelPoint = midpoint(edge);
+              const edgeOrder = overlayEdgeOrder.get(edge.id);
+              const edgeProblem = overlay && (overlay.status === "failed" || overlay.status === "warning");
               return (
                 <g
-                  className={`graph-edge graph-edge--${edge.route} ${selected ? "graph-edge--selected" : ""}`}
+                  className={`graph-edge graph-edge--${edge.route} ${selected ? "graph-edge--selected" : ""} ${highlighted ? "graph-edge--highlighted" : ""} ${overlay ? `graph-edge--overlay graph-edge--overlay-${overlay.status}` : ""} ${muted ? "graph-edge--muted" : ""}`}
                   key={edge.id}
                 >
                   <line
@@ -522,7 +935,10 @@ export function SystemFrameworkView() {
                   />
                   <line
                     className="graph-edge__hit"
-                    onClick={() => setSelectedEdgeId(edge.id)}
+                    onClick={() => {
+                      setSelectedEdgeId(edge.id);
+                      setSelectedOverlayItem(overlay ? { kind: "edge", id: edge.id } : null);
+                    }}
                     x1={from.x}
                     x2={to.x}
                     y1={from.y}
@@ -530,12 +946,28 @@ export function SystemFrameworkView() {
                   />
                   <text
                     className="graph-edge__label"
-                    onClick={() => setSelectedEdgeId(edge.id)}
+                    onClick={() => {
+                      setSelectedEdgeId(edge.id);
+                      setSelectedOverlayItem(overlay ? { kind: "edge", id: edge.id } : null);
+                    }}
                     x={labelPoint.x}
                     y={labelPoint.y}
                   >
                     {edge.label}
                   </text>
+                  {edgeProblem && edgeOrder ? (
+                    <text
+                      className="graph-edge__problem-label"
+                      onClick={() => {
+                        setSelectedEdgeId(edge.id);
+                        setSelectedOverlayItem({ kind: "edge", id: edge.id });
+                      }}
+                      x={labelPoint.x}
+                      y={clampPoint(labelPoint.y + 2.2)}
+                    >
+                      问题链路 {edgeOrder}
+                    </text>
+                  ) : null}
                 </g>
               );
             })}
@@ -559,16 +991,33 @@ export function SystemFrameworkView() {
 
           {graphNodes.map((node) => {
             const Icon = node.icon;
+            const highlighted = highlightedNodeIds.has(node.id);
+            const overlay = overlayNodes.get(node.id);
+            const overlayIndex = overlayNodeOrder.get(node.id);
+            const muted = Boolean(systemGraphOverlay && !overlay);
+            const promptNodeHasManifest = node.id === "prompt" && promptManifestAvailable;
+            const memoryNodeHasTrace = node.id === "memory" && memoryTraceAvailable;
             return (
               <article
-                className={`network-node network-node--${node.id}`}
+                className={`network-node network-node--${node.id} ${highlighted ? "network-node--highlighted" : ""} ${overlay ? `network-node--overlay network-node--overlay-${overlay.status}` : ""} ${promptNodeHasManifest ? "network-node--prompt-manifest" : ""} ${memoryNodeHasTrace ? "network-node--memory-trace" : ""} ${muted ? "network-node--muted" : ""}`}
                 key={node.id}
                 style={{ left: `${node.x}%`, top: `${node.y}%` }}
               >
+                {overlayIndex ? <span className="network-node__overlay-index">{overlayIndex}</span> : null}
+                {promptNodeHasManifest ? <span className="network-node__prompt-badge">Prompt 已记录</span> : null}
+                {memoryNodeHasTrace ? <span className="network-node__memory-badge">Memory 已记录</span> : null}
                 <button
                   className="network-node__head"
-                  disabled={!node.view}
-                  onClick={() => node.view ? setWorkspaceView(node.view) : undefined}
+                  disabled={!node.view && !overlay}
+                  onClick={() => {
+                    if (overlay) {
+                      setSelectedOverlayItem({ kind: "node", id: node.id });
+                      return;
+                    }
+                    if (node.view) {
+                      setWorkspaceView(node.view);
+                    }
+                  }}
                   type="button"
                 >
                   <span className="network-node__icon">
@@ -578,6 +1027,20 @@ export function SystemFrameworkView() {
                     <small>{node.kind}</small>
                     <strong>{node.label}</strong>
                     <em>{node.source}</em>
+                    {overlay ? (
+                      <b>
+                        {overlayProblemLabel(overlay.status)}
+                        {overlayIndex ? `节点 ${overlayIndex}` : ""}
+                        {" · "}
+                        {overlayStatusLabel(overlay.status)}
+                      </b>
+                    ) : null}
+                    {node.id === "prompt" && systemGraphOverlay?.turn_id ? (
+                      <b>{promptManifestAvailable ? "来源装配可分析" : "来源装配缺失"}</b>
+                    ) : null}
+                    {node.id === "memory" && systemGraphOverlay?.turn_id ? (
+                      <b>{memoryTraceAvailable ? "记忆链路可分析" : "记忆链路缺失"}</b>
+                    ) : null}
                   </span>
                 </button>
               </article>
@@ -586,7 +1049,7 @@ export function SystemFrameworkView() {
           {graphNodes.flatMap((node) =>
             node.cluster.map((child) => (
               <article
-                className={`network-subnode network-subnode--${node.id}`}
+                className={`network-subnode network-subnode--${node.id} ${systemGraphOverlay && !overlayNodes.has(node.id) ? "network-subnode--muted" : ""}`}
                 key={`${node.id}-${child.label}`}
                 style={{ left: `${clampPoint(node.x + child.dx)}%`, top: `${clampPoint(node.y + child.dy)}%` }}
               >
