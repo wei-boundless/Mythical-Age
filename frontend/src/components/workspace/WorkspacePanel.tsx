@@ -4,6 +4,7 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { EvidenceView } from "@/components/workspace/views/EvidenceView";
 import { ExperimentsView } from "@/components/workspace/views/ExperimentsView";
 import { MemoryView } from "@/components/workspace/views/MemoryView";
+import { OperationsView } from "@/components/workspace/views/OperationsView";
 import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
 import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
 import { TestSystemView } from "@/components/workspace/views/TestSystemView";
@@ -19,6 +20,7 @@ export function WorkspacePanel() {
   const views = {
     memory: <MemoryView />,
     "test-system": <TestSystemView />,
+    operations: <OperationsView />,
     evidence: <EvidenceView />,
     "system-framework": <SystemFrameworkView />,
     experiments: <ExperimentsView />,

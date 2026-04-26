@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from skill_system.contracts import SkillContract, SkillPromptContract, SkillRuntimeContract
 
 
 FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
@@ -31,16 +38,57 @@ class SkillRecord:
     context_mode: str = "inline"
     route_authority: str = "candidate_only"
     reference_paths: list[str] = field(default_factory=list)
+    schema_version: int = 3
+    validation_errors: list[str] = field(default_factory=list)
 
 
-@dataclass
-class SkillPromptView:
-    name: str
-    title: str
-    description: str
-    use_when: str = ""
-    output_rule: str = (
-        "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
+def _record_from_contract(contract: SkillContract) -> SkillRecord:
+    runtime = contract.runtime
+    return SkillRecord(
+        name=runtime.name,
+        title=runtime.title,
+        description=runtime.description,
+        path=runtime.path,
+        allowed_tools=list(runtime.allowed_tools),
+        supported_modalities=list(runtime.supported_modalities),
+        supported_task_kinds=list(runtime.supported_task_kinds),
+        supported_source_kinds=list(runtime.supported_source_kinds),
+        capability_tags=list(runtime.capability_tags),
+        preferred_route=runtime.preferred_route,
+        forbidden_routes=list(runtime.forbidden_routes),
+        routing_hints=list(runtime.routing_hints),
+        examples=list(runtime.examples),
+        activation_policy=runtime.activation_policy,
+        context_mode=runtime.context_mode,
+        route_authority=runtime.route_authority,
+        reference_paths=list(runtime.reference_paths),
+        validation_errors=list(contract.validation_errors),
+    )
+
+
+def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContract:
+    return SkillContract.from_runtime(
+        SkillRuntimeContract(
+            name=record.name,
+            title=record.title,
+            description=record.description,
+            path=record.path,
+            allowed_tools=record.allowed_tools,
+            supported_modalities=record.supported_modalities,
+            supported_task_kinds=record.supported_task_kinds,
+            supported_source_kinds=record.supported_source_kinds,
+            capability_tags=record.capability_tags,
+            preferred_route=record.preferred_route,
+            forbidden_routes=record.forbidden_routes,
+            routing_hints=record.routing_hints,
+            examples=record.examples,
+            activation_policy=record.activation_policy,
+            context_mode=record.context_mode,
+            route_authority=record.route_authority,
+            reference_paths=record.reference_paths,
+        ),
+        body=body,
+        use_when=_build_skill_use_when(record),
     )
 
 
@@ -127,27 +175,26 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
         )
         description = _extract_description(meta, body, skill_dir.name)
 
-        records.append(
-            SkillRecord(
-                name=_coerce_str(meta.get("name"), skill_dir.name),
-                title=title,
-                description=description,
-                path=str(skill_file.relative_to(base_dir)).replace("\\", "/"),
-                allowed_tools=_coerce_list(_lookup(meta, "metadata.allowed_tools")),
-                supported_modalities=_coerce_list(_lookup(meta, "metadata.supported_modalities")),
-                supported_task_kinds=_coerce_list(_lookup(meta, "metadata.supported_task_kinds")),
-                supported_source_kinds=_coerce_list(_lookup(meta, "metadata.supported_source_kinds")),
-                capability_tags=_coerce_list(_lookup(meta, "metadata.capability_tags")),
-                preferred_route=_coerce_str(_lookup(meta, "metadata.preferred_route"), "rag") or "rag",
-                forbidden_routes=_coerce_list(_lookup(meta, "metadata.forbidden_routes")),
-                routing_hints=_coerce_list(_lookup(meta, "metadata.routing_hints")),
-                examples=_coerce_list(_lookup(meta, "metadata.examples")),
-                activation_policy=_coerce_str(_lookup(meta, "metadata.activation_policy"), "model_visible") or "model_visible",
-                context_mode=_coerce_str(_lookup(meta, "metadata.context_mode"), "inline") or "inline",
-                route_authority=_coerce_str(_lookup(meta, "metadata.route_authority"), "candidate_only") or "candidate_only",
-                reference_paths=_collect_reference_paths(base_dir, skill_dir),
-            )
+        record = SkillRecord(
+            name=_coerce_str(meta.get("name"), skill_dir.name),
+            title=title,
+            description=description,
+            path=str(skill_file.relative_to(base_dir)).replace("\\", "/"),
+            allowed_tools=_coerce_list(_lookup(meta, "metadata.allowed_tools")),
+            supported_modalities=_coerce_list(_lookup(meta, "metadata.supported_modalities")),
+            supported_task_kinds=_coerce_list(_lookup(meta, "metadata.supported_task_kinds")),
+            supported_source_kinds=_coerce_list(_lookup(meta, "metadata.supported_source_kinds")),
+            capability_tags=_coerce_list(_lookup(meta, "metadata.capability_tags")),
+            preferred_route=_coerce_str(_lookup(meta, "metadata.preferred_route"), "rag") or "rag",
+            forbidden_routes=_coerce_list(_lookup(meta, "metadata.forbidden_routes")),
+            routing_hints=_coerce_list(_lookup(meta, "metadata.routing_hints")),
+            examples=_coerce_list(_lookup(meta, "metadata.examples")),
+            activation_policy=_coerce_str(_lookup(meta, "metadata.activation_policy"), "model_visible") or "model_visible",
+            context_mode=_coerce_str(_lookup(meta, "metadata.context_mode"), "inline") or "inline",
+            route_authority=_coerce_str(_lookup(meta, "metadata.route_authority"), "candidate_only") or "candidate_only",
+            reference_paths=_collect_reference_paths(base_dir, skill_dir),
         )
+        records.append(_record_from_contract(_contract_from_record(record, body=body)))
     return records
 
 
@@ -161,7 +208,7 @@ def build_snapshot(skills: list[SkillRecord]) -> str:
         lines.extend(
             [
                 f'  <skill name="{view.title}">',
-                f"    <description>{view.description}</description>",
+                f"    <description>{view.capability}</description>",
             ]
         )
         if view.use_when:
@@ -190,20 +237,21 @@ def _build_skill_use_when(skill: SkillRecord) -> str:
     return ""
 
 
-def _build_prompt_view(skill: SkillRecord) -> SkillPromptView:
-    return SkillPromptView(
+def _build_prompt_view(skill: SkillRecord) -> SkillPromptContract:
+    return SkillPromptContract(
         name=skill.name,
         title=skill.title,
-        description=skill.description,
+        capability=skill.description,
         use_when=_build_skill_use_when(skill),
     )
 
 
 def build_registry(skills: list[SkillRecord]) -> dict[str, Any]:
+    contracts = [_contract_from_record(skill) for skill in skills]
     return {
-        "version": 2,
+        "version": 3,
         "skill_count": len(skills),
-        "skills": [asdict(skill) for skill in skills],
+        "skills": [contract.to_registry_record() for contract in contracts],
     }
 
 
@@ -217,3 +265,8 @@ def refresh_snapshot(base_dir: Path) -> Path:
         encoding="utf-8",
     )
     return snapshot_path
+
+
+if __name__ == "__main__":
+    path = refresh_snapshot(BACKEND_DIR)
+    print(f"refreshed {path}")

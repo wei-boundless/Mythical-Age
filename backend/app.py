@@ -11,6 +11,7 @@ from api.experiments import router as experiments_router
 from api.files import router as files_router
 from api.memory import router as memory_router
 from api.orchestration import router as orchestration_router
+from api.operations import router as operations_router
 from api.sessions import router as sessions_router
 from api.souls import router as souls_router
 from api.tasks import router as tasks_router
@@ -46,6 +47,7 @@ app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(tasks_router, prefix="/api", tags=["tasks"])
 app.include_router(experiments_router, prefix="/api", tags=["experiments"])
 app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
+app.include_router(operations_router, prefix="/api", tags=["operations"])
 app.include_router(souls_router, prefix="/api", tags=["souls"])
 
 

@@ -760,8 +760,6 @@ export function ExperimentsView() {
         {[
           { key: "behavior", label: "行为判读", icon: Route },
           { key: "control", label: "运行控制", icon: ShieldCheck },
-          { key: "skills", label: "Skills 管理", icon: Boxes },
-          { key: "contracts", label: "契约管理", icon: ShieldCheck }
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -889,7 +887,7 @@ export function ExperimentsView() {
         <section className="workspace-section orchestration-management">
           <div className="workspace-section__head">
             <ShieldCheck size={18} />
-            <h3>契约管理</h3>
+            <h3>工具管理</h3>
             <span className="tag-chip">permission: {catalog?.permission_mode ?? "-"}</span>
             <span className="tag-chip">contract: {catalog?.tool_contract_mode ?? "-"}</span>
             <button className="action-button action-button--ghost" onClick={() => void refreshCatalog()} type="button">
@@ -1259,9 +1257,9 @@ export function ExperimentsView() {
                   </button>
                 ) : null}
                 {selectedNode.id === "tool" ? (
-                  <button onClick={() => setActivePanel("contracts")} type="button">
+                  <button onClick={() => setWorkspaceView("operations")} type="button">
                     <TerminalSquare size={14} />
-                    查看契约管理
+                    查看工具管理
                   </button>
                 ) : null}
                 {selectedNode.id === "worker" ? (

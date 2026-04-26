@@ -7,6 +7,7 @@ import {
   MessageSquare,
   Network,
   Sparkles,
+  Wrench,
   Workflow
 } from "lucide-react";
 
@@ -51,6 +52,12 @@ const railGroups = [
         label: "测试系统",
         description: "运行回归、长场景与可视化 debug 实验",
         view: "test-system"
+      },
+      {
+        icon: Wrench,
+        label: "操作系统",
+        description: "管理 skills、工具类型和模型可见提示",
+        view: "operations"
       },
       {
         icon: Bot,

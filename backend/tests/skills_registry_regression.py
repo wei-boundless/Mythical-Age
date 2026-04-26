@@ -75,8 +75,11 @@ def main() -> None:
     assert gold.supported_source_kinds == ["external_web"]
 
     registry = json.loads((ROOT / "SKILLS_REGISTRY.json").read_text(encoding="utf-8"))
-    assert registry["version"] == 2
+    assert registry["version"] == 3
     assert registry["skill_count"] == len(skills)
+    assert all(item["schema_version"] == 3 for item in registry["skills"])
+    assert all("runtime" in item and "prompt" in item for item in registry["skills"])
+    assert all(item["validation_errors"] == [] for item in registry["skills"])
 
     skill_registry = SkillRegistry(ROOT)
     weather = skill_registry.get_by_name("get-weather")
@@ -85,6 +88,7 @@ def main() -> None:
     assert weather.allowed_tool_scope() == ["get_weather"]
     assert weather.prompt_view.title == "天气查询"
     assert weather.prompt_view.capability == weather.description
+    assert weather.validation_errors == []
     assert "Use When:" in weather.prompt_view.render_block()
     assert "<allowed_tools>" not in weather.prompt_view.render_block()
 

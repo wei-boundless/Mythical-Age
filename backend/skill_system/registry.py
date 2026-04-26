@@ -1,62 +1,22 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
 from tools.contracts import SkillToolScope
 
+from .contracts import SkillContract, SkillPromptContract, SkillRuntimeContract
 
-DEFAULT_SKILL_OUTPUT_RULE = (
-    "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
-)
-
-
-@dataclass(slots=True)
-class SkillPromptView:
-    name: str
-    title: str
-    capability: str
-    use_when: str = ""
-    output_rule: str = DEFAULT_SKILL_OUTPUT_RULE
-
-    def render_block(self) -> str:
-        lines = [
-            f"Skill: {self.title or self.name}",
-            f"Capability: {self.capability}",
-        ]
-        if self.use_when:
-            lines.append(f"Use When: {self.use_when}")
-        lines.append(f"Output Rule: {self.output_rule}")
-        return "\n".join(lines)
-
-
-@dataclass(slots=True)
-class SkillRuntimeContract:
-    name: str
-    title: str
-    description: str
-    path: str
-    allowed_tools: list[str] = field(default_factory=list)
-    supported_modalities: list[str] = field(default_factory=list)
-    supported_task_kinds: list[str] = field(default_factory=list)
-    supported_source_kinds: list[str] = field(default_factory=list)
-    capability_tags: list[str] = field(default_factory=list)
-    preferred_route: str = "rag"
-    forbidden_routes: list[str] = field(default_factory=list)
-    routing_hints: list[str] = field(default_factory=list)
-    examples: list[str] = field(default_factory=list)
-    activation_policy: str = "model_visible"
-    context_mode: str = "inline"
-    route_authority: str = "candidate_only"
-    reference_paths: list[str] = field(default_factory=list)
+SkillPromptView = SkillPromptContract
 
 
 @dataclass(slots=True)
 class SkillDefinition:
     runtime: SkillRuntimeContract
-    prompt_view: SkillPromptView
+    prompt_view: SkillPromptContract
+    validation_errors: list[str]
 
     def __getattr__(self, attr: str):
         return getattr(self.runtime, attr)
@@ -81,32 +41,12 @@ class SkillDefinition:
 
     @classmethod
     def from_payload(cls, item: dict[str, object]) -> "SkillDefinition":
-        runtime = SkillRuntimeContract(
-            name=str(item.get("name", "")).strip(),
-            title=str(item.get("title", "")).strip(),
-            description=str(item.get("description", "")).strip(),
-            path=str(item.get("path", "")).strip(),
-            allowed_tools=[str(v) for v in item.get("allowed_tools", []) if str(v).strip()],
-            supported_modalities=[str(v) for v in item.get("supported_modalities", []) if str(v).strip()],
-            supported_task_kinds=[str(v) for v in item.get("supported_task_kinds", []) if str(v).strip()],
-            supported_source_kinds=[str(v) for v in item.get("supported_source_kinds", []) if str(v).strip()],
-            capability_tags=[str(v) for v in item.get("capability_tags", []) if str(v).strip()],
-            preferred_route=str(item.get("preferred_route", "rag") or "rag").strip(),
-            forbidden_routes=[str(v) for v in item.get("forbidden_routes", []) if str(v).strip()],
-            routing_hints=[str(v) for v in item.get("routing_hints", []) if str(v).strip()],
-            examples=[str(v) for v in item.get("examples", []) if str(v).strip()],
-            activation_policy=str(item.get("activation_policy", "model_visible") or "model_visible").strip(),
-            context_mode=str(item.get("context_mode", "inline") or "inline").strip(),
-            route_authority=str(item.get("route_authority", "candidate_only") or "candidate_only").strip(),
-            reference_paths=[str(v) for v in item.get("reference_paths", []) if str(v).strip()],
+        contract = SkillContract.from_payload(item)
+        return cls(
+            runtime=contract.runtime,
+            prompt_view=contract.prompt,
+            validation_errors=list(contract.validation_errors),
         )
-        prompt_view = SkillPromptView(
-            name=runtime.name,
-            title=runtime.title,
-            capability=runtime.description,
-            use_when=_build_skill_use_when(runtime),
-        )
-        return cls(runtime=runtime, prompt_view=prompt_view)
 
 
 class SkillRegistry:

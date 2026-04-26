@@ -37,6 +37,7 @@ export type WorkspaceView =
   | "chat"
   | "memory"
   | "test-system"
+  | "operations"
   | "evidence"
   | "system-framework"
   | "experiments"

@@ -227,10 +227,10 @@ const graphNodes: GraphNode[] = [
   },
   {
     id: "tooling",
-    label: "工具与技能运行",
+    label: "操作系统",
     source: "tools/runtime.py",
     kind: "能力入口",
-    view: "experiments",
+    view: "operations",
     icon: Cpu,
     x: 82,
     y: 11,
@@ -425,7 +425,7 @@ const graphEdges: GraphEdge[] = [
     label: "调用能力",
     route: "capability",
     bidirectional: true,
-    detail: "执行核心通过工具桥接层进入工具与技能运行系统；权限服务和工具契约闸门会约束工具能否被调用。"
+    detail: "执行核心通过工具桥接层进入操作系统；权限服务和工具契约闸门会约束工具能否被调用。"
   },
   {
     id: "orchestration-evidence",
@@ -1162,7 +1162,7 @@ export function SystemFrameworkView() {
         <footer className="project-network__legend">
           <span className="legend-route legend-route--request">请求与流式链路</span>
           <span className="legend-route legend-route--context">上下文与记忆链路</span>
-          <span className="legend-route legend-route--capability">工具与技能链路</span>
+          <span className="legend-route legend-route--capability">操作系统链路</span>
           <span className="legend-route legend-route--identity">身份与提示词链路</span>
           <span className="legend-route legend-route--evidence">证据与测试链路</span>
           <span className="legend-route legend-route--storage">文件与索引链路</span>

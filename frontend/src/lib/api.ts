@@ -225,6 +225,47 @@ export type OrchestrationCatalog = {
   tools: OrchestrationCatalogTool[];
 };
 
+export type OperationSkill = OrchestrationCatalogSkill & {
+  prompt_block: string;
+  content: string;
+  validation_errors: string[];
+};
+
+export type OperationTool = OrchestrationCatalogTool & {
+  operation_metadata: {
+    tool_type: string;
+    note: string;
+    tool_boundary: string;
+    adapter_type: string;
+    risk_level: string;
+    risk_rank: number;
+    visibility_label: string;
+    runtime_policy: string;
+    editable_policy: string;
+    bound_skills: Array<{
+      name: string;
+      title: string;
+      activation_policy: string;
+      context_mode: string;
+    }>;
+    governance_hints: string[];
+  };
+};
+
+export type OperationCatalog = {
+  skills: OperationSkill[];
+  tools: OperationTool[];
+  tool_type_options: string[];
+  summary: {
+    skill_count: number;
+    tool_count: number;
+    model_visible_skills: number;
+    tool_types: string[];
+    tool_boundaries: Record<string, number>;
+    tool_risks: Record<string, number>;
+  };
+};
+
 export type AgentSystemSkill = {
   id: string;
   name: string;
@@ -821,6 +862,48 @@ export async function setOrchestrationPlanMode(mode: string) {
   return request<{ mode: string; supported_modes: string[] }>("/orchestration/plan-mode", {
     method: "PUT",
     body: JSON.stringify({ mode })
+  });
+}
+
+export async function getOperationCatalog() {
+  return request<OperationCatalog>("/operations/catalog");
+}
+
+export async function refreshOperationCatalog() {
+  return request<OperationCatalog>("/operations/catalog/refresh", {
+    method: "POST"
+  });
+}
+
+export async function createOperationSkill(payload: {
+  name: string;
+  title: string;
+  description: string;
+  content?: string;
+}) {
+  return request<OperationCatalog>("/operations/skills", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function saveOperationSkill(skillName: string, content: string) {
+  return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}`, {
+    method: "PUT",
+    body: JSON.stringify({ content })
+  });
+}
+
+export async function deleteOperationSkill(skillName: string) {
+  return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function updateOperationTool(toolName: string, payload: { tool_type: string; note?: string }) {
+  return request<OperationCatalog>(`/operations/tools/${encodeURIComponent(toolName)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
   });
 }
 
