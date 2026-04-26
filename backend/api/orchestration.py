@@ -60,3 +60,10 @@ async def orchestration_catalog() -> dict[str, Any]:
         "skills": skills,
         "tools": tools,
     }
+
+
+@router.post("/orchestration/catalog/refresh")
+async def refresh_orchestration_catalog() -> dict[str, Any]:
+    runtime = require_runtime()
+    runtime.refresh_catalogs()
+    return await orchestration_catalog()

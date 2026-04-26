@@ -39,6 +39,9 @@ type IssueGraphRefs = {
   reason?: string;
 };
 
+const issueTurnIdKeys = ["turn_id", "turnId", "turn", "failed_turn_id", "failedTurnId"];
+const issueTurnIndexKeys = ["turn_index", "turnIndex", "index", "failed_turn", "failedTurn"];
+
 type TestSystemPage = "control" | "monitor" | "turns" | "issues" | "artifacts";
 type ArtifactView = "summary" | "report" | "issues" | "trace" | "log" | "result";
 
@@ -151,6 +154,45 @@ function statusIcon(status: string) {
     return <XCircle size={18} />;
   }
   return <Activity size={18} />;
+}
+
+function issueText(issue: Record<string, unknown>) {
+  return [
+    issue.id,
+    issue.title,
+    issue.summary,
+    issue.command,
+    issue.category
+  ].map((value) => String(value ?? "")).join(" ");
+}
+
+function issueArtifactPaths(issue: Record<string, unknown>) {
+  const raw = issue.artifact_paths;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.map((item) => String(item ?? "").replace(/\\/g, "/"));
+}
+
+function pathMentionsTurn(path: string, turn: ExperimentTurn) {
+  const normalizedPath = path.replace(/\\/g, "/");
+  const artifactPath = turn.artifact_path.replace(/\\/g, "/");
+  return normalizedPath.includes(turn.turn_id) || normalizedPath.endsWith(artifactPath) || artifactPath.endsWith(normalizedPath);
+}
+
+function readIssueTurnIndex(issue: Record<string, unknown>) {
+  for (const key of issueTurnIndexKeys) {
+    const value = issue[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    const parsed = Number.parseInt(String(value ?? ""), 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  const match = issueText(issue).match(/(?:first\s+failure\s+)?turn\s*=?\s*(\d+)/i);
+  return match ? Number.parseInt(match[1], 10) : null;
 }
 
 export function TestSystemView() {
@@ -425,6 +467,52 @@ export function TestSystemView() {
     }
   }
 
+  function findIssueTurn(issue: Record<string, unknown>) {
+    for (const key of issueTurnIdKeys) {
+      const value = String(issue[key] ?? "");
+      if (!value) {
+        continue;
+      }
+      const direct = turns.find((turn) => turn.turn_id === value);
+      if (direct) {
+        return direct;
+      }
+    }
+
+    const paths = issueArtifactPaths(issue);
+    const turnIndex = readIssueTurnIndex(issue);
+    if (turnIndex !== null) {
+      const byIndexAndPath = turns.find((turn) => (
+        turn.index === turnIndex && (!paths.length || paths.some((path) => pathMentionsTurn(path, turn)))
+      ));
+      if (byIndexAndPath) {
+        return byIndexAndPath;
+      }
+    }
+
+    const byProblemPath = turns.find((turn) => (
+      (turn.status === "failed" || turn.status === "warning")
+      && paths.some((path) => pathMentionsTurn(path, turn))
+    ));
+    if (byProblemPath) {
+      return byProblemPath;
+    }
+
+    return paths.length
+      ? turns.find((turn) => paths.some((path) => pathMentionsTurn(path, turn))) ?? null
+      : null;
+  }
+
+  function openIssueOnOrchestration(issue: Record<string, unknown>) {
+    const turn = findIssueTurn(issue);
+    if (!turn) {
+      openIssueOnSystemGraph(issue);
+      return;
+    }
+    setSelectedTurnId(turn.turn_id);
+    openTurnOnOrchestration(turn);
+  }
+
   function openTurnOnMemorySystem(turn: ExperimentTurn) {
     if (!activeRunId) {
       return;
@@ -460,7 +548,7 @@ export function TestSystemView() {
       await openRunOnSystemGraph();
       return;
     }
-    await openTurnOnSystemGraph(firstProblemTurn);
+    openTurnOnOrchestration(firstProblemTurn);
   }
 
   return (
@@ -491,7 +579,7 @@ export function TestSystemView() {
             type="button"
           >
             <GitBranch size={15} />
-            查看总链路
+            架构定位
           </button>
         </div>
       </header>
@@ -709,14 +797,14 @@ export function TestSystemView() {
               <strong>{selectedTurn.summary || "没有摘要"}</strong>
               <p>{selectedTurn.has_prompt_manifest ? "Prompt 已记录" : "Prompt 缺失"} · {selectedTurn.has_memory_trace ? "Memory 已记录" : "Memory 缺失"} · issues {selectedTurn.issue_count}</p>
               <div className="test-next-actions">
-                <button className="action-button action-button--primary" onClick={() => void openTurnOnSystemGraph(selectedTurn)} type="button">
-                  系统链路
+                <button className="action-button action-button--primary" onClick={() => openTurnOnOrchestration(selectedTurn)} type="button">
+                  编排复盘
                 </button>
                 <button className="action-button action-button--ghost" disabled={!selectedTurn.has_memory_trace} onClick={() => openTurnOnMemorySystem(selectedTurn)} type="button">
                   记忆链路
                 </button>
-                <button className="action-button action-button--ghost" onClick={() => openTurnOnOrchestration(selectedTurn)} type="button">
-                  编排链路
+                <button className="action-button action-button--ghost" onClick={() => void openTurnOnSystemGraph(selectedTurn)} type="button">
+                  架构定位
                 </button>
               </div>
             </article>
@@ -735,14 +823,14 @@ export function TestSystemView() {
                   <button onClick={() => setSelectedTurnId(turn.turn_id)} type="button">
                     选中
                   </button>
-                  <button onClick={() => void openTurnOnSystemGraph(turn)} type="button">
-                    系统链路
+                  <button onClick={() => openTurnOnOrchestration(turn)} type="button">
+                    编排复盘
                   </button>
                   <button disabled={!turn.has_memory_trace} onClick={() => openTurnOnMemorySystem(turn)} type="button">
                     记忆链路
                   </button>
-                  <button onClick={() => openTurnOnOrchestration(turn)} type="button">
-                    编排链路
+                  <button onClick={() => void openTurnOnSystemGraph(turn)} type="button">
+                    架构定位
                   </button>
                 </div>
               </article>
@@ -773,10 +861,10 @@ export function TestSystemView() {
             <div className="test-debug-hero__actions">
               <button className="action-button action-button--primary" disabled={!activeRunId} onClick={() => void openFirstProblemTurn()} type="button">
                 <GitBranch size={15} />
-                查看首个异常链路
+                复盘首个异常
               </button>
               <button className="action-button action-button--ghost" disabled={!activeRunId} onClick={() => void openRunOnSystemGraph()} type="button">
-                查看整次运行图
+                查看架构定位
               </button>
               <button className="action-button action-button--ghost" disabled={!firstProblemTurn?.has_memory_trace} onClick={() => firstProblemTurn ? openTurnOnMemorySystem(firstProblemTurn) : undefined} type="button">
                 查看异常记忆
@@ -792,11 +880,12 @@ export function TestSystemView() {
           <div className="flow-list">
             {artifacts?.issues.length ? artifacts.issues.slice(0, 8).map((issue, index) => {
               const refs = (issue.graph_refs ?? {}) as IssueGraphRefs;
+              const issueTurn = findIssueTurn(issue);
               return (
               <button
                 className="flow-row flow-row--button"
                 key={`${issue.id ?? index}`}
-                onClick={() => openIssueOnSystemGraph(issue)}
+                onClick={() => openIssueOnOrchestration(issue)}
                 type="button"
               >
                 <div className="flow-row__index">{index + 1}</div>
@@ -805,7 +894,11 @@ export function TestSystemView() {
                   <br />
                   {String(issue.summary ?? "")}
                   <br />
-                  <span>定位：{Array.isArray(refs.nodes) ? refs.nodes.join(" / ") : "tests / query-core"}</span>
+                  <span>
+                    {issueTurn
+                      ? `编排复盘：Turn ${issueTurn.index} / ${issueTurn.session_alias || issueTurn.scenario}`
+                      : `架构定位：${Array.isArray(refs.nodes) ? refs.nodes.join(" / ") : "tests / query-core"}`}
+                  </span>
                 </p>
               </button>
               );

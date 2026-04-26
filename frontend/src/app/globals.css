@@ -3861,6 +3861,40 @@ button:hover {
   position: relative;
 }
 
+.orchestration-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.46rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 70%),
+    rgba(255, 255, 255, 0.026);
+  padding: 0.32rem;
+}
+
+.orchestration-tabs__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 0.42rem 0.7rem;
+}
+
+.orchestration-tabs__item--active {
+  border-color: color-mix(in srgb, var(--color-soul) 36%, transparent);
+  background:
+    radial-gradient(circle at 15% 0%, color-mix(in srgb, var(--color-soul) 18%, transparent), transparent 50%),
+    rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+}
+
 .orchestration-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 0.42fr);
@@ -4288,6 +4322,143 @@ button:hover {
   color: var(--color-soul);
   font-size: 0.72rem;
   font-weight: 800;
+}
+
+.orchestration-management {
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--color-soul) 22%, transparent);
+  background:
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 40%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 62%),
+    var(--color-panel);
+}
+
+.orchestration-management-grid,
+.orchestration-contract-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(285px, 1fr));
+  gap: 0.72rem;
+}
+
+.orchestration-management-card,
+.orchestration-contract-card {
+  display: grid;
+  gap: 0.58rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255, 255, 255, 0.075), transparent 46%),
+    rgba(255, 255, 255, 0.03);
+  padding: 0.82rem;
+}
+
+.orchestration-management-card h3,
+.orchestration-contract-card h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.98rem;
+}
+
+.orchestration-management-card p,
+.orchestration-contract-card p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.orchestration-management-card__contract {
+  display: grid;
+  gap: 0.22rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, transparent);
+  border-radius: 0.82rem;
+  background: color-mix(in srgb, var(--color-soul) 7%, rgba(255, 255, 255, 0.026));
+  padding: 0.54rem;
+}
+
+.orchestration-management-card__contract b {
+  color: var(--color-soul);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.62rem;
+}
+
+.orchestration-management-card__contract span {
+  color: var(--color-text-soft);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.orchestration-contract-card--danger {
+  border-color: rgba(255, 116, 91, 0.32);
+}
+
+.orchestration-permission-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.24fr);
+  gap: 0.72rem;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 24%, transparent);
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-soul) 10%, transparent), transparent 72%),
+    rgba(255, 255, 255, 0.03);
+  padding: 0.72rem;
+}
+
+.orchestration-permission-bar b {
+  display: block;
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.orchestration-permission-bar span {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.orchestration-permission-bar select {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 28%, transparent);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.78rem;
+  outline: none;
+  padding: 0.48rem 0.7rem;
+}
+
+.orchestration-contract-card__matrix {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.42rem;
+}
+
+.orchestration-contract-card__matrix span {
+  display: grid;
+  gap: 0.12rem;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 0.74rem;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 0.42rem;
+}
+
+.orchestration-contract-card__matrix b {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.58rem;
+}
+
+.orchestration-contract-card__matrix em {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.7rem;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .orchestration-branches {

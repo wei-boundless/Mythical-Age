@@ -40,7 +40,6 @@ export type WorkspaceView =
   | "evidence"
   | "system-framework"
   | "experiments"
-  | "capabilities"
   | "playground";
 
 export type SystemGraphHighlight = {

@@ -214,7 +214,7 @@ const graphNodes: GraphNode[] = [
     label: "工具与技能运行",
     source: "tools/runtime.py",
     kind: "能力入口",
-    view: "capabilities",
+    view: "experiments",
     icon: Cpu,
     x: 82,
     y: 11,

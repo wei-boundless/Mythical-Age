@@ -161,6 +161,64 @@ export type OrchestrationSnapshot = {
   dry_run?: Record<string, unknown>;
 };
 
+export type OrchestrationCatalogSkill = {
+  runtime: {
+    name: string;
+    title: string;
+    description: string;
+    path: string;
+    allowed_tools: string[];
+    supported_modalities: string[];
+    supported_task_kinds: string[];
+    supported_source_kinds: string[];
+    capability_tags: string[];
+    preferred_route: string;
+    forbidden_routes: string[];
+    routing_hints: string[];
+    examples: string[];
+    activation_policy: string;
+    context_mode: string;
+    route_authority: string;
+    reference_paths: string[];
+  };
+  prompt_view: {
+    name: string;
+    title: string;
+    capability: string;
+    use_when: string;
+    output_rule: string;
+  };
+  tool_scope: Record<string, unknown>;
+};
+
+export type OrchestrationCatalogTool = {
+  name: string;
+  module: string;
+  contract: Record<string, unknown>;
+  resolution_contract: Record<string, unknown>;
+  output_contract: Record<string, unknown>;
+  projection_contract: Record<string, unknown>;
+  capability_tags: string[];
+  supported_modalities: string[];
+  safety_tags: string[];
+  route_hints: string[];
+  safe_for_auto_route: boolean;
+  runtime_visibility: string;
+  prompt_exposure_policy: string;
+  resource_exposure_policy: string;
+  is_read_only: boolean;
+  is_destructive: boolean;
+  is_concurrency_safe: boolean;
+};
+
+export type OrchestrationCatalog = {
+  permission_mode: string;
+  supported_permission_modes: string[];
+  tool_contract_mode: string;
+  skills: OrchestrationCatalogSkill[];
+  tools: OrchestrationCatalogTool[];
+};
+
 export type PromptManifestSection = {
   id: string;
   title: string;
@@ -648,6 +706,16 @@ export async function runOrchestrationDryRun(payload: {
   return request<OrchestrationSnapshot>("/orchestration/dry-run", {
     method: "POST",
     body: JSON.stringify(payload)
+  });
+}
+
+export async function getOrchestrationCatalog() {
+  return request<OrchestrationCatalog>("/orchestration/catalog");
+}
+
+export async function refreshOrchestrationCatalog() {
+  return request<OrchestrationCatalog>("/orchestration/catalog/refresh", {
+    method: "POST"
   });
 }
 

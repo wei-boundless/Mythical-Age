@@ -1,7 +1,6 @@
 "use client";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { CapabilitiesView } from "@/components/workspace/views/CapabilitiesView";
 import { EvidenceView } from "@/components/workspace/views/EvidenceView";
 import { ExperimentsView } from "@/components/workspace/views/ExperimentsView";
 import { MemoryView } from "@/components/workspace/views/MemoryView";
@@ -23,7 +22,6 @@ export function WorkspacePanel() {
     evidence: <EvidenceView />,
     "system-framework": <SystemFrameworkView />,
     experiments: <ExperimentsView />,
-    capabilities: <CapabilitiesView />,
     playground: <PlaygroundView />
   } as const;
   const isSystemFramework = activeWorkspaceView === "system-framework";

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Boxes,
   BrainCircuit,
   Bot,
   FlaskConical,
@@ -52,12 +51,6 @@ const railGroups = [
         label: "测试系统",
         description: "运行回归、长场景与可视化 debug 实验",
         view: "test-system"
-      },
-      {
-        icon: Boxes,
-        label: "操作系统",
-        description: "管理 tools、skills 与可调用操作能力",
-        view: "capabilities"
       },
       {
         icon: Bot,

@@ -3,14 +3,17 @@
 import {
   AlertTriangle,
   ArrowRight,
+  Boxes,
   BrainCircuit,
   Database,
   FileText,
   GitBranch,
+  Hammer,
   Loader2,
   Network,
   RefreshCw,
   Route,
+  ShieldCheck,
   Sparkles,
   TerminalSquare
 } from "lucide-react";
@@ -18,7 +21,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   getExperimentTurnOrchestration,
+  getOrchestrationCatalog,
+  refreshOrchestrationCatalog,
   runOrchestrationDryRun,
+  setPermissionMode,
+  type OrchestrationCatalog,
   type OrchestrationNode,
   type OrchestrationSnapshot
 } from "@/lib/api";
@@ -167,17 +174,23 @@ export function ExperimentsView() {
     orchestrationInspectorTarget,
     orchestrationSnapshot,
     highlightSystemGraph,
+    loadInspectorFile,
     setMemoryInspectorTarget,
     setOrchestrationInspectorTarget,
     setOrchestrationSnapshot,
     setWorkspaceView
   } = useAppStore();
+  const [activePanel, setActivePanel] = useState<"behavior" | "skills" | "contracts">("behavior");
   const [testSnapshot, setTestSnapshot] = useState<OrchestrationSnapshot | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState("input");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [dryRunMessage, setDryRunMessage] = useState("");
   const [dryRunLoading, setDryRunLoading] = useState(false);
+  const [catalog, setCatalog] = useState<OrchestrationCatalog | null>(null);
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogAction, setCatalogAction] = useState("");
 
   const target = orchestrationInspectorTarget;
   const activeSnapshot = target?.source === "test-system"
@@ -223,6 +236,51 @@ export function ExperimentsView() {
       void loadTargetSnapshot();
     }
   }, [loadTargetSnapshot, target?.source]);
+
+  const loadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      setCatalog(await getOrchestrationCatalog());
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "加载编排 catalog 失败");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, []);
+
+  async function refreshCatalog() {
+    setCatalogLoading(true);
+    setCatalogAction("");
+    try {
+      setCatalog(await refreshOrchestrationCatalog());
+      setCatalogAction("Registry 已刷新，skills 与 tools catalog 已重新读取。");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "刷新 catalog 失败");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+  async function changePermissionMode(mode: string) {
+    setCatalogLoading(true);
+    setCatalogAction("");
+    try {
+      await setPermissionMode(mode);
+      const nextCatalog = await getOrchestrationCatalog();
+      setCatalog(nextCatalog);
+      setCatalogAction(`Permission mode 已切换为 ${nextCatalog.permission_mode}。`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "切换 permission mode 失败");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activePanel !== "behavior" && !catalog) {
+      void loadCatalog();
+    }
+  }, [activePanel, catalog, loadCatalog]);
 
   function locateOnSystemGraph(node: OrchestrationNode) {
     const map: Record<string, string[]> = {
@@ -306,6 +364,23 @@ export function ExperimentsView() {
   const selectedOutputPreview = selectedNode?.outputs
     ? Object.entries(selectedNode.outputs).slice(0, 6)
     : [];
+  const normalizedCatalogQuery = catalogQuery.trim().toLowerCase();
+  const visibleCatalogSkills = (catalog?.skills ?? []).filter((skill) => {
+    if (!normalizedCatalogQuery) {
+      return true;
+    }
+    return `${skill.runtime.name} ${skill.runtime.title} ${skill.runtime.description} ${skill.runtime.allowed_tools.join(" ")} ${skill.runtime.capability_tags.join(" ")}`
+      .toLowerCase()
+      .includes(normalizedCatalogQuery);
+  });
+  const visibleCatalogTools = (catalog?.tools ?? []).filter((tool) => {
+    if (!normalizedCatalogQuery) {
+      return true;
+    }
+    return `${tool.name} ${tool.module} ${tool.capability_tags.join(" ")} ${tool.safety_tags.join(" ")} ${tool.route_hints.join(" ")}`
+      .toLowerCase()
+      .includes(normalizedCatalogQuery);
+  });
 
   return (
     <div className="workspace-view orchestration-console">
@@ -325,12 +400,131 @@ export function ExperimentsView() {
         </div>
       </header>
 
+      <nav className="orchestration-tabs" aria-label="编排系统页面">
+        {[
+          { key: "behavior", label: "行为判读", icon: Route },
+          { key: "skills", label: "Skills 管理", icon: Boxes },
+          { key: "contracts", label: "契约管理", icon: ShieldCheck }
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              className={activePanel === item.key ? "orchestration-tabs__item orchestration-tabs__item--active" : "orchestration-tabs__item"}
+              key={item.key}
+              onClick={() => setActivePanel(item.key as "behavior" | "skills" | "contracts")}
+              type="button"
+            >
+              <Icon size={15} />
+              {item.label}
+            </button>
+          );
+        })}
+      </nav>
+
       {error ? (
         <div className="workspace-alert">
           <AlertTriangle size={16} />
           <span>{error}</span>
         </div>
       ) : null}
+
+      {activePanel === "skills" ? (
+        <section className="workspace-section orchestration-management">
+          <div className="workspace-section__head">
+            <Boxes size={18} />
+            <h3>Skills 管理</h3>
+            <span className="tag-chip">{catalogLoading ? "加载中" : `${visibleCatalogSkills.length}/${catalog?.skills.length ?? 0}`}</span>
+            <button className="action-button action-button--ghost" onClick={() => void refreshCatalog()} type="button">
+              {catalogLoading ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+              刷新 Registry
+            </button>
+          </div>
+          {catalogAction ? <div className="workspace-alert">{catalogAction}</div> : null}
+          <div className="workspace-search">
+            <Sparkles size={17} />
+            <input onChange={(event) => setCatalogQuery(event.target.value)} placeholder="查 skill、allowed tools、能力标签或 route" value={catalogQuery} />
+          </div>
+          <div className="orchestration-management-grid">
+            {visibleCatalogSkills.map((skill) => (
+              <article className="orchestration-management-card" key={skill.runtime.name}>
+                <div className="workspace-record__meta">
+                  <span>{skill.runtime.preferred_route || "route"}</span>
+                  <span>{skill.runtime.activation_policy}</span>
+                  <span>{skill.runtime.context_mode}</span>
+                </div>
+                <h3>{skill.runtime.title || skill.runtime.name}</h3>
+                <p>{skill.runtime.description}</p>
+                <div className="workspace-chip-row">
+                  {skill.runtime.allowed_tools.slice(0, 6).map((tool) => <span className="workspace-mini-chip" key={tool}>{tool}</span>)}
+                </div>
+                <div className="orchestration-management-card__contract">
+                  <b>Prompt 可见</b>
+                  <span>{skill.prompt_view.use_when || skill.prompt_view.output_rule}</span>
+                </div>
+                <button className="action-button action-button--muted" onClick={() => void loadInspectorFile(skill.runtime.path)} type="button">
+                  打开并编辑定义
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : activePanel === "contracts" ? (
+        <section className="workspace-section orchestration-management">
+          <div className="workspace-section__head">
+            <ShieldCheck size={18} />
+            <h3>契约管理</h3>
+            <span className="tag-chip">permission: {catalog?.permission_mode ?? "-"}</span>
+            <span className="tag-chip">contract: {catalog?.tool_contract_mode ?? "-"}</span>
+            <button className="action-button action-button--ghost" onClick={() => void refreshCatalog()} type="button">
+              {catalogLoading ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+              刷新 Registry
+            </button>
+          </div>
+          <div className="orchestration-permission-bar">
+            <div>
+              <b>Permission Mode</b>
+              <span>这里只切换运行权限模式；tool contract 本体保持只读，避免前端绕过安全边界。</span>
+            </div>
+            <select
+              disabled={catalogLoading || !catalog}
+              onChange={(event) => void changePermissionMode(event.target.value)}
+              value={catalog?.permission_mode ?? ""}
+            >
+              {(catalog?.supported_permission_modes ?? []).map((mode) => (
+                <option key={mode} value={mode}>{mode}</option>
+              ))}
+            </select>
+          </div>
+          {catalogAction ? <div className="workspace-alert">{catalogAction}</div> : null}
+          <div className="workspace-search">
+            <Hammer size={17} />
+            <input onChange={(event) => setCatalogQuery(event.target.value)} placeholder="查 tool、契约字段、安全标签或 route hint" value={catalogQuery} />
+          </div>
+          <div className="orchestration-contract-grid">
+            {visibleCatalogTools.map((tool) => (
+              <article className={`orchestration-contract-card ${tool.is_destructive ? "orchestration-contract-card--danger" : ""}`} key={tool.name}>
+                <div className="workspace-record__meta">
+                  <span>{tool.safe_for_auto_route ? "auto-route" : "manual"}</span>
+                  <span>{tool.runtime_visibility}</span>
+                  <span>{tool.is_read_only ? "read-only" : "write-capable"}</span>
+                </div>
+                <h3>{tool.name}</h3>
+                <p>{tool.module}</p>
+                <div className="orchestration-contract-card__matrix">
+                  <span><b>输入</b><em>{compactValue(tool.contract.required_inputs)}</em></span>
+                  <span><b>绑定</b><em>{compactValue(tool.contract.required_bindings)}</em></span>
+                  <span><b>缺失处理</b><em>{compactValue(tool.contract.missing_binding_behavior)}</em></span>
+                  <span><b>输出</b><em>{compactValue(tool.output_contract.display_mode)}</em></span>
+                </div>
+                <div className="workspace-chip-row">
+                  {[...tool.safety_tags, ...tool.capability_tags].slice(0, 7).map((tag) => <span className="workspace-mini-chip" key={tag}>{tag}</span>)}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <>
 
       <section className="workspace-section orchestration-dry-run">
         <div className="workspace-section__head">
@@ -500,9 +694,9 @@ export function ExperimentsView() {
                   </button>
                 ) : null}
                 {selectedNode.id === "tool" ? (
-                  <button onClick={() => setWorkspaceView("capabilities")} type="button">
+                  <button onClick={() => setActivePanel("contracts")} type="button">
                     <TerminalSquare size={14} />
-                    查看操作系统
+                    查看契约管理
                   </button>
                 ) : null}
                 {selectedNode.id === "worker" ? (
@@ -544,6 +738,8 @@ export function ExperimentsView() {
           </div>
         </article>
       </section>
+        </>
+      )}
     </div>
   );
 }
