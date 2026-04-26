@@ -6,7 +6,7 @@ export const FIXED_FILES = [
   "soul/agent_core/CORE.md",
   "soul/agent_core/ACTIVE_SEED.md",
   "soul/agent.md",
-  "durable_memory/MEMORY.md",
+  "durable_memory/index/MEMORY.md",
   "SKILLS_SNAPSHOT.md"
 ];
 

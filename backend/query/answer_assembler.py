@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from query.answer_models import AnswerAssemblyPlan, AnswerSegment, StyleConstraints
+from query.answer_models import AnswerAssemblyPlan, AnswerDroppedSegment, AnswerSegment, StyleConstraints
 from query.context_models import MainContextState
 
 
@@ -19,6 +19,7 @@ class AnswerAssembler:
             default_style=str(main_context.active_constraints.get("response_style", "") or ""),
         )
         segments: list[AnswerSegment] = []
+        dropped_segments: list[AnswerDroppedSegment] = []
         dedupe_targets: list[str] = []
         source_refs: list[str] = []
         seen_bodies: set[str] = set()
@@ -36,6 +37,15 @@ class AnswerAssembler:
             query = str(item.get("query", "") or "")
             task_id = str(item.get("task_id", "") or "")
             if selected_task_set and task_id not in selected_task_set:
+                dropped_segments.append(
+                    AnswerDroppedSegment(
+                        index=index,
+                        task_id=task_id,
+                        title=query,
+                        reason="not_selected_by_followup_context",
+                        detail="当前 follow-up 上下文只选择指定 task。",
+                    )
+                )
                 continue
             summary_payload = item.get("summary")
             body = ""
@@ -57,6 +67,15 @@ class AnswerAssembler:
             dedupe_key = re.sub(r"\s+", " ", body).strip()
             if style_constraints.dedupe and dedupe_key in seen_bodies:
                 dedupe_targets.append(task_id or query)
+                dropped_segments.append(
+                    AnswerDroppedSegment(
+                        index=index,
+                        task_id=task_id,
+                        title=query,
+                        reason="dedupe_duplicate_body",
+                        detail="启用 dedupe 后，该分支正文与已选分支重复。",
+                    )
+                )
                 continue
             seen_bodies.add(dedupe_key)
             if answer_ref and answer_ref not in source_refs:
@@ -74,6 +93,7 @@ class AnswerAssembler:
             )
         return AnswerAssemblyPlan(
             segments=segments,
+            dropped_segments=dropped_segments,
             style_constraints=style_constraints,
             dedupe_targets=dedupe_targets,
             source_refs=source_refs,

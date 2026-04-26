@@ -65,6 +65,29 @@ def _tail(text: str, *, limit: int = 800) -> str:
     return normalized[-limit:]
 
 
+def _latest_event_payload(events: list[dict[str, Any]], event_name: str) -> dict[str, Any]:
+    for item in reversed(events):
+        if str(item.get("event") or "") != event_name:
+            continue
+        data = item.get("data")
+        return dict(data) if isinstance(data, dict) else {}
+    return {}
+
+
+def _orchestration_diff_mismatches(diff: dict[str, Any]) -> list[str]:
+    mismatches: list[str] = []
+    for item in list(diff.get("items") or []):
+        if not isinstance(item, dict) or str(item.get("status") or "") != "mismatch":
+            continue
+        field = str(item.get("field") or "unknown")
+        expected = item.get("expected")
+        actual = item.get("actual")
+        reason = str(item.get("reason") or "")
+        suffix = f" / {reason}" if reason else ""
+        mismatches.append(f"{field}: expected={expected!r}, actual={actual!r}{suffix}")
+    return mismatches
+
+
 def _build_context(profile: str, output_dir: Path) -> RunContext:
     settings = get_settings()
     return RunContext(
@@ -88,12 +111,16 @@ def _build_context(profile: str, output_dir: Path) -> RunContext:
 def _result_to_issue(index: int, result: ScenarioResult) -> IssueEntry | None:
     if result.passed:
         return None
+    summary = result.summary
+    if str(result.details.get("orchestration_diff_status") or "") == "mismatch":
+        mismatches = [str(item) for item in list(result.details.get("orchestration_diff_mismatches") or [])]
+        summary += "; 编排计划偏移 " + ("; ".join(mismatches[:3]) or str(result.details.get("orchestration_diff_summary") or ""))
     return IssueEntry(
         id=f"ISSUE-{index:03d}",
         title=result.name,
         severity="high",
         category=result.category,
-        summary=result.summary,
+        summary=summary,
         command=result.command,
         artifact_paths=list(result.artifact_paths),
         trace_id=str(result.details.get("trace_id", "") or ""),
@@ -254,12 +281,32 @@ def _run_inprocess_sse_smoke(artifact_dir: Path) -> ScenarioResult:
     event_path.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
 
     trace_ref = extract_langsmith_trace_reference(events)
+    orchestration_plan = dict(_latest_event_payload(events, "orchestration_plan").get("plan") or {})
+    orchestration_diff = dict(_latest_event_payload(events, "orchestration_diff").get("diff") or {})
+    orchestration_diff_status = str(orchestration_diff.get("status") or "")
+    orchestration_mismatches = _orchestration_diff_mismatches(orchestration_diff)
+    orchestration_path = artifact_dir / "inprocess-sse-smoke.orchestration.json"
+    orchestration_path.write_text(
+        json.dumps(
+            {
+                "orchestration_plan": orchestration_plan,
+                "orchestration_diff": orchestration_diff,
+                "mismatches": orchestration_mismatches,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     passed = (
         has_event(events, "token")
         and has_event(events, "done")
         and not has_event(events, "error")
+        and orchestration_diff_status != "mismatch"
     )
     summary = final_text(events) or "missing final answer"
+    if orchestration_diff_status == "mismatch":
+        summary = "编排计划偏移：" + ("; ".join(orchestration_mismatches[:3]) or str(orchestration_diff.get("summary") or ""))
     result = ScenarioResult(
         name="inprocess-sse-smoke",
         category="system_eval",
@@ -271,9 +318,13 @@ def _run_inprocess_sse_smoke(artifact_dir: Path) -> ScenarioResult:
         details={
             "event_types": [item["event"] for item in events],
             "response_text": summary,
+            "orchestration_plan_id": str(orchestration_plan.get("plan_id") or orchestration_diff.get("plan_id") or ""),
+            "orchestration_diff_status": orchestration_diff_status,
+            "orchestration_diff_summary": str(orchestration_diff.get("summary") or ""),
+            "orchestration_diff_mismatches": orchestration_mismatches,
             **trace_ref,
         },
-        artifact_paths=[str(event_path)],
+        artifact_paths=[str(event_path), str(orchestration_path)],
     )
     return result
 

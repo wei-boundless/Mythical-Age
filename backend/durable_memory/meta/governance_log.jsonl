@@ -1,2 +1,7 @@
 {"ts": "2026-04-26T03:20:09+00:00", "action": "disable", "filenames": ["以后复杂问题先给结论-再展开解释.md"], "created": "", "reason": "Disabled from memory governance UI", "actor": "memory_governance_ui"}
 {"ts": "2026-04-26T03:20:39+00:00", "action": "archive", "filenames": ["以后复杂问题先给结论-再展开解释.md"], "created": "", "reason": "Archived from memory governance UI", "actor": "memory_governance_ui"}
+{"ts": "2026-04-26T14:22:23+00:00", "action": "delete", "filenames": ["记住-回答我时可以直接称呼我岩.md"], "created": "durable_memory/trash/记住-回答我时可以直接称呼我岩.md", "reason": "Deleted from durable card", "actor": "memory_governance_ui"}
+{"ts": "2026-04-26T14:25:44+00:00", "action": "delete", "filenames": ["记住-以后复杂问题先给结论-再展开解释.md"], "created": "durable_memory/trash/记住-以后复杂问题先给结论-再展开解释.md", "reason": "Deleted from durable card", "actor": "memory_governance_ui"}
+{"ts": "2026-04-26T14:25:50+00:00", "action": "delete", "filenames": ["记住-以后复杂问题先给结论.md"], "created": "durable_memory/trash/记住-以后复杂问题先给结论.md", "reason": "Deleted from durable card", "actor": "memory_governance_ui"}
+{"ts": "2026-04-26T14:25:55+00:00", "action": "delete", "filenames": ["以后复杂问题先给结论-再展开解释.md"], "created": "durable_memory/trash/以后复杂问题先给结论-再展开解释.md", "reason": "Deleted from durable card", "actor": "memory_governance_ui"}
+{"ts": "2026-04-26T14:26:00+00:00", "action": "delete", "filenames": ["用户偏好被称呼为-岩.md"], "created": "durable_memory/trash/用户偏好被称呼为-岩.md", "reason": "Deleted from durable card", "actor": "memory_governance_ui"}

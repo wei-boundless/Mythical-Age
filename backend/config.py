@@ -529,12 +529,13 @@ def get_settings() -> Settings:
 class RuntimeConfigManager:
     def __init__(self, config_path: Path) -> None:
         self._config_path = config_path
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._default_config = {
             "rag_mode": False,
             "permission_mode": "default",
             "retrieval_shadow_compare": False,
             "retrieval_cutover_mode": "v2_primary",
+            "orchestration_plan_mode": "shadow",
         }
 
     def load(self) -> dict[str, Any]:
@@ -549,12 +550,20 @@ class RuntimeConfigManager:
 
     def save(self, payload: dict[str, Any]) -> dict[str, Any]:
         merged = dict(self._default_config)
-        merged.update(payload)
-        self._config_path.write_text(
-            json.dumps(merged, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        return merged
+        with self._lock:
+            if self._config_path.exists():
+                try:
+                    current = json.loads(self._config_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    current = {}
+                if isinstance(current, dict):
+                    merged.update(current)
+            merged.update(payload)
+            self._config_path.write_text(
+                json.dumps(merged, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            return merged
 
     def get_rag_mode(self) -> bool:
         return bool(self.load().get("rag_mode", False))
@@ -586,6 +595,18 @@ class RuntimeConfigManager:
         if normalized not in {"legacy_only", "shadow_read", "v2_primary"}:
             normalized = "v2_primary"
         return self.save({"retrieval_cutover_mode": normalized})
+
+    def get_orchestration_plan_mode(self) -> str:
+        value = str(self.load().get("orchestration_plan_mode", "shadow") or "shadow").strip().lower()
+        if value in {"legacy", "shadow", "primary"}:
+            return value
+        return "shadow"
+
+    def set_orchestration_plan_mode(self, mode: str) -> dict[str, Any]:
+        normalized = str(mode or "shadow").strip().lower() or "shadow"
+        if normalized not in {"legacy", "shadow", "primary"}:
+            normalized = "shadow"
+        return self.save({"orchestration_plan_mode": normalized})
 
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")

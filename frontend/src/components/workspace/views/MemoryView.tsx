@@ -11,7 +11,8 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
-  Sparkles
+  Sparkles,
+  Trash2
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -19,6 +20,7 @@ import {
   activateDurableMemory,
   archiveDurableMemory,
   createDurableMemory,
+  deleteDurableMemory,
   disableDurableMemory,
   getDurableMemoryNote,
   getExperimentTurnMemoryTrace,
@@ -503,7 +505,7 @@ export function MemoryView() {
     }
   }
 
-  async function runGovernanceAction(label: string, action: () => Promise<unknown>) {
+  async function runGovernanceAction(label: string, action: () => Promise<unknown>, options?: { refreshSelected?: boolean }) {
     setGovernanceBusy(label);
     setGovernanceMessage("");
     setError("");
@@ -511,7 +513,7 @@ export function MemoryView() {
       await action();
       setGovernanceMessage(`${label} 已完成。`);
       await loadOverview();
-      if (selectedDurableFilename) {
+      if (options?.refreshSelected !== false && selectedDurableFilename) {
         const payload = await getDurableMemoryNote(selectedDurableFilename);
         setSelectedDurableNote(payload);
       }
@@ -588,6 +590,25 @@ export function MemoryView() {
       setMergeFilenames([]);
       setMergeDraft({ title: "", canonical: "", summary: "", reason: "" });
     });
+  }
+
+  async function deleteMemoryNote(filename: string, source: "reader" | "card") {
+    const confirmed = window.confirm(`确认删除长期记忆「${filename}」吗？\n\n文件会移入 durable_memory/trash，并从长期记忆列表中移除。`);
+    if (!confirmed) {
+      return;
+    }
+    await runGovernanceAction(
+      "删除长期记忆",
+      async () => {
+        await deleteDurableMemory(filename, `Deleted from durable ${source}`);
+        setMergeFilenames((prev) => prev.filter((item) => item !== filename));
+        if (selectedDurableFilename === filename) {
+          setSelectedDurableFilename("");
+          setSelectedDurableNote(null);
+        }
+      },
+      { refreshSelected: selectedDurableFilename !== filename }
+    );
   }
 
   function toggleMergeFilename(filename: string) {
@@ -1280,6 +1301,15 @@ export function MemoryView() {
                   >
                     停用
                   </button>
+                  <button
+                    className="memory-action-button--danger"
+                    disabled={Boolean(governanceBusy)}
+                    onClick={() => void deleteMemoryNote(selectedDurableFilename, "reader")}
+                    type="button"
+                  >
+                    <Trash2 size={13} />
+                    删除
+                  </button>
                 </div>
               </>
             ) : (
@@ -1472,6 +1502,14 @@ export function MemoryView() {
                   type="button"
                 >
                   归档
+                </button>
+                <button
+                  className="memory-action-button--danger"
+                  disabled={Boolean(governanceBusy)}
+                  onClick={() => void deleteMemoryNote(note.filename, "card")}
+                  type="button"
+                >
+                  删除
                 </button>
               </div>
             </article>

@@ -66,6 +66,10 @@ class TurnResult:
     trace_id: str = ""
     trace_url: str = ""
     trace_available: bool = False
+    orchestration_plan_id: str = ""
+    orchestration_diff_status: str = ""
+    orchestration_diff_summary: str = ""
+    orchestration_diff_mismatches: list[str] = field(default_factory=list)
     memory_sync_ms: float = 0.0
     tasks_count: int = 0
     passed: bool = True
@@ -228,6 +232,29 @@ def _sync_memory(runtime, session_id: str, *, durable: bool = False) -> dict[str
     }
 
 
+def _latest_event_payload(events: list[dict[str, Any]], event_name: str) -> dict[str, Any]:
+    for item in reversed(events):
+        if str(item.get("event") or "") != event_name:
+            continue
+        data = item.get("data")
+        return dict(data) if isinstance(data, dict) else {}
+    return {}
+
+
+def _orchestration_diff_mismatches(diff: dict[str, Any]) -> list[str]:
+    mismatches: list[str] = []
+    for item in list(diff.get("items") or []):
+        if not isinstance(item, dict) or str(item.get("status") or "") != "mismatch":
+            continue
+        field = str(item.get("field") or "unknown")
+        expected = item.get("expected")
+        actual = item.get("actual")
+        reason = str(item.get("reason") or "")
+        suffix = f" / {reason}" if reason else ""
+        mismatches.append(f"{field}: expected={expected!r}, actual={actual!r}{suffix}")
+    return mismatches
+
+
 def _resolve_positive_float_env(name: str, default: float) -> float:
     raw = os.getenv(name)
     if not raw or not raw.strip():
@@ -347,6 +374,11 @@ def _execute_user_turn(
 
     trace_ref = extract_langsmith_trace_reference(events)
     response_text = final_text(events)
+    orchestration_plan_payload = _latest_event_payload(events, "orchestration_plan")
+    orchestration_plan = dict(orchestration_plan_payload.get("plan") or {})
+    orchestration_diff_payload = _latest_event_payload(events, "orchestration_diff")
+    orchestration_diff = dict(orchestration_diff_payload.get("diff") or {})
+    orchestration_diff_mismatches = _orchestration_diff_mismatches(orchestration_diff)
     memory_payload = next(
         (
             dict(item.get("data") or {}).get("memory", {})
@@ -400,6 +432,22 @@ def _execute_user_turn(
             if worker_route:
                 plan_worker = worker_route
                 break
+    orchestration_topology = dict(orchestration_plan.get("topology") or {})
+    orchestration_executions = [
+        dict(item)
+        for item in list(orchestration_plan.get("executions") or [])
+        if isinstance(item, dict)
+    ]
+    orchestration_execution = orchestration_executions[0] if orchestration_executions else {}
+    effective_plan_route = str(orchestration_topology.get("route") or plan.query_understanding.route or "")
+    effective_plan_tool = str(orchestration_execution.get("tool_name") or plan.query_understanding.tool_name or "")
+    effective_plan_worker = str(orchestration_execution.get("worker_route") or plan_worker or "")
+    effective_plan_skill = str(
+        orchestration_execution.get("skill_name")
+        or (plan.active_skill.name if plan.active_skill is not None else plan.query_understanding.skill_name)
+        or ""
+    )
+    effective_execution_mode = str(orchestration_topology.get("mode") or getattr(plan, "execution_mode", "") or "")
     task_count = len(runtime.task_coordinator.list_tasks(session_id=session_id))
 
     turn_result = TurnResult(
@@ -407,11 +455,11 @@ def _execute_user_turn(
         session_alias=turn.session,
         session_id=session_id,
         message=turn.content,
-        plan_route=plan.query_understanding.route,
-        plan_tool=str(plan.query_understanding.tool_name or ""),
-        plan_worker=plan_worker,
-        plan_skill=str((plan.active_skill.name if plan.active_skill is not None else plan.query_understanding.skill_name) or ""),
-        execution_mode=str(getattr(plan, "execution_mode", "") or ""),
+        plan_route=effective_plan_route,
+        plan_tool=effective_plan_tool,
+        plan_worker=effective_plan_worker,
+        plan_skill=effective_plan_skill,
+        execution_mode=effective_execution_mode,
         bundle_item_count=len(list(getattr(getattr(plan, "bundle_plan", None), "items", []) or [])),
         subquery_count=len(plan.subqueries),
         event_types=[str(item.get("event", "")) for item in events],
@@ -446,11 +494,20 @@ def _execute_user_turn(
         trace_id=str(trace_ref["trace_id"]),
         trace_url=str(trace_ref["trace_url"]),
         trace_available=bool(trace_ref["trace_available"]),
+        orchestration_plan_id=str(orchestration_plan.get("plan_id") or orchestration_diff.get("plan_id") or ""),
+        orchestration_diff_status=str(orchestration_diff.get("status") or ""),
+        orchestration_diff_summary=str(orchestration_diff.get("summary") or ""),
+        orchestration_diff_mismatches=orchestration_diff_mismatches,
         memory_sync_ms=memory_sync_ms,
         tasks_count=task_count,
         timing=timing.to_dict(),
     )
     turn_result.failed_checks = _parse_checks(turn_result, turn.checks)
+    if turn_result.orchestration_diff_status == "mismatch":
+        turn_result.failed_checks.append(
+            "orchestration.diff=mismatch"
+            f" ({'; '.join(turn_result.orchestration_diff_mismatches[:3]) or turn_result.orchestration_diff_summary})"
+        )
     turn_result.passed = not turn_result.failed_checks and "error" not in turn_result.event_types
 
     artifact_path = scenario_dir / f"turn-{turn_index:02d}-{_slug(turn.session)}.json"
@@ -464,15 +521,17 @@ def _execute_user_turn(
                     "checks": list(turn.checks),
                 },
                 "plan": {
-                "route": turn_result.plan_route,
-                "tool": turn_result.plan_tool,
-                "worker": turn_result.plan_worker,
-                "skill": turn_result.plan_skill,
-                "execution_mode": turn_result.execution_mode,
-                "bundle_item_count": turn_result.bundle_item_count,
-                "subqueries": list(plan.subqueries),
-            },
+                    "route": turn_result.plan_route,
+                    "tool": turn_result.plan_tool,
+                    "worker": turn_result.plan_worker,
+                    "skill": turn_result.plan_skill,
+                    "execution_mode": turn_result.execution_mode,
+                    "bundle_item_count": turn_result.bundle_item_count,
+                    "subqueries": list(plan.subqueries),
+                },
                 "events": events,
+                "orchestration_plan": orchestration_plan,
+                "orchestration_diff": orchestration_diff,
                 "memory_sync": sync_details or {},
                 "result": turn_result.to_dict(),
             },
@@ -596,12 +655,25 @@ def _build_context(output_dir: Path) -> RunContext:
 def _issue_from_result(index: int, result: ScenarioResult) -> IssueEntry | None:
     if result.passed:
         return None
+    drift_turns = [
+        turn
+        for turn in list(result.details.get("turn_results") or [])
+        if isinstance(turn, dict) and str(turn.get("orchestration_diff_status") or "") == "mismatch"
+    ]
+    summary = result.summary
+    if drift_turns:
+        first = drift_turns[0]
+        mismatches = list(first.get("orchestration_diff_mismatches") or [])
+        summary += (
+            f"; 编排计划偏移 turn={first.get('index') or '?'}"
+            f" {('; '.join(str(item) for item in mismatches[:3])) if mismatches else first.get('orchestration_diff_summary', '')}"
+        )
     return IssueEntry(
         id=f"LONG-{index:03d}",
         title=result.name,
         severity="high",
         category=result.category,
-        summary=result.summary,
+        summary=summary,
         command=result.command,
         artifact_paths=list(result.artifact_paths),
         trace_id=str(result.details.get("trace_id", "") or ""),

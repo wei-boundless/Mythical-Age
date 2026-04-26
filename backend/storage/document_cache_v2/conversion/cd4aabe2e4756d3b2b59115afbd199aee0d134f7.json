@@ -1,0 +1,61 @@
+{
+  "doc_id": "cd4aabe2e4756d3b2b59115afbd199aee0d134f7",
+  "collection": "durable_memory",
+  "source_path": "durable_memory/index/MEMORY.md",
+  "source_type": "md",
+  "version_digest": "87cc49a5a4b5a51d612ba377197337f81f66e46d",
+  "parser_backend": "docling",
+  "title": "MEMORY",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "87cc49a5a4b5a51d612ba377197337f81f66e46d:0",
+      "block_type": "heading",
+      "text": "# Memory Index",
+      "modality": "text",
+      "section_label": "Memory Index",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Memory Index"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/index/MEMORY.md"
+      }
+    },
+    {
+      "block_id": "87cc49a5a4b5a51d612ba377197337f81f66e46d:1",
+      "block_type": "paragraph",
+      "text": "- [以后复杂问题先给结论，再展开解释](以后复杂问题先给结论-再展开解释.md) - 以后复杂问题先给结论，再展开解释。\n- [用户偏好被称呼为“岩”](用户偏好被称呼为-岩.md) - 回答时可以直接称呼我“岩”。",
+      "modality": "text",
+      "section_label": "Memory Index",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Memory Index"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/index/MEMORY.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "durable_memory/index/MEMORY.md",
+    "fallback_used": false
+  }
+}

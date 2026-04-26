@@ -24,8 +24,10 @@ import {
   getOrchestrationCatalog,
   refreshOrchestrationCatalog,
   runOrchestrationDryRun,
+  setOrchestrationPlanMode,
   setPermissionMode,
   type OrchestrationCatalog,
+  type OrchestrationEvent,
   type OrchestrationNode,
   type OrchestrationSnapshot
 } from "@/lib/api";
@@ -168,6 +170,272 @@ function compactValue(value: unknown) {
   return String(value ?? "-");
 }
 
+const orchestrationModeCards = [
+  {
+    mode: "shadow",
+    title: "Shadow 观测",
+    tone: "safe",
+    summary: "默认安全水位。生成计划、记录 diff，但不改变执行链。",
+    detail: "适合日常开发、前端调试和对比行为偏移。"
+  },
+  {
+    mode: "primary",
+    title: "Primary 控制",
+    tone: "active",
+    summary: "运行时以 OrchestrationPlan 为准，legacy execution 作为兼容与回滚边界。",
+    detail: "已通过 smoke、stable、long core、long batches 和 60 轮 mega 验证。"
+  },
+  {
+    mode: "legacy",
+    title: "Legacy 回退",
+    tone: "fallback",
+    summary: "关闭 plan 事件，完全回到旧 planner/runtime 链路。",
+    detail: "用于线上异常回滚或验证编排层是否引入偏移。"
+  }
+];
+
+function modeCardTone(mode: string) {
+  return orchestrationModeCards.find((item) => item.mode === mode)?.tone ?? "safe";
+}
+
+type DiffItem = {
+  field: string;
+  expected?: unknown;
+  actual?: unknown;
+  status?: string;
+  reason?: string;
+};
+
+type ExecutionObservation = {
+  execution_id?: string;
+  task_id?: string;
+  subtask_index?: number;
+  query?: string;
+  execution_kind?: string;
+  tool_name?: string;
+  worker_route?: string;
+  bundle_id?: string;
+  bundle_item_id?: string;
+  summary_preview?: string;
+  content_preview?: string;
+  output_chars?: number;
+  status?: string;
+};
+
+type ExecutionEventFilter = {
+  index: number;
+  label: string;
+  markers: Record<string, string | number>;
+};
+
+type DroppedAnswerSegment = {
+  task_id: string;
+  title: string;
+  reason: string;
+  detail: string;
+};
+
+type PromptAssemblySection = {
+  id: string;
+  title: string;
+  layer: string;
+  source: string;
+  chars: number;
+  model_visible: boolean;
+  preview: string;
+  order: number;
+};
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function toPromptAssemblySections(value: unknown): PromptAssemblySection[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item, index) => {
+      const record = toRecord(item);
+      return {
+        id: String(record.id ?? `section-${index + 1}`),
+        title: String(record.title ?? "未命名片段"),
+        layer: String(record.layer ?? "unknown"),
+        source: String(record.source ?? "unknown"),
+        chars: Number(record.chars ?? 0),
+        model_visible: Boolean(record.model_visible),
+        preview: String(record.preview ?? ""),
+        order: Number(record.order ?? index + 1)
+      };
+    })
+    .sort((left, right) => left.order - right.order);
+}
+
+function optionalText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || undefined;
+}
+
+function optionalNumber(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function toStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => String(item ?? "").trim())
+    .filter(Boolean);
+}
+
+function toDiffItems(value: unknown): DiffItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      field: String(item.field ?? ""),
+      expected: item.expected,
+      actual: item.actual,
+      status: String(item.status ?? "unknown"),
+      reason: String(item.reason ?? "")
+    }))
+    .filter((item) => item.field);
+}
+
+function toExecutionObservations(value: unknown): ExecutionObservation[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      execution_id: optionalText(item.execution_id),
+      task_id: optionalText(item.task_id),
+      subtask_index: optionalNumber(item.subtask_index),
+      query: optionalText(item.query),
+      execution_kind: optionalText(item.execution_kind),
+      tool_name: optionalText(item.tool_name),
+      worker_route: optionalText(item.worker_route),
+      bundle_id: optionalText(item.bundle_id),
+      bundle_item_id: optionalText(item.bundle_item_id),
+      summary_preview: optionalText(item.summary_preview),
+      content_preview: optionalText(item.content_preview),
+      output_chars: optionalNumber(item.output_chars),
+      status: optionalText(item.status)
+    }));
+}
+
+function toDroppedAnswerSegments(value: unknown): DroppedAnswerSegment[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      task_id: String(item.task_id ?? ""),
+      title: String(item.title ?? ""),
+      reason: String(item.reason ?? ""),
+      detail: String(item.detail ?? "")
+    }));
+}
+
+function executionIndexFromField(field: string) {
+  const match = field.match(/^executions\[(\d+)\]\./);
+  return match ? Number(match[1]) : null;
+}
+
+function executionFieldName(field: string) {
+  const match = field.match(/^executions\[\d+\]\.(.+)$/);
+  return match ? match[1] : field;
+}
+
+function addExecutionMarker(markers: Record<string, string | number>, key: string, value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    markers[key] = value;
+    return;
+  }
+  const text = optionalText(value);
+  if (text) {
+    markers[key] = text;
+  }
+}
+
+function buildExecutionEventFilter(index: number, planned: ExecutionObservation, actual: ExecutionObservation): ExecutionEventFilter | null {
+  if (index < 0) {
+    return null;
+  }
+  const markers: Record<string, string | number> = {};
+  const merged = { ...planned, ...actual };
+  addExecutionMarker(markers, "execution_id", merged.execution_id);
+  addExecutionMarker(markers, "task_id", merged.task_id);
+  addExecutionMarker(markers, "subtask_index", merged.subtask_index);
+  addExecutionMarker(markers, "bundle_id", merged.bundle_id);
+  addExecutionMarker(markers, "bundle_item_id", merged.bundle_item_id);
+  addExecutionMarker(markers, "tool_name", merged.tool_name);
+  addExecutionMarker(markers, "worker_route", merged.worker_route);
+  if (!Object.keys(markers).length) {
+    return null;
+  }
+  const label = merged.execution_id
+    || merged.task_id
+    || merged.bundle_item_id
+    || merged.tool_name
+    || merged.worker_route
+    || `分支 #${index + 1}`;
+  return { index, label, markers };
+}
+
+function valueMatchesMarker(value: unknown, expected: string | number) {
+  if (typeof expected === "number") {
+    return Number(value) === expected;
+  }
+  return String(value ?? "") === expected;
+}
+
+function recordContainsMarker(value: unknown, markerKey: string, markerValue: string | number, depth = 0): boolean {
+  if (depth > 4 || value == null) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => recordContainsMarker(item, markerKey, markerValue, depth + 1));
+  }
+  if (typeof value !== "object") {
+    return valueMatchesMarker(value, markerValue);
+  }
+  const record = value as Record<string, unknown>;
+  const aliases: Record<string, string[]> = {
+    execution_id: ["execution_id", "id", "subtask_plan_id", "request_id"],
+    task_id: ["task_id"],
+    subtask_index: ["subtask_index", "index"],
+    bundle_id: ["bundle_id"],
+    bundle_item_id: ["bundle_item_id", "item_id"],
+    tool_name: ["tool_name", "tool"],
+    worker_route: ["worker_route", "route"]
+  };
+  const keys = aliases[markerKey] ?? [markerKey];
+  if (keys.some((key) => valueMatchesMarker(record[key], markerValue))) {
+    return true;
+  }
+  return Object.values(record).some((item) => recordContainsMarker(item, markerKey, markerValue, depth + 1));
+}
+
+function eventMatchesExecutionFilter(event: OrchestrationEvent, filter: ExecutionEventFilter) {
+  return Object.entries(filter.markers).some(([key, value]) => recordContainsMarker(event.data, key, value));
+}
+
+function firstProblemNodeId(snapshot: OrchestrationSnapshot) {
+  return snapshot.problem_node_id
+    || snapshot.nodes.find((node) => node.status === "failed" || node.status === "blocked")?.id
+    || snapshot.nodes.find((node) => node.status === "warning")?.id
+    || "";
+}
+
 export function ExperimentsView() {
   const {
     currentSessionId,
@@ -180,7 +448,7 @@ export function ExperimentsView() {
     setOrchestrationSnapshot,
     setWorkspaceView
   } = useAppStore();
-  const [activePanel, setActivePanel] = useState<"behavior" | "skills" | "contracts">("behavior");
+  const [activePanel, setActivePanel] = useState<"behavior" | "control" | "skills" | "contracts">("behavior");
   const [testSnapshot, setTestSnapshot] = useState<OrchestrationSnapshot | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState("input");
   const [loading, setLoading] = useState(false);
@@ -191,12 +459,16 @@ export function ExperimentsView() {
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogAction, setCatalogAction] = useState("");
+  const [selectedExecutionFilter, setSelectedExecutionFilter] = useState<ExecutionEventFilter | null>(null);
+  const currentPlanMode = catalog?.orchestration_plan_mode ?? "shadow";
+  const currentPlanModeCard = orchestrationModeCards.find((item) => item.mode === currentPlanMode) ?? orchestrationModeCards[0];
 
   const target = orchestrationInspectorTarget;
   const activeSnapshot = target?.source === "test-system"
     ? testSnapshot
     : orchestrationSnapshot;
   const snapshot = activeSnapshot ?? emptySnapshot(currentSessionId);
+  const autoProblemNodeId = firstProblemNodeId(snapshot);
   const selectedNode = useMemo(
     () => snapshot.nodes.find((node) => node.id === selectedNodeId)
       ?? snapshot.nodes.find((node) => node.id === snapshot.problem_node_id)
@@ -212,6 +484,72 @@ export function ExperimentsView() {
   const contractNode = nodeById.get("contract") ?? nodeById.get("tool");
   const skillNode = nodeById.get("skill-policy") ?? nodeById.get("capability");
   const readableRoute = `${snapshot.route || "unknown"} / ${snapshot.execution_mode || "unknown"}`;
+  const orchestrationDiff = (snapshot.orchestration_diff ?? {}) as Record<string, unknown>;
+  const orchestrationPlan = (snapshot.orchestration_plan ?? snapshot.dry_run?.orchestration_plan ?? {}) as Record<string, unknown>;
+  const diffItems = useMemo(() => toDiffItems(orchestrationDiff.items), [orchestrationDiff.items]);
+  const executionDiffItems = useMemo(
+    () => diffItems.filter((item) => item.field === "executions.count" || item.field.startsWith("executions[")),
+    [diffItems]
+  );
+  const executionMismatches = useMemo(
+    () => executionDiffItems.filter((item) => item.status === "mismatch" || item.status === "warning"),
+    [executionDiffItems]
+  );
+  const actualEnvelope = toRecord(orchestrationDiff.actual);
+  const answerAssembly = toRecord(actualEnvelope.answer_assembly);
+  const answerAssemblySelectedTaskIds = useMemo(
+    () => new Set(toStringList(answerAssembly.selected_task_ids)),
+    [answerAssembly.selected_task_ids]
+  );
+  const answerAssemblyDropped = useMemo(
+    () => toDroppedAnswerSegments(answerAssembly.dropped_segments),
+    [answerAssembly.dropped_segments]
+  );
+  const actualExecutions = useMemo(() => toExecutionObservations(actualEnvelope.executions), [actualEnvelope.executions]);
+  const plannedExecutions = useMemo(() => toExecutionObservations(orchestrationPlan.executions), [orchestrationPlan.executions]);
+  const executionBranchCount = Math.max(plannedExecutions.length, actualExecutions.length);
+  const branchDiagnostics = useMemo(() => {
+    const rows = Array.from({ length: executionBranchCount }, (_, index) => {
+      const planned: ExecutionObservation = plannedExecutions[index] ?? {};
+      const actual: ExecutionObservation = actualExecutions[index] ?? {};
+      const items = executionDiffItems.filter((item) => executionIndexFromField(item.field) === index);
+      const status = items.some((item) => item.status === "mismatch")
+        ? "mismatch"
+        : items.some((item) => item.status === "warning")
+          ? "warning"
+          : items.some((item) => item.status === "matched")
+            ? "matched"
+            : String(actual.status || planned.status || "observed");
+      return { index, planned, actual, items, status };
+    });
+    const countItem = executionDiffItems.find((item) => item.field === "executions.count");
+    if (countItem && executionBranchCount === 0) {
+      return [{ index: -1, planned: {}, actual: {}, items: [countItem], status: countItem.status ?? "unknown" }];
+    }
+    return rows;
+  }, [actualExecutions, executionBranchCount, executionDiffItems, plannedExecutions]);
+  const filteredEvents = useMemo(
+    () => selectedExecutionFilter
+      ? snapshot.events.filter((event) => eventMatchesExecutionFilter(event, selectedExecutionFilter))
+      : snapshot.events,
+    [selectedExecutionFilter, snapshot.events]
+  );
+
+  useEffect(() => {
+    setSelectedExecutionFilter(null);
+  }, [snapshot.run_id, snapshot.turn_id, snapshot.session_id]);
+
+  useEffect(() => {
+    if (!autoProblemNodeId) {
+      return;
+    }
+    setSelectedNodeId(autoProblemNodeId);
+    window.setTimeout(() => {
+      document
+        .querySelector(`[data-orchestration-node-id="${autoProblemNodeId}"]`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 80);
+  }, [autoProblemNodeId, snapshot.run_id, snapshot.turn_id, snapshot.session_id]);
 
   const loadTargetSnapshot = useCallback(async () => {
     if (!target?.runId || !target.turnId) {
@@ -271,6 +609,21 @@ export function ExperimentsView() {
       setCatalogAction(`Permission mode 已切换为 ${nextCatalog.permission_mode}。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "切换 permission mode 失败");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+  async function changeOrchestrationPlanMode(mode: string) {
+    setCatalogLoading(true);
+    setCatalogAction("");
+    try {
+      await setOrchestrationPlanMode(mode);
+      const nextCatalog = await getOrchestrationCatalog();
+      setCatalog(nextCatalog);
+      setCatalogAction(`Orchestration plan mode 已切换为 ${nextCatalog.orchestration_plan_mode}。`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "切换 orchestration plan mode 失败");
     } finally {
       setCatalogLoading(false);
     }
@@ -364,6 +717,9 @@ export function ExperimentsView() {
   const selectedOutputPreview = selectedNode?.outputs
     ? Object.entries(selectedNode.outputs).slice(0, 6)
     : [];
+  const selectedPromptSections = selectedNode?.id === "prompt"
+    ? toPromptAssemblySections(selectedNode.outputs?.sections)
+    : [];
   const normalizedCatalogQuery = catalogQuery.trim().toLowerCase();
   const visibleCatalogSkills = (catalog?.skills ?? []).filter((skill) => {
     if (!normalizedCatalogQuery) {
@@ -403,6 +759,7 @@ export function ExperimentsView() {
       <nav className="orchestration-tabs" aria-label="编排系统页面">
         {[
           { key: "behavior", label: "行为判读", icon: Route },
+          { key: "control", label: "运行控制", icon: ShieldCheck },
           { key: "skills", label: "Skills 管理", icon: Boxes },
           { key: "contracts", label: "契约管理", icon: ShieldCheck }
         ].map((item) => {
@@ -411,7 +768,7 @@ export function ExperimentsView() {
             <button
               className={activePanel === item.key ? "orchestration-tabs__item orchestration-tabs__item--active" : "orchestration-tabs__item"}
               key={item.key}
-              onClick={() => setActivePanel(item.key as "behavior" | "skills" | "contracts")}
+              onClick={() => setActivePanel(item.key as "behavior" | "control" | "skills" | "contracts")}
               type="button"
             >
               <Icon size={15} />
@@ -428,7 +785,67 @@ export function ExperimentsView() {
         </div>
       ) : null}
 
-      {activePanel === "skills" ? (
+      {activePanel === "control" ? (
+        <section className="workspace-section orchestration-runtime-control">
+          <div className="workspace-section__head">
+            <ShieldCheck size={18} />
+            <h3>运行控制面</h3>
+            <span className={`tag-chip orchestration-mode-chip orchestration-mode-chip--${modeCardTone(currentPlanMode)}`}>
+              当前：{currentPlanMode}
+            </span>
+            <button className="action-button action-button--ghost" onClick={() => void loadCatalog()} type="button">
+              {catalogLoading ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+              刷新状态
+            </button>
+          </div>
+          <div className={`orchestration-mode-hero orchestration-mode-hero--${modeCardTone(currentPlanMode)}`}>
+            <span>Behavior Control Plane</span>
+            <strong>{currentPlanModeCard.title}</strong>
+            <p>{currentPlanModeCard.summary}</p>
+            <small>{currentPlanModeCard.detail}</small>
+          </div>
+          <div className="orchestration-mode-grid">
+            {orchestrationModeCards.map((item) => {
+              const active = item.mode === currentPlanMode;
+              const supported = (catalog?.supported_orchestration_plan_modes ?? []).includes(item.mode);
+              return (
+                <article className={`orchestration-mode-card orchestration-mode-card--${item.tone} ${active ? "orchestration-mode-card--active" : ""}`} key={item.mode}>
+                  <div>
+                    <span>{item.mode}</span>
+                    {active ? <em>当前运行</em> : supported ? <em>可切换</em> : <em>未开放</em>}
+                  </div>
+                  <h3>{item.title}</h3>
+                  <p>{item.summary}</p>
+                  <small>{item.detail}</small>
+                  <button
+                    className={item.mode === "primary" ? "action-button action-button--primary" : "action-button action-button--muted"}
+                    disabled={catalogLoading || !catalog || active || !supported}
+                    onClick={() => void changeOrchestrationPlanMode(item.mode)}
+                    type="button"
+                  >
+                    {active ? "已启用" : item.mode === "legacy" ? "回退到 Legacy" : `切换到 ${item.mode}`}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+          <div className="orchestration-runtime-ledger">
+            <article>
+              <b>最近 primary 验证</b>
+              <span>smoke 2/2、stable 10/10、long core 3/3、long batches 6/6、mega 60 轮 1/1。</span>
+            </article>
+            <article>
+              <b>回滚边界</b>
+              <span>primary 匹配失败会自动 fallback legacy execution；手动可随时切回 shadow 或 legacy。</span>
+            </article>
+            <article>
+              <b>使用建议</b>
+              <span>开发与测试优先 shadow；专项验证可 primary；如果发现计划偏移或链路异常，先回 shadow 再复盘 diff。</span>
+            </article>
+          </div>
+          {catalogAction ? <div className="workspace-alert">{catalogAction}</div> : null}
+        </section>
+      ) : activePanel === "skills" ? (
         <section className="workspace-section orchestration-management">
           <div className="workspace-section__head">
             <Boxes size={18} />
@@ -495,6 +912,21 @@ export function ExperimentsView() {
               ))}
             </select>
           </div>
+          <div className="orchestration-permission-bar">
+            <div>
+              <b>Orchestration Plan Mode</b>
+              <span>legacy 关闭计划事件，shadow 只观测不改行为，primary 使用已验证的 OrchestrationPlan 控制面。</span>
+            </div>
+            <select
+              disabled={catalogLoading || !catalog}
+              onChange={(event) => void changeOrchestrationPlanMode(event.target.value)}
+              value={catalog?.orchestration_plan_mode ?? ""}
+            >
+              {(catalog?.supported_orchestration_plan_modes ?? []).map((mode) => (
+                <option key={mode} value={mode}>{mode}</option>
+              ))}
+            </select>
+          </div>
           {catalogAction ? <div className="workspace-alert">{catalogAction}</div> : null}
           <div className="workspace-search">
             <Hammer size={17} />
@@ -557,6 +989,7 @@ export function ExperimentsView() {
           <span><b>{snapshot.execution_mode || "unknown"}</b> 执行模式</span>
           <span><b>{snapshot.route || "unknown"}</b> 路由</span>
           <span><b>{visitedCount}/{snapshot.nodes.length}</b> 节点经过</span>
+          <span><b>{String(orchestrationDiff.status ?? orchestrationPlan.mode ?? "shadow")}</b> plan</span>
           <span><b>{snapshot.events.length}</b> 事件</span>
         </div>
       </section>
@@ -582,7 +1015,109 @@ export function ExperimentsView() {
           <strong>{problemNode ? `#${problemNode.index} ${problemNode.label}` : contractNode?.status || "正常"}</strong>
           <p>{problemNode?.summary || contractNode?.summary || "没有发现明显契约阻断。"}</p>
         </article>
+        <article className={`orchestration-brief__card ${orchestrationDiff.status === "mismatch" ? "orchestration-brief__card--alert" : ""}`}>
+          <span>计划校验</span>
+          <strong>{String(orchestrationDiff.status ?? orchestrationPlan.mode ?? "未生成")}</strong>
+          <p>{String(orchestrationDiff.summary ?? orchestrationPlan.plan_id ?? "等待 orchestration plan / diff。")}</p>
+        </article>
+        <article className={`orchestration-brief__card ${executionMismatches.length ? "orchestration-brief__card--alert" : ""}`}>
+          <span>分支校验</span>
+          <strong>{executionMismatches.length ? `${executionMismatches.length} 个偏移` : `${executionBranchCount || "-"} 条分支`}</strong>
+          <p>{executionMismatches[0] ? `${executionMismatches[0].field}: ${compactValue(executionMismatches[0].expected)} → ${compactValue(executionMismatches[0].actual)}` : "每条 execution 的数量、类型、tool、worker route 已纳入 diff。"}</p>
+        </article>
       </section>
+
+      {executionDiffItems.length || branchDiagnostics.length ? (
+        <section className="workspace-section orchestration-execution-diff">
+          <div className="workspace-section__head">
+            <GitBranch size={18} />
+            <h3>执行分支校验</h3>
+            <span className={executionMismatches.length ? "tag-chip tag-chip--danger" : "tag-chip"}>{executionMismatches.length ? `${executionMismatches.length} 个偏移` : "matched"}</span>
+            <span className="tag-chip">{executionBranchCount || 0} branches</span>
+          </div>
+          <div className="orchestration-execution-diff__grid">
+            {branchDiagnostics.map((branch) => {
+              const plannedLabel = branch.planned.worker_route || branch.planned.tool_name || branch.planned.execution_kind || "planned";
+              const actualLabel = branch.actual.worker_route || branch.actual.tool_name || branch.actual.execution_kind || branch.actual.status || "actual";
+              const outputPreview = branch.actual.summary_preview || branch.actual.content_preview || branch.planned.query || "";
+              const assemblySelected = Boolean(branch.actual.task_id && answerAssemblySelectedTaskIds.has(branch.actual.task_id));
+              const branchKey = branch.index >= 0 ? `branch-${branch.index}` : "branch-count";
+              const branchFilter = buildExecutionEventFilter(branch.index, branch.planned, branch.actual);
+              const isSelectedBranch = Boolean(selectedExecutionFilter && branchFilter && selectedExecutionFilter.index === branchFilter.index);
+              return (
+                <button
+                  className={`orchestration-execution-card orchestration-execution-card--${branch.status} ${isSelectedBranch ? "orchestration-execution-card--selected" : ""}`}
+                  key={branchKey}
+                  onClick={() => {
+                    setSelectedNodeId(branch.actual.worker_route ? "worker" : branch.actual.tool_name ? "tool" : "execution");
+                    setSelectedExecutionFilter(branchFilter);
+                  }}
+                  type="button"
+                >
+                  <span>{branch.index >= 0 ? `分支 #${branch.index + 1}` : "分支数量"}</span>
+                  <strong>{branch.actual.execution_id || branch.planned.execution_id || "未定位 execution"}</strong>
+                  <p>{plannedLabel} → {actualLabel}</p>
+                  <div className="orchestration-execution-card__meta">
+                    <em>{branch.actual.status || branch.status}</em>
+                    {branch.actual.task_id ? <em>{branch.actual.task_id}</em> : null}
+                    {branch.actual.bundle_item_id ? <em>{branch.actual.bundle_item_id}</em> : null}
+                    {branch.actual.output_chars ? <em>{branch.actual.output_chars} chars</em> : null}
+                    {assemblySelected ? <em>进入最终答案</em> : null}
+                  </div>
+                  {outputPreview ? (
+                    <blockquote className="orchestration-execution-card__preview">
+                      {outputPreview}
+                    </blockquote>
+                  ) : null}
+                  {branch.items.length ? (
+                    <div className="orchestration-execution-card__items">
+                      {branch.items.slice(0, 4).map((item) => (
+                        <small className={`orchestration-diff-pill orchestration-diff-pill--${item.status}`} key={item.field}>
+                          {executionFieldName(item.field)}: {compactValue(item.expected)} / {compactValue(item.actual)}
+                        </small>
+                      ))}
+                    </div>
+                  ) : (
+                    <small className="orchestration-diff-pill orchestration-diff-pill--matched">没有字段偏移</small>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {executionMismatches.length ? (
+            <div className="orchestration-execution-diff__mismatches">
+              {executionMismatches.slice(0, 6).map((item) => (
+                <span key={`${item.field}-${item.reason}`}>
+                  <b>{item.field}</b>
+                  <em>{compactValue(item.expected)} → {compactValue(item.actual)}{item.reason ? ` / ${item.reason}` : ""}</em>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {answerAssembly.answer_source ? (
+            <div className="orchestration-answer-assembly">
+              <span>输出汇总</span>
+              <strong>{Number(answerAssembly.selected_count ?? 0)} 条分支进入最终答案</strong>
+              <p>{String(answerAssembly.content_preview ?? "最终答案内容预览暂不可用。")}</p>
+              {answerAssemblySelectedTaskIds.size ? (
+                <div>
+                  {Array.from(answerAssemblySelectedTaskIds).map((taskId) => <em key={taskId}>{taskId}</em>)}
+                </div>
+              ) : null}
+              {answerAssemblyDropped.length ? (
+                <div className="orchestration-answer-assembly__drops">
+                  {answerAssemblyDropped.slice(0, 4).map((item, index) => (
+                    <small key={`${item.task_id || item.title}-${index}`}>
+                      <b>{item.task_id || item.title || `drop-${index + 1}`}</b>
+                      <span>{item.reason}{item.detail ? ` · ${item.detail}` : ""}</span>
+                    </small>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="workspace-section orchestration-map">
         <div className="workspace-section__head">
@@ -609,8 +1144,12 @@ export function ExperimentsView() {
                   {groupNodes.map((node) => (
                     <button
                       className={`orchestration-node orchestration-node--${node.status} ${selectedNode?.id === node.id ? "orchestration-node--selected" : ""}`}
+                      data-orchestration-node-id={node.id}
                       key={node.id}
-                      onClick={() => setSelectedNodeId(node.id)}
+                      onClick={() => {
+                        setSelectedNodeId(node.id);
+                        setSelectedExecutionFilter(null);
+                      }}
                       type="button"
                     >
                       <span>#{String(node.index).padStart(2, "0")}</span>
@@ -629,8 +1168,12 @@ export function ExperimentsView() {
           {branchNodes.length ? branchNodes.map((node) => (
             <button
               className={`orchestration-branch orchestration-branch--${node.status} ${selectedNode?.id === node.id ? "orchestration-branch--selected" : ""}`}
+              data-orchestration-node-id={node.id}
               key={node.id}
-              onClick={() => setSelectedNodeId(node.id)}
+              onClick={() => {
+                setSelectedNodeId(node.id);
+                setSelectedExecutionFilter(null);
+              }}
               type="button"
             >
               <span>{nodeIcon(node.id)} 分支节点 #{node.index}</span>
@@ -676,6 +1219,28 @@ export function ExperimentsView() {
                   ))}
                 </div>
               ) : null}
+              {selectedPromptSections.length ? (
+                <div className="orchestration-prompt-assembly">
+                  <div className="orchestration-prompt-assembly__head">
+                    <span>Prompt 装配来源</span>
+                    <strong>{selectedPromptSections.length} 个片段</strong>
+                  </div>
+                  {selectedPromptSections.map((section) => (
+                    <article className="orchestration-prompt-section" key={`${section.order}-${section.id}`}>
+                      <div>
+                        <span>#{section.order} · {section.layer}</span>
+                        <strong>{section.title}</strong>
+                        <em>{section.source}</em>
+                      </div>
+                      <div className="orchestration-prompt-section__meta">
+                        <span>{section.chars} chars</span>
+                        <span>{section.model_visible ? "模型可见" : "仅调试"}</span>
+                      </div>
+                      {section.preview ? <p>{section.preview}</p> : <p>这个片段为空，通常表示对应来源文件不存在或本轮没有可注入内容。</p>}
+                    </article>
+                  ))}
+                </div>
+              ) : null}
               {selectedDetails ? (
                 <details className="orchestration-json">
                   <summary>查看原始决策数据</summary>
@@ -715,9 +1280,18 @@ export function ExperimentsView() {
             <Route size={18} />
             <h3>事件时间线</h3>
             <span className="tag-chip">{snapshot.events.length} events</span>
+            {selectedExecutionFilter ? <span className="tag-chip">{filteredEvents.length} matched</span> : null}
           </div>
+          {selectedExecutionFilter ? (
+            <div className="orchestration-event-filter">
+              <span>正在查看分支 #{selectedExecutionFilter.index + 1}</span>
+              <strong>{selectedExecutionFilter.label}</strong>
+              <p>{Object.entries(selectedExecutionFilter.markers).map(([key, value]) => `${key}=${value}`).join(" · ")}</p>
+              <button onClick={() => setSelectedExecutionFilter(null)} type="button">查看全部事件</button>
+            </div>
+          ) : null}
           <div className="orchestration-events__list">
-            {snapshot.events.length ? snapshot.events.map((event) => (
+            {filteredEvents.length ? filteredEvents.map((event) => (
               <button
                 className={`orchestration-event ${selectedNode?.id === event.node_id ? "orchestration-event--active" : ""}`}
                 key={`${event.index}-${event.event}`}
@@ -729,7 +1303,13 @@ export function ExperimentsView() {
                 <ArrowRight size={13} />
                 <em>{event.summary}</em>
               </button>
-            )) : (
+            )) : selectedExecutionFilter ? (
+              <article className="workspace-record">
+                <h3>这个分支还没有匹配到事件</h3>
+                <p>当前测试产物里没有带上这些分支标识，可能需要在 runtime 事件中补充 task_id、execution_id 或 bundle_item_id。</p>
+                <button onClick={() => setSelectedExecutionFilter(null)} type="button">查看全部事件</button>
+              </article>
+            ) : (
               <article className="workspace-record">
                 <h3>{snapshot.source === "dry-run" ? "这是无副作用行为推演" : "还没有运行事件"}</h3>
                 <p>{snapshot.source === "dry-run" ? "dry-run 不产生 SSE 时间线，请在左侧节点详情里查看每个行为决策。" : "发送一条消息后，这里会出现 SSE 编排事件；也可以从测试系统选择 turn 来复盘。"}</p>

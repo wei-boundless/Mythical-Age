@@ -155,6 +155,8 @@ class RuntimeFollowupCoordinator:
         owner_context = getattr(owner_task, "context_ref", None)
         owner_bindings = getattr(owner_context, "bindings", None)
         if binding_kind == "active_pdf":
+            if route == "tool" and tool_name and tool_name != "pdf_analysis":
+                return False
             owner_path = self.normalize_binding_identity(str(getattr(owner_bindings, "active_pdf", "") or ""))
             expected_path = binding_identity or owner_path
             if not expected_path:
@@ -163,6 +165,8 @@ class RuntimeFollowupCoordinator:
                 return False
             return route != "memory"
         if binding_kind == "active_dataset":
+            if route == "tool" and tool_name and tool_name != "structured_data_analysis":
+                return False
             owner_path = self.normalize_binding_identity(str(getattr(owner_bindings, "active_dataset", "") or ""))
             expected_path = binding_identity or owner_path
             if not expected_path:

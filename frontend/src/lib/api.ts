@@ -79,6 +79,8 @@ export type ExperimentTurn = {
   session_alias: string;
   status: string;
   summary: string;
+  problem_node_id?: string;
+  problem_node_label?: string;
   artifact_path: string;
   issue_count: number;
   has_trace: boolean;
@@ -159,6 +161,8 @@ export type OrchestrationSnapshot = {
   artifacts?: Record<string, string>;
   decision_trace?: Record<string, unknown>;
   dry_run?: Record<string, unknown>;
+  orchestration_plan?: Record<string, unknown>;
+  orchestration_diff?: Record<string, unknown>;
 };
 
 export type OrchestrationCatalogSkill = {
@@ -215,6 +219,8 @@ export type OrchestrationCatalog = {
   permission_mode: string;
   supported_permission_modes: string[];
   tool_contract_mode: string;
+  orchestration_plan_mode: string;
+  supported_orchestration_plan_modes: string[];
   skills: OrchestrationCatalogSkill[];
   tools: OrchestrationCatalogTool[];
 };
@@ -428,6 +434,8 @@ export type MemoryGovernanceResponse = {
   action: string;
   filename: string;
   merged?: string[];
+  deleted_at?: string;
+  trash_path?: string;
   header?: MemoryHeader | null;
 };
 
@@ -620,6 +628,13 @@ export async function archiveDurableMemory(filename: string, reason = "") {
   });
 }
 
+export async function deleteDurableMemory(filename: string, reason = "") {
+  return request<MemoryGovernanceResponse>(`/memory/durable/${encodeURIComponent(filename)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ reason })
+  });
+}
+
 export async function getDurableMemoryNote(filename: string) {
   return request<DurableMemoryNoteDetail>(`/memory/durable/${encodeURIComponent(filename)}`);
 }
@@ -716,6 +731,13 @@ export async function getOrchestrationCatalog() {
 export async function refreshOrchestrationCatalog() {
   return request<OrchestrationCatalog>("/orchestration/catalog/refresh", {
     method: "POST"
+  });
+}
+
+export async function setOrchestrationPlanMode(mode: string) {
+  return request<{ mode: string; supported_modes: string[] }>("/orchestration/plan-mode", {
+    method: "PUT",
+    body: JSON.stringify({ mode })
   });
 }
 

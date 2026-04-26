@@ -19,6 +19,10 @@ class BehaviorDryRunRequest(BaseModel):
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class OrchestrationModeRequest(BaseModel):
+    mode: str = Field(default="shadow")
+
+
 @router.post("/orchestration/dry-run")
 async def orchestration_dry_run(payload: BehaviorDryRunRequest) -> dict[str, Any]:
     runtime = require_runtime()
@@ -57,6 +61,8 @@ async def orchestration_catalog() -> dict[str, Any]:
         "permission_mode": runtime.permission_service.current_mode(),
         "supported_permission_modes": runtime.permission_service.supported_modes(),
         "tool_contract_mode": runtime.query_runtime.tool_contract_gate.mode,
+        "orchestration_plan_mode": runtime.settings.get_orchestration_plan_mode(),
+        "supported_orchestration_plan_modes": ["legacy", "shadow", "primary"],
         "skills": skills,
         "tools": tools,
     }
@@ -67,3 +73,13 @@ async def refresh_orchestration_catalog() -> dict[str, Any]:
     runtime = require_runtime()
     runtime.refresh_catalogs()
     return await orchestration_catalog()
+
+
+@router.put("/orchestration/plan-mode")
+async def set_orchestration_plan_mode(payload: OrchestrationModeRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    config = runtime.settings.set_orchestration_plan_mode(payload.mode)
+    return {
+        "mode": str(config.get("orchestration_plan_mode", "shadow") or "shadow"),
+        "supported_modes": ["legacy", "shadow", "primary"],
+    }

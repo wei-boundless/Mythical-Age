@@ -66,12 +66,24 @@ def build_turn_orchestration_snapshot(output_dir: Path, turn_id: str, artifact_p
     turn = _dict(payload.get("turn"))
     events = _events(payload)
     event_names = [event["event"] for event in events]
+    orchestration_plan = _latest_event_payload(events, "orchestration_plan").get("plan", {})
+    if not isinstance(orchestration_plan, dict) or not orchestration_plan:
+        orchestration_plan = _dict(payload.get("orchestration_plan"))
+    orchestration_diff = _latest_event_payload(events, "orchestration_diff").get("diff", {})
+    if not isinstance(orchestration_diff, dict) or not orchestration_diff:
+        orchestration_diff = _dict(payload.get("orchestration_diff"))
+    prompt_manifest = _dict(_latest_event_payload(events, "prompt_manifest").get("prompt_manifest"))
+    topology = _dict(_dict(orchestration_plan).get("topology"))
     failed_checks = [str(item) for item in result.get("failed_checks", []) if str(item or "").strip()]
     passed = bool(result.get("passed", not failed_checks))
+    fallback = str(result.get("answer_source") or "").lower()
+    fallback_reason = str(result.get("answer_fallback_reason") or "").lower()
     status = "success" if passed else "failed"
-    execution_mode = str(plan.get("execution_mode") or result.get("execution_mode") or "unknown")
-    route = str(plan.get("route") or result.get("runtime_effective_route") or result.get("plan_route") or "unknown")
-    problem_node_id = _problem_node_id(payload, event_names, failed_checks)
+    if status == "success" and ("fallback" in fallback or fallback_reason):
+        status = "warning"
+    execution_mode = str(topology.get("mode") or plan.get("execution_mode") or result.get("execution_mode") or "unknown")
+    route = str(topology.get("route") or plan.get("route") or result.get("runtime_effective_route") or result.get("plan_route") or "unknown")
+    problem_node_id = _problem_node_id(payload, event_names, failed_checks, _dict(orchestration_diff))
 
     visited = _visited_node_ids(plan, result, event_names, payload)
     nodes = [
@@ -85,6 +97,8 @@ def build_turn_orchestration_snapshot(output_dir: Path, turn_id: str, artifact_p
         )
         for node_id, label, description in NODE_DEFS
     ]
+    _apply_plan_overlay_to_nodes(nodes, _dict(orchestration_plan), _dict(orchestration_diff))
+    _apply_prompt_manifest_to_nodes(nodes, prompt_manifest)
     edges = [
         _edge_payload(edge_id, source, target, label, nodes)
         for edge_id, source, target, label in EDGE_DEFS
@@ -107,7 +121,10 @@ def build_turn_orchestration_snapshot(output_dir: Path, turn_id: str, artifact_p
         "artifacts": {
             "turn": _repo_relative(turn_path),
             "trace": str(result.get("trace_url") or ""),
+            "prompt_manifest": str(prompt_manifest.get("prompt_id") or ""),
         },
+        "orchestration_plan": orchestration_plan if isinstance(orchestration_plan, dict) else {},
+        "orchestration_diff": orchestration_diff if isinstance(orchestration_diff, dict) else {},
     }
 
 
@@ -204,6 +221,15 @@ def _events(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return events
 
 
+def _latest_event_payload(events: list[dict[str, Any]], event_name: str) -> dict[str, Any]:
+    for item in reversed(events):
+        if item.get("event") != event_name:
+            continue
+        data = item.get("data")
+        return dict(data) if isinstance(data, dict) else {}
+    return {}
+
+
 def _visited_node_ids(
     plan: dict[str, Any],
     result: dict[str, Any],
@@ -225,7 +251,24 @@ def _visited_node_ids(
     return visited
 
 
-def _problem_node_id(payload: dict[str, Any], event_names: list[str], failed_checks: list[str]) -> str:
+def _problem_node_id(
+    payload: dict[str, Any],
+    event_names: list[str],
+    failed_checks: list[str],
+    orchestration_diff: dict[str, Any] | None = None,
+) -> str:
+    orchestration_diff = _dict(orchestration_diff) or _dict(payload.get("orchestration_diff"))
+    if str(orchestration_diff.get("status") or "") == "mismatch":
+        return "planner"
+    result = _dict(payload.get("result"))
+    fallback = str(result.get("answer_source") or "").lower()
+    fallback_reason = str(result.get("answer_fallback_reason") or "").lower()
+    if not failed_checks and ("fallback" in fallback or fallback_reason):
+        if result.get("worker_names"):
+            return "worker"
+        if result.get("tool_names"):
+            return "tool"
+        return "output"
     if not failed_checks and "error" not in event_names:
         return ""
     if "error" in event_names:
@@ -309,6 +352,10 @@ def _node_source_event(node_id: str, event_names: list[str]) -> str:
 
 
 def _event_node_id(event_name: str) -> str:
+    if event_name in {"orchestration_plan", "orchestration_runtime_control"}:
+        return "execution-mode"
+    if event_name == "orchestration_diff":
+        return "output"
     if event_name == "context_management":
         return "context"
     if event_name == "memory_context":
@@ -327,6 +374,12 @@ def _event_node_id(event_name: str) -> str:
 
 
 def _event_summary(event_name: str, data: dict[str, Any]) -> str:
+    if event_name == "orchestration_runtime_control":
+        return (
+            f"runtime control: {data.get('source') or 'legacy'} / "
+            f"{data.get('execution_mode') or 'unknown'} / "
+            f"primary={bool(data.get('primary_active'))}"
+        )
     if event_name == "done":
         return str(data.get("answer_source") or data.get("content") or "完成输出")[:220]
     if event_name == "error":
@@ -362,7 +415,174 @@ def _node_payload(
         "status": status,
         "summary": summary,
         "source_event": source_event,
+        "source_module": "",
+        "reasons": [],
+        "inputs": {},
+        "outputs": {},
+        "refs": {},
     }
+
+
+def _apply_plan_overlay_to_nodes(
+    nodes: list[dict[str, Any]],
+    orchestration_plan: dict[str, Any],
+    orchestration_diff: dict[str, Any],
+) -> None:
+    if not orchestration_plan:
+        return
+    by_id = {str(node.get("id") or ""): node for node in nodes}
+    plan_id = str(orchestration_plan.get("plan_id") or "")
+    topology = _dict(orchestration_plan.get("topology"))
+    if topology:
+        node = by_id.get("execution-mode")
+        if node is not None:
+            node["summary"] = (
+                f"mode={topology.get('mode') or 'unknown'} / "
+                f"kind={topology.get('execution_kind') or 'agent'} / "
+                f"branches={topology.get('branch_count') or 1}"
+            )
+            node["outputs"] = topology
+            node["refs"] = {"orchestration_plan_id": plan_id}
+
+    for decision in list(orchestration_plan.get("decisions") or []):
+        if not isinstance(decision, dict):
+            continue
+        node_id = _decision_node_id(str(decision.get("node_id") or ""))
+        node = by_id.get(node_id)
+        if node is None:
+            continue
+        outputs = _dict(decision.get("outputs"))
+        inputs = _dict(decision.get("inputs"))
+        reasons = [str(item) for item in list(decision.get("reasons") or []) if str(item).strip()]
+        risks = [str(item) for item in list(decision.get("risks") or []) if str(item).strip()]
+        node["source_module"] = str(decision.get("owner_module") or "")
+        node["inputs"] = inputs
+        node["outputs"] = outputs
+        node["reasons"] = reasons + risks
+        node["refs"] = {
+            "orchestration_plan_id": plan_id,
+            "orchestration_decision_id": str(decision.get("node_id") or ""),
+        }
+        summary = _decision_summary(node_id, outputs, reasons)
+        if summary:
+            node["summary"] = summary
+
+    if str(orchestration_diff.get("status") or "") == "mismatch":
+        planner = by_id.get("planner")
+        if planner is not None:
+            planner["status"] = "failed"
+            planner["summary"] = str(orchestration_diff.get("summary") or "编排计划与实际执行存在偏移。")
+            planner["outputs"] = {
+                **_dict(planner.get("outputs")),
+                "orchestration_diff": orchestration_diff,
+            }
+            planner["reasons"] = _diff_mismatch_reasons(orchestration_diff)
+
+
+def _apply_prompt_manifest_to_nodes(nodes: list[dict[str, Any]], prompt_manifest: dict[str, Any]) -> None:
+    if not prompt_manifest:
+        return
+    prompt_node = next((node for node in nodes if str(node.get("id") or "") == "prompt"), None)
+    if prompt_node is None:
+        return
+    sections = []
+    for index, item in enumerate(list(prompt_manifest.get("sections") or [])):
+        section = _dict(item)
+        if not section:
+            continue
+        sections.append(
+            {
+                "id": str(section.get("id") or f"section-{index + 1}"),
+                "title": str(section.get("title") or "未命名片段"),
+                "layer": str(section.get("layer") or "unknown"),
+                "source": str(section.get("source") or "unknown"),
+                "model_visible": bool(section.get("model_visible")),
+                "chars": int(section.get("chars") or 0),
+                "preview": str(section.get("preview") or ""),
+                "order": int(section.get("order") or index + 1),
+            }
+        )
+    prompt_node["status"] = "success"
+    prompt_node["summary"] = (
+        f"{prompt_manifest.get('total_sections') or len(sections)} sections / "
+        f"{prompt_manifest.get('total_chars') or sum(item['chars'] for item in sections)} chars"
+    )
+    prompt_node["outputs"] = {
+        "prompt_id": str(prompt_manifest.get("prompt_id") or ""),
+        "assembly_order": list(prompt_manifest.get("assembly_order") or []),
+        "total_sections": int(prompt_manifest.get("total_sections") or len(sections)),
+        "total_chars": int(prompt_manifest.get("total_chars") or sum(item["chars"] for item in sections)),
+        "debug_policy": str(prompt_manifest.get("debug_policy") or ""),
+        "sections": sections,
+    }
+    prompt_node["reasons"] = [
+        f"#{item['order']} {item['title']} <= {item['source']}"
+        for item in sections[:6]
+    ]
+    prompt_node["refs"] = {
+        **_dict(prompt_node.get("refs")),
+        "prompt_manifest_id": str(prompt_manifest.get("prompt_id") or ""),
+    }
+
+
+def _decision_node_id(node_id: str) -> str:
+    return {
+        "memory-intent": "memory",
+        "task-understanding": "planner",
+        "execution-topology": "execution-mode",
+        "skill-policy": "capability",
+        "capability-dispatch": "capability",
+        "contract-policy": "tool",
+        "execution": "capability",
+        "safety": "output",
+    }.get(node_id, node_id)
+
+
+def _decision_summary(node_id: str, outputs: dict[str, Any], reasons: list[str]) -> str:
+    if node_id == "input":
+        return f"session={outputs.get('session_id') or '-'} / history={outputs.get('history_count') or 0}"
+    if node_id == "memory":
+        return (
+            f"intent={outputs.get('intent') or 'general'} / "
+            f"read={outputs.get('read_mode') or 'none'} / "
+            f"write={outputs.get('write_mode') or 'none'}"
+        )
+    if node_id == "planner":
+        return (
+            f"route={outputs.get('route') or 'unknown'} / "
+            f"posture={outputs.get('execution_posture') or '-'} / "
+            f"task={outputs.get('task_kind') or '-'}"
+        )
+    if node_id == "execution-mode":
+        return (
+            f"mode={outputs.get('mode') or 'unknown'} / "
+            f"kind={outputs.get('execution_kind') or 'agent'} / "
+            f"branches={outputs.get('branch_count') or 1}"
+        )
+    if node_id == "capability":
+        selected_tool = _dict(outputs.get("selected_tool"))
+        selected_worker = _dict(outputs.get("selected_worker"))
+        return (
+            f"tool={selected_tool.get('tool_name') or outputs.get('tool_name') or '-'} / "
+            f"worker={outputs.get('worker_route') or selected_worker.get('worker_route') or '-'}"
+        )
+    if node_id == "tool":
+        return (
+            f"contract_preview={outputs.get('preview_count') or len(list(outputs.get('contract_previews') or []))} / "
+            f"blocked={outputs.get('blocked_count') or 0}"
+        )
+    return "; ".join(reasons[:2])
+
+
+def _diff_mismatch_reasons(diff: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    for item in list(diff.get("items") or []):
+        if not isinstance(item, dict) or str(item.get("status") or "") != "mismatch":
+            continue
+        reasons.append(
+            f"{item.get('field') or 'unknown'}: expected={item.get('expected')!r}, actual={item.get('actual')!r}"
+        )
+    return reasons
 
 
 def _edge_payload(edge_id: str, source: str, target: str, label: str, nodes: list[dict[str, Any]]) -> dict[str, Any]:

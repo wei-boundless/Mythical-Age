@@ -118,7 +118,7 @@ export class WorkspaceRuntime {
       await this.createFreshSession();
     }
 
-    const file = await loadFile("durable_memory/MEMORY.md");
+    const file = await loadFile("durable_memory/index/MEMORY.md");
     this.store.setState((prev) => ({
       ...prev,
       inspectorPath: file.path,

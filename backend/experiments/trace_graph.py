@@ -29,6 +29,22 @@ NODE_LABELS = {
     "tests": "测试与观测",
 }
 
+ORCHESTRATION_NODE_LABELS = {
+    "input": "用户输入",
+    "followup": "Follow-up 仲裁",
+    "planner": "任务规划",
+    "execution-mode": "执行模式",
+    "context": "上下文压缩",
+    "memory": "记忆读取",
+    "prompt": "Prompt 装配",
+    "capability": "能力调度",
+    "model": "模型生成",
+    "worker": "Worker / Agent",
+    "tool": "工具执行",
+    "output": "输出收口",
+    "persistence": "状态写回",
+}
+
 EDGE_LABELS = {
     "app-api": "挂载接口",
     "api-guard": "取得运行时",
@@ -227,6 +243,7 @@ def _turn_summary(path: Path, output_dir: Path) -> dict[str, Any] | None:
     failed_checks = list(result.get("failed_checks") or [])
     prompt_manifest = extract_prompt_manifest_from_turn(payload)
     memory_trace_available = has_turn_memory_trace(payload)
+    problem_node_id = _turn_problem_node_id(payload, failed_checks)
     return {
         "turn_id": path.stem,
         "index": index,
@@ -234,6 +251,8 @@ def _turn_summary(path: Path, output_dir: Path) -> dict[str, Any] | None:
         "session_alias": str(result.get("session_alias") or turn.get("session") or ""),
         "status": status,
         "summary": _turn_summary_text(payload),
+        "problem_node_id": problem_node_id,
+        "problem_node_label": ORCHESTRATION_NODE_LABELS.get(problem_node_id, ""),
         "artifact_path": _repo_relative(path),
         "issue_count": len(failed_checks) or (1 if status == "failed" else 0),
         "has_trace": bool(result.get("trace_available") or result.get("trace_url")),
@@ -268,6 +287,9 @@ def _status_from_turn(payload: dict[str, Any]) -> str:
     result = _dict(payload.get("result"))
     passed = result.get("passed")
     failed_checks = list(result.get("failed_checks") or [])
+    orchestration_diff = _turn_orchestration_diff(payload)
+    if str(orchestration_diff.get("status") or "") == "mismatch":
+        return "failed"
     fallback = str(result.get("answer_source") or "").lower()
     fallback_reason = str(result.get("answer_fallback_reason") or "").lower()
     if passed is False or failed_checks:
@@ -277,6 +299,78 @@ def _status_from_turn(payload: dict[str, Any]) -> str:
     if passed is True:
         return "passed"
     return "unknown"
+
+
+def _turn_problem_node_id(payload: dict[str, Any], failed_checks: list[Any]) -> str:
+    result = _dict(payload.get("result"))
+    orchestration_diff = _turn_orchestration_diff(payload)
+    if str(orchestration_diff.get("status") or "") == "mismatch":
+        first_field = _first_diff_field(orchestration_diff)
+        return _problem_node_from_diff_field(first_field)
+    text = " ".join(str(item) for item in failed_checks).lower()
+    fallback = str(result.get("answer_source") or "").lower()
+    fallback_reason = str(result.get("answer_fallback_reason") or "").lower()
+    if not text and ("fallback" in fallback or fallback_reason):
+        if result.get("worker_names"):
+            return "worker"
+        if result.get("tool_names"):
+            return "tool"
+        return "output"
+    if not text:
+        return ""
+    if "followup" in text or "memory" in text or "preview" in text:
+        return "memory"
+    if "prompt" in text:
+        return "prompt"
+    if "tool" in text or "search_knowledge" in text:
+        return "tool"
+    if "worker" in text or "retrieval" in text or "evidence" in text:
+        return "worker"
+    if "response" in text or "contains" in text:
+        return "output"
+    return "output"
+
+
+def _turn_orchestration_diff(payload: dict[str, Any]) -> dict[str, Any]:
+    direct = _dict(payload.get("orchestration_diff"))
+    if direct:
+        return direct
+    for item in reversed(list(payload.get("events") or [])):
+        if not isinstance(item, dict) or item.get("event") != "orchestration_diff":
+            continue
+        return _dict(_dict(item.get("data")).get("diff"))
+    return {}
+
+
+def _first_diff_field(diff: dict[str, Any]) -> str:
+    for item in list(diff.get("items") or []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("status") or "") in {"mismatch", "warning"}:
+            return str(item.get("field") or "")
+    return ""
+
+
+def _problem_node_from_diff_field(field: str) -> str:
+    if field.startswith("executions[") or field == "executions.count":
+        if ".worker_route" in field:
+            return "worker"
+        if ".tool_name" in field:
+            return "tool"
+        return "execution-mode"
+    if field.startswith("topology.") or field in {"route", "execution_mode", "execution_kind"}:
+        return "planner"
+    if field.startswith("context_policy"):
+        return "context"
+    if field.startswith("prompt_policy") or "prompt" in field:
+        return "prompt"
+    if "contract" in field or "permission" in field:
+        return "tool"
+    if "worker" in field:
+        return "worker"
+    if "tool" in field:
+        return "tool"
+    return "planner"
 
 
 def _overlay_status(status: str) -> str:

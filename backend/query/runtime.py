@@ -12,8 +12,11 @@ from typing import Any
 
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
+from orchestration.adapters import build_shadow_orchestration_plan
 from orchestration.behavior_trace import build_behavior_snapshot
 from orchestration.contract_preview import build_contract_previews
+from orchestration.diff import actual_from_runtime_event, build_plan_actual_diff, update_actual_trace
+from orchestration.runtime_adapter import build_runtime_control
 from query.answer_assembler import AnswerAssembler
 from query.context_models import MainContextState, TaskSummaryRef
 from query.evidence_orchestrator import EvidenceOrchestrator
@@ -305,6 +308,53 @@ class QueryRuntime:
             return prompt_block
         return self._render_active_skill_prompt(execution.active_skill)
 
+    def _execution_branch_fields(self, execution: QueryExecutionPlan) -> dict[str, Any]:
+        execution_id = str(
+            getattr(execution, "subtask_id", "")
+            or getattr(execution, "bundle_item_id", "")
+            or "main"
+        ).strip()
+        fields: dict[str, Any] = {
+            "execution_id": execution_id,
+            "execution_kind": str(getattr(execution, "execution_kind", "") or "agent"),
+        }
+        bundle_id = str(getattr(execution, "bundle_id", "") or "").strip()
+        bundle_item_id = str(getattr(execution, "bundle_item_id", "") or "").strip()
+        bundle_item_index = int(getattr(execution, "bundle_item_index", 0) or 0)
+        if bundle_id or bundle_item_id:
+            fields["bundle_item"] = {
+                "bundle_id": bundle_id,
+                "bundle_item_id": bundle_item_id,
+                "bundle_item_index": bundle_item_index,
+                "bundle_origin": str(getattr(execution, "bundle_origin", "") or ""),
+            }
+        subtask_id = str(getattr(execution, "subtask_id", "") or "").strip()
+        if subtask_id:
+            fields["subtask_plan"] = {
+                "subtask_plan_id": subtask_id,
+                "subtask_goal": str(getattr(execution, "subtask_goal", "") or ""),
+                "subtask_title": str(getattr(execution, "subtask_title", "") or ""),
+                "subtask_origin": str(getattr(execution, "subtask_origin", "") or ""),
+            }
+        if bundle_item_index > 0:
+            fields["subtask_index"] = bundle_item_index
+        worker_plan = getattr(execution, "worker_plan", None)
+        worker_route = str(getattr(worker_plan, "worker_route", "") or "").strip()
+        if worker_route:
+            fields["worker_route"] = worker_route
+        tool_name = str(getattr(getattr(execution, "query_understanding", None), "tool_name", "") or "").strip()
+        if tool_name:
+            fields["tool"] = tool_name
+            fields["tool_name"] = tool_name
+        return fields
+
+    def _attach_execution_branch_fields(self, event: dict[str, Any], execution: QueryExecutionPlan) -> dict[str, Any]:
+        enriched = dict(event)
+        for key, value in self._execution_branch_fields(execution).items():
+            if key not in enriched or enriched.get(key) in (None, "", {}, []):
+                enriched[key] = value
+        return enriched
+
     def _skill_allowed_tool_scope(self, active_skill: SkillDefinition | None) -> ToolScope:
         if active_skill is None:
             return ToolScope(source="skill", reason="no_active_skill")
@@ -497,6 +547,8 @@ class QueryRuntime:
                 followup_resolution=followup_resolution,
             )
             task_summary_refs = self._task_summary_refs_from_results(followup_results)
+            answer_plan = self.answer_assembler.build_plan(results=followup_results, main_context=main_context)
+            answer_content = self.answer_assembler.render(answer_plan)
             if trace is not None:
                 trace.annotate(
                     {
@@ -506,9 +558,10 @@ class QueryRuntime:
                 )
             yield {
                 "type": "done",
-                "content": self._assemble_subtask_results(followup_results, main_context=main_context),
+                "content": answer_content,
                 "main_context": main_context.to_dict(),
                 "task_summary_refs": [item.to_dict() for item in task_summary_refs],
+                "answer_assembly": self._answer_assembly_payload(answer_plan, content=answer_content),
                 "followup_mode": followup_resolution.mode,
                 "answer_channel": "answer_candidate",
                 "answer_source": "answer_assembler",
@@ -542,6 +595,50 @@ class QueryRuntime:
         executions = plan.iter_executions()
         if executions:
             executions[0] = self._maybe_build_candidate_selection_execution(session_id, executions[0])
+            plan.executions = executions
+        if self._should_execute_binding_followup(
+            session_id=session_id,
+            followup_resolution=followup_resolution,
+            plan=plan,
+        ):
+            binding_execution = self._followup.binding_execution_from_resolution(
+                session_id=session_id,
+                message=message,
+                history=history,
+                followup_resolution=followup_resolution,
+            )
+            if binding_execution is not None:
+                executions = [binding_execution]
+                plan.executions = executions
+                plan.query_understanding = binding_execution.query_understanding
+                plan.memory_intent = binding_execution.memory_intent
+                plan.execution_kind = binding_execution.execution_kind
+                plan.execution_mode = "single_execution"
+                plan.tool_input = dict(binding_execution.tool_input or {})
+                plan.structured_binding = binding_execution.structured_binding
+                plan.worker_plan = binding_execution.worker_plan
+                plan.active_skill = binding_execution.active_skill
+                plan.dispatch_plan = binding_execution.dispatch_plan
+        contract_previews = self._build_contract_previews_for_execution(executions[0]) if executions else []
+        orchestration_plan = self._build_shadow_orchestration_plan(
+            session_id=session_id,
+            message=message,
+            plan=plan,
+            contract_previews=contract_previews,
+        )
+        runtime_control = build_runtime_control(
+            orchestration_plan=orchestration_plan,
+            legacy_plan=plan,
+            legacy_executions=executions,
+        )
+        executions = runtime_control.executions
+        if orchestration_plan is not None:
+            self._apply_runtime_control_to_orchestration_plan(orchestration_plan, runtime_control)
+            yield {
+                "type": "orchestration_plan",
+                "plan": orchestration_plan,
+            }
+            yield runtime_control.to_event()
         if executions:
             yield {
                 "type": "behavior_trace",
@@ -550,6 +647,8 @@ class QueryRuntime:
                     message=message,
                     plan=plan,
                     execution=executions[0],
+                    orchestration_plan=orchestration_plan,
+                    contract_previews=contract_previews,
                 ),
             }
         if trace is not None:
@@ -571,6 +670,7 @@ class QueryRuntime:
             followup_resolution=followup_resolution,
             plan=plan,
         ):
+            actual_trace: dict[str, Any] = {}
             async for event in self._stream_binding_followup(
                 session_id,
                 message,
@@ -578,9 +678,13 @@ class QueryRuntime:
                 followup_resolution=followup_resolution,
                 trace=trace,
             ):
+                actual_trace = update_actual_trace(actual_trace, event)
+                if event.get("type") in {"done", "error"} and orchestration_plan is not None:
+                    yield self._build_orchestration_diff_event(orchestration_plan, event, actual_trace=actual_trace)
                 yield event
             return
-        if str(getattr(plan, "execution_mode", "") or "") == "bundle_execution":
+        if runtime_control.execution_mode == "bundle_execution":
+            actual_trace: dict[str, Any] = {}
             async for event in self._stream_bundle_execution(
                 session_id=session_id,
                 message=message,
@@ -588,34 +692,49 @@ class QueryRuntime:
                 plan=plan,
                 trace=trace,
             ):
+                actual_trace = update_actual_trace(actual_trace, event)
+                if event.get("type") in {"done", "error"} and orchestration_plan is not None:
+                    yield self._build_orchestration_diff_event(orchestration_plan, event, actual_trace=actual_trace)
                 yield event
             return
-        if str(getattr(plan, "execution_mode", "") or "") == "explicit_fanout":
+        if runtime_control.execution_mode == "explicit_fanout":
             subtask_results: list[dict[str, object]] = []
+            actual_trace: dict[str, Any] = {}
             async for event in self.task_coordinator.run_query_tasks(
                 session_id,
                 executions,
                 lambda execution: self._stream_planned_execution(session_id, execution, trace=trace),
                 subtasks=plan.subtasks,
             ):
+                actual_trace = update_actual_trace(actual_trace, event)
                 if event.get("type") == "subtask_end":
                     subtask_results.append(dict(event))
                 yield event
             main_context = self._build_compound_main_context(message, subtask_results)
             task_summary_refs = self._task_summary_refs_from_results(subtask_results)
-            yield {
+            answer_plan = self.answer_assembler.build_plan(results=subtask_results, main_context=main_context)
+            answer_content = self.answer_assembler.render(answer_plan)
+            done_event = {
                 "type": "done",
-                "content": self._assemble_subtask_results(subtask_results, main_context=main_context),
+                "content": answer_content,
                 "main_context": main_context.to_dict(),
                 "task_summary_refs": [item.to_dict() for item in task_summary_refs],
+                "answer_assembly": self._answer_assembly_payload(answer_plan, content=answer_content),
                 "answer_channel": "answer_candidate",
                 "answer_source": "answer_assembler",
                 "answer_fallback_reason": "",
                 "answer_leak_flags": [],
             }
+            if orchestration_plan is not None:
+                yield self._build_orchestration_diff_event(orchestration_plan, done_event, actual_trace=actual_trace)
+            yield done_event
             return
 
+        actual_trace: dict[str, Any] = {}
         async for event in self._stream_planned_execution(session_id, executions[0], trace=trace):
+            actual_trace = update_actual_trace(actual_trace, event)
+            if event.get("type") in {"done", "error"} and orchestration_plan is not None:
+                yield self._build_orchestration_diff_event(orchestration_plan, event, actual_trace=actual_trace)
             yield event
 
     async def _stream_bundle_execution(
@@ -643,11 +762,14 @@ class QueryRuntime:
             bundle_plan=plan.bundle_plan,
         )
         task_summary_refs = self._task_summary_refs_from_results(bundle_results)
+        answer_plan = self.answer_assembler.build_plan(results=bundle_results, main_context=main_context)
+        answer_content = self.answer_assembler.render(answer_plan)
         yield {
             "type": "done",
-            "content": self._assemble_subtask_results(bundle_results, main_context=main_context),
+            "content": answer_content,
             "main_context": main_context.to_dict(),
             "task_summary_refs": [item.to_dict() for item in task_summary_refs],
+            "answer_assembly": self._answer_assembly_payload(answer_plan, content=answer_content),
             "answer_channel": "answer_candidate",
             "answer_source": "answer_assembler",
             "answer_fallback_reason": "",
@@ -787,6 +909,7 @@ class QueryRuntime:
                 cutover_mode="primary",
             ),
             ephemeral_system_messages=list(execution.ephemeral_system_messages),
+            **self._carry_execution_branch_fields(execution),
         )
 
     def _build_table_candidate_selection_execution(
@@ -865,6 +988,7 @@ class QueryRuntime:
                 cutover_mode="primary",
             ),
             ephemeral_system_messages=list(execution.ephemeral_system_messages),
+            **self._carry_execution_branch_fields(execution),
         )
 
     def _dataset_path_from_table_candidate(self, session_id: str, table_identity: str) -> str:
@@ -993,7 +1117,23 @@ class QueryRuntime:
                 cutover_mode="primary",
             ),
             ephemeral_system_messages=list(execution.ephemeral_system_messages),
+            **self._carry_execution_branch_fields(execution),
         )
+
+    def _carry_execution_branch_fields(self, execution: QueryExecutionPlan) -> dict[str, Any]:
+        """Preserve the canonical branch identity when a candidate selection rewrites execution."""
+        return {
+            "subtask_id": str(getattr(execution, "subtask_id", "") or ""),
+            "subtask_goal": str(getattr(execution, "subtask_goal", "") or ""),
+            "subtask_title": str(getattr(execution, "subtask_title", "") or ""),
+            "subtask_refs": dict(getattr(execution, "subtask_refs", {}) or {}),
+            "subtask_depends_on": list(getattr(execution, "subtask_depends_on", []) or []),
+            "subtask_origin": str(getattr(execution, "subtask_origin", "") or ""),
+            "bundle_id": str(getattr(execution, "bundle_id", "") or ""),
+            "bundle_item_id": str(getattr(execution, "bundle_item_id", "") or ""),
+            "bundle_item_index": int(getattr(execution, "bundle_item_index", 0) or 0),
+            "bundle_origin": str(getattr(execution, "bundle_origin", "") or ""),
+        }
 
     async def _stream_planned_execution(
         self,
@@ -1046,6 +1186,7 @@ class QueryRuntime:
                     main_context=context.main_context,
                     trace=trace,
                 ):
+                    event = self._attach_execution_branch_fields(dict(event), execution)
                     if event.get("type") == "done":
                         event = self._materialize_worker_done_event(
                             session_id=session_id,
@@ -1058,6 +1199,7 @@ class QueryRuntime:
 
             if execution.execution_kind == "direct_tool" and execution.query_understanding.tool_name:
                 async for event in self._stream_direct_tool_execution(session_id, execution, trace=trace):
+                    event = self._attach_execution_branch_fields(dict(event), execution)
                     if event.get("type") == "done":
                         event = dict(event)
                         event.setdefault("main_context", context.main_context.to_dict())
@@ -1276,11 +1418,14 @@ class QueryRuntime:
                                         "receipt_index": str(receipt_index),
                                     }
                                     output_boundary.ingest_tool_call(tool_name, str(tool_args))
-                                    yield {
-                                        "type": "tool_start",
-                                        "tool": tool_name,
-                                        "input": str(tool_args),
-                                    }
+                                    yield self._attach_execution_branch_fields(
+                                        {
+                                            "type": "tool_start",
+                                            "tool": tool_name,
+                                            "input": str(tool_args),
+                                        },
+                                        execution,
+                                    )
 
                             if message_type == "tool":
                                 tool_call_id = str(getattr(agent_message, "tool_call_id", ""))
@@ -1295,11 +1440,14 @@ class QueryRuntime:
                                     if 0 <= receipt_index < len(recent_tool_receipts):
                                         recent_tool_receipts[receipt_index]["output"] = output
                                 output_boundary.ingest_tool_result(str(pending["tool"]), output)
-                                yield {
-                                    "type": "tool_end",
-                                    "tool": pending["tool"],
-                                    "output": output,
-                                }
+                                yield self._attach_execution_branch_fields(
+                                    {
+                                        "type": "tool_end",
+                                        "tool": pending["tool"],
+                                        "output": output,
+                                    },
+                                    execution,
+                                )
                                 yield {"type": "new_response"}
             except ModelRuntimeError as exc:
                 model_stream_error = exc
@@ -1475,6 +1623,70 @@ class QueryRuntime:
             kwargs["explicit_subtasks"] = explicit_subtasks
         return self.planner.build_plan(**kwargs)
 
+    def _build_shadow_orchestration_plan(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        plan: QueryPlan,
+        source: str = "live-session",
+        contract_previews: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        mode_getter = getattr(self.settings_service, "get_orchestration_plan_mode", None)
+        mode = str(mode_getter() if callable(mode_getter) else "shadow").strip().lower() or "shadow"
+        if mode == "legacy":
+            return None
+        try:
+            return build_shadow_orchestration_plan(
+                session_id=session_id,
+                message=message,
+                query_plan=plan,
+                source=source,
+                mode=mode,
+                contract_previews=contract_previews,
+            ).to_dict()
+        except Exception:
+            logger.exception("Failed to build shadow orchestration plan")
+            return None
+
+    def _build_orchestration_diff_event(
+        self,
+        orchestration_plan: dict[str, Any],
+        event: dict[str, Any],
+        *,
+        actual_trace: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        actual = actual_from_runtime_event(event, plan=orchestration_plan, actual_trace=actual_trace)
+        return {
+            "type": "orchestration_diff",
+            "diff": build_plan_actual_diff(orchestration_plan, actual=actual),
+        }
+
+    def _apply_runtime_control_to_orchestration_plan(self, orchestration_plan: dict[str, Any], runtime_control) -> None:
+        diagnostics = orchestration_plan.setdefault("diagnostics", {})
+        if isinstance(diagnostics, dict):
+            diagnostics["runtime_control"] = {
+                "source": runtime_control.source,
+                "primary_active": bool(runtime_control.primary_active),
+                "execution_mode": runtime_control.execution_mode,
+                "execution_count": len(runtime_control.executions),
+                "warnings": list(runtime_control.warnings),
+                **dict(runtime_control.diagnostics),
+            }
+        safety = orchestration_plan.setdefault("safety", {})
+        if isinstance(safety, dict):
+            warnings = [
+                str(item)
+                for item in list(safety.get("warnings") or [])
+                if str(item or "").strip()
+            ]
+            for warning in runtime_control.warnings:
+                if warning not in warnings:
+                    warnings.append(warning)
+            safety["warnings"] = warnings
+            if warnings:
+                safety["mode"] = str(safety.get("mode") or orchestration_plan.get("mode") or "shadow")
+
     def _build_live_behavior_snapshot(
         self,
         *,
@@ -1482,6 +1694,8 @@ class QueryRuntime:
         message: str,
         plan: QueryPlan,
         execution: QueryExecutionPlan,
+        orchestration_plan: dict[str, Any] | None = None,
+        contract_previews: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         skill_inspection: dict[str, Any] = {}
         resolver = getattr(self.planner, "skill_policy_resolver", None)
@@ -1495,11 +1709,7 @@ class QueryRuntime:
             except Exception:
                 logger.exception("Failed to inspect live skill policy")
 
-        contract_previews: list[dict[str, Any]] = []
-        try:
-            contract_previews = build_contract_previews(runtime=self, execution=execution)
-        except Exception:
-            logger.exception("Failed to build live contract previews")
+        contract_previews = list(contract_previews or self._build_contract_previews_for_execution(execution))
 
         return build_behavior_snapshot(
             source="live-session",
@@ -1507,12 +1717,20 @@ class QueryRuntime:
             message=message,
             plan=plan,
             execution=execution,
+            orchestration_plan=orchestration_plan,
             skill_inspection=skill_inspection,
             context_preview={},
             prompt_manifest={},
             contract_previews=contract_previews,
             warnings=[],
         )
+
+    def _build_contract_previews_for_execution(self, execution: QueryExecutionPlan) -> list[dict[str, Any]]:
+        try:
+            return build_contract_previews(runtime=self, execution=execution)
+        except Exception:
+            logger.exception("Failed to build live contract previews")
+            return []
 
     def _build_agent_messages(self, context: QueryContext) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
@@ -2648,6 +2866,40 @@ class QueryRuntime:
     ) -> str:
         plan = self.answer_assembler.build_plan(results=results, main_context=main_context)
         return self.answer_assembler.render(plan)
+
+    def _answer_assembly_payload(self, plan, *, content: str) -> dict[str, Any]:
+        segments = [self._pydantic_to_dict(item) for item in list(getattr(plan, "segments", []) or [])]
+        dropped = [self._pydantic_to_dict(item) for item in list(getattr(plan, "dropped_segments", []) or [])]
+        style_constraints = self._pydantic_to_dict(getattr(plan, "style_constraints", None))
+        return {
+            "selected_task_ids": [
+                str(item.get("task_id") or "").strip()
+                for item in segments
+                if str(item.get("task_id") or "").strip()
+            ],
+            "selected_count": len(segments),
+            "dropped_count": len(dropped),
+            "segments": segments,
+            "dropped_segments": dropped,
+            "dedupe_targets": list(getattr(plan, "dedupe_targets", []) or []),
+            "source_refs": list(getattr(plan, "source_refs", []) or []),
+            "style_constraints": style_constraints,
+            "content_preview": " ".join(str(content or "").split())[:240],
+            "content_chars": len(str(content or "")),
+        }
+
+    def _pydantic_to_dict(self, value) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return dict(value)
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            return dict(model_dump())
+        as_dict = getattr(value, "dict", None)
+        if callable(as_dict):
+            return dict(as_dict())
+        return {}
 
     def _user_visible_error(self, exc: Exception) -> str:
         if isinstance(exc, ModelRuntimeError):

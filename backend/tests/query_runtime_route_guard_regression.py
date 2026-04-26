@@ -822,6 +822,55 @@ def test_binding_followup_from_direct_tool_owner_passes_subset_constraints_struc
     assert request.bindings["active_dataset"].endswith("employees.xlsx")
 
 
+def test_dataset_binding_followup_does_not_override_weather_tool_route() -> None:
+    coordinator = TaskCoordinator()
+
+    async def _seed() -> None:
+        await coordinator.run_tool_task(
+            "session-1",
+            "structured_data_analysis",
+            lambda: asyncio.sleep(0, result="数据源：inventory.xlsx"),
+            query="检查库存表。",
+            tool_input={
+                "query": "检查库存表。",
+                "path": "knowledge/E-commerce Data/inventory.xlsx",
+            },
+            task_kind="structured_followup_query",
+        )
+
+    asyncio.run(_seed())
+    owner_task = coordinator.list_tasks(session_id="session-1")[0]
+    followup = RuntimeFollowupCoordinator(task_coordinator=coordinator)
+    plan = QueryPlan(
+        session_id="session-1",
+        message="再看一下北京今天天气。",
+        history=[],
+        subqueries=["再看一下北京今天天气。"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(route="tool", tool_name="get_weather", task_kind="weather_query"),
+        execution_kind="direct_tool",
+        tool_input={"query": "再看一下北京今天天气。"},
+    )
+
+    should_execute = followup.should_execute_binding_followup(
+        session_id="session-1",
+        followup_resolution=FollowupResolution(
+            mode="binding_ref",
+            binding_kind="active_dataset",
+            resolved_binding_kind="active_dataset",
+            binding_identity="knowledge/e-commerce data/inventory.xlsx",
+            resolved_binding_identity="knowledge/e-commerce data/inventory.xlsx",
+            binding_owner_task_id=owner_task.task_id,
+            resolved_binding_owner_task_id=owner_task.task_id,
+            task_id=owner_task.task_id,
+            resolved_task_id=owner_task.task_id,
+        ),
+        plan=plan,
+    )
+
+    assert should_execute is False
+
+
 def test_pdf_binding_followup_from_page_owner_does_not_inherit_page_mode_without_page_reference() -> None:
     coordinator = TaskCoordinator()
 

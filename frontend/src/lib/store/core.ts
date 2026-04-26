@@ -43,7 +43,7 @@ export function getDefaultState(): StoreState {
     soulOptions: [],
     activeSoulKey: null,
     pendingEphemeralSystemMessages: [],
-    inspectorPath: "durable_memory/MEMORY.md",
+    inspectorPath: "durable_memory/index/MEMORY.md",
     inspectorContent: "",
     inspectorDirty: false,
     sidebarWidth: 308,

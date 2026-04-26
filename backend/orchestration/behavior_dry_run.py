@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from orchestration.adapters import build_shadow_orchestration_plan
 from orchestration.behavior_trace import build_behavior_snapshot
 from orchestration.contract_preview import build_contract_previews
 from query.prompt_manifest import compact_prompt_manifest
@@ -43,6 +44,15 @@ async def build_behavior_dry_run(
     context_preview = _inspect_context(runtime, normalized_session_id, execution)
     contract_previews = build_contract_previews(runtime=runtime, execution=execution)
     prompt_manifest = await _build_prompt_manifest(query_runtime, normalized_session_id, execution, warnings)
+    orchestration_plan = build_shadow_orchestration_plan(
+        session_id=normalized_session_id,
+        message=normalized_message,
+        query_plan=plan,
+        source="dry-run",
+        mode=_orchestration_mode(runtime),
+        warnings=warnings,
+        contract_previews=contract_previews,
+    ).to_dict()
 
     snapshot = build_behavior_snapshot(
         source="dry-run",
@@ -50,6 +60,7 @@ async def build_behavior_dry_run(
         message=normalized_message,
         plan=plan,
         execution=execution,
+        orchestration_plan=orchestration_plan,
         skill_inspection=skill_inspection,
         context_preview=context_preview,
         prompt_manifest=prompt_manifest,
@@ -66,6 +77,15 @@ async def build_behavior_dry_run(
         "execution_count": len(executions),
     }
     return snapshot
+
+
+def _orchestration_mode(runtime: Any) -> str:
+    settings = getattr(runtime, "settings", None)
+    getter = getattr(settings, "get_orchestration_plan_mode", None)
+    if callable(getter):
+        mode = str(getter() or "shadow").strip().lower()
+        return mode if mode != "legacy" else "shadow"
+    return "shadow"
 
 
 def _load_existing_history(runtime: Any, session_id: str) -> list[dict[str, Any]]:

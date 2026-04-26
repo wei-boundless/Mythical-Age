@@ -12,6 +12,7 @@ class RuntimeSettingsSnapshot:
     rag_mode: bool
     retrieval_shadow_compare: bool
     retrieval_cutover_mode: str
+    orchestration_plan_mode: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +66,7 @@ class AppSettingsService:
             rag_mode=bool(payload.get("rag_mode", False)),
             retrieval_shadow_compare=bool(payload.get("retrieval_shadow_compare", False)),
             retrieval_cutover_mode=str(payload.get("retrieval_cutover_mode", "v2_primary") or "v2_primary"),
+            orchestration_plan_mode=str(payload.get("orchestration_plan_mode", "shadow") or "shadow"),
         )
 
     def policy_snapshot(self) -> PolicySettingsSnapshot:
@@ -119,4 +121,18 @@ class AppSettingsService:
             return setter(mode)
         current = runtime_config.load()
         current["retrieval_cutover_mode"] = str(mode or "v2_primary")
+        return runtime_config.save(current)
+
+    def get_orchestration_plan_mode(self) -> str:
+        getter = getattr(runtime_config, "get_orchestration_plan_mode", None)
+        if callable(getter):
+            return str(getter() or "shadow")
+        return str(self.runtime_snapshot().orchestration_plan_mode or "shadow")
+
+    def set_orchestration_plan_mode(self, mode: str) -> dict[str, Any]:
+        setter = getattr(runtime_config, "set_orchestration_plan_mode", None)
+        if callable(setter):
+            return setter(mode)
+        current = runtime_config.load()
+        current["orchestration_plan_mode"] = str(mode or "shadow")
         return runtime_config.save(current)

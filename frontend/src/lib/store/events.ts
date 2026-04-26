@@ -97,6 +97,15 @@ function normalizeSnapshotEdges(snapshot: OrchestrationSnapshot): OrchestrationS
 }
 
 function eventNodeId(event: string) {
+  if (event === "orchestration_plan") {
+    return "execution-mode";
+  }
+  if (event === "orchestration_diff") {
+    return "output";
+  }
+  if (event === "orchestration_runtime_control") {
+    return "execution-mode";
+  }
   if (event === "behavior_trace") {
     return "task-understanding";
   }
@@ -150,6 +159,18 @@ function resolveSnapshotNodeId(snapshot: OrchestrationSnapshot, event: string) {
 }
 
 function eventSummary(event: string, data: Record<string, unknown>) {
+  if (event === "orchestration_plan") {
+    const plan = (data.plan ?? {}) as Record<string, unknown>;
+    const topology = (plan.topology ?? {}) as Record<string, unknown>;
+    return `${String(plan.mode ?? "shadow")} plan: ${String(topology.mode ?? "unknown")} / ${String(topology.route ?? "unknown")} / ${String(topology.execution_kind ?? "unknown")}`;
+  }
+  if (event === "orchestration_runtime_control") {
+    return `runtime control: ${String(data.source ?? "legacy")} / ${String(data.execution_mode ?? "unknown")} / primary=${String(data.primary_active ?? false)}`;
+  }
+  if (event === "orchestration_diff") {
+    const diff = (data.diff ?? {}) as Record<string, unknown>;
+    return `plan diff: ${String(diff.status ?? "unknown")} / ${String(diff.summary ?? "")}`;
+  }
   if (event === "behavior_trace") {
     const snapshot = (data.snapshot ?? {}) as Record<string, unknown>;
     return String(snapshot.summary ?? "行为决策 trace 已生成。");
@@ -244,8 +265,10 @@ function updateOrchestrationSnapshot(
     return node;
   });
   const promptManifest = (data.prompt_manifest ?? {}) as Record<string, unknown>;
-  const executionMode = String(data.execution_mode ?? snapshot.execution_mode);
-  const route = String(data.route ?? snapshot.route);
+  const plan = (data.plan ?? {}) as Record<string, unknown>;
+  const topology = (plan.topology ?? {}) as Record<string, unknown>;
+  const executionMode = String(data.execution_mode ?? topology.mode ?? snapshot.execution_mode);
+  const route = String(data.route ?? topology.route ?? snapshot.route);
   const nextNodes = nodes.map((node) => node.id === "prompt" && event === "prompt_manifest"
     ? { ...node, summary: `${String(promptManifest.total_sections ?? 0)} sections / ${String(promptManifest.total_chars ?? 0)} chars` }
     : node);

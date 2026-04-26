@@ -42,6 +42,7 @@ def build_behavior_snapshot(
     message: str,
     plan: Any,
     execution: Any | None,
+    orchestration_plan: dict[str, Any] | None = None,
     skill_inspection: dict[str, Any] | None = None,
     context_preview: dict[str, Any] | None = None,
     prompt_manifest: dict[str, Any] | None = None,
@@ -75,6 +76,9 @@ def build_behavior_snapshot(
     _fill_prompt(by_id["prompt"], prompt_manifest, execution)
     _fill_execution(by_id["execution"], plan, execution)
     _fill_output(by_id["output"], execution)
+    orchestration_plan = _dict(orchestration_plan)
+    if orchestration_plan:
+        _apply_orchestration_plan(by_id, orchestration_plan)
 
     if warning_items:
         by_id["output"].status = "warning"
@@ -98,7 +102,9 @@ def build_behavior_snapshot(
         "events": [],
         "artifacts": {
             "prompt_manifest_id": str(prompt_manifest.get("prompt_id") or ""),
+            "orchestration_plan_id": str(orchestration_plan.get("plan_id") or ""),
         },
+        "orchestration_plan": orchestration_plan,
         "decision_trace": {
             "skill_policy": skill_inspection,
             "context_preview": context_preview,
@@ -122,6 +128,131 @@ def _node(node_id: str, label: str, description: str, module: str, index: int) -
 
 def _edge(edge_id: str, source: str, target: str, label: str) -> BehaviorDecisionEdge:
     return BehaviorDecisionEdge(id=edge_id, from_node=source, to=target, label=label, summary=label)
+
+
+def _apply_orchestration_plan(by_id: dict[str, BehaviorDecisionNode], orchestration_plan: dict[str, Any]) -> None:
+    topology = _dict(orchestration_plan.get("topology"))
+    if topology:
+        node = by_id["execution-mode"]
+        node.summary = (
+            f"mode={topology.get('mode') or 'unknown'} / "
+            f"kind={topology.get('execution_kind') or 'agent'} / "
+            f"branches={topology.get('branch_count') or 1}"
+        )
+        node.outputs = topology
+        node.refs["orchestration_plan_id"] = str(orchestration_plan.get("plan_id") or "")
+
+    for decision in list(orchestration_plan.get("decisions") or []):
+        if not isinstance(decision, dict):
+            continue
+        node_id = _decision_node_id(str(decision.get("node_id") or ""))
+        node = by_id.get(node_id)
+        if node is None:
+            continue
+        outputs = _dict(decision.get("outputs"))
+        inputs = _dict(decision.get("inputs"))
+        reasons = [str(item) for item in list(decision.get("reasons") or []) if str(item).strip()]
+        risks = [str(item) for item in list(decision.get("risks") or []) if str(item).strip()]
+        node.status = _decision_status(str(decision.get("status") or "selected"), fallback=node.status)
+        node.source_module = str(decision.get("owner_module") or node.source_module)
+        node.inputs = inputs or node.inputs
+        node.outputs = outputs or node.outputs
+        node.reasons = reasons or node.reasons
+        if risks:
+            node.status = "warning" if node.status == "success" else node.status
+            node.reasons.extend(risks)
+        node.summary = _decision_summary(node_id, outputs, reasons, fallback=node.summary)
+        node.refs["orchestration_plan_id"] = str(orchestration_plan.get("plan_id") or "")
+        node.refs["orchestration_decision_id"] = str(decision.get("node_id") or "")
+
+    context_policy = _dict(orchestration_plan.get("context_policy"))
+    if context_policy:
+        by_id["context"].refs["orchestration_plan_id"] = str(orchestration_plan.get("plan_id") or "")
+        by_id["context"].outputs = {"context_policy": context_policy, **by_id["context"].outputs}
+        if context_policy.get("summary"):
+            by_id["context"].summary = str(context_policy.get("summary"))
+
+    prompt_policy = _dict(orchestration_plan.get("prompt_policy"))
+    if prompt_policy:
+        by_id["prompt"].refs["orchestration_plan_id"] = str(orchestration_plan.get("plan_id") or "")
+        by_id["prompt"].outputs = {"prompt_policy": prompt_policy, **by_id["prompt"].outputs}
+        active_skill = str(prompt_policy.get("active_skill_name") or "")
+        schemas = list(prompt_policy.get("tool_schema_names") or [])
+        if active_skill or schemas:
+            by_id["prompt"].summary = f"active_skill={active_skill or '-'} / tool_schemas={len(schemas)}"
+
+    output_policy = _dict(orchestration_plan.get("output_policy"))
+    if output_policy:
+        by_id["output"].refs["orchestration_plan_id"] = str(orchestration_plan.get("plan_id") or "")
+        by_id["output"].outputs = {"output_policy": output_policy, **by_id["output"].outputs}
+
+    safety = _dict(orchestration_plan.get("safety"))
+    warnings = [str(item) for item in list(safety.get("warnings") or []) if str(item).strip()]
+    if warnings:
+        by_id["output"].status = "warning"
+        by_id["output"].reasons.extend(warnings)
+
+
+def _decision_node_id(node_id: str) -> str:
+    return {
+        "execution-topology": "execution-mode",
+        "capability-dispatch": "capability",
+        "contract-policy": "contract",
+        "safety": "output",
+    }.get(node_id, node_id)
+
+
+def _decision_status(status: str, *, fallback: str) -> str:
+    return {
+        "selected": "success",
+        "candidate": "visited",
+        "blocked": "blocked",
+        "skipped": "skipped",
+        "warning": "warning",
+    }.get(status, fallback)
+
+
+def _decision_summary(node_id: str, outputs: dict[str, Any], reasons: list[str], *, fallback: str) -> str:
+    if node_id == "input":
+        return f"session={outputs.get('session_id') or '-'} / history={outputs.get('history_count') or 0}"
+    if node_id == "memory-intent":
+        return (
+            f"intent={outputs.get('intent') or 'general'} / "
+            f"read={outputs.get('read_mode') or 'none'} / "
+            f"write={outputs.get('write_mode') or 'none'}"
+        )
+    if node_id == "task-understanding":
+        return (
+            f"route={outputs.get('route') or 'unknown'} / "
+            f"posture={outputs.get('execution_posture') or '-'} / "
+            f"task={outputs.get('task_kind') or '-'}"
+        )
+    if node_id == "execution-mode":
+        return (
+            f"mode={outputs.get('mode') or 'unknown'} / "
+            f"kind={outputs.get('execution_kind') or 'agent'} / "
+            f"branches={outputs.get('branch_count') or 1}"
+        )
+    if node_id == "skill-policy":
+        return f"active_skill={outputs.get('skill_name') or '-'}"
+    if node_id == "capability":
+        selected_tool = _dict(outputs.get("selected_tool"))
+        selected_worker = _dict(outputs.get("selected_worker"))
+        return (
+            f"tool={selected_tool.get('tool_name') or '-'} / "
+            f"worker={outputs.get('worker_route') or selected_worker.get('worker_route') or '-'}"
+        )
+    if node_id == "contract":
+        return (
+            f"preview={outputs.get('preview_count') or len(list(outputs.get('contract_previews') or []))} / "
+            f"blocked={outputs.get('blocked_count') or 0}"
+        )
+    if node_id == "execution":
+        return (
+            f"kind={outputs.get('execution_kind') or 'agent'} / "
+            f"route={outputs.get('route') or 'unknown'}"
+        )
+    return "; ".join(reasons[:2]) or fallback
 
 
 def _fill_input(node: BehaviorDecisionNode, *, session_id: str, message: str, plan: Any) -> None:
@@ -348,3 +479,7 @@ def _clip(text: str, limit: int) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 1].rstrip() + "…"
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}

@@ -180,6 +180,13 @@ function pathMentionsTurn(path: string, turn: ExperimentTurn) {
   return normalizedPath.includes(turn.turn_id) || normalizedPath.endsWith(artifactPath) || artifactPath.endsWith(normalizedPath);
 }
 
+function turnProblemLabel(turn: ExperimentTurn) {
+  if (!turn.problem_node_id) {
+    return "";
+  }
+  return `问题节点：${turn.problem_node_label || turn.problem_node_id}`;
+}
+
 function readIssueTurnIndex(issue: Record<string, unknown>) {
   for (const key of issueTurnIndexKeys) {
     const value = issue[key];
@@ -796,6 +803,12 @@ export function TestSystemView() {
               <span>Turn {selectedTurn.index} · {selectedTurn.session_alias || selectedTurn.scenario}</span>
               <strong>{selectedTurn.summary || "没有摘要"}</strong>
               <p>{selectedTurn.has_prompt_manifest ? "Prompt 已记录" : "Prompt 缺失"} · {selectedTurn.has_memory_trace ? "Memory 已记录" : "Memory 缺失"} · issues {selectedTurn.issue_count}</p>
+              {selectedTurn.problem_node_id ? (
+                <div className="turn-problem-node">
+                  <Bug size={14} />
+                  <span>{turnProblemLabel(selectedTurn)}</span>
+                </div>
+              ) : null}
               <div className="test-next-actions">
                 <button className="action-button action-button--primary" onClick={() => openTurnOnOrchestration(selectedTurn)} type="button">
                   编排复盘
@@ -818,6 +831,9 @@ export function TestSystemView() {
                 <span>Turn {turn.index} · {turn.session_alias || turn.scenario}</span>
                 <strong>{turn.status === "passed" ? "通过" : turn.status === "warning" ? "警告" : turn.status === "failed" ? "失败" : "未知"}</strong>
                 <em>{turn.summary}</em>
+                {turn.problem_node_id ? (
+                  <b className="turn-replay-card__problem">{turnProblemLabel(turn)}</b>
+                ) : null}
                 <i>{turn.has_trace ? "trace 可用" : "trace 缺失"} · {turn.has_prompt_manifest ? "Prompt 已记录" : "Prompt 缺失"} · {turn.has_memory_trace ? "Memory 已记录" : "Memory 缺失"} · {turn.artifact_path}</i>
                 <div className="turn-replay-card__actions">
                   <button onClick={() => setSelectedTurnId(turn.turn_id)} type="button">

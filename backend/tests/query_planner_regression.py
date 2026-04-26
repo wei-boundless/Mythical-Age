@@ -236,6 +236,27 @@ def main() -> None:
     assert non_structured_execution.structured_binding is None
     assert not non_structured_execution.tool_input.get("path", "")
 
+    knowledge_followup_history = [
+        {"role": "user", "content": "为我搜下本地的数据库，里面有没有关于AI的内容"},
+        {
+            "role": "assistant",
+            "content": "本地数据库中包含《职业教育人工智能应用发展报告（2024-2025）》和《2025全球人工智能技术应用洞察报告》等 AI 报告。",
+            "answer_source": "rag_answer_finalization",
+        },
+    ]
+    knowledge_followup_plan = planner.build_plan(
+        session_id="planner-regression",
+        message="你可以找一篇具体为我说说吗",
+        history=knowledge_followup_history,
+    )
+    knowledge_followup_execution = knowledge_followup_plan.iter_executions()[0]
+    assert knowledge_followup_plan.query_understanding.route == "rag"
+    assert knowledge_followup_plan.query_understanding.direct_route_reason == "knowledge_followup_context"
+    assert knowledge_followup_execution.execution_kind == "worker"
+    assert knowledge_followup_execution.worker_plan is not None
+    assert knowledge_followup_execution.worker_plan.worker_route == "retrieval"
+    assert "职业教育人工智能应用发展报告" in knowledge_followup_execution.worker_plan.request.query
+
     summary_history = [
         {"role": "user", "content": "请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，先给我全文总览。"},
         {"role": "assistant", "content": "已完成 PDF 总览。"},

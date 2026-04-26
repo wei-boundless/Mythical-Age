@@ -146,6 +146,42 @@ async def archive_durable_memory_note(filename: str, payload: DurableMemoryGover
     return _govern_existing_note(filename, status="archived", eligible_for_injection="false", reason=payload.reason or "Archived from memory UI", action="archive")
 
 
+@router.delete("/memory/durable/{filename}")
+async def delete_durable_memory_note(filename: str, payload: DurableMemoryGovernRequest | None = None) -> dict[str, Any]:
+    runtime = require_runtime()
+    assert runtime.base_dir is not None
+    assert runtime.memory_facade is not None
+
+    path = _safe_note_path(runtime.base_dir, filename)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Memory note not found")
+
+    trash_dir = runtime.base_dir / "durable_memory" / "trash"
+    trash_dir.mkdir(parents=True, exist_ok=True)
+    deleted_at = utc_now_iso()
+    target = _unique_trash_path(trash_dir, path.name)
+    path.replace(target)
+
+    runtime.memory_facade.memory_manager.sync_index()
+    runtime.refresh_indexes_for_path("durable_memory/notes")
+    reason = payload.reason if payload else ""
+    _append_governance_log(
+        runtime.base_dir,
+        "delete",
+        [path.name],
+        reason=reason or "Deleted from memory UI",
+        created=f"durable_memory/trash/{target.name}",
+    )
+    return {
+        "ok": True,
+        "action": "delete",
+        "filename": path.name,
+        "deleted_at": deleted_at,
+        "trash_path": f"durable_memory/trash/{target.name}",
+        "header": None,
+    }
+
+
 @router.post("/memory/durable/merge")
 async def merge_durable_memory_notes(payload: DurableMemoryMergeRequest) -> dict[str, Any]:
     runtime = require_runtime()
@@ -479,6 +515,21 @@ def _safe_note_path(base_dir: Path, filename: str) -> Path:
     if not safe_name or "/" in safe_name or "\\" in safe_name or safe_name.startswith(".") or not safe_name.endswith(".md"):
         raise HTTPException(status_code=400, detail="Invalid memory filename")
     return base_dir / "durable_memory" / "notes" / safe_name
+
+
+def _unique_trash_path(trash_dir: Path, filename: str) -> Path:
+    candidate = trash_dir / filename
+    if not candidate.exists():
+        return candidate
+    stem = candidate.stem
+    suffix = candidate.suffix
+    timestamp = re.sub(r"[^0-9]", "", utc_now_iso())[:14] or "deleted"
+    index = 2
+    candidate = trash_dir / f"{stem}.{timestamp}{suffix}"
+    while candidate.exists():
+        candidate = trash_dir / f"{stem}.{timestamp}-{index}{suffix}"
+        index += 1
+    return candidate
 
 
 def _update_note_frontmatter(path: Path, updates: dict[str, str]) -> None:

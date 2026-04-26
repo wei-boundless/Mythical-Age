@@ -13,6 +13,14 @@ class AnswerSegment(BaseModel):
     answer_ref: str = ""
 
 
+class AnswerDroppedSegment(BaseModel):
+    index: int
+    task_id: str = ""
+    title: str = ""
+    reason: str
+    detail: str = ""
+
+
 class StyleConstraints(BaseModel):
     dedupe: bool = False
     append_mode: str = ""
@@ -21,6 +29,7 @@ class StyleConstraints(BaseModel):
 
 class AnswerAssemblyPlan(BaseModel):
     segments: list[AnswerSegment] = Field(default_factory=list)
+    dropped_segments: list[AnswerDroppedSegment] = Field(default_factory=list)
     style_constraints: StyleConstraints = Field(default_factory=StyleConstraints)
     dedupe_targets: list[str] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)

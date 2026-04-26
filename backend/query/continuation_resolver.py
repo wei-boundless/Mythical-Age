@@ -32,6 +32,7 @@ class QueryContinuationResolver:
     ) -> QueryUnderstanding:
         promoted = self.promote_pdf_query(message, history, understanding)
         promoted = self.promote_structured_query(message, history, promoted)
+        promoted = self.promote_knowledge_followup_query(message, history, promoted)
         return self.promote_session_summary_query(message, history, promoted)
 
     def apply_authoritative_context(
@@ -152,6 +153,47 @@ class QueryContinuationResolver:
             ],
         )
 
+    def promote_knowledge_followup_query(
+        self,
+        message: str,
+        history: list[dict[str, Any]],
+        understanding: QueryUnderstanding,
+    ) -> QueryUnderstanding:
+        if not history:
+            return understanding
+        if not self._looks_like_knowledge_followup(message):
+            return understanding
+        if self._has_mixed_capability_reason(understanding):
+            return understanding
+        if understanding.route in {"tool", "memory"}:
+            return understanding
+        if str(getattr(understanding, "direct_route_reason", "") or "") not in {"", "unresolved_lookup"}:
+            return understanding
+        prior = self._recent_rag_exchange(history)
+        if prior is None:
+            return understanding
+        prior_user, prior_assistant = prior
+        expanded_query = self._build_knowledge_followup_query(
+            message=message,
+            prior_user=prior_user,
+            prior_assistant=prior_assistant,
+        )
+        return QueryUnderstanding(
+            intent="knowledge_followup_query",
+            source_kind="knowledge_base",
+            task_kind="knowledge_lookup",
+            modality="general",
+            route="rag",
+            execution_posture="direct_rag",
+            direct_route_reason="knowledge_followup_context",
+            capability_requests=["knowledge_lookup"],
+            tool_input={"query": expanded_query},
+            should_skip_rag=False,
+            confidence=max(float(getattr(understanding, "confidence", 0.0) or 0.0), 0.84),
+            reasons=[*list(getattr(understanding, "reasons", []) or []), "knowledge_followup_context"],
+            structural_signals=dict(getattr(understanding, "structural_signals", {}) or {}),
+        )
+
     def promote_session_summary_query(
         self,
         message: str,
@@ -225,6 +267,70 @@ class QueryContinuationResolver:
         if not self._has_explicit_dataset_reference(message):
             return False
         return self._has_strong_structured_operation(message)
+
+    def _looks_like_knowledge_followup(self, message: str) -> bool:
+        normalized = (message or "").strip()
+        if not normalized:
+            return False
+        lowered = normalized.lower()
+        if self._extract_explicit_pdf_reference(normalized) or self._extract_explicit_dataset_reference(normalized):
+            return False
+        if any(marker in lowered for marker in ("http://", "https://", "天气", "金价", "黄金", "股票")):
+            return False
+        return any(
+            marker in normalized
+            for marker in (
+                "具体",
+                "一篇",
+                "哪篇",
+                "这篇",
+                "那篇",
+                "展开",
+                "说说",
+                "讲讲",
+                "详细",
+                "继续",
+                "刚才",
+                "刚刚",
+            )
+        )
+
+    def _recent_rag_exchange(self, history: list[dict[str, Any]]) -> tuple[str, str] | None:
+        last_assistant_index = -1
+        last_assistant: dict[str, Any] | None = None
+        for index in range(len(history) - 1, -1, -1):
+            message = history[index]
+            if str(message.get("role") or "") != "assistant":
+                continue
+            if self._is_rag_assistant_message(message):
+                last_assistant_index = index
+                last_assistant = message
+                break
+        if last_assistant is None:
+            return None
+        prior_user = ""
+        for index in range(last_assistant_index - 1, -1, -1):
+            message = history[index]
+            if str(message.get("role") or "") == "user":
+                prior_user = str(message.get("content") or "").strip()
+                break
+        assistant_content = str(last_assistant.get("content") or "").strip()
+        if not prior_user or not assistant_content:
+            return None
+        return prior_user, assistant_content
+
+    def _is_rag_assistant_message(self, message: dict[str, Any]) -> bool:
+        source = str(message.get("answer_source") or "").strip()
+        route = str(message.get("route") or message.get("app.route") or "").strip()
+        content = str(message.get("content") or "")
+        if source in {"rag_answer_finalization", "retrieval_worker", "rag"} or route == "rag":
+            return True
+        return "本地" in content and any(marker in content for marker in ("报告", "资料", "知识库", "数据库"))
+
+    def _build_knowledge_followup_query(self, *, message: str, prior_user: str, prior_assistant: str) -> str:
+        compact_prior = " ".join(prior_assistant.split())[:900]
+        compact_user = " ".join(prior_user.split())[:260]
+        return f"{compact_user}\n上一轮检索结果：{compact_prior}\n追问：{message.strip()}"
 
     def _has_explicit_dataset_reference(self, message: str) -> bool:
         return bool(self._extract_explicit_dataset_reference(message))
