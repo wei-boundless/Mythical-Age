@@ -2704,19 +2704,91 @@ def test_runtime_stream_ignores_tool_message_chunks_before_provider_error() -> N
 
     async def _run() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        try:
-            async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
-                events.append(event)
-        except ModelRuntimeError:
-            pass
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
         return events
 
     events = asyncio.run(_run())
     streamed_text = "".join(str(event.get("content", "") or "") for event in events if event.get("type") == "token")
+    done = events[-1]
 
     assert "我先读取 PDF。" in streamed_text
     assert "PDF_CANONICAL_RESULT::" not in streamed_text
     assert "Read failed:" not in streamed_text
+    assert done["type"] == "done"
+    assert done["answer_channel"] == "fallback_answer"
+    assert done["answer_source"] == "runtime_error_fallback"
+    assert done["answer_fallback_reason"] == "model_runtime_provider_error"
+    assert "生成最终答案时中断了" in str(done["content"])
+
+
+def test_runtime_stream_timeout_becomes_nonempty_done_fallback() -> None:
+    plan = QueryPlan(
+        session_id="tool-timeout-session",
+        message="把 PDF 部分压成两条行动项。",
+        history=[],
+        subqueries=["把 PDF 部分压成两条行动项。"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(
+            intent="general_query",
+            route="agent",
+            modality="general",
+            execution_posture="bounded_agent",
+        ),
+        active_skill=None,
+    )
+    runtime, _retrieval, _model_runtime, _memory_facade = _build_runtime(rag_mode=False)
+    runtime.planner.build_plan = lambda *, session_id, message, history: plan  # type: ignore[method-assign]
+
+    class _ToolStartThenTimeoutAgent:
+        async def astream(self, *_args, **_kwargs):
+            yield (
+                "updates",
+                {
+                    "node": {
+                        "messages": [
+                            SimpleNamespace(
+                                type="ai",
+                                content="我先读取 PDF。",
+                                tool_calls=[
+                                    {
+                                        "id": "call-1",
+                                        "name": "pdf_analysis",
+                                        "args": {"path": "knowledge/demo.pdf", "query": "第3页讲了什么"},
+                                    }
+                                ],
+                            )
+                        ]
+                    }
+                },
+            )
+            raise ModelRuntimeError(
+                code="timeout",
+                provider="test",
+                model="test-model",
+                detail="simulated timeout",
+                retryable=False,
+                user_message="模型请求超时，请稍后重试。",
+            )
+
+    runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _ToolStartThenTimeoutAgent()  # type: ignore[method-assign]
+
+    async def _run() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime._stream_single_execution(plan.session_id, plan.message, plan.history):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_run())
+    done = events[-1]
+
+    assert any(event.get("type") == "tool_start" and event.get("tool") == "pdf_analysis" for event in events)
+    assert done["type"] == "done"
+    assert done["answer_channel"] == "fallback_answer"
+    assert done["answer_source"] == "runtime_error_fallback"
+    assert done["answer_fallback_reason"] == "model_runtime_timeout"
+    assert "整理最终答案时超时了" in str(done["content"])
+    assert "pdf_analysis" in str(done["content"])
 
 
 def test_direct_tool_pdf_raw_dump_does_not_become_done_content() -> None:
@@ -2998,6 +3070,7 @@ def main() -> None:
     test_runtime_pdf_tool_output_boundary_keeps_fallback_without_model_rewrite()
     test_runtime_output_boundary_does_not_promote_plain_tool_output_to_done_content()
     test_runtime_stream_ignores_tool_message_chunks_before_provider_error()
+    test_runtime_stream_timeout_becomes_nonempty_done_fallback()
     test_direct_tool_pdf_raw_dump_does_not_become_done_content()
     test_direct_tool_degraded_pdf_facade_projects_generic_fallback_state()
     test_direct_tool_pdf_canonical_facade_projects_minimal_binding_state()

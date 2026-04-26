@@ -33,6 +33,7 @@ export function createStore<T>(initialState: T): Store<T> {
 
 export function getDefaultState(): StoreState {
   return {
+    activeWorkspaceView: "chat",
     sessions: [],
     currentSessionId: null,
     messages: [],

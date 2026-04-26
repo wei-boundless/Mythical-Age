@@ -28,7 +28,7 @@ export function ChatPanel() {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col gap-4">
-      <div className="panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-[36px] p-5">
+      <div className="panel chat-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-[36px] p-5">
         <div className="chat-panel-head mb-4 flex items-center justify-end">
           <div className="metric-pill mono chat-panel-metric">
             {tokenMetricLabel(tokenStats)}

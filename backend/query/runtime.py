@@ -1135,6 +1135,7 @@ class QueryRuntime:
             )
             if stream_context is not None:
                 stream_context.__enter__()
+            model_stream_error: ModelRuntimeError | None = None
             try:
                 async for mode, payload in agent.astream(
                     {"messages": messages},
@@ -1231,9 +1232,32 @@ class QueryRuntime:
                                     "output": output,
                                 }
                                 yield {"type": "new_response"}
+            except ModelRuntimeError as exc:
+                model_stream_error = exc
             finally:
                 if stream_context is not None:
                     stream_context.__exit__(None, None, None)
+
+            if model_stream_error is not None:
+                failure_event = self._model_runtime_failure_done_event(
+                    execution=execution,
+                    main_context=context.main_context,
+                    error=model_stream_error,
+                    recent_tool_receipts=recent_tool_receipts,
+                )
+                if trace is not None:
+                    trace.annotate(
+                        {
+                            "app.answer_chars": len(str(failure_event.get("content", "") or "")),
+                            "app.answer_channel": str(failure_event.get("answer_channel", "") or ""),
+                            "app.answer_source": str(failure_event.get("answer_source", "") or ""),
+                            "app.answer_fallback_reason": str(failure_event.get("answer_fallback_reason", "") or ""),
+                            "app.output_leak_flags": "",
+                            "app.tool_receipt_count": len(recent_tool_receipts),
+                        }
+                    )
+                yield failure_event
+                return
 
             output_boundary.finalize_segment(fallback_content=last_ai_message)
             output_response = output_boundary.build_response(
@@ -2331,6 +2355,52 @@ class QueryRuntime:
             "answer_fallback_reason": "agent_tool_steps_exceeded",
             "answer_leak_flags": [],
         }
+
+    def _model_runtime_failure_done_event(
+        self,
+        *,
+        execution: QueryExecutionPlan,
+        main_context: MainContextState,
+        error: ModelRuntimeError,
+        recent_tool_receipts: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        fallback_reason = f"model_runtime_{str(getattr(error, 'code', '') or 'error').strip() or 'error'}"
+        return {
+            "type": "done",
+            "content": self._build_model_runtime_failure_message(
+                error=error,
+                recent_tool_receipts=recent_tool_receipts,
+            ),
+            "main_context": main_context.to_dict(),
+            "task_summary_refs": [],
+            "answer_channel": "fallback_answer",
+            "answer_source": "runtime_error_fallback",
+            "answer_fallback_reason": fallback_reason,
+            "answer_leak_flags": [],
+        }
+
+    def _build_model_runtime_failure_message(
+        self,
+        *,
+        error: ModelRuntimeError,
+        recent_tool_receipts: list[dict[str, str]],
+    ) -> str:
+        code = str(getattr(error, "code", "") or "").strip()
+        if code == "timeout":
+            lines = ["这轮在整理最终答案时超时了，我先把当前进展停在这里。"]
+        else:
+            lines = ["这轮在生成最终答案时中断了，我先把当前进展停在这里。"]
+        recent_attempts = [
+            item
+            for item in (self._summarize_tool_step_attempt(receipt) for receipt in recent_tool_receipts[-3:])
+            if item
+        ]
+        if recent_attempts:
+            lines.append("我刚才已经做到这些：")
+            for item in recent_attempts:
+                lines.append(f"- {item}")
+        lines.append("你可以直接告诉我继续沿哪条线程、哪个文件，或让我只基于当前已拿到的结果先给结论。")
+        return "\n".join(lines)
 
     def _build_tool_step_guard_message(
         self,

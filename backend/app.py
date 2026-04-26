@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from api.chat import router as chat_router
 from api.config_api import router as config_router
+from api.experiments import router as experiments_router
 from api.files import router as files_router
 from api.sessions import router as sessions_router
 from api.tasks import router as tasks_router
@@ -37,6 +38,7 @@ app.include_router(files_router, prefix="/api", tags=["files"])
 app.include_router(tokens_router, prefix="/api", tags=["tokens"])
 app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(tasks_router, prefix="/api", tags=["tasks"])
+app.include_router(experiments_router, prefix="/api", tags=["experiments"])
 
 
 @app.exception_handler(InvalidSessionId)

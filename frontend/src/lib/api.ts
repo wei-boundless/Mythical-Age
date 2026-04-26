@@ -31,6 +31,45 @@ export type SessionHistory = {
   }>;
 };
 
+export type ExperimentProfile = {
+  id: string;
+  title: string;
+  description: string;
+  command_preview: string;
+  risk: string;
+  estimated_duration: string;
+  requires_confirmation: boolean;
+};
+
+export type ExperimentRun = {
+  run_id: string;
+  profile: string;
+  status: string;
+  command_preview: string;
+  output_dir: string;
+  log_path: string;
+  log_tail?: string;
+  started_at: number;
+  ended_at: number;
+  duration_ms: number;
+  returncode: number | null;
+  pid: number | null;
+  summary: {
+    total: number;
+    passed: number;
+    failed: number;
+    first_failure: string;
+  };
+};
+
+export type ExperimentArtifacts = {
+  run_result: Record<string, unknown>;
+  issues: Array<Record<string, unknown>>;
+  report: string;
+  trace_tail: string;
+  summary: ExperimentRun["summary"];
+};
+
 export type StreamHandlers = {
   onEvent: (event: string, data: Record<string, unknown>) => void;
 };
@@ -150,6 +189,35 @@ export async function setPermissionMode(mode: string) {
   return request<{ mode: string; supported_modes: string[] }>("/config/permission-mode", {
     method: "PUT",
     body: JSON.stringify({ mode })
+  });
+}
+
+export async function listExperimentProfiles() {
+  return request<ExperimentProfile[]>("/experiments/profiles");
+}
+
+export async function listExperimentRuns(limit = 20) {
+  return request<ExperimentRun[]>(`/experiments/runs?limit=${limit}`);
+}
+
+export async function startExperimentRun(profile: string) {
+  return request<ExperimentRun>("/experiments/runs", {
+    method: "POST",
+    body: JSON.stringify({ profile })
+  });
+}
+
+export async function getExperimentRun(runId: string) {
+  return request<ExperimentRun>(`/experiments/runs/${encodeURIComponent(runId)}`);
+}
+
+export async function getExperimentArtifacts(runId: string) {
+  return request<ExperimentArtifacts>(`/experiments/runs/${encodeURIComponent(runId)}/artifacts`);
+}
+
+export async function cancelExperimentRun(runId: string) {
+  return request<ExperimentRun>(`/experiments/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST"
   });
 }
 

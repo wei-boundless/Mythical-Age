@@ -33,7 +33,18 @@ export type SkillSummary = {
   path: string;
 };
 
+export type WorkspaceView =
+  | "chat"
+  | "memory"
+  | "test-system"
+  | "evidence"
+  | "system-framework"
+  | "experiments"
+  | "capabilities"
+  | "playground";
+
 export type StoreState = {
+  activeWorkspaceView: WorkspaceView;
   sessions: SessionSummary[];
   currentSessionId: string | null;
   messages: Message[];
@@ -52,6 +63,7 @@ export type StoreState = {
 };
 
 export type StoreActions = {
+  setWorkspaceView: (view: WorkspaceView) => void;
   createNewSession: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   sendMessage: (value: string) => Promise<void>;

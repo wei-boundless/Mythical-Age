@@ -33,18 +33,18 @@ const SOUL_COLORS: Record<SoulKey, { color: string; glow: string; intro: string 
     intro: "河伯更偏冷静、克制，语气会更稳，表达更收束。"
   },
   siyue: {
-    color: "#c9b46b",
-    glow: "rgba(201, 180, 107, 0.34)",
+    color: "#f7cb62",
+    glow: "rgba(247, 203, 98, 0.34)",
     intro: "四岳更偏稳重、沉着，表达会更有结构感和分寸感。"
   },
   zhurong: {
-    color: "#ff4b2f",
-    glow: "rgba(255, 75, 47, 0.4)",
+    color: "#e86f42",
+    glow: "rgba(232, 111, 66, 0.32)",
     intro: "祝融更偏直接、果断，语气会更有激情和行动感。"
   },
   xuannv: {
-    color: "#eef5f1",
-    glow: "rgba(238, 245, 241, 0.38)",
+    color: "#f8fbf7",
+    glow: "rgba(248, 251, 247, 0.42)",
     intro: "玄女更偏细致、敏锐，表达会更注重辨析和层次。"
   }
 };

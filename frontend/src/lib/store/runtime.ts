@@ -25,7 +25,7 @@ import {
 
 import type { Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
-import type { StoreActions, StoreState } from "./types";
+import type { StoreActions, StoreState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
 export class WorkspaceRuntime {
@@ -37,6 +37,9 @@ export class WorkspaceRuntime {
 
   constructor(private readonly store: Store<StoreState>) {
     this.actions = {
+      setWorkspaceView: (view) => {
+        this.setWorkspaceView(view);
+      },
       createNewSession: async () => {
         await this.createNewSession();
       },
@@ -400,5 +403,9 @@ export class WorkspaceRuntime {
 
   private setInspectorWidth(width: number) {
     this.store.setState((prev) => ({ ...prev, inspectorWidth: width }));
+  }
+
+  private setWorkspaceView(view: WorkspaceView) {
+    this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
   }
 }

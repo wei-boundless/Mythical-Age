@@ -2,15 +2,16 @@
 
 import { useEffect } from "react";
 
-import { ChatPanel } from "@/components/chat/ChatPanel";
 import { Navbar } from "@/components/layout/Navbar";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
 import { RightRail } from "@/components/layout/RightRail";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { WorkspacePanel } from "@/components/workspace/WorkspacePanel";
+import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
 import { AppProvider, useAppStore } from "@/lib/store";
 
 function Workspace() {
-  const { sidebarWidth, setSidebarWidth, activeSoulKey } = useAppStore();
+  const { sidebarWidth, setSidebarWidth, activeSoulKey, activeWorkspaceView } = useAppStore();
 
   useEffect(() => {
     if (activeSoulKey) {
@@ -19,6 +20,14 @@ function Workspace() {
     }
     delete document.documentElement.dataset.soul;
   }, [activeSoulKey]);
+
+  if (activeWorkspaceView === "system-framework") {
+    return (
+      <main className="system-framework-stage min-h-screen">
+        <SystemFrameworkView />
+      </main>
+    );
+  }
 
   return (
     <main className="workspace-shell min-h-screen px-3 py-4 md:px-6 md:py-6">
@@ -29,7 +38,7 @@ function Workspace() {
             <Sidebar />
           </div>
           <ResizeHandle onResize={(delta) => setSidebarWidth(Math.max(280, sidebarWidth + delta))} />
-          <ChatPanel />
+          <WorkspacePanel />
           <div className="w-full xl:ml-4 xl:w-[320px] xl:shrink-0">
             <RightRail />
           </div>
