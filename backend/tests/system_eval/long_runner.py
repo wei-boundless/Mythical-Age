@@ -6,6 +6,7 @@ import os
 import platform
 import sys
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,7 @@ class TurnResult:
     tasks_count: int = 0
     passed: bool = True
     failed_checks: list[str] = field(default_factory=list)
+    quality_warnings: list[str] = field(default_factory=list)
     timing: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -212,6 +214,81 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
     return failures
 
 
+_WARNING_OUTPUT_MARKERS = (
+    "tool_not_safe_for_auto_route",
+    "tool_permission_denied",
+    "tool_contract_blocked",
+    "agent_tool_steps_exceeded",
+    "explicit path is required",
+    "file does not exist",
+    "path is a directory",
+    "Path traversal detected",
+    "target_page_text_quality_low",
+    "target_page_has_no_stable_text",
+    "target_section_not_located",
+    "PDF analysis failed",
+    "Read failed",
+    "Analyze failed",
+    "无法调用工具",
+    "工具调用过多",
+    "连续尝试了过多工具调用",
+    "文本质量不稳定",
+    "没有稳定可提取",
+    "没有稳定定位",
+)
+
+
+def _append_warning(warnings: list[str], warning: str) -> None:
+    normalized = warning.strip()
+    if normalized and normalized not in warnings:
+        warnings.append(normalized)
+
+
+def _collect_quality_warnings(
+    *,
+    turn: TurnResult,
+    events: list[dict[str, Any]],
+) -> list[str]:
+    warnings: list[str] = []
+
+    if turn.answer_fallback_reason:
+        _append_warning(
+            warnings,
+            f"answer.fallback={turn.answer_fallback_reason}"
+            f" source={turn.answer_source or 'unknown'}",
+        )
+    elif turn.answer_channel == "fallback_answer":
+        _append_warning(warnings, f"answer.fallback source={turn.answer_source or 'unknown'}")
+
+    if turn.orchestration_diff_status == "warning":
+        _append_warning(
+            warnings,
+            f"orchestration.diff.warning={turn.orchestration_diff_summary or 'missing comparable fields'}",
+        )
+
+    response_text = str(turn.response_text or "")
+    for marker in _WARNING_OUTPUT_MARKERS:
+        if marker in response_text:
+            _append_warning(warnings, f"response.marker={marker}")
+
+    for event in events:
+        event_name = str(event.get("event") or "")
+        data = event.get("data")
+        payload = data if isinstance(data, dict) else {}
+        tool_name = str(payload.get("tool") or "")
+        output_text = str(payload.get("output") or payload.get("content") or "")
+        if not output_text:
+            continue
+        for marker in _WARNING_OUTPUT_MARKERS:
+            if marker not in output_text:
+                continue
+            prefix = f"tool.{tool_name}" if tool_name else f"event.{event_name}"
+            _append_warning(warnings, f"{prefix}.marker={marker}")
+            break
+
+    return warnings
+
+
 def _ensure_session(client: TestClient, session_ids: dict[str, str], alias: str, *, title: str = "") -> str:
     existing = session_ids.get(alias)
     if existing:
@@ -293,6 +370,7 @@ def _cleanup_session(runtime, session_id: str) -> bool:
     for _ in range(8):
         try:
             runtime.session_manager.delete_session(session_id)
+            runtime.memory_facade.delete_session_memory(session_id)
             return True
         except PermissionError:
             time.sleep(0.5)
@@ -508,6 +586,7 @@ def _execute_user_turn(
             "orchestration.diff=mismatch"
             f" ({'; '.join(turn_result.orchestration_diff_mismatches[:3]) or turn_result.orchestration_diff_summary})"
         )
+    turn_result.quality_warnings = _collect_quality_warnings(turn=turn_result, events=events)
     turn_result.passed = not turn_result.failed_checks and "error" not in turn_result.event_types
 
     artifact_path = scenario_dir / f"turn-{turn_index:02d}-{_slug(turn.session)}.json"
@@ -589,18 +668,42 @@ def _execute_scenario(
             cleanup[alias] = _cleanup_session(runtime, session_id)
 
     failed_turns = [turn for turn in turn_results if not turn.passed]
+    warning_turns = [turn for turn in turn_results if turn.quality_warnings]
+    warning_counts = Counter(
+        warning.split("=", 1)[0]
+        for turn in warning_turns
+        for warning in turn.quality_warnings
+    )
     duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
     request_ms = round(sum(float(turn.timing.get("duration_ms", 0.0) or 0.0) for turn in turn_results), 2)
     memory_sync_ms = round(sum(float(turn.memory_sync_ms or 0.0) for turn in turn_results), 2)
     summary = f"{len(turn_results) - len(failed_turns)}/{len(turn_results)} user turns passed"
     if failed_turns:
         summary += f"; first failure turn={failed_turns[0].index}"
+    if warning_turns:
+        summary += f"; warnings={len(warning_turns)} turns"
 
     details = {
         "goal": scenario.goal,
         "coverage": list(scenario.coverage),
         "operator_results": operator_results,
         "turn_results": [turn.to_dict() for turn in turn_results],
+        "quality_warning_count": sum(len(turn.quality_warnings) for turn in warning_turns),
+        "quality_warning_turn_count": len(warning_turns),
+        "quality_warning_counts": dict(sorted(warning_counts.items())),
+        "quality_warning_turns": [
+            {
+                "index": turn.index,
+                "session_alias": turn.session_alias,
+                "message": turn.message,
+                "answer_source": turn.answer_source,
+                "answer_fallback_reason": turn.answer_fallback_reason,
+                "orchestration_diff_status": turn.orchestration_diff_status,
+                "warnings": list(turn.quality_warnings),
+                "artifact_path": str(scenario_dir / f"turn-{turn.index:02d}-{_slug(turn.session_alias)}.json"),
+            }
+            for turn in warning_turns
+        ],
         "cleanup": cleanup,
         "trace_id": failed_turns[0].trace_id if failed_turns else "",
         "trace_url": failed_turns[0].trace_url if failed_turns else "",
@@ -652,33 +755,68 @@ def _build_context(output_dir: Path) -> RunContext:
     )
 
 
-def _issue_from_result(index: int, result: ScenarioResult) -> IssueEntry | None:
-    if result.passed:
-        return None
+def _issues_from_result(index: int, result: ScenarioResult) -> list[IssueEntry]:
+    issues: list[IssueEntry] = []
     drift_turns = [
         turn
         for turn in list(result.details.get("turn_results") or [])
         if isinstance(turn, dict) and str(turn.get("orchestration_diff_status") or "") == "mismatch"
     ]
-    summary = result.summary
-    if drift_turns:
-        first = drift_turns[0]
-        mismatches = list(first.get("orchestration_diff_mismatches") or [])
-        summary += (
-            f"; 编排计划偏移 turn={first.get('index') or '?'}"
-            f" {('; '.join(str(item) for item in mismatches[:3])) if mismatches else first.get('orchestration_diff_summary', '')}"
+    if not result.passed:
+        summary = result.summary
+        if drift_turns:
+            first = drift_turns[0]
+            mismatches = list(first.get("orchestration_diff_mismatches") or [])
+            summary += (
+                f"; 编排计划偏移 turn={first.get('index') or '?'}"
+                f" {('; '.join(str(item) for item in mismatches[:3])) if mismatches else first.get('orchestration_diff_summary', '')}"
+            )
+        issues.append(
+            IssueEntry(
+                id=f"LONG-{index:03d}",
+                title=result.name,
+                severity="high",
+                category=result.category,
+                summary=summary,
+                command=result.command,
+                artifact_paths=list(result.artifact_paths),
+                trace_id=str(result.details.get("trace_id", "") or ""),
+                trace_url=str(result.details.get("trace_url", "") or ""),
+            )
         )
-    return IssueEntry(
-        id=f"LONG-{index:03d}",
-        title=result.name,
-        severity="high",
-        category=result.category,
-        summary=summary,
-        command=result.command,
-        artifact_paths=list(result.artifact_paths),
-        trace_id=str(result.details.get("trace_id", "") or ""),
-        trace_url=str(result.details.get("trace_url", "") or ""),
-    )
+
+    warning_turns = [
+        turn
+        for turn in list(result.details.get("quality_warning_turns") or [])
+        if isinstance(turn, dict) and list(turn.get("warnings") or [])
+    ]
+    if warning_turns:
+        warning_counts = dict(result.details.get("quality_warning_counts") or {})
+        top_counts = ", ".join(
+            f"{name}:{count}"
+            for name, count in sorted(warning_counts.items(), key=lambda item: (-int(item[1]), str(item[0])))[:5]
+        )
+        first = warning_turns[0]
+        first_warnings = "; ".join(str(item) for item in list(first.get("warnings") or [])[:3])
+        issues.append(
+            IssueEntry(
+                id=f"LONG-{index:03d}-WARN",
+                title=f"{result.name} quality warnings",
+                severity="medium",
+                category=f"{result.category}/warning",
+                summary=(
+                    f"{len(warning_turns)} turns emitted quality warnings"
+                    f"; top={top_counts or 'unknown'}"
+                    f"; first turn={first.get('index') or '?'} {first_warnings}"
+                ),
+                command=result.command,
+                artifact_paths=list(result.artifact_paths),
+                trace_id=str(result.details.get("trace_id", "") or ""),
+                trace_url=str(result.details.get("trace_url", "") or ""),
+            )
+        )
+
+    return issues
 
 
 def _trace_from_result(result: ScenarioResult) -> TraceSpan:
@@ -778,8 +916,8 @@ def main(argv: list[str] | None = None) -> int:
 
     run_result.issues = [
         issue
-        for index, issue in enumerate((_issue_from_result(i + 1, result) for i, result in enumerate(run_result.results)), start=1)
-        if issue is not None
+        for index, result in enumerate(run_result.results, start=1)
+        for issue in _issues_from_result(index, result)
     ]
     run_result.traces = [_trace_from_result(result) for result in run_result.results]
     run_result.metadata = {

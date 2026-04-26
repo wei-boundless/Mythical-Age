@@ -12,7 +12,8 @@ import {
   renameSession,
   saveFile,
   setRagMode,
-  streamChat
+  streamChat,
+  switchSoulSystemSeed
 } from "@/lib/api";
 import {
   ACTIVE_SOUL_PATH,
@@ -314,9 +315,8 @@ export class WorkspaceRuntime {
     if (previousKey === key) {
       return;
     }
-    const path = SOUL_SEED_PATHS[key];
-    const file = await loadFile(path);
-    await saveFile(ACTIVE_SOUL_PATH, file.content);
+    await switchSoulSystemSeed(key);
+    const file = await loadFile(ACTIVE_SOUL_PATH);
     const souls = await this.loadSouls();
     const activeSoul = souls.options.find((item) => item.key === souls.activeSoulKey) ?? null;
     const switchNotice = activeSoul ? this.buildSoulSwitchNotice(activeSoul) : "";

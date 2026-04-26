@@ -46,6 +46,7 @@ async def rename_session(session_id: str, payload: RenameSessionRequest) -> dict
 async def delete_session(session_id: str) -> dict[str, bool]:
     runtime = require_runtime()
     runtime.session_manager.delete_session(session_id)
+    runtime.memory_facade.delete_session_memory(session_id)
     return {"ok": True}
 
 

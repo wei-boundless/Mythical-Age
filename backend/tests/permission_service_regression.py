@@ -64,3 +64,11 @@ def test_permission_service_respects_scope_and_direct_route_safety() -> None:
         direct = service.can_invoke_tool("read_file", direct_route=True)
         assert direct.allowed is False
         assert direct.reason == "tool_not_safe_for_auto_route"
+
+        explicit_read = service.can_invoke_tool(
+            "read_file",
+            direct_route=True,
+            tool_input={"path": "docs/example.md"},
+        )
+        assert explicit_read.allowed is True
+        assert "route_eligibility:explicit_read_only" in explicit_read.checks

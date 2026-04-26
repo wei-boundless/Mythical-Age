@@ -52,14 +52,14 @@ def build_default_agent_cards() -> dict[str, A2AAgentCard]:
     return {
         AGENT_ID_BY_WORKER_ROUTE["retrieval"]: A2AAgentCard(
             agent_id=AGENT_ID_BY_WORKER_ROUTE["retrieval"],
-            name="Retrieval Agent",
-            description="Queries local knowledge evidence and emits typed candidates/handles.",
+            name="检索智能体",
+            description="查询本地知识证据，返回可追踪的候选证据与对象句柄。",
             supports_long_task=True,
             skills=[
                 A2AAgentSkill(
                     id="knowledge-retrieval",
-                    name="Knowledge Retrieval",
-                    description="Retrieve local knowledge without exposing raw chunks as main-thread truth.",
+                    name="知识检索",
+                    description="召回本地知识，但不把原始片段直接当作主线程结论。",
                     tags=["rag", "retrieval", "knowledge"],
                     input_modes=["text/plain"],
                     output_modes=["application/json"],
@@ -70,14 +70,14 @@ def build_default_agent_cards() -> dict[str, A2AAgentCard]:
         ),
         AGENT_ID_BY_WORKER_ROUTE["pdf"]: A2AAgentCard(
             agent_id=AGENT_ID_BY_WORKER_ROUTE["pdf"],
-            name="PDF Agent",
-            description="Reads PDF artifacts, extracts page/section evidence, and hands table artifacts onward.",
+            name="文档智能体",
+            description="读取 PDF 与文档产物，抽取页级/章节级证据，并把表格产物继续移交。",
             supports_long_task=True,
             skills=[
                 A2AAgentSkill(
                     id="pdf-analysis",
-                    name="PDF Analysis",
-                    description="Analyze explicit or handle-bound PDF sources.",
+                    name="PDF 分析",
+                    description="分析用户明确指定或由句柄绑定的 PDF 来源。",
                     tags=["pdf", "document", "page"],
                     input_modes=["text/plain", "application/pdf"],
                     output_modes=["application/json", "text/plain"],
@@ -88,14 +88,14 @@ def build_default_agent_cards() -> dict[str, A2AAgentCard]:
         ),
         AGENT_ID_BY_WORKER_ROUTE["structured_data"]: A2AAgentCard(
             agent_id=AGENT_ID_BY_WORKER_ROUTE["structured_data"],
-            name="Structured Data Agent",
-            description="Executes schema inspection, aggregation, and subset continuation over tabular handles.",
+            name="结构化数据智能体",
+            description="围绕表格句柄执行结构识别、聚合分析和子集延续处理。",
             supports_long_task=False,
             skills=[
                 A2AAgentSkill(
                     id="structured-data-analysis",
-                    name="Structured Data Analysis",
-                    description="Analyze explicit or handle-bound table/dataset sources.",
+                    name="结构化数据分析",
+                    description="分析用户明确指定或由句柄绑定的表格/数据集来源。",
                     tags=["table", "dataset", "analytics"],
                     input_modes=["text/plain", "text/csv", "application/json"],
                     output_modes=["application/json", "text/plain"],

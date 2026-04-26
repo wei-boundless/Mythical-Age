@@ -211,6 +211,25 @@ def test_memory_facade_refreshes_session_memory_from_context_state() -> None:
         assert "# Next Step" in debug_stored
 
 
+def test_memory_facade_deletes_session_memory_directory() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        facade = MemoryFacade(root)
+        session_id = "memory-facade-cleanup"
+        facade.refresh_session_memory(
+            session_id,
+            [
+                {"role": "user", "content": "查询黄金价格。"},
+                {"role": "assistant", "content": "我会按当前会话处理。"},
+            ],
+        )
+        session_dir = root / "session-memory" / session_id
+
+        assert session_dir.exists()
+        assert facade.delete_session_memory(session_id) is True
+        assert not session_dir.exists()
+
+
 def test_session_memory_model_view_masks_bindings_and_handles() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

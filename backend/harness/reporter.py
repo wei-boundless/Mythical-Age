@@ -42,6 +42,15 @@ def render_markdown(run_result: RunResult) -> str:
             if trace_url:
                 lines.append(f"  trace: {trace_url}")
 
+    if run_result.issues:
+        lines.extend(["", "## Issues", ""])
+        for issue in run_result.issues:
+            lines.append(
+                f"- `{issue.severity}` `{issue.category}` `{issue.id}`: {issue.summary}"
+            )
+            if issue.trace_url:
+                lines.append(f"  trace: {issue.trace_url}")
+
     lines.extend(["", "## Artifacts", ""])
     for name, path in sorted(run_result.artifacts.items()):
         lines.append(f"- `{name}`: `{path}`")

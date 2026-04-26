@@ -665,7 +665,7 @@ export function MemoryView() {
           </div>
           <div className="memory-orbit__node memory-orbit__node--prompt">
             <Sparkles size={16} />
-            <span>Prompt 注入</span>
+            <span>上下文装配</span>
           </div>
           <div className="memory-orbit__node memory-orbit__node--durable">
             <Database size={16} />
@@ -697,7 +697,7 @@ export function MemoryView() {
           <div className="memory-inspector-focus__signal">
             <span>{memoryInspectorTarget.source === "test-system" ? "来自测试系统" : "检查目标"}</span>
             <strong>
-              {memoryInspectorTarget.turnIndex ? `Turn ${memoryInspectorTarget.turnIndex}` : "指定记忆目标"}
+              {memoryInspectorTarget.turnIndex ? `第 ${memoryInspectorTarget.turnIndex} 轮` : "指定记忆目标"}
               {linkedTurnContext?.session_alias ? ` · ${linkedTurnContext.session_alias}` : ""}
             </strong>
             <p>
@@ -711,7 +711,7 @@ export function MemoryView() {
           <div className="memory-inspector-focus__meta">
             <span><b>{linkedMemoryTrace?.session_memory.section_count ?? 0}</b> 状态片段</span>
             <span><b>{(linkedMemoryTrace?.durable_memory.exact_count ?? 0) + (linkedMemoryTrace?.durable_memory.relevant_count ?? 0)}</b> 长期命中</span>
-            <span><b>{linkedMemoryTrace?.prompt_injection.section_count ?? 0}</b> Prompt 片段</span>
+            <span><b>{linkedMemoryTrace?.prompt_injection.section_count ?? 0}</b> 装配片段</span>
             <span><b>{linkedTurnContext?.status === "passed" ? "通过" : linkedTurnContext?.status === "failed" ? "失败" : "未知"}</b> 测试状态</span>
           </div>
           <div className="memory-inspector-focus__actions">
@@ -734,20 +734,20 @@ export function MemoryView() {
             <section className="workspace-section memory-linked-turn">
               <div className="workspace-section__head">
                 <GitBranch size={18} />
-                <h3>测试 Turn 真实对话链路</h3>
-                {memoryInspectorTarget.turnIndex ? <span className="tag-chip">Turn {memoryInspectorTarget.turnIndex}</span> : null}
-                <span className="tag-chip">{linkedMemoryTrace ? "真实 trace" : linkedMemoryTraceLoading ? "加载中" : "trace 不完整"}</span>
+                <h3>测试轮次真实对话链路</h3>
+                {memoryInspectorTarget.turnIndex ? <span className="tag-chip">第 {memoryInspectorTarget.turnIndex} 轮</span> : null}
+                <span className="tag-chip">{linkedMemoryTrace ? "真实链路" : linkedMemoryTraceLoading ? "加载中" : "链路不完整"}</span>
               </div>
               {linkedMemoryTrace ? (
                 <>
                   <div className="memory-linked-turn__dialogue">
                     <article>
                       <span>用户输入</span>
-                      <p>{linkedTurnContext?.user_input || memoryInspectorTarget.reason || "该 turn artifact 没有记录用户输入。"}</p>
+                      <p>{linkedTurnContext?.user_input || memoryInspectorTarget.reason || "该轮测试记录没有用户输入。"}</p>
                     </article>
                     <article>
                       <span>助手输出</span>
-                      <p>{linkedTurnContext?.assistant_output || "该 turn artifact 没有记录助手输出。"}</p>
+                      <p>{linkedTurnContext?.assistant_output || "该轮测试记录没有助手输出。"}</p>
                     </article>
                   </div>
                   <div className="memory-chain-map memory-chain-map--observed">
@@ -772,15 +772,15 @@ export function MemoryView() {
                     </article>
                     <article className="memory-chain-node memory-chain-node--prompt">
                       <span>04</span>
-                      <strong>Prompt 注入结果</strong>
-                      <p>{linkedMemoryTrace.prompt_injection.sections[0]?.preview || "没有记录到记忆相关 Prompt 注入片段。"}</p>
+                      <strong>上下文装配结果</strong>
+                      <p>{linkedMemoryTrace.prompt_injection.sections[0]?.preview || "没有记录到记忆相关装配片段。"}</p>
                     </article>
                   </div>
                 </>
               ) : (
                 <article className="workspace-record">
-                  <h3>{linkedMemoryTraceLoading ? "正在读取真实链路" : "这一轮没有可用 memory trace"}</h3>
-                  <p>{linkedMemoryTraceStatus || "可以回到测试系统选择带有 Memory 标记的 turn。"}</p>
+                  <h3>{linkedMemoryTraceLoading ? "正在读取真实链路" : "这一轮没有可用记忆链路"}</h3>
+                  <p>{linkedMemoryTraceStatus || "可以回到测试系统选择带有记忆标记的轮次。"}</p>
                 </article>
               )}
             </section>
@@ -810,7 +810,7 @@ export function MemoryView() {
               <article>
                 <span>阅读入口</span>
                 <strong>当前会话原始文件</strong>
-                <p>用于核对真实 messages、tool_calls、压缩上下文和会话标题。</p>
+                <p>用于核对真实对话、工具调用、压缩上下文和会话标题。</p>
                 <button
                   className="action-button action-button--ghost"
                   disabled={!currentSessionId}
@@ -823,7 +823,7 @@ export function MemoryView() {
               <article>
                 <span>阅读控制</span>
                 <strong>对话展开与召回检查</strong>
-                <p>批量展开所有轮次，或单独点击某一轮查看状态记忆、长期召回和 Prompt 注入。</p>
+                <p>批量展开所有轮次，或单独点击某一轮查看状态记忆、长期召回和上下文装配。</p>
                 <div className="memory-management-panel__actions">
                   <button disabled={!filteredConversationItems.length} onClick={toggleAllConversationItems} type="button">
                     {expandedMessageIds.length === filteredConversationItems.length ? "全部收起" : "全部展开"}
@@ -845,7 +845,7 @@ export function MemoryView() {
             <div className="workspace-section__head">
               <MessageSquare size={18} />
               <h3>对话现场</h3>
-              <span className="tag-chip">{filteredConversationItems.length}/{conversationItems.length} turns</span>
+              <span className="tag-chip">{filteredConversationItems.length}/{conversationItems.length} 轮</span>
               <span className="tag-chip">{sessionHistory ? "后端历史" : "实时缓存"}</span>
               {sessionHistory?.title ? <span className="tag-chip">{sessionHistory.title}</span> : null}
               <button className="action-button action-button--muted" disabled={!filteredConversationItems.length} onClick={toggleAllConversationItems} type="button">
@@ -866,7 +866,7 @@ export function MemoryView() {
                       <span>{item.index}</span>
                       <strong>{item.role === "user" ? "用户输入" : "助手回应"}</strong>
                       <em>{compactText(item.content, 120)}</em>
-                      {item.toolCalls.length ? <i>{item.toolCalls.length} tools</i> : null}
+                      {item.toolCalls.length ? <i>{item.toolCalls.length} 个工具</i> : null}
                       <ChevronDown className={expanded ? "memory-dialogue-turn__chevron--open" : ""} size={16} />
                     </button>
                     {expanded ? (
@@ -877,9 +877,9 @@ export function MemoryView() {
                             {item.toolCalls.map((toolCall, toolIndex) => (
                               <details key={`${item.id}-tool-${toolIndex}`}>
                                 <summary>
-                                  工具 {toolIndex + 1}: {toolCall.tool || "unknown"}
+                                  工具 {toolIndex + 1}: {toolCall.tool || "未知工具"}
                                 </summary>
-                                <pre>{compactText(`Input:\n${toolCall.input || "空"}\n\nOutput:\n${toolCall.output || "空"}`, 1800)}</pre>
+                                <pre>{compactText(`输入：\n${toolCall.input || "空"}\n\n输出：\n${toolCall.output || "空"}`, 1800)}</pre>
                               </details>
                             ))}
                           </div>
@@ -937,14 +937,14 @@ export function MemoryView() {
                 </article>
                 <article className="memory-chain-node memory-chain-node--prompt">
                   <span>04</span>
-                  <strong>Prompt 注入</strong>
-                  <p>{turnRecallPreview?.rendered_summary || "没有生成长期记忆注入片段。"}</p>
+                  <strong>上下文装配</strong>
+                  <p>{turnRecallPreview?.rendered_summary || "没有生成长期记忆装配片段。"}</p>
                 </article>
               </div>
             ) : (
               <article className="workspace-record">
                 <h3>请选择一轮对话</h3>
-                <p>在“对话现场”展开某一轮，然后点击“查看这一轮记忆链路”，这里会显示输入如何经过状态记忆、长期召回和 Prompt 注入。</p>
+                <p>在“对话现场”展开某一轮，然后点击“查看这一轮记忆链路”，这里会显示输入如何经过状态记忆、长期召回和上下文装配。</p>
               </article>
             )}
             {turnRecallPreview?.selected_notes.length ? (

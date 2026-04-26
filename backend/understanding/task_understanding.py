@@ -54,6 +54,7 @@ class TaskSignals:
     knowledge_source_anchor: str = ""
     knowledge_source_anchor_kind: str = ""
     workspace_read_request: bool = False
+    workspace_search_request: bool = False
     faq_shape: bool = False
     external_requirement: bool = False
     official_source_requirement: bool = False
@@ -77,6 +78,7 @@ class TaskSignals:
             "knowledge_source_anchor": self.knowledge_source_anchor,
             "knowledge_source_anchor_kind": self.knowledge_source_anchor_kind,
             "workspace_read_request": self.workspace_read_request,
+            "workspace_search_request": self.workspace_search_request,
             "faq_shape": self.faq_shape,
             "external_requirement": self.external_requirement,
             "official_source_requirement": self.official_source_requirement,
@@ -146,6 +148,7 @@ def analyze_task_understanding(
         _build_direct_dataset_task(normalized, signals)
         or _build_direct_pdf_task(normalized, signals)
         or _build_direct_workspace_read_task(normalized, signals)
+        or _build_direct_workspace_search_task(normalized, signals)
         or _build_direct_weather_task(normalized, signals)
         or _build_direct_gold_task(normalized, signals)
         or _build_direct_web_task(normalized, signals)
@@ -188,6 +191,7 @@ def _collect_task_signals(message: str, lowered: str) -> TaskSignals:
     knowledge_source_anchor, knowledge_source_anchor_kind = _extract_knowledge_source_anchor(message)
     local_knowledge_scope = bool(knowledge_source_anchor)
     workspace_read_request = explicit_workspace_path != "" and _looks_like_workspace_read_request(lowered)
+    workspace_search_request = _looks_like_workspace_search_request(lowered)
     faq_shape = _looks_like_faq_problem(lowered)
     external_requirement = bool(explicit_urls) or _contains_any(
         lowered,
@@ -254,6 +258,7 @@ def _collect_task_signals(message: str, lowered: str) -> TaskSignals:
         knowledge_source_anchor=knowledge_source_anchor,
         knowledge_source_anchor_kind=knowledge_source_anchor_kind,
         workspace_read_request=workspace_read_request,
+        workspace_search_request=workspace_search_request,
         faq_shape=faq_shape,
         external_requirement=external_requirement,
         official_source_requirement=official_source_requirement,
@@ -348,6 +353,28 @@ def _build_direct_workspace_read_task(message: str, signals: TaskSignals) -> Tas
         should_skip_rag=True,
         confidence=0.95,
         reasons=["explicit_workspace_file_anchor"],
+        structural_signals=signals.to_dict(),
+    )
+
+
+def _build_direct_workspace_search_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if not signals.workspace_search_request or signals.external_requirement:
+        return None
+    return TaskUnderstanding(
+        intent="workspace_file_search_query",
+        source_kind="workspace",
+        task_kind="workspace_file_search",
+        modality="workspace",
+        route_hint="tool",
+        preferred_skill=None,
+        capability_requests=["workspace_search"],
+        candidate_tools=["search_files"],
+        parameters={"query": message},
+        execution_posture="direct_tool",
+        direct_route_reason="workspace_search_request",
+        should_skip_rag=True,
+        confidence=0.9,
+        reasons=["workspace_search_request"],
         structural_signals=signals.to_dict(),
     )
 
@@ -564,6 +591,41 @@ def _looks_like_workspace_read_request(lowered: str) -> bool:
     )
 
 
+def _looks_like_workspace_search_request(lowered: str) -> bool:
+    has_search_intent = _contains_any(
+        lowered,
+        (
+            "搜索",
+            "查找",
+            "找一下",
+            "找到",
+            "搜一下",
+            "检索",
+            "rg",
+            "ripgrep",
+            "search file",
+            "find file",
+            "locate file",
+        ),
+    )
+    has_workspace_object = _contains_any(
+        lowered,
+        (
+            "文件",
+            "路径",
+            "目录",
+            "源码",
+            "文档",
+            "file",
+            "path",
+            "workspace",
+            "repo",
+            "repository",
+        ),
+    )
+    return has_search_intent and has_workspace_object
+
+
 def _looks_like_faq_problem(lowered: str) -> bool:
     explanation_markers = (
         "为什么",
@@ -632,6 +694,8 @@ def _build_capability_requests(
         requests.append("document_analysis")
     if signals.explicit_workspace_path and signals.workspace_read_request:
         requests.append("workspace_read")
+    if signals.workspace_search_request:
+        requests.append("workspace_search")
     if signals.weather_domain:
         requests.append("weather")
     if signals.gold_price_domain:

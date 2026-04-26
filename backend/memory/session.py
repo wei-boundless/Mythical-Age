@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,22 @@ class SessionMemoryLayer:
 
     def session_dir(self, session_id: str) -> Path:
         return self.session_root / session_id
+
+    def delete_session(self, session_id: str) -> bool:
+        normalized = str(session_id or "").strip()
+        if not normalized:
+            return False
+
+        root = self.session_root.resolve()
+        target = (self.session_root / normalized).resolve()
+        if target == root or root not in target.parents:
+            raise ValueError("Invalid session_id")
+        if not target.exists():
+            return True
+        if not target.is_dir():
+            raise ValueError("Session memory path is not a directory")
+        shutil.rmtree(target)
+        return True
 
     def manager(self, session_id: str) -> SessionMemoryManager:
         return SessionMemoryManager(self.session_dir(session_id))

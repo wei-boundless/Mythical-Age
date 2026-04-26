@@ -16,8 +16,9 @@ NODE_LABELS = {
     "api-router": "接口路由层",
     "runtime-guard": "运行时守卫",
     "runtime-root": "运行时装配中心",
-    "query-core": "对话执行核心",
-    "planner": "任务理解与规划",
+    "query-core": "对话执行引擎",
+    "orchestration-control": "编排控制面",
+    "planner": "Legacy 查询规划器",
     "prompt": "提示词组装",
     "memory": "记忆门面",
     "retrieval": "检索服务",
@@ -50,7 +51,13 @@ EDGE_LABELS = {
     "api-guard": "取得运行时",
     "guard-root": "就绪校验",
     "root-query": "注入执行依赖",
-    "query-planner": "分析任务",
+    "query-planner": "请求行为计划",
+    "orchestration-planner": "兼容旧计划",
+    "orchestration-runtime": "primary / fallback",
+    "orchestration-prompt": "Prompt 策略",
+    "orchestration-memory": "上下文策略",
+    "orchestration-tools": "契约预检",
+    "orchestration-evidence": "Worker 拓扑",
     "query-prompt": "组装系统提示",
     "prompt-memory": "读取上下文",
     "query-memory": "召回与写回",
@@ -63,7 +70,8 @@ EDGE_LABELS = {
     "memory-storage": "记忆落盘",
     "retrieval-storage": "索引读写",
     "runtime-storage": "刷新索引",
-    "tests-query": "回归压测",
+    "tests-query": "计划回放",
+    "tests-query-runtime": "执行回归",
     "tests-storage": "产物沉淀",
 }
 
@@ -72,6 +80,7 @@ BASE_NODE_IDS = [
     "runtime-guard",
     "runtime-root",
     "query-core",
+    "orchestration-control",
     "prompt",
     "model",
     "session-store",
@@ -82,6 +91,8 @@ BASE_EDGE_IDS = [
     "guard-root",
     "root-query",
     "query-prompt",
+    "query-planner",
+    "orchestration-runtime",
     "query-model",
     "api-model",
     "query-session",
@@ -169,13 +180,20 @@ def build_turn_overlay(output_dir: Path, turn_id: str) -> dict[str, Any]:
     edge_ids = list(BASE_EDGE_IDS)
     event_notes = _turn_event_notes(payload)
 
+    if _has_orchestration_signal(payload, event_names):
+        _append_unique(node_ids, "orchestration-control")
+        _append_unique(edge_ids, "query-planner")
+        _append_unique(edge_ids, "orchestration-runtime")
+        _append_unique(edge_ids, "tests-query")
+
     if _has_planner_signal(plan, result, event_names):
         _append_unique(node_ids, "planner")
-        _append_unique(edge_ids, "query-planner")
+        _append_unique(edge_ids, "orchestration-planner")
 
     if _has_memory_signal(payload, result, event_names):
         _append_unique(node_ids, "memory")
         _append_unique(node_ids, "storage")
+        _append_unique(edge_ids, "orchestration-memory")
         _append_unique(edge_ids, "prompt-memory")
         _append_unique(edge_ids, "query-memory")
         _append_unique(edge_ids, "memory-storage")
@@ -184,12 +202,14 @@ def build_turn_overlay(output_dir: Path, turn_id: str) -> dict[str, Any]:
         _append_unique(node_ids, "evidence")
         _append_unique(node_ids, "retrieval")
         _append_unique(node_ids, "storage")
+        _append_unique(edge_ids, "orchestration-evidence")
         _append_unique(edge_ids, "query-evidence")
         _append_unique(edge_ids, "evidence-retrieval")
         _append_unique(edge_ids, "retrieval-storage")
 
     if _has_tool_signal(plan, result, event_names):
         _append_unique(node_ids, "tooling")
+        _append_unique(edge_ids, "orchestration-tools")
         _append_unique(edge_ids, "query-tools")
 
     if _has_storage_signal(payload, result):
@@ -382,6 +402,8 @@ def _node_status(node_id: str, status: str, payload: dict[str, Any]) -> str:
         return status
     if node_id in {"query-core", "model"}:
         return status
+    if node_id == "orchestration-control" and _has_orchestration_signal(payload, _event_names(payload)):
+        return status
     if node_id == "planner" and _has_planner_signal(_dict(payload.get("plan")), _dict(payload.get("result")), _event_names(payload)):
         return status
     if node_id == "tooling" and _has_tool_signal(_dict(payload.get("plan")), _dict(payload.get("result")), _event_names(payload)):
@@ -397,19 +419,39 @@ def _suspect_edges(payload: dict[str, Any]) -> set[str]:
     result = _dict(payload.get("result"))
     text = _lower_blob(payload)
     suspect = {"query-model"}
+    orchestration_diff = _turn_orchestration_diff(payload)
+    if str(orchestration_diff.get("status") or "") == "mismatch":
+        suspect.add("query-planner")
+        suspect.add("orchestration-runtime")
     if result.get("answer_fallback_reason"):
         suspect.add("query-model")
     if "timeout" in text:
         suspect.add("query-model")
     if "tool" in text or "pdf_analysis" in text:
+        suspect.add("orchestration-tools")
         suspect.add("query-tools")
     if "pdf" in text or "retrieval" in text or "evidence" in text:
+        suspect.add("orchestration-evidence")
         suspect.add("query-evidence")
         suspect.add("evidence-retrieval")
     if "memory" in text or "context" in text or "状态" in text:
+        suspect.add("orchestration-memory")
         suspect.add("query-memory")
         suspect.add("prompt-memory")
     return suspect
+
+
+def _has_orchestration_signal(payload: dict[str, Any], event_names: list[str]) -> bool:
+    text = _lower_blob(payload)
+    return bool(
+        payload.get("orchestration_plan")
+        or payload.get("orchestration_diff")
+        or "orchestration_plan" in event_names
+        or "orchestration_diff" in event_names
+        or "orchestration_runtime_control" in event_names
+        or "orchestration_plan" in text
+        or "orchestration_diff" in text
+    )
 
 
 def _has_planner_signal(plan: dict[str, Any], result: dict[str, Any], event_names: list[str]) -> bool:

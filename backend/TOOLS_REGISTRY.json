@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 12,
+  "tool_count": 14,
   "tools": [
     {
       "name": "get_weather",
@@ -484,6 +484,131 @@
       "is_read_only": false,
       "is_destructive": false,
       "is_concurrency_safe": false
+    },
+    {
+      "name": "search_files",
+      "module": "tools.search_files_tool",
+      "contract": {
+        "required_inputs": [
+          "query"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "file",
+        "search",
+        "path",
+        "workspace",
+        "workspace_search"
+      ],
+      "supported_modalities": [
+        "text",
+        "code",
+        "document",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read"
+      ],
+      "route_hints": [
+        "tool",
+        "workspace_search",
+        "file_search"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/search_files",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "search_text",
+      "module": "tools.search_files_tool",
+      "contract": {
+        "required_inputs": [
+          "query"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "file",
+        "search",
+        "text_search",
+        "workspace",
+        "code_search"
+      ],
+      "supported_modalities": [
+        "text",
+        "code",
+        "document",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read"
+      ],
+      "route_hints": [
+        "tool",
+        "workspace_search",
+        "text_search",
+        "code_search"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/search_text",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
     },
     {
       "name": "read_file",

@@ -49,6 +49,9 @@ class MemoryFacade:
             corrections=corrections,
         )
 
+    def delete_session_memory(self, session_id: str) -> bool:
+        return self.session_memory.delete_session(session_id)
+
     def build_session_memory_block(
         self,
         session_id: str,

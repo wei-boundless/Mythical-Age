@@ -41,7 +41,7 @@ function emptySnapshot(sessionId: string | null): OrchestrationSnapshot {
     ["execution-mode", "执行模式", "进入 single、bundle 或 explicit fanout 执行拓扑。"],
     ["context", "上下文压缩", "整理历史窗口和上下文压力。"],
     ["memory", "记忆读取", "读取状态记忆、长期记忆和上下文包。"],
-    ["prompt", "Prompt 装配", "组合身份、准则、记忆、skill 和本轮提示。"],
+    ["prompt", "上下文装配", "组合灵魂、准则、记忆、skill 和本轮提示。"],
     ["capability", "能力调度", "决定进入模型、工具或 worker 分支。"],
     ["model", "模型生成", "模型主链流式输出或发起工具调用。"],
     ["worker", "Worker / Agent", "检索、PDF、结构化数据等 worker 分支。"],
@@ -1061,7 +1061,7 @@ export function ExperimentsView() {
                     <em>{branch.actual.status || branch.status}</em>
                     {branch.actual.task_id ? <em>{branch.actual.task_id}</em> : null}
                     {branch.actual.bundle_item_id ? <em>{branch.actual.bundle_item_id}</em> : null}
-                    {branch.actual.output_chars ? <em>{branch.actual.output_chars} chars</em> : null}
+                    {branch.actual.output_chars ? <em>{branch.actual.output_chars} 字</em> : null}
                     {assemblySelected ? <em>进入最终答案</em> : null}
                   </div>
                   {outputPreview ? (
@@ -1222,7 +1222,7 @@ export function ExperimentsView() {
               {selectedPromptSections.length ? (
                 <div className="orchestration-prompt-assembly">
                   <div className="orchestration-prompt-assembly__head">
-                    <span>Prompt 装配来源</span>
+                    <span>上下文装配来源</span>
                     <strong>{selectedPromptSections.length} 个片段</strong>
                   </div>
                   {selectedPromptSections.map((section) => (
@@ -1230,13 +1230,13 @@ export function ExperimentsView() {
                       <div>
                         <span>#{section.order} · {section.layer}</span>
                         <strong>{section.title}</strong>
-                        <em>{section.source}</em>
+                        <em>第 {section.order} 段</em>
                       </div>
                       <div className="orchestration-prompt-section__meta">
-                        <span>{section.chars} chars</span>
+                        <span>{section.chars} 字</span>
                         <span>{section.model_visible ? "模型可见" : "仅调试"}</span>
                       </div>
-                      {section.preview ? <p>{section.preview}</p> : <p>这个片段为空，通常表示对应来源文件不存在或本轮没有可注入内容。</p>}
+                      {section.preview ? <p>{section.preview}</p> : <p>这一段暂无可展示内容。</p>}
                     </article>
                   ))}
                 </div>

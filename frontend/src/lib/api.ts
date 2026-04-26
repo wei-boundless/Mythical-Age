@@ -225,6 +225,88 @@ export type OrchestrationCatalog = {
   tools: OrchestrationCatalogTool[];
 };
 
+export type AgentSystemSkill = {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  input_modes: string[];
+  output_modes: string[];
+};
+
+export type AgentSystemAgent = {
+  agent_id: string;
+  name: string;
+  description: string;
+  kind: string;
+  worker_route: string;
+  protocol_version: string;
+  supports_streaming: boolean;
+  supports_long_task: boolean;
+  default_input_modes: string[];
+  default_output_modes: string[];
+  skills: AgentSystemSkill[];
+  mcp_profile: Record<string, unknown>;
+  extensions: Record<string, unknown>;
+  enabled: boolean;
+};
+
+export type AgentProtocolLink = {
+  link_id: string;
+  from_agent: string;
+  to_agent: string;
+  label: string;
+  enabled: boolean;
+  input_contract: string;
+  output_contract: string;
+  handoff_policy: string;
+  channels: string[];
+};
+
+export type AgentSystemCatalog = {
+  protocol_version: string;
+  agents: AgentSystemAgent[];
+  protocol_links: AgentProtocolLink[];
+  status_summary: {
+    total_agents: number;
+    enabled_agents: number;
+    enabled_links: number;
+    protocol_enabled_links?: number;
+    blocked_links?: number;
+  };
+};
+
+export type SoulSystemFile = {
+  path: string;
+  label: string;
+  role: string;
+  model_visible: boolean;
+  injection_order: number | null;
+  content: string;
+  chars: number;
+  updated_at: number | null;
+};
+
+export type SoulSystemSeed = SoulSystemFile & {
+  key: string;
+  name: string;
+  active: boolean;
+  portrait_path: string;
+  portrait_updated_at: number | null;
+};
+
+export type SoulSystemCatalog = {
+  active_soul_key: string;
+  active_soul_name: string;
+  injection_chain: Array<{
+    order: number;
+    label: string;
+    path: string;
+  }>;
+  static_files: SoulSystemFile[];
+  seeds: SoulSystemSeed[];
+};
+
 export type PromptManifestSection = {
   id: string;
   title: string;
@@ -463,12 +545,13 @@ function getApiBase() {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
   const response = await fetch(`${getApiBase()}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
+    headers
   });
 
   if (!response.ok) {
@@ -738,6 +821,54 @@ export async function setOrchestrationPlanMode(mode: string) {
   return request<{ mode: string; supported_modes: string[] }>("/orchestration/plan-mode", {
     method: "PUT",
     body: JSON.stringify({ mode })
+  });
+}
+
+export async function getAgentSystemCatalog() {
+  return request<AgentSystemCatalog>("/agents/catalog");
+}
+
+export async function setAgentEnabled(agentId: string, enabled: boolean) {
+  return request<AgentSystemCatalog>(`/agents/${encodeURIComponent(agentId)}/enabled`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export async function updateAgentProtocolLink(
+  linkId: string,
+  payload: Partial<Pick<AgentProtocolLink, "enabled" | "input_contract" | "output_contract" | "handoff_policy">>
+) {
+  return request<AgentSystemCatalog>(`/agents/protocol-links/${encodeURIComponent(linkId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getSoulSystemCatalog() {
+  return request<SoulSystemCatalog>("/soul/catalog");
+}
+
+export async function switchSoulSystemSeed(key: string) {
+  return request<SoulSystemCatalog>("/soul/switch", {
+    method: "POST",
+    body: JSON.stringify({ key, source: "frontend" })
+  });
+}
+
+export async function saveSoulSystemFile(path: string, content: string, reason = "前端编辑") {
+  return request<SoulSystemCatalog>("/soul/files", {
+    method: "PUT",
+    body: JSON.stringify({ path, content, reason })
+  });
+}
+
+export async function uploadSoulPortrait(key: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return request<SoulSystemCatalog>(`/soul/portraits/${encodeURIComponent(key)}`, {
+    method: "POST",
+    body: formData
   });
 }
 

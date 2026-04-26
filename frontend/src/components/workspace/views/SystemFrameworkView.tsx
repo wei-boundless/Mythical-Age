@@ -120,44 +120,60 @@ const graphNodes: GraphNode[] = [
   },
   {
     id: "query-core",
-    label: "对话执行核心",
+    label: "对话执行引擎",
     source: "query/runtime.py",
-    kind: "主执行链",
+    kind: "运行时执行层",
     icon: Workflow,
-    x: 53,
+    x: 49,
     y: 50,
     cluster: [
-      { label: "流式执行", source: "astream", relation: "进入", dx: -7, dy: -18 },
-      { label: "执行事件", source: "_execution_events", relation: "展开", dx: 7, dy: -18 },
+      { label: "流式执行", source: "astream", relation: "进入", dx: -7, dy: -17 },
+      { label: "执行事件", source: "_execution_events", relation: "展开", dx: 7, dy: -17 },
       { label: "结果组装", source: "AnswerAssembler", relation: "收束", dx: -7, dy: 14 },
       { label: "输出边界", source: "RuntimeOutputPolicy", relation: "过滤", dx: 7, dy: 14 }
     ]
   },
   {
-    id: "planner",
-    label: "任务理解与规划",
-    source: "query/planner.py",
-    kind: "意图分流",
-    icon: GitBranch,
-    x: 56,
-    y: 11,
+    id: "orchestration-control",
+    label: "编排控制面",
+    source: "backend/orchestration/*",
+    kind: "行为计划中枢",
+    view: "experiments",
+    icon: ShieldCheck,
+    x: 62,
+    y: 50,
     cluster: [
-      { label: "follow-up 解析", source: "followup_resolver.py", relation: "承接", dx: -8, dy: -9 },
-      { label: "能力派发", source: "capability_dispatch.py", relation: "选择", dx: 8, dy: -9 },
-      { label: "子任务规划", source: "subtask_planner.py", relation: "拆分", dx: -8, dy: 13 },
-      { label: "任务记录", source: "tasks/coordinator.py", relation: "记录", dx: 8, dy: 13 }
+      { label: "行为计划", source: "models.py", relation: "定义", dx: -8, dy: -16 },
+      { label: "计划生成", source: "planner.py", relation: "生成", dx: 8, dy: -16 },
+      { label: "运行接管", source: "runtime_adapter.py", relation: "接管", dx: -8, dy: 16 },
+      { label: "计划偏移", source: "diff.py", relation: "校验", dx: 8, dy: 16 }
+    ]
+  },
+  {
+    id: "planner",
+    label: "兼容查询规划器",
+    source: "query/planner.py",
+    kind: "兼容计划源",
+    icon: GitBranch,
+    x: 58,
+    y: 14,
+    cluster: [
+      { label: "查询计划", source: "QueryPlanner", relation: "产出", dx: -8, dy: -10 },
+      { label: "续接判断", source: "followup_resolver.py", relation: "候选", dx: 8, dy: -10 },
+      { label: "能力派发", source: "capability_dispatch.py", relation: "候选", dx: -8, dy: 13 },
+      { label: "绑定恢复", source: "binding_resolver.py", relation: "候选", dx: 8, dy: 13 }
     ]
   },
   {
     id: "prompt",
-    label: "提示词组装",
+    label: "上下文装配",
     source: "query/prompt_builder.py",
     kind: "上下文合成",
     icon: FileText,
     x: 31,
     y: 12,
     cluster: [
-      { label: "当前身份", source: "soul/agent_core/ACTIVE_SEED.md", relation: "注入", dx: -8, dy: -10 },
+      { label: "当前灵魂", source: "soul/agent_core/ACTIVE_SEED.md", relation: "装配", dx: -8, dy: -10 },
       { label: "核心准则", source: "soul/agent_core/CORE.md", relation: "追加", dx: 8, dy: -10 },
       { label: "技能提示", source: "SkillDefinition", relation: "拼接", dx: -8, dy: 13 },
       { label: "记忆上下文", source: "context_package", relation: "拼接", dx: 8, dy: 13 }
@@ -323,10 +339,30 @@ const graphEdges: GraphEdge[] = [
   {
     id: "query-planner",
     from: "query-core",
-    to: "planner",
-    label: "分析任务",
+    to: "orchestration-control",
+    label: "请求行为计划",
     route: "request",
-    detail: "对话执行核心把用户消息交给规划层，识别 follow-up、能力派发、显式子任务和任务状态。"
+    detail: "对话执行引擎在本轮执行前请求编排控制面生成行为计划；兼容模式会跳过计划事件，影子模式只观测，主控模式会尝试按计划接管执行顺序。"
+  },
+  {
+    id: "orchestration-planner",
+    from: "orchestration-control",
+    to: "planner",
+    label: "兼容旧计划",
+    route: "request",
+    bidirectional: true,
+    labelShift: { x: -2, y: -3 },
+    detail: "编排控制面不会删除旧查询规划器，而是把旧计划结果作为兼容输入，用它生成可追踪的行为计划，并保留回退边界。"
+  },
+  {
+    id: "orchestration-runtime",
+    from: "orchestration-control",
+    to: "query-core",
+    label: "主控 / 回退",
+    route: "request",
+    bidirectional: true,
+    labelShift: { x: 0, y: 4 },
+    detail: "运行控制在主控模式下按行为计划匹配并排序执行分支；如果分支无法对齐，会自动退回旧执行顺序。"
   },
   {
     id: "query-prompt",
@@ -335,6 +371,15 @@ const graphEdges: GraphEdge[] = [
     label: "组装系统提示",
     route: "identity",
     detail: "执行核心根据当前会话、记忆召回、技能暴露和灵魂提示词组装本轮系统提示。"
+  },
+  {
+    id: "orchestration-prompt",
+    from: "orchestration-control",
+    to: "prompt",
+    label: "上下文策略",
+    route: "identity",
+    labelShift: { x: -2, y: 1 },
+    detail: "编排控制面把上下文来源、片段顺序和装配策略纳入计划与偏移分析，前端可以分析本轮系统上下文从哪里组合而来。"
   },
   {
     id: "prompt-memory",
@@ -346,6 +391,16 @@ const graphEdges: GraphEdge[] = [
     detail: "提示词组装需要记忆门面提供上下文包、长期记忆块和会话压缩结果；这些材料会进入模型输入。"
   },
   {
+    id: "orchestration-memory",
+    from: "orchestration-control",
+    to: "memory",
+    label: "上下文策略",
+    route: "context",
+    bidirectional: true,
+    labelShift: { x: -2, y: 3 },
+    detail: "行为计划会记录上下文策略、记忆召回、状态记忆和上下文装配信号；测试系统可以把记忆链路和编排节点对齐查看。"
+  },
+  {
     id: "query-memory",
     from: "query-core",
     to: "memory",
@@ -355,6 +410,15 @@ const graphEdges: GraphEdge[] = [
     detail: "执行核心在轮次中调用记忆门面做长期记忆召回、会话状态投影，以及回合结束后的记忆写回。"
   },
   {
+    id: "orchestration-tools",
+    from: "orchestration-control",
+    to: "tooling",
+    label: "契约预检",
+    route: "capability",
+    bidirectional: true,
+    detail: "编排控制面读取技能、工具、权限模式和调用契约，先把可用能力、阻断原因和契约拒绝变成计划节点，再交给执行层。"
+  },
+  {
     id: "query-tools",
     from: "query-core",
     to: "tooling",
@@ -362,6 +426,16 @@ const graphEdges: GraphEdge[] = [
     route: "capability",
     bidirectional: true,
     detail: "执行核心通过工具桥接层进入工具与技能运行系统；权限服务和工具契约闸门会约束工具能否被调用。"
+  },
+  {
+    id: "orchestration-evidence",
+    from: "orchestration-control",
+    to: "evidence",
+    label: "子Agent拓扑",
+    route: "evidence",
+    bidirectional: true,
+    labelShift: { x: 0, y: -4 },
+    detail: "编排控制面把 retrieval、PDF、表格和 fanout/bundle 分支收敛成 execution topology；actual worker 输出会在 orchestration_diff 中与计划分支对比。"
   },
   {
     id: "query-evidence",
@@ -396,7 +470,7 @@ const graphEdges: GraphEdge[] = [
     to: "api-router",
     label: "流式回传",
     route: "request",
-    detail: "模型运行时产生的事件会被 QueryRuntime 整理后经聊天接口转成 SSE，前端实时接收 token、工具状态和最终结果。"
+    detail: "模型运行时产生的事件会被对话执行引擎整理后经聊天接口转成事件流，前端实时接收生成片段、工具状态和最终结果。"
   },
   {
     id: "query-session",
@@ -431,15 +505,25 @@ const graphEdges: GraphEdge[] = [
     to: "storage",
     label: "刷新索引",
     route: "storage",
-    detail: "运行时装配中心监听 durable_memory、session-memory、knowledge、skills 等路径变化，刷新注册表或重建索引。"
+    detail: "运行时装配中心监听长期记忆、状态记忆、知识库、技能库等变化，刷新注册表或重建索引。"
   },
   {
     id: "tests-query",
     from: "tests",
-    to: "query-core",
-    label: "回归压测",
+    to: "orchestration-control",
+    label: "计划回放",
     route: "evidence",
-    detail: "测试与观测系统围绕 QueryRuntime 验证长场景、工具续写、状态漂移、检索和记忆稳定性。"
+    bidirectional: true,
+    detail: "测试与观测系统现在优先读取事件流或测试产物中的行为计划与偏移记录，用问题节点、分支偏移和上下文/记忆链路复盘真实运行过程。"
+  },
+  {
+    id: "tests-query-runtime",
+    from: "tests",
+    to: "query-core",
+    label: "执行回归",
+    route: "evidence",
+    labelShift: { x: -2, y: 3 },
+    detail: "测试仍会围绕对话执行引擎验证长场景、工具续写、状态漂移、检索和记忆稳定性；这是兼容模式与主控模式都必须通过的执行基线。"
   },
   {
     id: "tests-storage",
@@ -636,7 +720,7 @@ export function SystemFrameworkView() {
         setPromptManifestStatus(payload.status === "available" ? "" : payload.reason);
       } catch (exc) {
         if (!cancelled) {
-          setPromptManifestStatus(exc instanceof Error ? exc.message : "加载 Prompt Manifest 失败");
+          setPromptManifestStatus(exc instanceof Error ? exc.message : "加载上下文来源失败");
         }
       }
       try {
@@ -672,7 +756,7 @@ export function SystemFrameworkView() {
         <header className="project-network__header">
           <div>
             <p>后端代码地图</p>
-            <h1>项目运行关系全图</h1>
+            <h1>项目运行与编排控制全图</h1>
             {systemGraphOverlay ? (
               <div className="project-network__overlay-ribbon">
                 <span>{overlayStatusLabel(systemGraphOverlay.status)}</span>
@@ -764,28 +848,28 @@ export function SystemFrameworkView() {
                     onClick={() => setPromptPanelOpen((value) => !value)}
                     type="button"
                   >
-                    {promptManifest ? "查看 Prompt 来源装配" : "Prompt 来源暂不可用"}
+                    {promptManifest ? "查看上下文来源" : "上下文来源暂不可用"}
                   </button>
                   {promptManifest ? (
-                    <span>已记录 · {promptManifest.total_sections} 个来源 · {promptManifest.total_chars} chars · {promptManifest.debug_policy}</span>
+                    <span>已记录 · {promptManifest.total_sections} 个来源 · {promptManifest.total_chars} 字</span>
                   ) : (
-                    <span>{promptManifestStatus || "旧测试产物没有记录 prompt manifest。"}</span>
+                    <span>{promptManifestStatus || "旧测试产物没有记录上下文来源。"}</span>
                   )}
                 </div>
                 {promptPanelOpen && promptManifest ? (
                   <div className="prompt-manifest-panel">
                     <header>
-                      <small>Prompt Manifest</small>
-                      <strong>{promptManifest.prompt_id}</strong>
-                      <span>{promptManifest.debug_policy === "preview_only" ? "默认只展示来源摘要和 preview，不暴露完整 prompt。" : promptManifest.debug_policy}</span>
+                      <small>上下文来源</small>
+                      <strong>本轮装配记录</strong>
+                      <span>{promptManifest.debug_policy === "preview_only" ? "默认只展示来源摘要，不显示完整内容。" : "当前仅展示可读摘要。"}</span>
                     </header>
-                    <div className="prompt-manifest-flow" aria-label="Prompt 三层装配摘要">
+                    <div className="prompt-manifest-flow" aria-label="上下文三层装配摘要">
                       {promptLayerStats.map((stat, index) => (
                         <div className={`prompt-manifest-flow__node prompt-manifest-flow__node--${stat.layer}`} key={stat.layer}>
                           <b>{index + 1}</b>
                           <strong>{promptLayerLabel(stat.layer)}</strong>
                           <span>{promptLayerTone(stat.layer)}</span>
-                          <em>{stat.count} 来源 · {stat.chars} chars</em>
+                          <em>{stat.count} 来源 · {stat.chars} 字</em>
                         </div>
                       ))}
                     </div>
@@ -801,9 +885,9 @@ export function SystemFrameworkView() {
                             <article className="prompt-manifest-section" key={section.id}>
                               <div>
                                 <strong>{section.order}. {section.title}</strong>
-                                <span>{section.source} · {section.chars} chars</span>
+                                <span>第 {section.order} 段 · {section.chars} 字</span>
                               </div>
-                              <p>{section.preview || "无 preview"}</p>
+                              <p>{section.preview || "暂无摘要"}</p>
                             </article>
                           ))}
                         </section>
@@ -857,12 +941,12 @@ export function SystemFrameworkView() {
                       <article>
                         <b>2</b>
                         <strong>长期召回</strong>
-                        <span>{memoryTrace.durable_memory.exact_count} exact · {memoryTrace.durable_memory.relevant_count} relevant</span>
+                        <span>精确 {memoryTrace.durable_memory.exact_count} 条 · 相关 {memoryTrace.durable_memory.relevant_count} 条</span>
                       </article>
                       <article>
                         <b>3</b>
-                        <strong>Prompt 注入</strong>
-                        <span>{memoryTrace.prompt_injection.section_count} 段 · {memoryTrace.prompt_injection.total_chars} chars</span>
+                        <strong>上下文装配</strong>
+                        <span>{memoryTrace.prompt_injection.section_count} 段 · {memoryTrace.prompt_injection.total_chars} 字</span>
                       </article>
                     </div>
                     <div className="memory-trace-grid">
@@ -1004,8 +1088,8 @@ export function SystemFrameworkView() {
                 style={{ left: `${node.x}%`, top: `${node.y}%` }}
               >
                 {overlayIndex ? <span className="network-node__overlay-index">{overlayIndex}</span> : null}
-                {promptNodeHasManifest ? <span className="network-node__prompt-badge">Prompt 已记录</span> : null}
-                {memoryNodeHasTrace ? <span className="network-node__memory-badge">Memory 已记录</span> : null}
+                {promptNodeHasManifest ? <span className="network-node__prompt-badge">上下文已记录</span> : null}
+                {memoryNodeHasTrace ? <span className="network-node__memory-badge">记忆已记录</span> : null}
                 <button
                   className="network-node__head"
                   disabled={!node.view && !overlay}
@@ -1026,7 +1110,7 @@ export function SystemFrameworkView() {
                   <span>
                     <small>{node.kind}</small>
                     <strong>{node.label}</strong>
-                    <em>{node.source}</em>
+                    <em>{node.view ? "可进入管理页" : "运行节点"}</em>
                     {overlay ? (
                       <b>
                         {overlayProblemLabel(overlay.status)}
@@ -1055,7 +1139,7 @@ export function SystemFrameworkView() {
               >
                 <span>{child.relation}</span>
                 <strong>{child.label}</strong>
-                <em>{child.source}</em>
+                <em>子能力</em>
               </article>
             ))
           )}

@@ -23,6 +23,7 @@ from tools.index_multimodal_file_tool import IndexMultimodalFileTool
 from tools.pdf_analysis_tool import PdfAnalysisTool
 from tools.python_repl_tool import PythonReplTool
 from tools.read_file_tool import ReadFileTool
+from tools.search_files_tool import SearchFilesTool, SearchTextTool
 from tools.search_knowledge_tool import SearchKnowledgeBaseTool
 from tools.structured_data_analysis_tool import StructuredDataAnalysisTool
 from tools.terminal_tool import TerminalTool
@@ -285,6 +286,54 @@ def _tool_definitions() -> list[ToolDefinition]:
             is_read_only=False,
             is_destructive=False,
             is_concurrency_safe=False,
+        ),
+        ToolDefinition(
+            name="search_files",
+            module="tools.search_files_tool",
+            factory=lambda base_dir: SearchFilesTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["query"],
+                owner_scope="none",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="summary_text"),
+            capability_tags=["file", "search", "path", "workspace", "workspace_search"],
+            supported_modalities=["text", "code", "document", "workspace"],
+            safety_tags=["read"],
+            route_hints=["tool", "workspace_search", "file_search"],
+            safe_for_auto_route=True,
+            schema_identity="local.tools/search_files",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="explicit_resource",
+            is_read_only=True,
+            is_destructive=False,
+            is_concurrency_safe=True,
+        ),
+        ToolDefinition(
+            name="search_text",
+            module="tools.search_files_tool",
+            factory=lambda base_dir: SearchTextTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["query"],
+                owner_scope="none",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="summary_text"),
+            capability_tags=["file", "search", "text_search", "workspace", "code_search"],
+            supported_modalities=["text", "code", "document", "workspace"],
+            safety_tags=["read"],
+            route_hints=["tool", "workspace_search", "text_search", "code_search"],
+            safe_for_auto_route=True,
+            schema_identity="local.tools/search_text",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="explicit_resource",
+            is_read_only=True,
+            is_destructive=False,
+            is_concurrency_safe=True,
         ),
         ToolDefinition(
             name="read_file",

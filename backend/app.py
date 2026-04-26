@@ -5,12 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.chat import router as chat_router
+from api.agents import router as agents_router
 from api.config_api import router as config_router
 from api.experiments import router as experiments_router
 from api.files import router as files_router
 from api.memory import router as memory_router
 from api.orchestration import router as orchestration_router
 from api.sessions import router as sessions_router
+from api.souls import router as souls_router
 from api.tasks import router as tasks_router
 from api.tokens import router as tokens_router
 from bootstrap import runtime_lifespan
@@ -35,6 +37,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_router, prefix="/api", tags=["chat"])
+app.include_router(agents_router, prefix="/api", tags=["agents"])
 app.include_router(sessions_router, prefix="/api", tags=["sessions"])
 app.include_router(files_router, prefix="/api", tags=["files"])
 app.include_router(memory_router, prefix="/api", tags=["memory"])
@@ -43,6 +46,7 @@ app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(tasks_router, prefix="/api", tags=["tasks"])
 app.include_router(experiments_router, prefix="/api", tags=["experiments"])
 app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
+app.include_router(souls_router, prefix="/api", tags=["souls"])
 
 
 @app.exception_handler(InvalidSessionId)

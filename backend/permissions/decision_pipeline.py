@@ -48,15 +48,19 @@ def decide_tool_permission(
     checks: list[str] = []
 
     if direct_route and not definition.safe_for_auto_route:
-        return PermissionDecision(
-            False,
-            "tool_not_safe_for_auto_route",
-            tool_name=definition.name,
-            mode=normalized_mode,
-            checks=["route_eligibility"],
-            risk_tags=risk_tags,
-        )
-    checks.append("route_eligibility")
+        if _allows_explicit_read_only_direct_route(definition, tool_input):
+            checks.append("route_eligibility:explicit_read_only")
+        else:
+            return PermissionDecision(
+                False,
+                "tool_not_safe_for_auto_route",
+                tool_name=definition.name,
+                mode=normalized_mode,
+                checks=["route_eligibility"],
+                risk_tags=risk_tags,
+            )
+    else:
+        checks.append("route_eligibility")
 
     if not scope.allows(definition.name):
         return PermissionDecision(
@@ -130,3 +134,16 @@ def _run_local_validation(tool_instance: Any | None, tool_input: Any | None) -> 
         return str(result)
 
     return None
+
+
+def _allows_explicit_read_only_direct_route(definition: ToolDefinition, tool_input: Any | None) -> bool:
+    if definition.name != "read_file" or not definition.is_read_only:
+        return False
+    if "read" not in set(definition.safety_tags):
+        return False
+    if not isinstance(tool_input, dict):
+        return False
+    raw_path = str(tool_input.get("path", "") or "").strip()
+    if not raw_path or raw_path.startswith("-"):
+        return False
+    return True

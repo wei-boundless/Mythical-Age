@@ -25,7 +25,7 @@ class ReadFileInput(BaseModel):
 
 class ReadFileTool(BaseTool):
     name: str = "read_file"
-    description: str = "Read a local file under the project root. Use relative paths like skills/foo/SKILL.md."
+    description: str = "Read a local file under the project/workspace root. Use search_files first if the exact path is uncertain."
     args_schema: Type[BaseModel] = ReadFileInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
     _root_dir: Path = PrivateAttr()
@@ -35,9 +35,22 @@ class ReadFileTool(BaseTool):
         self._root_dir = root_dir.resolve()
 
     def _resolve_path(self, path: str) -> Path:
-        candidate = (self._root_dir / path).resolve()
+        normalized = str(path or "").strip()
+        candidate = (self._root_dir / normalized).resolve()
         if self._root_dir not in candidate.parents and candidate != self._root_dir:
             raise ValueError("Path traversal detected.")
+        if candidate.exists() or self._root_dir.name != "backend":
+            return candidate
+
+        # Runtime base_dir is backend/, while users often provide workspace-root
+        # paths such as docs/foo.md. Keep backend-relative paths working, but
+        # allow read-only access to sibling project files when explicitly named.
+        workspace_root = self._root_dir.parent.resolve()
+        workspace_candidate = (workspace_root / normalized).resolve()
+        if workspace_root not in workspace_candidate.parents and workspace_candidate != workspace_root:
+            raise ValueError("Path traversal detected.")
+        if workspace_candidate.exists():
+            return workspace_candidate
         return candidate
 
     def _run(
