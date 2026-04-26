@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration.adapters import build_shadow_orchestration_plan
+from orchestration.adapters import build_orchestration_plan
 from orchestration.behavior_trace import build_behavior_snapshot
 from query.models import QueryExecutionPlan, QueryPlan
 from understanding import MemoryIntent, QueryUnderstanding
@@ -39,7 +39,7 @@ def test_behavior_snapshot_prefers_orchestration_plan_decisions() -> None:
         execution_kind="agent",
         executions=[execution],
     )
-    orchestration_plan = build_shadow_orchestration_plan(
+    orchestration_plan = build_orchestration_plan(
         session_id="session-a",
         message="查一下项目资料",
         query_plan=query_plan,

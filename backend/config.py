@@ -535,7 +535,8 @@ class RuntimeConfigManager:
             "permission_mode": "default",
             "retrieval_shadow_compare": False,
             "retrieval_cutover_mode": "v2_primary",
-            "orchestration_plan_mode": "shadow",
+            "orchestration_plan_mode": "plan_only",
+            "primary_entry_selection_enabled": False,
         }
 
     def load(self) -> dict[str, Any]:
@@ -597,16 +598,26 @@ class RuntimeConfigManager:
         return self.save({"retrieval_cutover_mode": normalized})
 
     def get_orchestration_plan_mode(self) -> str:
-        value = str(self.load().get("orchestration_plan_mode", "shadow") or "shadow").strip().lower()
-        if value in {"legacy", "shadow", "primary"}:
+        value = str(self.load().get("orchestration_plan_mode", "plan_only") or "plan_only").strip().lower()
+        if value == "shadow":
+            return "plan_only"
+        if value in {"legacy", "plan_only", "primary"}:
             return value
-        return "shadow"
+        return "plan_only"
 
     def set_orchestration_plan_mode(self, mode: str) -> dict[str, Any]:
-        normalized = str(mode or "shadow").strip().lower() or "shadow"
-        if normalized not in {"legacy", "shadow", "primary"}:
-            normalized = "shadow"
+        normalized = str(mode or "plan_only").strip().lower() or "plan_only"
+        if normalized == "shadow":
+            normalized = "plan_only"
+        if normalized not in {"legacy", "plan_only", "primary"}:
+            normalized = "plan_only"
         return self.save({"orchestration_plan_mode": normalized})
+
+    def get_primary_entry_selection_enabled(self) -> bool:
+        return bool(self.load().get("primary_entry_selection_enabled", False))
+
+    def set_primary_entry_selection_enabled(self, enabled: bool) -> dict[str, Any]:
+        return self.save({"primary_entry_selection_enabled": bool(enabled)})
 
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")

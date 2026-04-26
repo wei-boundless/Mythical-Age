@@ -5223,6 +5223,188 @@ button:hover {
   line-height: 1.5;
 }
 
+.orchestration-contract-panel {
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--color-soul) 24%, transparent);
+  background:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--color-soul) 12%, transparent), transparent 36%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.036), transparent 64%),
+    var(--color-panel);
+}
+
+.orchestration-contract-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.orchestration-contract-panel__card {
+  min-height: 136px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 1rem;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.045), transparent 58%),
+    rgba(255, 255, 255, 0.026);
+  padding: 0.78rem;
+}
+
+.orchestration-contract-panel__card--focus {
+  border-color: color-mix(in srgb, var(--color-soul) 34%, transparent);
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--color-soul) 18%, transparent), transparent 50%),
+    rgba(255, 255, 255, 0.034);
+}
+
+.orchestration-contract-panel__card--alert {
+  border-color: rgba(255, 145, 109, 0.42);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255, 145, 109, 0.16), transparent 50%),
+    rgba(255, 255, 255, 0.028);
+}
+
+.orchestration-contract-panel__card span,
+.orchestration-directive-strip span {
+  color: var(--color-soul);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.63rem;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.orchestration-contract-panel__card strong,
+.orchestration-directive-strip strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 0.26rem;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestration-contract-panel__card p,
+.orchestration-directive-strip p {
+  margin: 0.42rem 0 0;
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.orchestration-contract-panel__card div,
+.orchestration-directive-strip div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+  margin-top: 0.56rem;
+}
+
+.orchestration-contract-panel__card em,
+.orchestration-directive-strip em {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, transparent);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.036);
+  color: var(--color-text-soft);
+  font-size: 0.64rem;
+  font-style: normal;
+  padding: 0.22rem 0.44rem;
+}
+
+.orchestration-contract-panel__card em.is-danger {
+  border-color: rgba(255, 145, 109, 0.38);
+  color: #ffb39b;
+}
+
+.orchestration-runtime-mismatch-list {
+  display: grid;
+  gap: 0.42rem;
+  margin: 0.62rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.orchestration-runtime-mismatch-list li {
+  display: grid;
+  grid-template-columns: minmax(54px, 0.8fr) minmax(58px, 0.8fr) minmax(84px, 1fr);
+  align-items: center;
+  gap: 0.34rem;
+  border: 1px solid rgba(255, 145, 109, 0.2);
+  border-radius: 0.72rem;
+  background: rgba(255, 145, 109, 0.06);
+  color: var(--color-text-soft);
+  font-size: 0.62rem;
+  padding: 0.36rem 0.42rem;
+}
+
+.orchestration-runtime-mismatch-list b,
+.orchestration-runtime-mismatch-list span,
+.orchestration-runtime-mismatch-list code,
+.orchestration-runtime-mismatch-list i {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestration-runtime-mismatch-list b {
+  color: #ffd1c2;
+  font-weight: 700;
+}
+
+.orchestration-runtime-mismatch-list code {
+  border-radius: 0.42rem;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--color-text);
+  font-family: var(--font-mono), monospace;
+  padding: 0.12rem 0.24rem;
+}
+
+.orchestration-runtime-mismatch-list i {
+  grid-column: 1 / -1;
+  color: #ffb39b;
+  font-style: normal;
+}
+
+.orchestration-runtime-entry-list {
+  display: grid;
+  gap: 0.38rem;
+  margin-top: 0.62rem;
+}
+
+.orchestration-runtime-entry-list span {
+  display: block;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, transparent);
+  border-radius: 0.72rem;
+  background: color-mix(in srgb, var(--color-soul) 6%, transparent);
+  color: var(--color-text-soft);
+  font-size: 0.64rem;
+  letter-spacing: normal;
+  padding: 0.34rem 0.42rem;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.orchestration-runtime-entry-list b {
+  margin-right: 0.34rem;
+  color: var(--color-soul);
+}
+
+.orchestration-directive-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.62rem;
+  margin-top: 0.72rem;
+}
+
+.orchestration-directive-strip article {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, transparent);
+  border-radius: 1rem;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.024);
+  padding: 0.74rem;
+}
+
 .orchestration-execution-diff {
   overflow: hidden;
   border-color: color-mix(in srgb, var(--color-soul) 22%, transparent);
@@ -5897,7 +6079,7 @@ button:hover {
 
 .orchestration-runtime-ledger {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 0.62rem;
 }
 
@@ -8137,18 +8319,61 @@ button:hover {
   color: rgba(246, 245, 240, 0.58);
 }
 
-.chat-input-panel__shortcut {
-  border-radius: var(--radius-control);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: rgba(246, 245, 240, 0.72);
-}
-
 .chat-input-panel__textarea {
   border: 1px solid rgba(255, 255, 255, 0.08);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 42%),
     var(--color-panel-strong);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+}
+
+.chat-input-panel__footer {
+  flex-wrap: wrap;
+}
+
+.chat-search-policy {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+  justify-content: center;
+}
+
+.chat-search-policy--corner {
+  justify-content: flex-end;
+}
+
+.chat-search-policy__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.42rem 0.62rem;
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.chat-search-policy__item::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.chat-search-policy__item:hover,
+.chat-search-policy__item--active {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--color-soul) 58%, white);
+  background: color-mix(in srgb, var(--color-soul) 12%, var(--color-panel-strong));
+  color: var(--color-text);
+}
+
+.chat-search-policy__item--active::before {
+  background: color-mix(in srgb, var(--color-soul) 82%, white);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-soul) 45%, transparent);
 }
 
 .archive-message-shell {
@@ -8692,6 +8917,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .memory-state-file-browser,
   .orchestration-hero,
   .orchestration-brief,
+  .orchestration-contract-panel__grid,
   .orchestration-mode-grid,
   .orchestration-runtime-ledger,
   .orchestration-stage-grid,
@@ -8847,7 +9073,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .operation-switcher {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.8rem;
 }
 
@@ -9160,7 +9386,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .operation-tool-linked {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
   margin-top: 0.9rem;
 }
@@ -9202,6 +9428,172 @@ html[data-soul="xuannv"] .soul-portrait__label {
   color: var(--color-text);
 }
 
+.operation-binding-board {
+  display: grid;
+  gap: 1rem;
+}
+
+.operation-binding-graph {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.28fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.operation-binding-agents {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.operation-binding-node {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--color-soul) 16%, transparent), transparent 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.045), transparent 58%),
+    var(--color-panel-strong);
+  padding: 1rem;
+}
+
+.operation-binding-node--main {
+  display: grid;
+  align-content: center;
+  min-height: 100%;
+}
+
+.operation-binding-node svg {
+  color: var(--color-soul);
+}
+
+.operation-binding-node span,
+.operation-binding-node small {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+}
+
+.operation-binding-node strong {
+  display: block;
+  margin: 0.35rem 0;
+  color: var(--color-text);
+  font-size: 1.05rem;
+}
+
+.operation-binding-node p {
+  margin: 0 0 0.65rem;
+  color: var(--color-text-soft);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.operation-binding-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.34fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.operation-binding-column {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+}
+
+.operation-binding-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.operation-binding-tool {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: var(--radius-card);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--color-text);
+  padding: 0.85rem;
+  text-align: left;
+}
+
+.operation-binding-tool--active {
+  border-color: color-mix(in srgb, var(--color-soul) 62%, white);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.05);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--color-soul) 12%, transparent);
+}
+
+.operation-binding-tool span {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+}
+
+.operation-binding-tool strong {
+  color: var(--color-text);
+}
+
+.operation-binding-tool p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.operation-binding-matrix {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.operation-binding-matrix article {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-card);
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.9rem;
+}
+
+.operation-binding-matrix strong {
+  display: block;
+  margin-bottom: 0.6rem;
+  color: var(--color-text);
+}
+
+.operation-binding-matrix p {
+  margin: 0 0 0.45rem;
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.operation-agent-embedded {
+  display: grid;
+  min-height: 0;
+}
+
+.operation-execution-panel {
+  display: grid;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.operation-execution-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-block);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 9%, transparent), transparent 46%),
+    rgba(255, 255, 255, 0.03);
+  padding: 1rem;
+}
+
 .action-button--danger {
   border-color: rgba(255, 140, 125, 0.38);
   background: rgba(255, 140, 125, 0.12);
@@ -9220,7 +9612,12 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .operation-hero,
   .operation-layout,
   .operation-contract-grid,
-  .operation-tool-linked {
+  .operation-tool-linked,
+  .operation-binding-graph,
+  .operation-binding-agents,
+  .operation-binding-layout,
+  .operation-binding-tools,
+  .operation-binding-matrix {
     grid-template-columns: 1fr;
   }
 

@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from capabilities.search_policy import tool_allowed_by_search_policy
 from skill_system import SkillDefinition, SkillPolicyResolver, SkillRegistry
 from tools.runtime import ToolRuntime
 from understanding import (
@@ -50,12 +51,14 @@ class QueryPlanner:
         ephemeral_system_messages: list[str] | None = None,
         authority_context: dict[str, Any] | None = None,
         explicit_subtasks: list[dict[str, Any]] | None = None,
+        search_policy: list[str] | None = None,
     ) -> QueryPlan:
         root_execution = self._build_execution(
             message=message,
             history=history,
             ephemeral_system_messages=ephemeral_system_messages,
             authority_context=authority_context,
+            search_policy=search_policy,
         )
         memory_intent = root_execution.memory_intent
         query_understanding = root_execution.query_understanding
@@ -84,6 +87,7 @@ class QueryPlanner:
                 bundle_plan=bundle_plan,
                 root_execution=root_execution,
                 authority_context=authority_context,
+                search_policy=search_policy,
             )
             subqueries = [item.execution_message for item in bundle_plan.items]
             subtasks = []
@@ -118,6 +122,7 @@ class QueryPlanner:
                 subtasks=subtasks,
                 root_execution=root_execution,
                 authority_context=authority_context,
+                search_policy=search_policy,
             )
             query_understanding = QueryUnderstanding(
                 intent="explicit_fanout_query",
@@ -151,6 +156,7 @@ class QueryPlanner:
             execution_kind=execution_kind,
             executions=executions,
             ephemeral_system_messages=list(ephemeral_system_messages or []),
+            search_policy=list(search_policy) if search_policy is not None else None,
             dispatch_plan=getattr(root_execution, "dispatch_plan", None),
             worker_plan=worker_plan,
         )
@@ -162,6 +168,7 @@ class QueryPlanner:
         subtasks: list[SubtaskPlan],
         root_execution: QueryExecutionPlan,
         authority_context: dict[str, Any] | None = None,
+        search_policy: list[str] | None = None,
     ) -> list[QueryExecutionPlan]:
         executions: list[QueryExecutionPlan] = []
         authority_context = self._merge_authoritative_context(
@@ -174,6 +181,7 @@ class QueryPlanner:
                 history=history,
                 ephemeral_system_messages=root_execution.ephemeral_system_messages,
                 authority_context=authority_context,
+                search_policy=search_policy,
             )
             executions.append(self._attach_subtask_metadata(execution, subtask))
             authority_context = self._merge_authoritative_context(
@@ -189,6 +197,7 @@ class QueryPlanner:
         bundle_plan: BundlePlan,
         root_execution: QueryExecutionPlan,
         authority_context: dict[str, Any] | None = None,
+        search_policy: list[str] | None = None,
     ) -> list[QueryExecutionPlan]:
         executions: list[QueryExecutionPlan] = []
         authority_context = self._merge_authoritative_context(
@@ -201,6 +210,7 @@ class QueryPlanner:
                 history=history,
                 ephemeral_system_messages=root_execution.ephemeral_system_messages,
                 authority_context=authority_context,
+                search_policy=search_policy,
             )
             execution = self._attach_bundle_metadata(execution, bundle_plan, item)
             executions.append(execution)
@@ -259,6 +269,7 @@ class QueryPlanner:
         history: list[dict[str, Any]],
         ephemeral_system_messages: list[str] | None = None,
         authority_context: dict[str, Any] | None = None,
+        search_policy: list[str] | None = None,
     ) -> QueryExecutionPlan:
         memory_intent = analyze_memory_intent(message)
         query_understanding = analyze_query_understanding(
@@ -272,6 +283,7 @@ class QueryPlanner:
             history=history,
             understanding=query_understanding,
         )
+        self._apply_search_policy(query_understanding, search_policy)
         active_skill = self._resolve_active_skill(message, query_understanding)
         dispatch_plan = self.dispatch_scheduler.resolve(
             task_frame=query_understanding,
@@ -319,7 +331,53 @@ class QueryPlanner:
             dispatch_plan=dispatch_plan,
             worker_plan=worker_plan,
             ephemeral_system_messages=list(ephemeral_system_messages or []),
+            search_policy=list(search_policy) if search_policy is not None else None,
         )
+
+    def _apply_search_policy(
+        self,
+        understanding: QueryUnderstanding,
+        search_policy: list[str] | None,
+    ) -> None:
+        if search_policy is None:
+            return
+        allowed = {
+            str(item or "").strip().lower()
+            for item in search_policy
+            if str(item or "").strip()
+        }
+        if understanding.route == "rag" and "rag" not in allowed:
+            understanding.route = "agent"
+            understanding.execution_posture = "direct_answer"
+            understanding.should_skip_rag = True
+            understanding.direct_route_reason = "search_policy_rag_disabled"
+            understanding.reasons.append("search_policy_blocked_rag")
+
+        if not understanding.candidate_tools:
+            if understanding.tool_name and not self._tool_allowed_by_search_policy(understanding.tool_name, allowed):
+                blocked_tool = understanding.tool_name
+                understanding.tool_name = None
+                understanding.reasons.append("search_policy_filtered_tools")
+                understanding.structural_signals["search_policy_blocked_tools"] = [blocked_tool]
+            return
+        allowed_candidates = [
+            name
+            for name in understanding.candidate_tools
+            if self._tool_allowed_by_search_policy(name, allowed)
+        ]
+        blocked = [name for name in understanding.candidate_tools if name not in allowed_candidates]
+        if blocked:
+            understanding.reasons.append("search_policy_filtered_tools")
+            understanding.structural_signals["search_policy_blocked_tools"] = blocked
+        understanding.candidate_tools = allowed_candidates
+        if understanding.tool_name and understanding.tool_name not in allowed_candidates:
+            understanding.tool_name = None
+
+    def _tool_allowed_by_search_policy(self, tool_name: str, allowed: set[str]) -> bool:
+        tool = self.tool_runtime.registry.get_by_name(tool_name)
+        if tool is None:
+            return False
+        return tool_allowed_by_search_policy(tool.to_registry_record(), allowed)
 
     def _worker_plan_from_dispatch(self, dispatch_plan) -> WorkerExecutionPlan | None:
         request = getattr(dispatch_plan, "selected_worker_request", None)

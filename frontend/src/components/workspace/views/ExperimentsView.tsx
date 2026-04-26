@@ -26,6 +26,7 @@ import {
   runOrchestrationDryRun,
   setOrchestrationPlanMode,
   setPermissionMode,
+  setPrimaryEntrySelection,
   type OrchestrationCatalog,
   type OrchestrationEvent,
   type OrchestrationNode,
@@ -172,8 +173,8 @@ function compactValue(value: unknown) {
 
 const orchestrationModeCards = [
   {
-    mode: "shadow",
-    title: "Shadow 观测",
+    mode: "plan_only",
+    title: "Plan-only 观测",
     tone: "safe",
     summary: "默认安全水位。生成计划、记录 diff，但不改变执行链。",
     detail: "适合日常开发、前端调试和对比行为偏移。"
@@ -233,6 +234,26 @@ type DroppedAnswerSegment = {
   title: string;
   reason: string;
   detail: string;
+};
+
+type RuntimeExecutionMismatch = {
+  execution_id: string;
+  field: string;
+  planned: string;
+  legacy: string;
+};
+
+type RuntimeExecutionEntry = {
+  execution_id: string;
+  step_id: string;
+  entry_kind: string;
+  route: string;
+  tool: string;
+  worker_route: string;
+  skill: string;
+  agent_id: string;
+  source: string;
+  strategy: string;
 };
 
 type PromptAssemblySection = {
@@ -343,6 +364,101 @@ function toDroppedAnswerSegments(value: unknown): DroppedAnswerSegment[] {
       reason: String(item.reason ?? ""),
       detail: String(item.detail ?? "")
     }));
+}
+
+function toRuntimeExecutionMismatches(value: unknown): RuntimeExecutionMismatch[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      execution_id: String(item.execution_id ?? ""),
+      field: String(item.field ?? ""),
+      planned: String(item.planned ?? ""),
+      legacy: String(item.legacy ?? "")
+    }))
+    .filter((item) => item.field);
+}
+
+function toRuntimeExecutionEntries(value: unknown): RuntimeExecutionEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      execution_id: String(item.execution_id ?? ""),
+      step_id: String(item.step_id ?? ""),
+      entry_kind: String(item.entry_kind ?? ""),
+      route: String(item.route ?? ""),
+      tool: String(item.tool ?? ""),
+      worker_route: String(item.worker_route ?? ""),
+      skill: String(item.skill ?? ""),
+      agent_id: String(item.agent_id ?? ""),
+      source: String(item.source ?? ""),
+      strategy: String(item.strategy ?? "")
+    }))
+    .filter((item) => item.execution_id || item.step_id);
+}
+
+function runtimeWarningLabel(warning: string) {
+  if (warning === "primary_fallback_validation_blocked") {
+    return "编排校验未通过，已回退旧链路";
+  }
+  if (warning === "primary_fallback_allowlist_blocked") {
+    return "超出低风险 primary 范围，已回退旧链路";
+  }
+  if (warning === "primary_fallback_legacy_execution_mismatch") {
+    return "计划分支与旧执行分支不匹配，已回退旧链路";
+  }
+  if (warning === "primary_fallback_incomplete_contract") {
+    return "正式编排契约不完整，已回退旧链路";
+  }
+  if (warning === "primary_fallback_legacy_field_mismatch") {
+    return "正式计划和旧执行字段不一致，已回退旧链路";
+  }
+  return warning;
+}
+
+function runtimeControlSummary(data: Record<string, unknown>) {
+  const diagnostics = toRecord(data.diagnostics);
+  const warnings = toStringList(data.warnings);
+  const primaryActive = Boolean(data.primary_active);
+  if (warnings.length) {
+    return {
+      status: "fallback",
+      title: "未接管执行",
+      detail: warnings.map(runtimeWarningLabel).join("；"),
+      source: String(data.source ?? "legacy_fallback"),
+      diagnostics
+    };
+  }
+  if (primaryActive) {
+    return {
+      status: "primary",
+      title: "Primary 已接管",
+      detail: `执行模式：${String(data.execution_mode ?? "unknown")}`,
+      source: String(data.source ?? "orchestration_plan"),
+      diagnostics
+    };
+  }
+  if (data.source === "orchestration_plan_only") {
+    return {
+      status: "plan_only",
+      title: "Plan-only 观测",
+      detail: `不改变旧执行链；校验状态：${String(diagnostics.validation_status ?? "未记录")}`,
+      source: "orchestration_plan_only",
+      diagnostics
+    };
+  }
+  return {
+    status: "legacy",
+    title: "Legacy 执行",
+    detail: `来源：${String(data.source ?? "legacy")}`,
+    source: String(data.source ?? "legacy"),
+    diagnostics
+  };
 }
 
 function executionIndexFromField(field: string) {
@@ -460,7 +576,7 @@ export function ExperimentsView() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogAction, setCatalogAction] = useState("");
   const [selectedExecutionFilter, setSelectedExecutionFilter] = useState<ExecutionEventFilter | null>(null);
-  const currentPlanMode = catalog?.orchestration_plan_mode ?? "shadow";
+  const currentPlanMode = catalog?.orchestration_plan_mode ?? "plan_only";
   const currentPlanModeCard = orchestrationModeCards.find((item) => item.mode === currentPlanMode) ?? orchestrationModeCards[0];
 
   const target = orchestrationInspectorTarget;
@@ -486,6 +602,29 @@ export function ExperimentsView() {
   const readableRoute = `${snapshot.route || "unknown"} / ${snapshot.execution_mode || "unknown"}`;
   const orchestrationDiff = (snapshot.orchestration_diff ?? {}) as Record<string, unknown>;
   const orchestrationPlan = (snapshot.orchestration_plan ?? snapshot.dry_run?.orchestration_plan ?? {}) as Record<string, unknown>;
+  const intentFrame = toRecord(orchestrationPlan.intent_frame);
+  const memoryPolicy = toRecord(orchestrationPlan.memory_policy);
+  const contextPolicy = toRecord(orchestrationPlan.context_policy);
+  const resourcePolicy = toRecord(orchestrationPlan.resource_policy);
+  const answerPolicy = toRecord(orchestrationPlan.answer_policy);
+  const validationDecision = toRecord(orchestrationPlan.validation);
+  const executionDirectives = Array.isArray(orchestrationPlan.execution_directives)
+    ? orchestrationPlan.execution_directives.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const validationIssues = Array.isArray(validationDecision.issues)
+    ? validationDecision.issues.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const runtimeControlEvent = [...snapshot.events].reverse().find((event) => event.event === "orchestration_runtime_control");
+  const runtimeControl = runtimeControlSummary(toRecord(runtimeControlEvent?.data));
+  const runtimeDiagnostics = runtimeControl.diagnostics;
+  const runtimeExecutionMismatches = useMemo(
+    () => toRuntimeExecutionMismatches(runtimeDiagnostics.execution_mismatches),
+    [runtimeDiagnostics.execution_mismatches]
+  );
+  const runtimeExecutionEntries = useMemo(
+    () => toRuntimeExecutionEntries(runtimeDiagnostics.execution_entries),
+    [runtimeDiagnostics.execution_entries]
+  );
   const diffItems = useMemo(() => toDiffItems(orchestrationDiff.items), [orchestrationDiff.items]);
   const executionDiffItems = useMemo(
     () => diffItems.filter((item) => item.field === "executions.count" || item.field.startsWith("executions[")),
@@ -624,6 +763,21 @@ export function ExperimentsView() {
       setCatalogAction(`Orchestration plan mode 已切换为 ${nextCatalog.orchestration_plan_mode}。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "切换 orchestration plan mode 失败");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+  async function changePrimaryEntrySelection(enabled: boolean) {
+    setCatalogLoading(true);
+    setCatalogAction("");
+    try {
+      await setPrimaryEntrySelection(enabled);
+      const nextCatalog = await getOrchestrationCatalog();
+      setCatalog(nextCatalog);
+      setCatalogAction(enabled ? "Primary entry selection 预览已开启。" : "Primary entry selection 预览已关闭。");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "切换 primary entry selection 失败");
     } finally {
       setCatalogLoading(false);
     }
@@ -834,11 +988,23 @@ export function ExperimentsView() {
             </article>
             <article>
               <b>回滚边界</b>
-              <span>primary 匹配失败会自动 fallback legacy execution；手动可随时切回 shadow 或 legacy。</span>
+              <span>primary 匹配失败会自动 fallback legacy execution；手动可随时切回 plan-only 或 legacy。</span>
             </article>
             <article>
               <b>使用建议</b>
-              <span>开发与测试优先 shadow；专项验证可 primary；如果发现计划偏移或链路异常，先回 shadow 再复盘 diff。</span>
+              <span>开发与测试优先 plan-only；专项验证可 primary；如果发现计划偏移或链路异常，先回 plan-only 再复盘 diff。</span>
+            </article>
+            <article>
+              <b>入口选择预览</b>
+              <span>{catalog?.primary_entry_selection_enabled ? "已开启：RuntimeControl 会标记 primary_entry_selection_preview。" : "默认关闭：继续复用 legacy execution，只观察入口计划。"}</span>
+              <button
+                className={catalog?.primary_entry_selection_enabled ? "action-button action-button--muted" : "action-button action-button--primary"}
+                disabled={catalogLoading || !catalog}
+                onClick={() => void changePrimaryEntrySelection(!catalog?.primary_entry_selection_enabled)}
+                type="button"
+              >
+                {catalog?.primary_entry_selection_enabled ? "关闭预览" : "开启预览"}
+              </button>
             </article>
           </div>
           {catalogAction ? <div className="workspace-alert">{catalogAction}</div> : null}
@@ -913,7 +1079,7 @@ export function ExperimentsView() {
           <div className="orchestration-permission-bar">
             <div>
               <b>Orchestration Plan Mode</b>
-              <span>legacy 关闭计划事件，shadow 只观测不改行为，primary 使用已验证的 OrchestrationPlan 控制面。</span>
+              <span>legacy 关闭计划事件，plan-only 只观测不改行为，primary 使用已验证的 OrchestrationPlan 控制面。</span>
             </div>
             <select
               disabled={catalogLoading || !catalog}
@@ -987,10 +1153,114 @@ export function ExperimentsView() {
           <span><b>{snapshot.execution_mode || "unknown"}</b> 执行模式</span>
           <span><b>{snapshot.route || "unknown"}</b> 路由</span>
           <span><b>{visitedCount}/{snapshot.nodes.length}</b> 节点经过</span>
-          <span><b>{String(orchestrationDiff.status ?? orchestrationPlan.mode ?? "shadow")}</b> plan</span>
+          <span><b>{String(orchestrationDiff.status ?? orchestrationPlan.mode ?? "plan_only")}</b> plan</span>
           <span><b>{snapshot.events.length}</b> 事件</span>
         </div>
       </section>
+
+      {Object.keys(orchestrationPlan).length ? (
+        <section className="workspace-section orchestration-contract-panel">
+          <div className="workspace-section__head">
+            <ShieldCheck size={18} />
+            <h3>正式编排契约</h3>
+            <span className={`tag-chip ${validationDecision.status === "blocked" ? "tag-chip--danger" : ""}`}>
+              校验：{String(validationDecision.status ?? "未校验")}
+            </span>
+            <span className="tag-chip">{String(orchestrationPlan.mode ?? "plan_only")}</span>
+          </div>
+          <div className="orchestration-contract-panel__grid">
+            <article className="orchestration-contract-panel__card orchestration-contract-panel__card--focus">
+              <span>IntentFrame</span>
+              <strong>{String(intentFrame.task_kind ?? "未知任务")}</strong>
+              <p>{String(intentFrame.user_goal ?? snapshot.summary ?? "等待用户目标。")}</p>
+              <div>
+                {toStringList(intentFrame.source_needs).map((item) => <em key={item}>{item}</em>)}
+              </div>
+            </article>
+            <article className="orchestration-contract-panel__card">
+              <span>MemoryPolicy</span>
+              <strong>{String(memoryPolicy.read_mode ?? "none")} / {String(memoryPolicy.write_mode ?? "none")}</strong>
+              <p>{Boolean(memoryPolicy.ignore_memory) ? "本轮忽略记忆。" : `恢复候选：${compactValue(memoryPolicy.restored_candidates)}，写回范围：${compactValue(memoryPolicy.writeback_scope)}`}</p>
+            </article>
+            <article className="orchestration-contract-panel__card">
+              <span>ContextPolicy</span>
+              <strong>{compactValue(contextPolicy.required_handles)} 句柄</strong>
+              <p>{String(contextPolicy.summary ?? "上下文由 runtime 装配。")}</p>
+              <div>
+                {toStringList(contextPolicy.prompt_sections).slice(0, 5).map((item) => <em key={item}>{item}</em>)}
+              </div>
+            </article>
+            <article className="orchestration-contract-panel__card">
+              <span>ResourcePolicy</span>
+              <strong>{compactValue(resourcePolicy.allowed_tools)} 工具 / {compactValue(resourcePolicy.allowed_agents)} 智能体</strong>
+              <p>来源权限：{toStringList(resourcePolicy.allowed_sources).join("、") || "默认"}</p>
+              <div>
+                {toStringList(resourcePolicy.blocked_tools).slice(0, 4).map((item) => <em className="is-danger" key={item}>{item}</em>)}
+              </div>
+            </article>
+            <article className="orchestration-contract-panel__card">
+              <span>AnswerPolicy</span>
+              <strong>{Boolean(answerPolicy.require_citations) ? "需要引用" : "普通收口"}</strong>
+              <p>{Boolean(answerPolicy.hide_internal_protocol) ? "隐藏内部协议。" : "允许显示内部协议。"} {Boolean(answerPolicy.memory_writeback_allowed) ? "允许记忆写回。" : "不写长期记忆。"}</p>
+            </article>
+            <article className={`orchestration-contract-panel__card ${validationIssues.length ? "orchestration-contract-panel__card--alert" : ""}`}>
+              <span>ValidationDecision</span>
+              <strong>{validationIssues.length ? `${validationIssues.length} 个问题` : "通过基础校验"}</strong>
+              <p>{validationIssues[0] ? `${String(validationIssues[0].code ?? "issue")}：${String(validationIssues[0].detail ?? "")}` : "directive 可被 runtime control 读取；plan-only 下不会改变执行。"}</p>
+            </article>
+            <article className={`orchestration-contract-panel__card ${runtimeControl.status === "fallback" ? "orchestration-contract-panel__card--alert" : ""}`}>
+              <span>RuntimeControl</span>
+              <strong>{runtimeControl.title}</strong>
+              <p>{runtimeControl.detail}</p>
+              <div>
+                <em>{runtimeControl.source}</em>
+                {toStringList(runtimeDiagnostics.allowlist_blockers).slice(0, 4).map((item) => <em className="is-danger" key={item}>{item}</em>)}
+                {toStringList(runtimeDiagnostics.contract_blockers).slice(0, 4).map((item) => <em className="is-danger" key={item}>{item}</em>)}
+                {runtimeDiagnostics.validation_status ? <em>validation={String(runtimeDiagnostics.validation_status)}</em> : null}
+              </div>
+              {runtimeExecutionMismatches.length ? (
+                <ul className="orchestration-runtime-mismatch-list">
+                  {runtimeExecutionMismatches.slice(0, 4).map((item, index) => (
+                    <li key={`${item.execution_id}-${item.field}-${index}`}>
+                      <b>{item.execution_id || `step-${index + 1}`}</b>
+                      <span>{item.field}</span>
+                      <code>{item.planned || "-"}</code>
+                      <i>旧执行：{item.legacy || "-"}</i>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {runtimeExecutionEntries.length ? (
+                <div className="orchestration-runtime-entry-list">
+                  {runtimeExecutionEntries.slice(0, 4).map((item, index) => (
+                    <span key={`${item.execution_id || item.step_id}-${index}`}>
+                      <b>{item.step_id || item.execution_id}</b>
+                      {item.entry_kind || "entry"}
+                      {item.tool || item.worker_route || item.agent_id ? ` -> ${item.tool || item.worker_route || item.agent_id}` : ""}
+                      {item.source ? ` / ${item.source}` : ""}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          </div>
+          {executionDirectives.length ? (
+            <div className="orchestration-directive-strip">
+              {executionDirectives.map((directive, index) => (
+                <article key={`${String(directive.step_id ?? "step")}-${index}`}>
+                  <span>#{index + 1} {String(directive.action ?? "directive")}</span>
+                  <strong>{String(directive.tool || directive.worker_route || directive.agent_id || "主链回答")}</strong>
+                  <p>{String(directive.input_summary ?? "")}</p>
+                  <div>
+                    {toStringList(directive.risk_tags).map((item) => <em key={item}>{item}</em>)}
+                    {toStringList(directive.shared_channels).map((item) => <em key={item}>{item}</em>)}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="orchestration-brief">
         <article className="orchestration-brief__card orchestration-brief__card--primary">

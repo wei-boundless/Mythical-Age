@@ -221,6 +221,7 @@ export type OrchestrationCatalog = {
   tool_contract_mode: string;
   orchestration_plan_mode: string;
   supported_orchestration_plan_modes: string[];
+  primary_entry_selection_enabled: boolean;
   skills: OrchestrationCatalogSkill[];
   tools: OrchestrationCatalogTool[];
 };
@@ -235,6 +236,8 @@ export type OperationTool = OrchestrationCatalogTool & {
   operation_metadata: {
     tool_type: string;
     note: string;
+    source_class: string;
+    search_policy: string[];
     tool_boundary: string;
     adapter_type: string;
     risk_level: string;
@@ -248,13 +251,45 @@ export type OperationTool = OrchestrationCatalogTool & {
       activation_policy: string;
       context_mode: string;
     }>;
+    bound_agents: Array<{
+      agent_id: string;
+      name: string;
+    }>;
+    ownership_label: string;
     governance_hints: string[];
   };
+};
+
+export type OperationBindingGraph = {
+  agent_nodes: Array<{
+    agent_id: string;
+    name: string;
+    kind: string;
+    description: string;
+    bound_tools: string[];
+    protocol_version: string;
+  }>;
+  skill_tool_edges: Array<{
+    from: string;
+    from_label: string;
+    to: string;
+    to_label: string;
+    relation: string;
+  }>;
+  agent_tool_edges: Array<{
+    from: string;
+    from_label: string;
+    to: string;
+    to_label: string;
+    relation: string;
+  }>;
+  recommendations: string[];
 };
 
 export type OperationCatalog = {
   skills: OperationSkill[];
   tools: OperationTool[];
+  binding_graph: OperationBindingGraph;
   tool_type_options: string[];
   summary: {
     skill_count: number;
@@ -262,8 +297,15 @@ export type OperationCatalog = {
     model_visible_skills: number;
     tool_types: string[];
     tool_boundaries: Record<string, number>;
+    tool_sources: Record<string, number>;
     tool_risks: Record<string, number>;
   };
+  validation_issues?: Array<{
+    severity: string;
+    code: string;
+    message: string;
+    subject: string;
+  }>;
 };
 
 export type AgentSystemSkill = {
@@ -865,6 +907,13 @@ export async function setOrchestrationPlanMode(mode: string) {
   });
 }
 
+export async function setPrimaryEntrySelection(enabled: boolean) {
+  return request<{ enabled: boolean }>("/orchestration/primary-entry-selection", {
+    method: "PUT",
+    body: JSON.stringify({ enabled })
+  });
+}
+
 export async function getOperationCatalog() {
   return request<OperationCatalog>("/operations/catalog");
 }
@@ -897,6 +946,13 @@ export async function saveOperationSkill(skillName: string, content: string) {
 export async function deleteOperationSkill(skillName: string) {
   return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}`, {
     method: "DELETE"
+  });
+}
+
+export async function updateOperationSkillTools(skillName: string, allowedTools: string[]) {
+  return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}/tools`, {
+    method: "PUT",
+    body: JSON.stringify({ allowed_tools: allowedTools })
   });
 }
 
@@ -966,6 +1022,7 @@ export async function streamChat(
     message: string;
     session_id: string;
     ephemeral_system_messages?: string[];
+    search_policy?: string[];
   },
   handlers: StreamHandlers
 ) {

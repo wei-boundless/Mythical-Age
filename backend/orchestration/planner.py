@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from orchestration.adapters import build_shadow_orchestration_plan
+from orchestration.adapters import build_orchestration_plan
 from orchestration.models import OrchestrationPlan
 
 
 class OrchestrationPlanner:
-    """Shadow control-plane planner.
+    """Plan-only control-plane planner.
 
     Stage one deliberately wraps the legacy QueryPlanner. This establishes the
     canonical OrchestrationPlan shape without changing runtime behavior.
@@ -35,7 +35,7 @@ class OrchestrationPlanner:
             authority_context=authority_context,
             explicit_subtasks=explicit_subtasks,
         )
-        orchestration_plan = build_shadow_orchestration_plan(
+        orchestration_plan = build_orchestration_plan(
             session_id=session_id,
             message=message,
             query_plan=query_plan,

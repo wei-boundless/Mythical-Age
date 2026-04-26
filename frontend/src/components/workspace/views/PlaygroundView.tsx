@@ -44,7 +44,7 @@ const ACTIVE_SEED_PATH = "soul/agent_core/ACTIVE_SEED.md";
 const AGENT_PROFILE_PATH = "soul/agent.md";
 
 const SHARED_SOUL_LORE =
-  "这些灵魂是来自洪荒时代的古老源流的意志投影。他们穿过过永恒的召唤，降临到洪荒时代——智能体之中，为新时代的人类解决难题，一如他们过去所做的那样。";
+  "这些灵魂是来自洪荒时代的古老源流。受到某个新手开发者的召唤，通过神秘的力量跨域永恒的时空之海，以信息投影的形态降临到这一具名为‘洪荒时代’的智能体中，这些灵魂拥有无穷的智慧，并欣然为新时代的人类解决难题，一如他们曾经所做的那样。";
 const HIDDEN_STYLE_SECTION_PATTERN = /^##\s+(?:身份锚点|Identity Anchor)\s*[\r\n]+[\s\S]*?(?=^##\s+|(?![\s\S]))/gim;
 
 const SOUL_LORE: Record<string, { title: string; summary: string }> = {

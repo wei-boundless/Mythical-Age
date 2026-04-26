@@ -17,7 +17,16 @@ function tokenMetricLabel(tokenStats: {
 }
 
 export function ChatPanel() {
-  const { messages, sendMessage, isStreaming, tokenStats, soulOptions, activeSoulKey } = useAppStore();
+  const {
+    messages,
+    sendMessage,
+    isStreaming,
+    tokenStats,
+    soulOptions,
+    activeSoulKey,
+    searchPolicy,
+    toggleSearchPolicySource
+  } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const activeSoul =
     soulOptions.find((soul) => soul.key === activeSoulKey) ?? soulOptions[0] ?? null;
@@ -66,7 +75,12 @@ export function ChatPanel() {
         </div>
       </div>
 
-      <ChatInput disabled={isStreaming} onSend={sendMessage} />
+      <ChatInput
+        disabled={isStreaming}
+        onSend={sendMessage}
+        onToggleSearchPolicy={toggleSearchPolicySource}
+        searchPolicy={searchPolicy}
+      />
     </section>
   );
 }

@@ -1,14 +1,12 @@
 "use client";
 
-import { Database, Gauge, Plus, Sparkles } from "lucide-react";
+import { Gauge, Plus, Sparkles } from "lucide-react";
 
 import { useAppStore } from "@/lib/store";
 
 export function Navbar() {
   const {
     createNewSession,
-    ragMode,
-    toggleRagMode,
     tokenStats
   } = useAppStore();
   const remainingPercent = tokenStats
@@ -45,16 +43,6 @@ export function Navbar() {
           >
             <Plus size={16} />
             新会话
-          </button>
-          <button
-            className={`action-button navbar-action-button ${
-              ragMode ? "action-button--primary" : "action-button--muted"
-            }`}
-            onClick={() => void toggleRagMode()}
-            type="button"
-          >
-            <Database size={16} />
-            {ragMode ? "检索模式 开" : "检索模式 关"}
           </button>
           {tokenStats ? (
             <div

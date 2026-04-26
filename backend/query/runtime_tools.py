@@ -5,6 +5,7 @@ import json
 import uuid
 from typing import Any, Callable
 
+from capabilities.search_policy import tool_allowed_by_search_policy
 from pdf_agent import PDFCanonicalResult
 from query.output_boundary import sanitize_visible_assistant_content
 from query.output_classifier import build_output_decision, classify_output_candidate
@@ -59,8 +60,11 @@ class RuntimeToolBridge:
             requested = list(getattr(execution.query_understanding, "candidate_tools", []) or [])
             if not requested and skill_scope.has_allowed_filter:
                 requested.extend(skill_scope.to_allowed_tools())
-            return self._without_worker_only_tools(
-                self.permission_service.allowed_tool_names(allowed_tools=requested or None)
+            return self._filter_by_search_policy(
+                execution,
+                self._without_worker_only_tools(
+                    self.permission_service.allowed_tool_names(allowed_tools=requested or None)
+                ),
             )
 
         if route == "tool":
@@ -71,18 +75,52 @@ class RuntimeToolBridge:
                 requested.extend(list(execution.query_understanding.candidate_tools))
             elif skill_scope.has_allowed_filter:
                 requested.extend(skill_scope.to_allowed_tools())
-            return set(self.permission_service.allowed_tool_names(allowed_tools=requested))
-
-        return self._without_worker_only_tools(
-            self.permission_service.allowed_tool_names(
-                allowed_tools=skill_scope.to_allowed_tools() if skill_scope.has_allowed_filter else None
+            return self._filter_by_search_policy(
+                execution,
+                set(self.permission_service.allowed_tool_names(allowed_tools=requested)),
             )
+
+        return self._filter_by_search_policy(
+            execution,
+            self._without_worker_only_tools(
+                self.permission_service.allowed_tool_names(
+                    allowed_tools=skill_scope.to_allowed_tools() if skill_scope.has_allowed_filter else None
+                )
+            ),
         )
 
     def _without_worker_only_tools(self, tool_names: list[str] | set[str] | tuple[str, ...]) -> set[str]:
         # RAG is now a RetrievalWorker capability. Keeping the retrieval facade out
         # of the model-visible tool schema prevents bounded-agent retrieval loops.
         return {str(name) for name in list(tool_names or []) if str(name) != "search_knowledge"}
+
+    def _filter_by_search_policy(self, execution, tool_names: list[str] | set[str] | tuple[str, ...]) -> set[str]:
+        search_policy = getattr(execution, "search_policy", None)
+        names = {str(name) for name in list(tool_names or []) if str(name).strip()}
+        if search_policy is None:
+            return names
+        allowed = {
+            str(item or "").strip().lower()
+            for item in list(search_policy or [])
+            if str(item or "").strip()
+        }
+        return {name for name in names if self._tool_allowed_by_search_policy(name, allowed)}
+
+    def _tool_allowed_by_search_policy(self, tool_name: str, allowed: set[str]) -> bool:
+        definition = None
+        registry = getattr(self.tool_runtime, "registry", None)
+        registry_getter = getattr(registry, "get_by_name", None)
+        if callable(registry_getter):
+            definition = registry_getter(tool_name)
+        if definition is None:
+            runtime_getter = getattr(self.tool_runtime, "get_definition", None)
+            if callable(runtime_getter):
+                definition = runtime_getter(tool_name)
+        if definition is None:
+            definition = get_tool_definition_map().get(str(tool_name or "").strip())
+        if definition is None:
+            return False
+        return tool_allowed_by_search_policy(definition.to_registry_record(), allowed)
 
     async def stream_direct_tool_execution(
         self,
@@ -120,6 +158,20 @@ class RuntimeToolBridge:
                 "answer_fallback_reason": "tool_contract_blocked",
                 "answer_leak_flags": [],
                 "contract": contract_decision.to_dict(),
+                "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
+                "message_id": message_id,
+                "mcp": mcp_metadata,
+            }
+            return
+
+        if getattr(execution, "search_policy", None) is not None and tool_name not in self._filter_by_search_policy(execution, {tool_name}):
+            yield {
+                "type": "done",
+                "content": f"无法调用工具 {tool_name}：本轮对话权限未开启对应来源。",
+                "answer_channel": "fallback_answer",
+                "answer_source": "search_policy_guard",
+                "answer_fallback_reason": "tool_search_policy_denied",
+                "answer_leak_flags": [],
                 "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
                 "message_id": message_id,
                 "mcp": mcp_metadata,

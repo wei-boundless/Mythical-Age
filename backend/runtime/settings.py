@@ -13,6 +13,7 @@ class RuntimeSettingsSnapshot:
     retrieval_shadow_compare: bool
     retrieval_cutover_mode: str
     orchestration_plan_mode: str
+    primary_entry_selection_enabled: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +67,8 @@ class AppSettingsService:
             rag_mode=bool(payload.get("rag_mode", False)),
             retrieval_shadow_compare=bool(payload.get("retrieval_shadow_compare", False)),
             retrieval_cutover_mode=str(payload.get("retrieval_cutover_mode", "v2_primary") or "v2_primary"),
-            orchestration_plan_mode=str(payload.get("orchestration_plan_mode", "shadow") or "shadow"),
+            orchestration_plan_mode=str(payload.get("orchestration_plan_mode", "plan_only") or "plan_only"),
+            primary_entry_selection_enabled=bool(payload.get("primary_entry_selection_enabled", False)),
         )
 
     def policy_snapshot(self) -> PolicySettingsSnapshot:
@@ -126,13 +128,27 @@ class AppSettingsService:
     def get_orchestration_plan_mode(self) -> str:
         getter = getattr(runtime_config, "get_orchestration_plan_mode", None)
         if callable(getter):
-            return str(getter() or "shadow")
-        return str(self.runtime_snapshot().orchestration_plan_mode or "shadow")
+            return str(getter() or "plan_only")
+        return str(self.runtime_snapshot().orchestration_plan_mode or "plan_only")
 
     def set_orchestration_plan_mode(self, mode: str) -> dict[str, Any]:
         setter = getattr(runtime_config, "set_orchestration_plan_mode", None)
         if callable(setter):
             return setter(mode)
         current = runtime_config.load()
-        current["orchestration_plan_mode"] = str(mode or "shadow")
+        current["orchestration_plan_mode"] = str(mode or "plan_only")
+        return runtime_config.save(current)
+
+    def get_primary_entry_selection_enabled(self) -> bool:
+        getter = getattr(runtime_config, "get_primary_entry_selection_enabled", None)
+        if callable(getter):
+            return bool(getter())
+        return bool(self.runtime_snapshot().primary_entry_selection_enabled)
+
+    def set_primary_entry_selection_enabled(self, enabled: bool) -> dict[str, Any]:
+        setter = getattr(runtime_config, "set_primary_entry_selection_enabled", None)
+        if callable(setter):
+            return setter(enabled)
+        current = runtime_config.load()
+        current["primary_entry_selection_enabled"] = bool(enabled)
         return runtime_config.save(current)

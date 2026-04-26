@@ -3,32 +3,36 @@ name: get-weather
 metadata:
   display_name: 天气查询
   allowed_tools:
-    - get_weather
+  - get_weather
+  - web_search
+  - pdf_analysis
+  - search_knowledge
+  - structured_data_analysis
   supported_modalities:
-    - realtime
+  - realtime
   supported_task_kinds:
-    - realtime_lookup
+  - realtime_lookup
   supported_source_kinds:
-    - external_web
+  - external_web
   capability_tags:
-    - weather
-    - forecast
-    - realtime
+  - weather
+  - forecast
+  - realtime
   preferred_route: tool
   activation_policy: model_visible
   context_mode: inline
   route_authority: candidate_only
   forbidden_routes:
-    - rag
+  - rag
   routing_hints:
-    - 天气
-    - 气温
-    - 温度
-    - 预报
-    - 下雨
+  - 天气
+  - 气温
+  - 温度
+  - 预报
+  - 下雨
   examples:
-    - 北京今天天气怎么样
-    - 上海明天气温多少
+  - 北京今天天气怎么样
+  - 上海明天气温多少
 description: 查询指定地点的实时天气或短期天气情况，并整理成适合直接回复用户的中文结果。
 ---
 

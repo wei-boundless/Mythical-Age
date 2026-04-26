@@ -26,7 +26,7 @@ import {
 
 import type { Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
-import type { StoreActions, StoreState, WorkspaceView } from "./types";
+import type { SearchPolicySource, StoreActions, StoreState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
 export class WorkspaceRuntime {
@@ -52,6 +52,9 @@ export class WorkspaceRuntime {
       },
       toggleRagMode: async () => {
         await this.toggleRagMode();
+      },
+      toggleSearchPolicySource: (source) => {
+        this.toggleSearchPolicySource(source);
       },
       switchSoul: async (key) => {
         await this.switchSoul(key);
@@ -107,6 +110,10 @@ export class WorkspaceRuntime {
       ...prev,
       sessions,
       ragMode: rag.enabled,
+      searchPolicy: {
+        ...prev.searchPolicy,
+        rag: rag.enabled
+      },
       skills,
       soulOptions: souls.options,
       activeSoulKey: souls.activeSoulKey
@@ -245,6 +252,7 @@ export class WorkspaceRuntime {
 
     const sessionId = await this.ensureSession();
     const ephemeralSystemMessages = [...(state.pendingEphemeralSystemMessages ?? [])];
+    const searchPolicy = this.enabledSearchPolicy(state);
     let consumedEphemeralSystemMessages = false;
     let transition = startStreamingTurn(this.store.getState(), trimmed);
     this.store.setState(() => transition.state);
@@ -254,7 +262,8 @@ export class WorkspaceRuntime {
         {
           message: trimmed,
           session_id: sessionId,
-          ephemeral_system_messages: ephemeralSystemMessages
+          ephemeral_system_messages: ephemeralSystemMessages,
+          search_policy: searchPolicy
         },
         {
           onEvent: (event, data) => {
@@ -301,13 +310,59 @@ export class WorkspaceRuntime {
 
   private async toggleRagMode() {
     const next = !this.store.getState().ragMode;
-    this.store.setState((prev) => ({ ...prev, ragMode: next }));
+    this.store.setState((prev) => ({
+      ...prev,
+      ragMode: next,
+      searchPolicy: {
+        ...prev.searchPolicy,
+        rag: next
+      }
+    }));
     try {
       await setRagMode(next);
     } catch (error) {
-      this.store.setState((prev) => ({ ...prev, ragMode: !next }));
+      this.store.setState((prev) => ({
+        ...prev,
+        ragMode: !next,
+        searchPolicy: {
+          ...prev.searchPolicy,
+          rag: !next
+        }
+      }));
       throw error;
     }
+  }
+
+  private toggleSearchPolicySource(source: SearchPolicySource) {
+    this.store.setState((prev) => {
+      const nextEnabled = !prev.searchPolicy[source];
+      return {
+        ...prev,
+        ragMode: source === "rag" ? nextEnabled : prev.ragMode,
+        searchPolicy: {
+          ...prev.searchPolicy,
+          [source]: nextEnabled
+        }
+      };
+    });
+    if (source === "rag") {
+      void setRagMode(this.store.getState().searchPolicy.rag).catch(() => {
+        this.store.setState((prev) => ({
+          ...prev,
+          ragMode: !prev.searchPolicy.rag,
+          searchPolicy: {
+            ...prev.searchPolicy,
+            rag: !prev.searchPolicy.rag
+          }
+        }));
+      });
+    }
+  }
+
+  private enabledSearchPolicy(state: StoreState) {
+    return (Object.entries(state.searchPolicy) as Array<[SearchPolicySource, boolean]>)
+      .filter(([, enabled]) => enabled)
+      .map(([source]) => source);
   }
 
   private async switchSoul(key: SoulKey) {

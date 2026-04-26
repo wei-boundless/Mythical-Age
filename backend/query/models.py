@@ -27,6 +27,7 @@ class QueryRequest:
     history: list[dict[str, Any]] | None = None
     ephemeral_system_messages: list[str] = field(default_factory=list)
     explicit_subtasks: list[dict[str, Any]] = field(default_factory=list)
+    search_policy: list[str] | None = None
 
 
 @dataclass(slots=True)
@@ -84,6 +85,7 @@ class QueryExecutionPlan:
     bundle_item_id: str = ""
     bundle_item_index: int = 0
     bundle_origin: str = ""
+    search_policy: list[str] | None = None
 
 
 @dataclass(slots=True)
@@ -131,6 +133,7 @@ class QueryPlan:
     artifact_graph_delta: dict[str, Any] | None = None
     executions: list[QueryExecutionPlan] = field(default_factory=list)
     ephemeral_system_messages: list[str] = field(default_factory=list)
+    search_policy: list[str] | None = None
 
     def iter_executions(self) -> list[QueryExecutionPlan]:
         if self.executions:
@@ -162,6 +165,7 @@ class QueryPlan:
                 subtask_refs=dict(self.subtasks[0].refs if self.subtasks else {}),
                 subtask_depends_on=list(self.subtasks[0].depends_on if self.subtasks else []),
                 subtask_origin=(self.subtasks[0].origin if self.subtasks else "planner"),
+                search_policy=list(self.search_policy) if self.search_policy is not None else None,
             )
         ]
 

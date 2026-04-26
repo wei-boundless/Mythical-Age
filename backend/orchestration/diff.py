@@ -345,7 +345,7 @@ def _policy_observation_items(
             items.append(
                 OrchestrationDiffItem(
                     field="contract.runtime_block",
-                    expected="allow_or_shadow",
+                    expected="allow_or_observe",
                     actual=action,
                     status="mismatch",
                     reason=str(actual.get("contract_reason") or "contract_denied"),
@@ -355,7 +355,7 @@ def _policy_observation_items(
             items.append(
                 OrchestrationDiffItem(
                     field="contract.runtime_block",
-                    expected="allow_or_shadow",
+                    expected="allow_or_observe",
                     actual=action,
                     status="matched",
                 )

@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Bot,
   Boxes,
   Code2,
   FilePlus2,
@@ -20,19 +21,24 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { AgentExecutionPanel } from "@/components/workspace/views/operations/AgentExecutionPanel";
 import {
   createOperationSkill,
   deleteOperationSkill,
   getOperationCatalog,
   refreshOperationCatalog,
   saveOperationSkill,
+  updateOperationSkillTools,
   updateOperationTool,
   type OperationCatalog,
   type OperationSkill,
   type OperationTool
 } from "@/lib/api";
 
-type OperationPanel = "skills" | "tools";
+type OperationPanel = "skills" | "tools" | "bindings" | "agents";
+type OperationsViewProps = {
+  initialPanel?: OperationPanel;
+};
 
 const TOOL_VISIBILITY_LABELS: Record<string, string> = {
   main_runtime: "主运行时",
@@ -114,16 +120,18 @@ function toolSearchText(tool: OperationTool) {
     tool.operation_metadata.tool_boundary,
     tool.operation_metadata.adapter_type,
     tool.operation_metadata.risk_level,
+    tool.operation_metadata.ownership_label,
     tool.operation_metadata.bound_skills.map((skill) => skill.title || skill.name).join(" "),
+    tool.operation_metadata.bound_agents.map((agent) => agent.name).join(" "),
     tool.capability_tags.join(" "),
     tool.safety_tags.join(" "),
     tool.route_hints.join(" ")
   ].join(" ").toLowerCase();
 }
 
-export function OperationsView() {
+export function OperationsView({ initialPanel = "skills" }: OperationsViewProps = {}) {
   const [catalog, setCatalog] = useState<OperationCatalog | null>(null);
-  const [activePanel, setActivePanel] = useState<OperationPanel>("skills");
+  const [activePanel, setActivePanel] = useState<OperationPanel>(initialPanel);
   const [selectedSkillName, setSelectedSkillName] = useState("");
   const [selectedToolName, setSelectedToolName] = useState("");
   const [skillDraft, setSkillDraft] = useState("");
@@ -137,6 +145,10 @@ export function OperationsView() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [newSkill, setNewSkill] = useState({ name: "", title: "", description: "" });
+
+  useEffect(() => {
+    setActivePanel(initialPanel);
+  }, [initialPanel]);
 
   async function loadCatalog(refresh = false) {
     setLoading(true);
@@ -292,6 +304,24 @@ export function OperationsView() {
     }
   }
 
+  async function toggleSkillToolBinding(skill: OperationSkill, toolName: string) {
+    const currentTools = skill.runtime.allowed_tools ?? [];
+    const nextTools = currentTools.includes(toolName)
+      ? currentTools.filter((name) => name !== toolName)
+      : [...currentTools, toolName];
+    setSaving(`skill-tools:${skill.runtime.name}`);
+    setError("");
+    try {
+      const payload = await updateOperationSkillTools(skill.runtime.name, nextTools);
+      setCatalog(payload);
+      setNotice(`${skill.runtime.title || skill.runtime.name} 的工具授权已更新。`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "更新 skill 工具绑定失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
   return (
     <div className="workspace-view operation-system-console">
       <header className="workspace-view__header">
@@ -337,7 +367,9 @@ export function OperationsView() {
       <nav className="operation-switcher" aria-label="操作系统模块">
         {[
           { id: "skills", label: "Skills 管理", icon: Boxes },
-          { id: "tools", label: "工具管理", icon: Wrench }
+          { id: "tools", label: "工具管理", icon: Wrench },
+          { id: "bindings", label: "绑定关系", icon: Network },
+          { id: "agents", label: "执行单元", icon: Bot }
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -358,7 +390,7 @@ export function OperationsView() {
         <Search size={17} />
         <input
           onChange={(event) => setQuery(event.target.value)}
-          placeholder={activePanel === "skills" ? "搜索 skill、工具授权、能力标签或模型可见提示" : "搜索工具、类型、安全标签或契约字段"}
+          placeholder={activePanel === "skills" ? "搜索 skill、工具授权、能力标签或模型可见提示" : activePanel === "tools" ? "搜索工具、类型、安全标签或契约字段" : activePanel === "bindings" ? "搜索 skill、tool、agent 或绑定关系" : "执行单元页内可管理 agent 启停、通信契约和移交流程"}
           value={query}
         />
       </div>
@@ -465,7 +497,7 @@ export function OperationsView() {
             )}
           </article>
         </section>
-      ) : (
+      ) : activePanel === "tools" ? (
         <section className="operation-layout operation-layout--tools">
           <div className="operation-list">
             <div className="operation-tool-filters">
@@ -599,6 +631,18 @@ export function OperationsView() {
                     )}
                   </article>
                   <article>
+                    <strong>归属 Agent</strong>
+                    {selectedTool.operation_metadata.bound_agents.length ? (
+                      <div className="workspace-chip-row">
+                        {selectedTool.operation_metadata.bound_agents.map((agent) => (
+                          <span className="workspace-mini-chip" key={agent.agent_id}>{agent.name}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p>这个工具还没有明确归属 agent，建议先分配责任边界。</p>
+                    )}
+                  </article>
+                  <article>
                     <strong>治理提示</strong>
                     <div className="workspace-chip-row">
                       {selectedTool.operation_metadata.governance_hints.map((hint) => (
@@ -636,6 +680,114 @@ export function OperationsView() {
               <div className="workspace-alert">暂无工具。</div>
             )}
           </article>
+        </section>
+      ) : activePanel === "bindings" ? (
+        <section className="operation-binding-board">
+          <div className="operation-binding-graph">
+            <article className="operation-binding-node operation-binding-node--main">
+              <Bot size={18} />
+              <span>主 Agent</span>
+              <strong>主会话智能体</strong>
+              <p>只保留主运行时工具，把 PDF、结构化数据和检索等专业能力下沉到子 agent。</p>
+            </article>
+            <div className="operation-binding-agents">
+              {(catalog?.binding_graph.agent_nodes ?? []).filter((agent) => agent.agent_id !== "agent:main:conversation").map((agent) => (
+                <article className="operation-binding-node" key={agent.agent_id}>
+                  <Bot size={16} />
+                  <span>{agent.kind}</span>
+                  <strong>{agent.name}</strong>
+                  <p>{agent.description}</p>
+                  <small>{agent.bound_tools.length} 个工具：{agent.bound_tools.join(" / ") || "未绑定"}</small>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <div className="operation-binding-layout">
+            <div className="operation-binding-column">
+              <div className="workspace-section__head">
+                <Boxes size={18} />
+                <h3>Skill 到 Tool 授权</h3>
+              </div>
+              {visibleSkills.map((skill) => (
+                <button
+                  className={selectedSkill?.runtime.name === skill.runtime.name ? "operation-skill-card operation-skill-card--active" : "operation-skill-card"}
+                  key={skill.runtime.name}
+                  onClick={() => setSelectedSkillName(skill.runtime.name)}
+                  type="button"
+                >
+                  <span>{skill.runtime.activation_policy}</span>
+                  <strong>{skill.runtime.title || skill.runtime.name}</strong>
+                  <p>{skill.runtime.description}</p>
+                  <small>{skill.runtime.allowed_tools.length} 个工具授权</small>
+                </button>
+              ))}
+            </div>
+
+            <article className="operation-detail">
+              {selectedSkill ? (
+                <>
+                  <div className="operation-detail__head">
+                    <div>
+                      <span>绑定管理</span>
+                      <h3>{selectedSkill.runtime.title || selectedSkill.runtime.name}</h3>
+                      <p>这里直接管理 skill 的 `allowed_tools`，保存后会刷新统一注册表。</p>
+                    </div>
+                  </div>
+                  <div className="operation-binding-tools">
+                    {(catalog?.tools ?? []).map((tool) => {
+                      const checked = selectedSkill.runtime.allowed_tools.includes(tool.name);
+                      const busy = saving === `skill-tools:${selectedSkill.runtime.name}`;
+                      return (
+                        <button
+                          className={[
+                            "operation-binding-tool",
+                            checked ? "operation-binding-tool--active" : "",
+                            RISK_CLASS[tool.operation_metadata.risk_level] ?? ""
+                          ].filter(Boolean).join(" ")}
+                          disabled={busy}
+                          key={tool.name}
+                          onClick={() => void toggleSkillToolBinding(selectedSkill, tool.name)}
+                          type="button"
+                        >
+                          <span>{checked ? "已授权" : "未授权"} · {tool.operation_metadata.ownership_label}</span>
+                          <strong>{tool.name}</strong>
+                          <p>{tool.operation_metadata.tool_boundary} · {tool.operation_metadata.adapter_type} · 风险 {tool.operation_metadata.risk_level}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="workspace-alert">暂无 skill 可管理。</div>
+              )}
+            </article>
+          </div>
+
+          <div className="operation-binding-matrix">
+            <article>
+              <strong>Agent 持有 Tool</strong>
+              {(catalog?.binding_graph.agent_tool_edges ?? []).map((edge) => (
+                <p key={`${edge.from}-${edge.to}`}>{edge.from_label} → {edge.to_label}</p>
+              ))}
+            </article>
+            <article>
+              <strong>Skill 授权 Tool</strong>
+              {(catalog?.binding_graph.skill_tool_edges ?? []).length ? (catalog?.binding_graph.skill_tool_edges ?? []).map((edge) => (
+                <p key={`${edge.from}-${edge.to}`}>{edge.from_label} → {edge.to_label}</p>
+              )) : <p>暂无显式授权关系。</p>}
+            </article>
+            <article>
+              <strong>治理建议</strong>
+              {(catalog?.binding_graph.recommendations ?? []).length ? (catalog?.binding_graph.recommendations ?? []).map((item) => (
+                <p key={item}>{item}</p>
+              )) : <p>当前没有明显的归属冲突。PDF 工具已由文档智能体接管，主会话不会直接持有。</p>}
+            </article>
+          </div>
+        </section>
+      ) : (
+        <section className="operation-agent-embedded">
+          <AgentExecutionPanel />
         </section>
       )}
     </div>

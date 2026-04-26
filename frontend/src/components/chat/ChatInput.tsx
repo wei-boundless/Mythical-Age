@@ -1,14 +1,29 @@
 "use client";
 
-import { CornerDownLeft, SendHorizonal } from "lucide-react";
+import { SendHorizonal } from "lucide-react";
 import { useState } from "react";
+
+import type { SearchPolicySource, SearchPolicyState } from "@/lib/store/types";
+
+const SEARCH_POLICY_OPTIONS: Array<{
+  id: SearchPolicySource;
+  label: string;
+}> = [
+  { id: "rag", label: "启用知识库" },
+  { id: "local_files", label: "启用本地权限" },
+  { id: "web", label: "启用联网权限" }
+];
 
 export function ChatInput({
   disabled,
-  onSend
+  onSend,
+  onToggleSearchPolicy,
+  searchPolicy
 }: {
   disabled: boolean;
   onSend: (value: string) => Promise<void>;
+  onToggleSearchPolicy: (source: SearchPolicySource) => void;
+  searchPolicy: SearchPolicyState;
 }) {
   const [value, setValue] = useState("");
 
@@ -19,9 +34,21 @@ export function ChatInput({
           <p className="archive-section-head__eyebrow">Compose</p>
           <p className="chat-input-panel__note text-sm">输入问题并开始当前会话。</p>
         </div>
-        <div className="status-pill chat-input-panel__shortcut">
-          <CornerDownLeft size={14} />
-          Cmd/Ctrl + Enter
+        <div className="chat-search-policy chat-search-policy--corner" aria-label="对话级搜索权限">
+          {SEARCH_POLICY_OPTIONS.map((option) => {
+            const enabled = searchPolicy[option.id];
+            return (
+              <button
+                aria-pressed={enabled}
+                className={enabled ? "chat-search-policy__item chat-search-policy__item--active" : "chat-search-policy__item"}
+                key={option.id}
+                onClick={() => onToggleSearchPolicy(option.id)}
+                type="button"
+              >
+                <span>{option.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
       <textarea
@@ -45,9 +72,9 @@ export function ChatInput({
         placeholder="输入你的问题，Cmd/Ctrl + Enter 发送"
         value={value}
       />
-      <div className="mt-3 flex items-center justify-between gap-3">
+      <div className="chat-input-panel__footer mt-3 flex items-center justify-between gap-3">
         <p className="chat-input-panel__hint text-sm">
-          直接提问即可，支持工具调用、检索和流式响应。
+          直接提问即可，本轮权限会约束可用来源。
         </p>
         <button
           className="action-button action-button--primary navbar-action-button disabled:cursor-not-allowed disabled:opacity-50"

@@ -12,7 +12,7 @@ from typing import Any
 
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
-from orchestration.adapters import build_shadow_orchestration_plan
+from orchestration.adapters import build_orchestration_plan
 from orchestration.behavior_trace import build_behavior_snapshot
 from orchestration.contract_preview import build_contract_previews
 from orchestration.diff import actual_from_runtime_event, build_plan_actual_diff, update_actual_trace
@@ -395,6 +395,7 @@ class QueryRuntime:
                     history,
                     ephemeral_system_messages=request.ephemeral_system_messages,
                     explicit_subtasks=request.explicit_subtasks,
+                    search_policy=request.search_policy,
                     trace=trace,
                 ):
                     event_type = event["type"]
@@ -484,6 +485,7 @@ class QueryRuntime:
         *,
         ephemeral_system_messages: list[str] | None = None,
         explicit_subtasks: list[dict[str, Any]] | None = None,
+        search_policy: list[str] | None = None,
         trace=None,
     ):
         authority_context = self._load_session_authoritative_context(session_id)
@@ -582,6 +584,7 @@ class QueryRuntime:
                     ephemeral_system_messages=ephemeral_system_messages,
                     authority_context=authority_context,
                     explicit_subtasks=explicit_subtasks,
+                    search_policy=search_policy,
                 )
         else:
             plan = self._planner_build_plan(
@@ -591,6 +594,7 @@ class QueryRuntime:
                 ephemeral_system_messages=ephemeral_system_messages,
                 authority_context=authority_context,
                 explicit_subtasks=explicit_subtasks,
+                search_policy=search_policy,
             )
         executions = plan.iter_executions()
         if executions:
@@ -620,7 +624,7 @@ class QueryRuntime:
                 plan.active_skill = binding_execution.active_skill
                 plan.dispatch_plan = binding_execution.dispatch_plan
         contract_previews = self._build_contract_previews_for_execution(executions[0]) if executions else []
-        orchestration_plan = self._build_shadow_orchestration_plan(
+        orchestration_plan = await self._build_orchestration_plan(
             session_id=session_id,
             message=message,
             plan=plan,
@@ -630,6 +634,7 @@ class QueryRuntime:
             orchestration_plan=orchestration_plan,
             legacy_plan=plan,
             legacy_executions=executions,
+            primary_entry_selection_enabled=self._primary_entry_selection_enabled(),
         )
         executions = runtime_control.executions
         if orchestration_plan is not None:
@@ -1605,6 +1610,7 @@ class QueryRuntime:
         ephemeral_system_messages: list[str] | None = None,
         authority_context: dict[str, Any] | None,
         explicit_subtasks: list[dict[str, Any]] | None = None,
+        search_policy: list[str] | None = None,
     ) -> QueryPlan:
         try:
             parameters = inspect.signature(self.planner.build_plan).parameters
@@ -1621,9 +1627,11 @@ class QueryRuntime:
             kwargs["authority_context"] = authority_context
         if "explicit_subtasks" in parameters:
             kwargs["explicit_subtasks"] = explicit_subtasks
+        if "search_policy" in parameters:
+            kwargs["search_policy"] = search_policy
         return self.planner.build_plan(**kwargs)
 
-    def _build_shadow_orchestration_plan(
+    async def _build_orchestration_plan(
         self,
         *,
         session_id: str,
@@ -1633,11 +1641,11 @@ class QueryRuntime:
         contract_previews: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         mode_getter = getattr(self.settings_service, "get_orchestration_plan_mode", None)
-        mode = str(mode_getter() if callable(mode_getter) else "shadow").strip().lower() or "shadow"
+        mode = str(mode_getter() if callable(mode_getter) else "plan_only").strip().lower() or "plan_only"
         if mode == "legacy":
             return None
         try:
-            return build_shadow_orchestration_plan(
+            return build_orchestration_plan(
                 session_id=session_id,
                 message=message,
                 query_plan=plan,
@@ -1646,7 +1654,7 @@ class QueryRuntime:
                 contract_previews=contract_previews,
             ).to_dict()
         except Exception:
-            logger.exception("Failed to build shadow orchestration plan")
+            logger.exception("Failed to build orchestration plan")
             return None
 
     def _build_orchestration_diff_event(
@@ -1661,6 +1669,15 @@ class QueryRuntime:
             "type": "orchestration_diff",
             "diff": build_plan_actual_diff(orchestration_plan, actual=actual),
         }
+
+    def _primary_entry_selection_enabled(self) -> bool:
+        getter = getattr(self.settings_service, "get_primary_entry_selection_enabled", None)
+        if callable(getter):
+            try:
+                return bool(getter())
+            except Exception:
+                logger.exception("Failed to read primary entry selection setting")
+        return False
 
     def _apply_runtime_control_to_orchestration_plan(self, orchestration_plan: dict[str, Any], runtime_control) -> None:
         diagnostics = orchestration_plan.setdefault("diagnostics", {})
@@ -1685,7 +1702,7 @@ class QueryRuntime:
                     warnings.append(warning)
             safety["warnings"] = warnings
             if warnings:
-                safety["mode"] = str(safety.get("mode") or orchestration_plan.get("mode") or "shadow")
+                safety["mode"] = str(safety.get("mode") or orchestration_plan.get("mode") or "plan_only")
 
     def _build_live_behavior_snapshot(
         self,

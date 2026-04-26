@@ -14,6 +14,9 @@ import {
 
 type LinkDraft = Pick<AgentProtocolLink, "input_contract" | "output_contract" | "handoff_policy">;
 type AgentManagementMode = "topology" | "activation" | "protocol" | "handoff";
+type EvidenceViewProps = {
+  embedded?: boolean;
+};
 
 const EMPTY_AGENTS: AgentSystemAgent[] = [];
 const EMPTY_LINKS: AgentProtocolLink[] = [];
@@ -61,7 +64,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   "task.submitted": "任务提交",
   "task.completed": "任务完成",
   "task.failed": "任务失败",
-  "worker.requested": "请求子智能体",
+  "worker.requested": "请求执行单元",
   "worker.evidence": "返回证据",
   "worker.artifacts": "返回产物",
   "worker.completed": "处理完成",
@@ -93,29 +96,29 @@ const AGENT_MANAGEMENT_MODES: Array<{
 }> = [
   {
     id: "topology",
-    label: "指挥拓扑",
-    title: "看清主会话如何调度不同子智能体",
-    description: "用一张关系图看主会话、执行、检索、文档与结构化数据智能体的协作边界。",
+    label: "执行拓扑",
+    title: "看清主会话如何调度执行单元",
+    description: "用一张关系图看主会话、执行、检索、文档与结构化数据单元的协作边界。",
     icon: "radio"
   },
   {
     id: "activation",
-    label: "编队启停",
-    title: "控制哪些智能体可以参与运行",
-    description: "管理智能体开启、停用与能力声明，适合做降级、隔离和问题复现。",
+    label: "单元启停",
+    title: "控制哪些执行单元可以参与运行",
+    description: "管理执行单元开启、停用与能力声明，适合做降级、隔离和问题复现。",
     icon: "shield"
   },
   {
     id: "protocol",
     label: "通信契约",
-    title: "编辑智能体之间的输入输出协议",
+    title: "编辑执行单元之间的输入输出协议",
     description: "显式维护 A2A-compatible 的输入契约、输出契约和移交策略。",
     icon: "branch"
   },
   {
     id: "handoff",
     label: "移交流程",
-    title: "预览跨智能体的运行链路",
+    title: "预览跨执行单元的运行链路",
     description: "按执行顺序阅读启用协议，检查每一步交给谁、交什么、回什么。",
     icon: "route"
   }
@@ -173,7 +176,7 @@ function modeIcon(icon: (typeof AGENT_MANAGEMENT_MODES)[number]["icon"], size = 
   return <RadioTower size={size} />;
 }
 
-export function EvidenceView() {
+export function EvidenceView({ embedded = false }: EvidenceViewProps = {}) {
   const [catalog, setCatalog] = useState<AgentSystemCatalog | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("agent:knowledge:retrieval");
   const [selectedLinkId, setSelectedLinkId] = useState("main-to-retrieval");
@@ -198,7 +201,7 @@ export function EvidenceView() {
         setSelectedLinkId(firstLink?.link_id ?? "");
         setDraft(emptyDraft(firstLink));
       } catch (exc) {
-        if (!cancelled) setError(exc instanceof Error ? exc.message : "加载智能体系统失败");
+        if (!cancelled) setError(exc instanceof Error ? exc.message : "加载执行单元失败");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -244,7 +247,7 @@ export function EvidenceView() {
       setCatalog(payload);
       setNotice(`${agent.name} 已${!agent.enabled ? "开启" : "停用"}。`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "更新智能体状态失败");
+      setError(exc instanceof Error ? exc.message : "更新执行单元状态失败");
     } finally {
       setSaving("");
     }
@@ -282,11 +285,12 @@ export function EvidenceView() {
   }
 
   return (
-    <div className="workspace-view agent-system-console">
-      <header className="workspace-view__header">
+    <div className={`${embedded ? "operation-execution-panel" : "workspace-view"} agent-system-console`}>
+      <header className={embedded ? "operation-execution-panel__header" : "workspace-view__header"}>
         <div>
-          <p className="workspace-view__eyebrow">智能体控制面</p>
-          <h2 className="workspace-view__title">智能体系统</h2>
+          <p className="workspace-view__eyebrow">执行层控制面</p>
+          <h2 className="workspace-view__title">执行单元</h2>
+          {embedded ? <p className="workspace-view__subtitle">管理子 agent / worker 的开启状态、通信契约和任务移交关系。</p> : null}
         </div>
         <div className="workspace-view__actions">
           <div className="tag-chip">{catalog?.protocol_version ?? "a2a-compatible.v1"}</div>
@@ -296,7 +300,7 @@ export function EvidenceView() {
       {loading ? (
         <div className="workspace-alert">
           <Loader2 size={16} className="spin" />
-          正在读取智能体注册表与通信协议配置...
+          正在读取执行单元注册表与通信协议配置...
         </div>
       ) : null}
       {error ? <div className="workspace-alert workspace-alert--danger">{error}</div> : null}
@@ -313,7 +317,7 @@ export function EvidenceView() {
         <div className="agent-system-hero__stats">
           <article>
             <b>{enabledAgents}/{agents.length || 0}</b>
-            <span>智能体开启</span>
+            <span>执行单元开启</span>
           </article>
           <article>
             <b>{enabledLinks}/{links.length || 0}</b>
@@ -326,7 +330,7 @@ export function EvidenceView() {
         </div>
       </section>
 
-      <nav className="agent-mode-switcher" aria-label="智能体管理模式">
+      <nav className="agent-mode-switcher" aria-label="执行单元管理模式">
         {AGENT_MANAGEMENT_MODES.map((mode) => (
           <button
             className={`agent-mode-card ${activeMode === mode.id ? "agent-mode-card--active" : ""}`}
@@ -345,7 +349,7 @@ export function EvidenceView() {
       {activeMode === "topology" ? <section className="agent-system-map workspace-section">
         <div className="workspace-section__head">
           <RadioTower size={18} />
-          <h3>子智能体拓扑</h3>
+          <h3>执行单元拓扑</h3>
         </div>
         <div className="agent-system-map__canvas">
           <svg aria-hidden className="agent-system-map__links" preserveAspectRatio="none" viewBox="0 0 100 100">
@@ -378,7 +382,7 @@ export function EvidenceView() {
             <strong>主会话智能体</strong>
             <em>调度 / 收束 / 用户响应</em>
           </button>
-          <div className="agent-node-orbit" aria-label="智能体节点">
+          <div className="agent-node-orbit" aria-label="执行单元节点">
             {agents.map((agent, index) => {
               const layout = agentLayout(agent.agent_id, index);
               const linkCount = links.filter((link) => link.from_agent === agent.agent_id || link.to_agent === agent.agent_id).length;
@@ -394,7 +398,7 @@ export function EvidenceView() {
                 <span>{kindLabel(agent.kind)}</span>
                 <strong>{agent.name}</strong>
                 <em>{agent.worker_route ? routeLabel(agent.worker_route) : shortAgentName(agent.agent_id)}</em>
-                <small>{agent.enabled ? `${linkCount} 条关联通信` : "智能体已停用"}</small>
+                <small>{agent.enabled ? `${linkCount} 条关联通信` : "执行单元已停用"}</small>
               </button>
               );
             })}
@@ -428,7 +432,7 @@ export function EvidenceView() {
         <section className="workspace-section agent-roster">
           <div className="workspace-section__head">
             <ShieldCheck size={18} />
-            <h3>智能体开关</h3>
+            <h3>执行单元开关</h3>
           </div>
           <div className="agent-roster__list">
             {agents.map((agent) => (
@@ -482,7 +486,7 @@ export function EvidenceView() {
                     <span>{linkStatusLabel(link)}</span>
                     <em>{link.label}</em>
                   </button>
-                )) : <small>当前智能体暂无协议连线。</small>}
+                )) : <small>当前执行单元暂无协议连线。</small>}
               </div>
             </div>
           ) : (
@@ -540,7 +544,7 @@ export function EvidenceView() {
               </div>
               {selectedLink.enabled && !isLinkOperational(selectedLink) ? (
                 <div className="workspace-alert">
-                  这条协议本身已开启，但连接的智能体处于停用状态，所以运行链路会被阻断。
+                  这条协议本身已开启，但连接的执行单元处于停用状态，所以运行链路会被阻断。
                 </div>
               ) : null}
               <label>
@@ -601,7 +605,7 @@ export function EvidenceView() {
               <p>{link.input_contract}</p>
               <em>{link.output_contract}</em>
             </article>
-          )) : <div className="workspace-alert">当前没有运行可用的智能体移交流程，请先开启对应智能体和通信协议。</div>}
+          )) : <div className="workspace-alert">当前没有运行可用的执行单元移交流程，请先开启对应执行单元和通信协议。</div>}
         </div>
       </section> : null}
     </div>

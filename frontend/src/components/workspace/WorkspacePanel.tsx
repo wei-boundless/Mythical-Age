@@ -1,7 +1,6 @@
 "use client";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { EvidenceView } from "@/components/workspace/views/EvidenceView";
 import { ExperimentsView } from "@/components/workspace/views/ExperimentsView";
 import { MemoryView } from "@/components/workspace/views/MemoryView";
 import { OperationsView } from "@/components/workspace/views/OperationsView";
@@ -21,7 +20,7 @@ export function WorkspacePanel() {
     memory: <MemoryView />,
     "test-system": <TestSystemView />,
     operations: <OperationsView />,
-    evidence: <EvidenceView />,
+    evidence: <OperationsView initialPanel="agents" />,
     "system-framework": <SystemFrameworkView />,
     experiments: <ExperimentsView />,
     playground: <PlaygroundView />

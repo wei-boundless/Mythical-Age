@@ -20,6 +20,7 @@ class ChatRequest(BaseModel):
     stream: bool = True
     ephemeral_system_messages: list[str] = Field(default_factory=list)
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
+    search_policy: list[str] | None = None
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -45,6 +46,7 @@ async def chat(payload: ChatRequest):
         message=payload.message,
         ephemeral_system_messages=list(payload.ephemeral_system_messages or []),
         explicit_subtasks=list(payload.explicit_subtasks or []),
+        search_policy=list(payload.search_policy) if payload.search_policy is not None else None,
     )
 
     async def event_generator():

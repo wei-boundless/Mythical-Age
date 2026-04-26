@@ -9,7 +9,11 @@
       "description": "查询指定地点的实时天气或短期天气情况，并整理成适合直接回复用户的中文结果。",
       "path": "skills/get-weather/SKILL.md",
       "allowed_tools": [
-        "get_weather"
+        "get_weather",
+        "web_search",
+        "pdf_analysis",
+        "search_knowledge",
+        "structured_data_analysis"
       ],
       "supported_modalities": [
         "realtime"
@@ -50,7 +54,11 @@
         "description": "查询指定地点的实时天气或短期天气情况，并整理成适合直接回复用户的中文结果。",
         "path": "skills/get-weather/SKILL.md",
         "allowed_tools": [
-          "get_weather"
+          "get_weather",
+          "web_search",
+          "pdf_analysis",
+          "search_knowledge",
+          "structured_data_analysis"
         ],
         "supported_modalities": [
           "realtime"

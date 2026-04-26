@@ -33,6 +33,40 @@ def render_markdown(run_result: RunResult) -> str:
     for category, count in sorted(by_category.items()):
         lines.append(f"- `{category}`: `{count}`")
 
+    runtime_rows = []
+    for result in results:
+        source_counts = result.details.get("runtime_control_source_counts")
+        warning_counts = result.details.get("runtime_control_warning_counts")
+        fallback_turns = result.details.get("runtime_control_fallback_turns")
+        entry_kind_counts = result.details.get("runtime_entry_kind_counts")
+        entry_source_counts = result.details.get("runtime_entry_source_counts")
+        entry_strategy_counts = result.details.get("runtime_entry_strategy_counts")
+        if not source_counts and not warning_counts and not fallback_turns and not entry_kind_counts and not entry_source_counts and not entry_strategy_counts:
+            continue
+        runtime_rows.append(
+            (
+                result.name,
+                dict(source_counts or {}),
+                dict(warning_counts or {}),
+                len(list(fallback_turns or [])),
+                dict(entry_kind_counts or {}),
+                dict(entry_source_counts or {}),
+                dict(entry_strategy_counts or {}),
+            )
+        )
+    if runtime_rows:
+        lines.extend(["", "## Runtime Control", ""])
+        for name, source_counts, warning_counts, fallback_count, entry_kind_counts, entry_source_counts, entry_strategy_counts in runtime_rows:
+            source_text = ", ".join(f"{key}:{value}" for key, value in sorted(source_counts.items())) or "none"
+            warning_text = ", ".join(f"{key}:{value}" for key, value in sorted(warning_counts.items())) or "none"
+            entry_kind_text = ", ".join(f"{key}:{value}" for key, value in sorted(entry_kind_counts.items())) or "none"
+            entry_source_text = ", ".join(f"{key}:{value}" for key, value in sorted(entry_source_counts.items())) or "none"
+            entry_strategy_text = ", ".join(f"{key}:{value}" for key, value in sorted(entry_strategy_counts.items())) or "none"
+            lines.append(
+                f"- `{name}`: sources `{source_text}`; fallback_turns `{fallback_count}`; warnings `{warning_text}`"
+                f"; entries `{entry_kind_text}`; entry_sources `{entry_source_text}`; entry_strategy `{entry_strategy_text}`"
+            )
+
     failing_results = [result for result in results if not result.passed]
     if failing_results:
         lines.extend(["", "## Failures", ""])

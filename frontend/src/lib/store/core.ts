@@ -39,6 +39,11 @@ export function getDefaultState(): StoreState {
     messages: [],
     isStreaming: false,
     ragMode: false,
+    searchPolicy: {
+      rag: false,
+      local_files: true,
+      web: false
+    },
     skills: [],
     soulOptions: [],
     activeSoulKey: null,

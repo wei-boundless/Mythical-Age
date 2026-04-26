@@ -43,6 +43,10 @@ export type WorkspaceView =
   | "experiments"
   | "playground";
 
+export type SearchPolicySource = "rag" | "local_files" | "web";
+
+export type SearchPolicyState = Record<SearchPolicySource, boolean>;
+
 export type SystemGraphHighlight = {
   nodeIds: string[];
   edgeIds: string[];
@@ -75,6 +79,7 @@ export type StoreState = {
   messages: Message[];
   isStreaming: boolean;
   ragMode: boolean;
+  searchPolicy: SearchPolicyState;
   skills: SkillSummary[];
   soulOptions: SoulSummary[];
   activeSoulKey: SoulKey | null;
@@ -98,6 +103,7 @@ export type StoreActions = {
   selectSession: (sessionId: string) => Promise<void>;
   sendMessage: (value: string) => Promise<void>;
   toggleRagMode: () => Promise<void>;
+  toggleSearchPolicySource: (source: SearchPolicySource) => void;
   switchSoul: (key: SoulKey) => Promise<void>;
   renameCurrentSession: (title: string) => Promise<void>;
   removeSession: (sessionId: string) => Promise<void>;

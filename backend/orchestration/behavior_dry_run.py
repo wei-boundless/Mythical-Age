@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from orchestration.adapters import build_shadow_orchestration_plan
+from orchestration.adapters import build_orchestration_plan
 from orchestration.behavior_trace import build_behavior_snapshot
 from orchestration.contract_preview import build_contract_previews
 from query.prompt_manifest import compact_prompt_manifest
@@ -44,7 +44,7 @@ async def build_behavior_dry_run(
     context_preview = _inspect_context(runtime, normalized_session_id, execution)
     contract_previews = build_contract_previews(runtime=runtime, execution=execution)
     prompt_manifest = await _build_prompt_manifest(query_runtime, normalized_session_id, execution, warnings)
-    orchestration_plan = build_shadow_orchestration_plan(
+    orchestration_plan = build_orchestration_plan(
         session_id=normalized_session_id,
         message=normalized_message,
         query_plan=plan,
@@ -83,9 +83,9 @@ def _orchestration_mode(runtime: Any) -> str:
     settings = getattr(runtime, "settings", None)
     getter = getattr(settings, "get_orchestration_plan_mode", None)
     if callable(getter):
-        mode = str(getter() or "shadow").strip().lower()
-        return mode if mode != "legacy" else "shadow"
-    return "shadow"
+        mode = str(getter() or "plan_only").strip().lower()
+        return mode if mode != "legacy" else "plan_only"
+    return "plan_only"
 
 
 def _load_existing_history(runtime: Any, session_id: str) -> list[dict[str, Any]]:

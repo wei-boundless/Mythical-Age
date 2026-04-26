@@ -2,7 +2,6 @@
 
 import {
   BrainCircuit,
-  Bot,
   FlaskConical,
   MessageSquare,
   Network,
@@ -58,12 +57,6 @@ const railGroups = [
         label: "操作系统",
         description: "管理 skills、工具类型和模型可见提示",
         view: "operations"
-      },
-      {
-        icon: Bot,
-        label: "agent系统",
-        description: "管理 worker、RAG 子系统和通信协议",
-        view: "evidence"
       },
       {
         icon: Sparkles,

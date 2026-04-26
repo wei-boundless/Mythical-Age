@@ -135,8 +135,35 @@ def test_bounded_agent_exposes_only_non_rag_tools_without_rag_retrieval() -> Non
     assert done["answer_source"] == "segment.visible_text"
 
 
+def test_bounded_agent_respects_turn_search_policy_when_exposing_tools() -> None:
+    plan = QueryPlan(
+        session_id="bounded-agent-search-policy-session",
+        message="他今年还在打比赛吗",
+        history=[],
+        subqueries=["他今年还在打比赛吗"],
+        memory_intent=MemoryIntent(),
+        query_understanding=QueryUnderstanding(
+            intent="general_query",
+            route="agent",
+            execution_posture="bounded_agent",
+            direct_route_reason="freshness_aware_lookup",
+            candidate_tools=["search_knowledge", "web_search"],
+            tool_input={"query": "他今年还在打比赛吗"},
+            should_skip_rag=False,
+        ),
+        active_skill=None,
+        search_policy=[],
+    )
+    events, retrieval, model_runtime = asyncio.run(_collect_events(plan))
+
+    assert retrieval.queries == []
+    assert model_runtime.last_tools == []
+    assert events[-1]["answer_source"] == "segment.visible_text"
+
+
 def main() -> None:
     test_bounded_agent_exposes_only_non_rag_tools_without_rag_retrieval()
+    test_bounded_agent_respects_turn_search_policy_when_exposing_tools()
     print("ALL PASSED (unresolved lookup regression)")
 
 

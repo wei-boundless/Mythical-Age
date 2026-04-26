@@ -20,7 +20,11 @@ class BehaviorDryRunRequest(BaseModel):
 
 
 class OrchestrationModeRequest(BaseModel):
-    mode: str = Field(default="shadow")
+    mode: str = Field(default="plan_only")
+
+
+class PrimaryEntrySelectionRequest(BaseModel):
+    enabled: bool = False
 
 
 @router.post("/orchestration/dry-run")
@@ -62,7 +66,8 @@ async def orchestration_catalog() -> dict[str, Any]:
         "supported_permission_modes": runtime.permission_service.supported_modes(),
         "tool_contract_mode": runtime.query_runtime.tool_contract_gate.mode,
         "orchestration_plan_mode": runtime.settings.get_orchestration_plan_mode(),
-        "supported_orchestration_plan_modes": ["legacy", "shadow", "primary"],
+        "supported_orchestration_plan_modes": ["legacy", "plan_only", "primary"],
+        "primary_entry_selection_enabled": runtime.settings.get_primary_entry_selection_enabled(),
         "skills": skills,
         "tools": tools,
     }
@@ -80,6 +85,15 @@ async def set_orchestration_plan_mode(payload: OrchestrationModeRequest) -> dict
     runtime = require_runtime()
     config = runtime.settings.set_orchestration_plan_mode(payload.mode)
     return {
-        "mode": str(config.get("orchestration_plan_mode", "shadow") or "shadow"),
-        "supported_modes": ["legacy", "shadow", "primary"],
+        "mode": str(config.get("orchestration_plan_mode", "plan_only") or "plan_only"),
+        "supported_modes": ["legacy", "plan_only", "primary"],
+    }
+
+
+@router.put("/orchestration/primary-entry-selection")
+async def set_primary_entry_selection(payload: PrimaryEntrySelectionRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    config = runtime.settings.set_primary_entry_selection_enabled(payload.enabled)
+    return {
+        "enabled": bool(config.get("primary_entry_selection_enabled", False)),
     }

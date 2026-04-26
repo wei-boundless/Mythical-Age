@@ -71,6 +71,10 @@ class TurnResult:
     orchestration_diff_status: str = ""
     orchestration_diff_summary: str = ""
     orchestration_diff_mismatches: list[str] = field(default_factory=list)
+    runtime_control_source: str = ""
+    runtime_primary_active: bool = False
+    runtime_control_warnings: list[str] = field(default_factory=list)
+    runtime_control_diagnostics: dict[str, Any] = field(default_factory=dict)
     memory_sync_ms: float = 0.0
     tasks_count: int = 0
     passed: bool = True
@@ -265,6 +269,10 @@ def _collect_quality_warnings(
             warnings,
             f"orchestration.diff.warning={turn.orchestration_diff_summary or 'missing comparable fields'}",
         )
+    for runtime_warning in turn.runtime_control_warnings:
+        if runtime_warning == "primary_fallback_allowlist_blocked":
+            continue
+        _append_warning(warnings, f"orchestration.runtime_fallback={runtime_warning}")
 
     response_text = str(turn.response_text or "")
     for marker in _WARNING_OUTPUT_MARKERS:
@@ -457,6 +465,13 @@ def _execute_user_turn(
     orchestration_diff_payload = _latest_event_payload(events, "orchestration_diff")
     orchestration_diff = dict(orchestration_diff_payload.get("diff") or {})
     orchestration_diff_mismatches = _orchestration_diff_mismatches(orchestration_diff)
+    runtime_control = _latest_event_payload(events, "orchestration_runtime_control")
+    runtime_control_diagnostics = dict(runtime_control.get("diagnostics") or {})
+    runtime_control_warnings = [
+        str(item)
+        for item in list(runtime_control.get("warnings") or [])
+        if str(item).strip()
+    ]
     memory_payload = next(
         (
             dict(item.get("data") or {}).get("memory", {})
@@ -576,6 +591,10 @@ def _execute_user_turn(
         orchestration_diff_status=str(orchestration_diff.get("status") or ""),
         orchestration_diff_summary=str(orchestration_diff.get("summary") or ""),
         orchestration_diff_mismatches=orchestration_diff_mismatches,
+        runtime_control_source=str(runtime_control.get("source") or ""),
+        runtime_primary_active=bool(runtime_control.get("primary_active", False)),
+        runtime_control_warnings=runtime_control_warnings,
+        runtime_control_diagnostics=runtime_control_diagnostics,
         memory_sync_ms=memory_sync_ms,
         tasks_count=task_count,
         timing=timing.to_dict(),
@@ -674,6 +693,38 @@ def _execute_scenario(
         for turn in warning_turns
         for warning in turn.quality_warnings
     )
+    runtime_source_counts = Counter(
+        turn.runtime_control_source or "missing"
+        for turn in turn_results
+    )
+    runtime_warning_counts = Counter(
+        warning
+        for turn in turn_results
+        for warning in turn.runtime_control_warnings
+    )
+    runtime_entry_kind_counts = Counter(
+        str(entry.get("entry_kind") or "unknown")
+        for turn in turn_results
+        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
+        if isinstance(entry, dict)
+    )
+    runtime_entry_source_counts = Counter(
+        str(entry.get("source") or "unknown")
+        for turn in turn_results
+        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
+        if isinstance(entry, dict)
+    )
+    runtime_entry_strategy_counts = Counter(
+        str(entry.get("strategy") or "unknown")
+        for turn in turn_results
+        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
+        if isinstance(entry, dict)
+    )
+    runtime_fallback_turns = [
+        turn
+        for turn in turn_results
+        if turn.runtime_control_warnings or turn.runtime_control_source == "legacy_fallback"
+    ]
     duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
     request_ms = round(sum(float(turn.timing.get("duration_ms", 0.0) or 0.0) for turn in turn_results), 2)
     memory_sync_ms = round(sum(float(turn.memory_sync_ms or 0.0) for turn in turn_results), 2)
@@ -682,6 +733,8 @@ def _execute_scenario(
         summary += f"; first failure turn={failed_turns[0].index}"
     if warning_turns:
         summary += f"; warnings={len(warning_turns)} turns"
+    if runtime_fallback_turns:
+        summary += f"; runtime_fallback={len(runtime_fallback_turns)} turns"
 
     details = {
         "goal": scenario.goal,
@@ -691,6 +744,26 @@ def _execute_scenario(
         "quality_warning_count": sum(len(turn.quality_warnings) for turn in warning_turns),
         "quality_warning_turn_count": len(warning_turns),
         "quality_warning_counts": dict(sorted(warning_counts.items())),
+        "runtime_control_source_counts": dict(sorted(runtime_source_counts.items())),
+        "runtime_control_warning_counts": dict(sorted(runtime_warning_counts.items())),
+        "runtime_entry_kind_counts": dict(sorted(runtime_entry_kind_counts.items())),
+        "runtime_entry_source_counts": dict(sorted(runtime_entry_source_counts.items())),
+        "runtime_entry_strategy_counts": dict(sorted(runtime_entry_strategy_counts.items())),
+        "runtime_control_fallback_turns": [
+            {
+                "index": turn.index,
+                "session_alias": turn.session_alias,
+                "message": turn.message,
+                "source": turn.runtime_control_source,
+                "primary_active": turn.runtime_primary_active,
+                "warnings": list(turn.runtime_control_warnings),
+                "allowlist_blockers": list(turn.runtime_control_diagnostics.get("allowlist_blockers") or []),
+                "contract_blockers": list(turn.runtime_control_diagnostics.get("contract_blockers") or []),
+                "execution_mismatches": list(turn.runtime_control_diagnostics.get("execution_mismatches") or []),
+                "artifact_path": str(scenario_dir / f"turn-{turn.index:02d}-{_slug(turn.session_alias)}.json"),
+            }
+            for turn in runtime_fallback_turns
+        ],
         "quality_warning_turns": [
             {
                 "index": turn.index,
