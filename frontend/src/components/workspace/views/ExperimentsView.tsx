@@ -27,6 +27,7 @@ import {
   setOrchestrationPlanMode,
   setPermissionMode,
   setPrimaryEntrySelection,
+  setPrimaryEntryTakeover,
   type OrchestrationCatalog,
   type OrchestrationEvent,
   type OrchestrationNode,
@@ -254,6 +255,10 @@ type RuntimeExecutionEntry = {
   agent_id: string;
   source: string;
   strategy: string;
+  risk_tags: string[];
+  eligible_for_primary_entry: boolean;
+  eligibility_reason: string;
+  eligibility_blockers: string[];
 };
 
 type PromptAssemblySection = {
@@ -397,7 +402,11 @@ function toRuntimeExecutionEntries(value: unknown): RuntimeExecutionEntry[] {
       skill: String(item.skill ?? ""),
       agent_id: String(item.agent_id ?? ""),
       source: String(item.source ?? ""),
-      strategy: String(item.strategy ?? "")
+      strategy: String(item.strategy ?? ""),
+      risk_tags: toStringList(item.risk_tags),
+      eligible_for_primary_entry: Boolean(item.eligible_for_primary_entry),
+      eligibility_reason: String(item.eligibility_reason ?? ""),
+      eligibility_blockers: toStringList(item.eligibility_blockers)
     }))
     .filter((item) => item.execution_id || item.step_id);
 }
@@ -602,7 +611,12 @@ export function ExperimentsView() {
   const readableRoute = `${snapshot.route || "unknown"} / ${snapshot.execution_mode || "unknown"}`;
   const orchestrationDiff = (snapshot.orchestration_diff ?? {}) as Record<string, unknown>;
   const orchestrationPlan = (snapshot.orchestration_plan ?? snapshot.dry_run?.orchestration_plan ?? {}) as Record<string, unknown>;
+  const orchestrationDiagnostics = toRecord(orchestrationPlan.diagnostics);
   const intentFrame = toRecord(orchestrationPlan.intent_frame);
+  const intentAuthority = toRecord(orchestrationDiagnostics.intent_authority);
+  const intentCandidates = Array.isArray(orchestrationDiagnostics.intent_candidates)
+    ? orchestrationDiagnostics.intent_candidates.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
   const memoryPolicy = toRecord(orchestrationPlan.memory_policy);
   const contextPolicy = toRecord(orchestrationPlan.context_policy);
   const resourcePolicy = toRecord(orchestrationPlan.resource_policy);
@@ -617,6 +631,17 @@ export function ExperimentsView() {
   const runtimeControlEvent = [...snapshot.events].reverse().find((event) => event.event === "orchestration_runtime_control");
   const runtimeControl = runtimeControlSummary(toRecord(runtimeControlEvent?.data));
   const runtimeDiagnostics = runtimeControl.diagnostics;
+  const runtimeEntrySelection = toRecord(runtimeDiagnostics.entry_selection);
+  const primaryExecutionPreview = toRecord(runtimeDiagnostics.primary_execution_preview);
+  const phase7ExecutionContract = toRecord(primaryExecutionPreview.executable_contract);
+  const primaryEntryTakeover = toRecord(runtimeDiagnostics.primary_entry_takeover);
+  const phase7Readiness = toRecord(runtimeDiagnostics.phase7_readiness);
+  const phase7Decommission = toRecord(phase7Readiness.legacy_decommission);
+  const phase7ReadinessBlockers = toStringList(phase7Readiness.blockers);
+  const phase7LegacyAuthorities = toStringList(phase7Readiness.legacy_authorities);
+  const primaryPreviewExecutions = Array.isArray(primaryExecutionPreview.preview_executions)
+    ? primaryExecutionPreview.preview_executions.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
   const runtimeExecutionMismatches = useMemo(
     () => toRuntimeExecutionMismatches(runtimeDiagnostics.execution_mismatches),
     [runtimeDiagnostics.execution_mismatches]
@@ -778,6 +803,21 @@ export function ExperimentsView() {
       setCatalogAction(enabled ? "Primary entry selection 预览已开启。" : "Primary entry selection 预览已关闭。");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "切换 primary entry selection 失败");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+  async function changePrimaryEntryTakeover(enabled: boolean) {
+    setCatalogLoading(true);
+    setCatalogAction("");
+    try {
+      await setPrimaryEntryTakeover(enabled);
+      const nextCatalog = await getOrchestrationCatalog();
+      setCatalog(nextCatalog);
+      setCatalogAction(enabled ? "Primary entry takeover 已开启，仅 ready 且极低风险入口会实际接管。" : "Primary entry takeover 已关闭。");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "切换 primary entry takeover 失败");
     } finally {
       setCatalogLoading(false);
     }
@@ -1006,6 +1046,18 @@ export function ExperimentsView() {
                 {catalog?.primary_entry_selection_enabled ? "关闭预览" : "开启预览"}
               </button>
             </article>
+            <article>
+              <b>低风险实际接管</b>
+              <span>{catalog?.primary_entry_takeover_enabled ? "已开启：仅 general / rag / local_files 且预览 ready 时接管。" : "默认关闭：Primary 只做预览，不接管执行入口。"}</span>
+              <button
+                className={catalog?.primary_entry_takeover_enabled ? "action-button action-button--muted" : "action-button action-button--primary"}
+                disabled={catalogLoading || !catalog || (!catalog.primary_entry_selection_enabled && !catalog.primary_entry_takeover_enabled)}
+                onClick={() => void changePrimaryEntryTakeover(!catalog?.primary_entry_takeover_enabled)}
+                type="button"
+              >
+                {catalog?.primary_entry_takeover_enabled ? "关闭接管" : "开启接管"}
+              </button>
+            </article>
           </div>
           {catalogAction ? <div className="workspace-alert">{catalogAction}</div> : null}
         </section>
@@ -1175,7 +1227,12 @@ export function ExperimentsView() {
               <p>{String(intentFrame.user_goal ?? snapshot.summary ?? "等待用户目标。")}</p>
               <div>
                 {toStringList(intentFrame.source_needs).map((item) => <em key={item}>{item}</em>)}
+                {intentAuthority.state ? <em>理解层：{String(intentAuthority.state)}</em> : null}
+                {intentAuthority.legacy_still_executes ? <em className="is-danger">旧 planner 仍执行</em> : null}
               </div>
+              {intentCandidates.length ? (
+                <small>候选来源：{intentCandidates.map((item) => String(item.owner_module || item.source || "candidate")).slice(0, 2).join("、")}</small>
+              ) : null}
             </article>
             <article className="orchestration-contract-panel__card">
               <span>MemoryPolicy</span>
@@ -1217,7 +1274,32 @@ export function ExperimentsView() {
                 {toStringList(runtimeDiagnostics.allowlist_blockers).slice(0, 4).map((item) => <em className="is-danger" key={item}>{item}</em>)}
                 {toStringList(runtimeDiagnostics.contract_blockers).slice(0, 4).map((item) => <em className="is-danger" key={item}>{item}</em>)}
                 {runtimeDiagnostics.validation_status ? <em>validation={String(runtimeDiagnostics.validation_status)}</em> : null}
+                {runtimeEntrySelection.state ? <em>入口预检：{String(runtimeEntrySelection.state)}</em> : null}
+                {runtimeEntrySelection.eligible_count !== undefined ? <em>可接管 {String(runtimeEntrySelection.eligible_count)}</em> : null}
+                {runtimeEntrySelection.blocked_count ? <em className="is-danger">阻断 {String(runtimeEntrySelection.blocked_count)}</em> : null}
+                {primaryExecutionPreview.state ? <em>Primary预览：{String(primaryExecutionPreview.state)}</em> : null}
+                {primaryExecutionPreview.mismatch_count ? <em className="is-danger">预览差异 {String(primaryExecutionPreview.mismatch_count)}</em> : null}
+                {phase7ExecutionContract.state ? <em>执行契约：{String(phase7ExecutionContract.state)}</em> : null}
+                {primaryEntryTakeover.state ? <em>实际接管：{String(primaryEntryTakeover.state)}</em> : null}
+                {phase7Readiness.state ? <em className={phase7Readiness.state === "blocked" ? "is-danger" : ""}>Phase7准备：{String(phase7Readiness.state)}</em> : null}
               </div>
+              {phase7Readiness.state ? (
+                <div className="orchestration-phase-readiness">
+                  <b>{String(phase7Readiness.reason || "phase7_readiness")}</b>
+                  <p>{String(phase7Readiness.safe_next_step || "当前只做准备诊断，不改变运行路径。")}</p>
+                  {phase7ReadinessBlockers.length ? (
+                    <div>
+                      {phase7ReadinessBlockers.slice(0, 5).map((item) => <em className="is-danger" key={item}>{item}</em>)}
+                    </div>
+                  ) : null}
+                  {phase7LegacyAuthorities.length ? (
+                    <small>旧决策点：{phase7LegacyAuthorities.slice(0, 3).join("、")}</small>
+                  ) : null}
+                  {phase7Decommission.state ? (
+                    <small>旧链路清理：{String(phase7Decommission.state)}，删除允许：{phase7Decommission.delete_allowed ? "是" : "否"}</small>
+                  ) : null}
+                </div>
+              ) : null}
               {runtimeExecutionMismatches.length ? (
                 <ul className="orchestration-runtime-mismatch-list">
                   {runtimeExecutionMismatches.slice(0, 4).map((item, index) => (
@@ -1233,13 +1315,35 @@ export function ExperimentsView() {
               {runtimeExecutionEntries.length ? (
                 <div className="orchestration-runtime-entry-list">
                   {runtimeExecutionEntries.slice(0, 4).map((item, index) => (
-                    <span key={`${item.execution_id || item.step_id}-${index}`}>
+                    <span
+                      className={`orchestration-runtime-entry ${item.eligible_for_primary_entry ? "is-eligible" : "is-blocked"}`}
+                      key={`${item.execution_id || item.step_id}-${index}`}
+                    >
                       <b>{item.step_id || item.execution_id}</b>
-                      {item.entry_kind || "entry"}
-                      {item.tool || item.worker_route || item.agent_id ? ` -> ${item.tool || item.worker_route || item.agent_id}` : ""}
-                      {item.source ? ` / ${item.source}` : ""}
+                      <span>{item.entry_kind || "entry"}{item.source ? ` / ${item.source}` : ""}</span>
+                      <em>{item.eligible_for_primary_entry ? "可接管" : "暂不接管"}</em>
+                      <i>{item.tool || item.worker_route || item.agent_id || item.eligibility_reason || "主链回答"}</i>
+                      {item.eligibility_blockers.length ? <small>{item.eligibility_blockers.slice(0, 2).join("，")}</small> : null}
                     </span>
                   ))}
+                </div>
+              ) : null}
+              {primaryPreviewExecutions.length ? (
+                <div className="orchestration-runtime-preview-list">
+                  {primaryPreviewExecutions.slice(0, 3).map((item, index) => (
+                    <span className="orchestration-runtime-preview" key={`${String(item.execution_id ?? "preview")}-${index}`}>
+                      <b>{String(item.execution_id ?? `preview-${index + 1}`)}</b>
+                      <span>{String(item.entry_kind ?? "entry")} / {String(item.source ?? "unknown")}</span>
+                      <i>{String(item.tool || item.worker_route || item.agent_id || "legacy 对照")}</i>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {phase7ExecutionContract.state ? (
+                <div className="orchestration-phase-readiness">
+                  <b>ExecutionDirective 契约：{String(phase7ExecutionContract.state)}</b>
+                  <p>{String(phase7ExecutionContract.reason || "当前仍为 preview_only，不创建新执行对象。")}</p>
+                  <small>所需硬门：{toStringList(phase7ExecutionContract.required_gates).join("、") || "validation、RuntimeToolBridge"}</small>
                 </div>
               ) : null}
             </article>

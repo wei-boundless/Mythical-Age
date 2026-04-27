@@ -720,6 +720,67 @@ def _execute_scenario(
         for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
         if isinstance(entry, dict)
     )
+    runtime_entry_eligible_counts = Counter(
+        "eligible" if bool(entry.get("eligible_for_primary_entry")) else "blocked"
+        for turn in turn_results
+        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
+        if isinstance(entry, dict)
+    )
+    runtime_entry_blocker_counts = Counter(
+        str(blocker or "unknown")
+        for turn in turn_results
+        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
+        if isinstance(entry, dict)
+        for blocker in list(entry.get("eligibility_blockers") or [])
+    )
+    runtime_entry_selection_state_counts = Counter(
+        str((turn.runtime_control_diagnostics.get("entry_selection") or {}).get("state") or "missing")
+        for turn in turn_results
+        if isinstance(turn.runtime_control_diagnostics.get("entry_selection"), dict)
+    )
+    runtime_primary_preview_state_counts = Counter(
+        str((turn.runtime_control_diagnostics.get("primary_execution_preview") or {}).get("state") or "missing")
+        for turn in turn_results
+        if isinstance(turn.runtime_control_diagnostics.get("primary_execution_preview"), dict)
+    )
+    runtime_primary_preview_mismatch_counts = Counter(
+        str(item.get("field") or "unknown")
+        for turn in turn_results
+        if isinstance(turn.runtime_control_diagnostics.get("primary_execution_preview"), dict)
+        for item in list((turn.runtime_control_diagnostics.get("primary_execution_preview") or {}).get("mismatches") or [])
+        if isinstance(item, dict)
+    )
+    runtime_primary_takeover_state_counts = Counter(
+        str((turn.runtime_control_diagnostics.get("primary_entry_takeover") or {}).get("state") or "missing")
+        for turn in turn_results
+        if isinstance(turn.runtime_control_diagnostics.get("primary_entry_takeover"), dict)
+    )
+    runtime_phase7_readiness_state_counts = Counter(
+        str((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("state") or "missing")
+        for turn in turn_results
+        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
+    )
+    runtime_phase7_readiness_blocker_counts = Counter(
+        str(blocker or "unknown")
+        for turn in turn_results
+        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
+        for blocker in list((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("blockers") or [])
+    )
+    runtime_phase7_intent_authority_state_counts = Counter(
+        str(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("intent_authority") or {}).get("state") or "missing")
+        for turn in turn_results
+        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
+    )
+    runtime_phase7_execution_contract_state_counts = Counter(
+        str(((turn.runtime_control_diagnostics.get("primary_execution_preview") or {}).get("executable_contract") or {}).get("state") or "missing")
+        for turn in turn_results
+        if isinstance(turn.runtime_control_diagnostics.get("primary_execution_preview"), dict)
+    )
+    runtime_phase7_decommission_state_counts = Counter(
+        str(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("legacy_decommission") or {}).get("state") or "missing")
+        for turn in turn_results
+        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
+    )
     runtime_fallback_turns = [
         turn
         for turn in turn_results
@@ -749,6 +810,17 @@ def _execute_scenario(
         "runtime_entry_kind_counts": dict(sorted(runtime_entry_kind_counts.items())),
         "runtime_entry_source_counts": dict(sorted(runtime_entry_source_counts.items())),
         "runtime_entry_strategy_counts": dict(sorted(runtime_entry_strategy_counts.items())),
+        "runtime_entry_eligible_counts": dict(sorted(runtime_entry_eligible_counts.items())),
+        "runtime_entry_blocker_counts": dict(sorted(runtime_entry_blocker_counts.items())),
+        "runtime_entry_selection_state_counts": dict(sorted(runtime_entry_selection_state_counts.items())),
+        "runtime_primary_preview_state_counts": dict(sorted(runtime_primary_preview_state_counts.items())),
+        "runtime_primary_preview_mismatch_counts": dict(sorted(runtime_primary_preview_mismatch_counts.items())),
+        "runtime_primary_takeover_state_counts": dict(sorted(runtime_primary_takeover_state_counts.items())),
+        "runtime_phase7_readiness_state_counts": dict(sorted(runtime_phase7_readiness_state_counts.items())),
+        "runtime_phase7_readiness_blocker_counts": dict(sorted(runtime_phase7_readiness_blocker_counts.items())),
+        "runtime_phase7_intent_authority_state_counts": dict(sorted(runtime_phase7_intent_authority_state_counts.items())),
+        "runtime_phase7_execution_contract_state_counts": dict(sorted(runtime_phase7_execution_contract_state_counts.items())),
+        "runtime_phase7_decommission_state_counts": dict(sorted(runtime_phase7_decommission_state_counts.items())),
         "runtime_control_fallback_turns": [
             {
                 "index": turn.index,

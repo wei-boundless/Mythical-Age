@@ -27,6 +27,10 @@ class PrimaryEntrySelectionRequest(BaseModel):
     enabled: bool = False
 
 
+class PrimaryEntryTakeoverRequest(BaseModel):
+    enabled: bool = False
+
+
 @router.post("/orchestration/dry-run")
 async def orchestration_dry_run(payload: BehaviorDryRunRequest) -> dict[str, Any]:
     runtime = require_runtime()
@@ -68,6 +72,7 @@ async def orchestration_catalog() -> dict[str, Any]:
         "orchestration_plan_mode": runtime.settings.get_orchestration_plan_mode(),
         "supported_orchestration_plan_modes": ["legacy", "plan_only", "primary"],
         "primary_entry_selection_enabled": runtime.settings.get_primary_entry_selection_enabled(),
+        "primary_entry_takeover_enabled": runtime.settings.get_primary_entry_takeover_enabled(),
         "skills": skills,
         "tools": tools,
     }
@@ -96,4 +101,13 @@ async def set_primary_entry_selection(payload: PrimaryEntrySelectionRequest) -> 
     config = runtime.settings.set_primary_entry_selection_enabled(payload.enabled)
     return {
         "enabled": bool(config.get("primary_entry_selection_enabled", False)),
+    }
+
+
+@router.put("/orchestration/primary-entry-takeover")
+async def set_primary_entry_takeover(payload: PrimaryEntryTakeoverRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    config = runtime.settings.set_primary_entry_takeover_enabled(payload.enabled)
+    return {
+        "enabled": bool(config.get("primary_entry_takeover_enabled", False)),
     }

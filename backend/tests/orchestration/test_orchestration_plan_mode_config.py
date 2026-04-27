@@ -62,3 +62,14 @@ def test_primary_entry_selection_defaults_to_disabled_and_can_toggle(tmp_path: P
 
     assert saved["primary_entry_selection_enabled"] is True
     assert manager.get_primary_entry_selection_enabled() is True
+
+
+def test_primary_entry_takeover_defaults_to_disabled_and_can_toggle(tmp_path: Path) -> None:
+    manager = RuntimeConfigManager(tmp_path / "config.json")
+
+    assert manager.get_primary_entry_takeover_enabled() is False
+
+    saved = manager.set_primary_entry_takeover_enabled(True)
+
+    assert saved["primary_entry_takeover_enabled"] is True
+    assert manager.get_primary_entry_takeover_enabled() is True

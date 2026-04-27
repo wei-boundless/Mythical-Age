@@ -75,6 +75,12 @@ def build_orchestration_plan(
     ]
 
     intent_frame = _intent_frame(message=message, understanding=understanding, executions=executions)
+    intent_candidates = _intent_candidates(
+        message=message,
+        understanding=understanding,
+        intent_frame=intent_frame,
+    )
+    intent_authority = _intent_authority(intent_candidates=intent_candidates)
     memory_policy = _memory_policy(primary_execution)
     context_policy = _context_policy(query_plan=query_plan, executions=executions)
     resource_policy = _resource_policy(
@@ -116,6 +122,8 @@ def build_orchestration_plan(
             "legacy_execution_count": len(executions),
             "plan_compatible": True,
             "contract_preview_count": len(contract_preview_items),
+            "intent_candidates": intent_candidates,
+            "intent_authority": intent_authority,
         },
     )
     validation = validate_orchestration_plan(plan)
@@ -155,8 +163,52 @@ def _intent_frame(*, message: str, understanding: Any, executions: list[Any]) ->
         needs_agent=not bool("direct_tool" in execution_kinds and len(execution_kinds) == 1),
         risk_signals=_dedupe(risk_signals),
         confidence=float(getattr(understanding, "confidence", 0.0) or 0.0),
-        refs={"owner_module": "understanding.query_understanding"},
+        refs={
+            "owner_module": "understanding.query_understanding",
+            "authority": "candidate_only",
+            "canonical_owner": "orchestration.intent_frame",
+            "legacy_runtime_owner": "query.planner",
+        },
     )
+
+
+def _intent_candidates(*, message: str, understanding: Any, intent_frame: IntentFrame) -> list[dict[str, Any]]:
+    return [
+        {
+            "candidate_id": "legacy-understanding:primary",
+            "source": "legacy_understanding",
+            "owner_module": "understanding.task_understanding",
+            "authority": "candidate_only",
+            "selected_by": "orchestration.intent_frame",
+            "legacy_still_executes": True,
+            "user_goal": message,
+            "intent": intent_frame.intent,
+            "task_kind": intent_frame.task_kind,
+            "source_kind": intent_frame.source_kind,
+            "modality": intent_frame.modality,
+            "route": intent_frame.route,
+            "source_needs": list(intent_frame.source_needs),
+            "candidate_tools": list(getattr(understanding, "candidate_tools", []) or []),
+            "tool_name": str(getattr(understanding, "tool_name", "") or ""),
+            "worker_hint": str(getattr(understanding, "worker_route", "") or ""),
+            "confidence": intent_frame.confidence,
+            "reasons": [str(item) for item in list(getattr(understanding, "reasons", []) or [])],
+        }
+    ]
+
+
+def _intent_authority(*, intent_candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "phase": "7B",
+        "state": "candidate_projected",
+        "canonical_owner": "orchestration.intent_frame",
+        "candidate_owner": "understanding.task_understanding",
+        "runtime_owner": "query.planner",
+        "legacy_still_executes": True,
+        "candidate_count": len(intent_candidates),
+        "cutover_state": "not_started",
+        "rule": "理解层只提交候选；正式编排层负责仲裁，但当前运行时仍由 legacy QueryPlanner 执行。",
+    }
 
 
 def _memory_policy(execution: Any) -> MemoryPolicy:
@@ -411,8 +463,11 @@ def _task_decision(understanding: Any) -> OrchestrationDecision:
         node_id="task-understanding",
         node_type="task_understanding",
         owner_module="understanding.query_understanding",
-        status="selected",
+        status="candidate",
         outputs={
+            "authority": "candidate_only",
+            "canonical_owner": "orchestration.intent_frame",
+            "legacy_runtime_owner": "query.planner",
             "intent": str(getattr(understanding, "intent", "") or ""),
             "source_kind": str(getattr(understanding, "source_kind", "") or ""),
             "task_kind": str(getattr(understanding, "task_kind", "") or ""),
@@ -422,7 +477,7 @@ def _task_decision(understanding: Any) -> OrchestrationDecision:
             "candidate_tools": list(getattr(understanding, "candidate_tools", []) or []),
             "capability_requests": list(getattr(understanding, "capability_requests", []) or []),
         },
-        reasons=[str(item) for item in list(getattr(understanding, "reasons", []) or [])],
+        reasons=["phase7b_intent_candidate"] + [str(item) for item in list(getattr(understanding, "reasons", []) or [])],
     )
 
 

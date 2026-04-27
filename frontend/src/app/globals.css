@@ -5290,6 +5290,14 @@ button:hover {
   line-height: 1.5;
 }
 
+.orchestration-contract-panel__card small {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.64rem;
+  line-height: 1.45;
+}
+
 .orchestration-contract-panel__card div,
 .orchestration-directive-strip div {
   display: flex;
@@ -5320,6 +5328,37 @@ button:hover {
   margin: 0.62rem 0 0;
   padding: 0;
   list-style: none;
+}
+
+.orchestration-phase-readiness {
+  display: grid;
+  gap: 0.34rem;
+  margin-top: 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, transparent);
+  border-radius: 0.82rem;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 7%, transparent), transparent 64%),
+    rgba(255, 255, 255, 0.026);
+  padding: 0.52rem 0.58rem;
+}
+
+.orchestration-phase-readiness b {
+  color: var(--color-text);
+  font-size: 0.72rem;
+}
+
+.orchestration-phase-readiness p,
+.orchestration-phase-readiness small {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.64rem;
+  line-height: 1.55;
+}
+
+.orchestration-phase-readiness div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
 }
 
 .orchestration-runtime-mismatch-list li {
@@ -5369,8 +5408,11 @@ button:hover {
   margin-top: 0.62rem;
 }
 
-.orchestration-runtime-entry-list span {
-  display: block;
+.orchestration-runtime-entry {
+  display: grid;
+  grid-template-columns: minmax(56px, 0.7fr) minmax(74px, 1fr) auto;
+  gap: 0.26rem 0.42rem;
+  align-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-soul) 18%, transparent);
   border-radius: 0.72rem;
@@ -5381,12 +5423,86 @@ button:hover {
   padding: 0.34rem 0.42rem;
   text-overflow: ellipsis;
   text-transform: none;
+}
+
+.orchestration-runtime-entry.is-blocked {
+  border-color: rgba(255, 145, 109, 0.26);
+  background: rgba(255, 145, 109, 0.06);
+}
+
+.orchestration-runtime-entry b,
+.orchestration-runtime-entry span,
+.orchestration-runtime-entry i,
+.orchestration-runtime-entry small {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.orchestration-runtime-entry-list b {
-  margin-right: 0.34rem;
+.orchestration-runtime-entry b {
   color: var(--color-soul);
+}
+
+.orchestration-runtime-entry em {
+  justify-self: end;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, transparent);
+  border-radius: 999px;
+  color: var(--color-soul);
+  font-size: 0.58rem;
+  font-style: normal;
+  padding: 0.12rem 0.32rem;
+}
+
+.orchestration-runtime-entry.is-blocked em {
+  border-color: rgba(255, 145, 109, 0.3);
+  color: #ffb39b;
+}
+
+.orchestration-runtime-entry i,
+.orchestration-runtime-entry small {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-style: normal;
+}
+
+.orchestration-runtime-entry small {
+  color: #ffb39b;
+}
+
+.orchestration-runtime-preview-list {
+  display: grid;
+  gap: 0.34rem;
+  margin-top: 0.48rem;
+}
+
+.orchestration-runtime-preview {
+  display: grid;
+  grid-template-columns: minmax(56px, 0.7fr) minmax(86px, 1fr);
+  gap: 0.2rem 0.38rem;
+  border: 1px dashed color-mix(in srgb, var(--color-soul) 28%, transparent);
+  border-radius: 0.68rem;
+  background: rgba(255, 255, 255, 0.026);
+  color: var(--color-text-soft);
+  font-size: 0.62rem;
+  padding: 0.32rem 0.42rem;
+}
+
+.orchestration-runtime-preview b,
+.orchestration-runtime-preview span,
+.orchestration-runtime-preview i {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestration-runtime-preview b {
+  color: var(--color-soul);
+}
+
+.orchestration-runtime-preview i {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-style: normal;
 }
 
 .orchestration-directive-strip {

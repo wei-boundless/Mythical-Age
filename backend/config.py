@@ -537,6 +537,7 @@ class RuntimeConfigManager:
             "retrieval_cutover_mode": "v2_primary",
             "orchestration_plan_mode": "plan_only",
             "primary_entry_selection_enabled": False,
+            "primary_entry_takeover_enabled": False,
         }
 
     def load(self) -> dict[str, Any]:
@@ -618,6 +619,12 @@ class RuntimeConfigManager:
 
     def set_primary_entry_selection_enabled(self, enabled: bool) -> dict[str, Any]:
         return self.save({"primary_entry_selection_enabled": bool(enabled)})
+
+    def get_primary_entry_takeover_enabled(self) -> bool:
+        return bool(self.load().get("primary_entry_takeover_enabled", False))
+
+    def set_primary_entry_takeover_enabled(self, enabled: bool) -> dict[str, Any]:
+        return self.save({"primary_entry_takeover_enabled": bool(enabled)})
 
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")

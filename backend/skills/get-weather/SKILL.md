@@ -4,10 +4,6 @@ metadata:
   display_name: 天气查询
   allowed_tools:
   - get_weather
-  - web_search
-  - pdf_analysis
-  - search_knowledge
-  - structured_data_analysis
   supported_modalities:
   - realtime
   supported_task_kinds:

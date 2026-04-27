@@ -14,6 +14,7 @@ class RuntimeSettingsSnapshot:
     retrieval_cutover_mode: str
     orchestration_plan_mode: str
     primary_entry_selection_enabled: bool
+    primary_entry_takeover_enabled: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,7 @@ class AppSettingsService:
             retrieval_cutover_mode=str(payload.get("retrieval_cutover_mode", "v2_primary") or "v2_primary"),
             orchestration_plan_mode=str(payload.get("orchestration_plan_mode", "plan_only") or "plan_only"),
             primary_entry_selection_enabled=bool(payload.get("primary_entry_selection_enabled", False)),
+            primary_entry_takeover_enabled=bool(payload.get("primary_entry_takeover_enabled", False)),
         )
 
     def policy_snapshot(self) -> PolicySettingsSnapshot:
@@ -151,4 +153,18 @@ class AppSettingsService:
             return setter(enabled)
         current = runtime_config.load()
         current["primary_entry_selection_enabled"] = bool(enabled)
+        return runtime_config.save(current)
+
+    def get_primary_entry_takeover_enabled(self) -> bool:
+        getter = getattr(runtime_config, "get_primary_entry_takeover_enabled", None)
+        if callable(getter):
+            return bool(getter())
+        return bool(self.runtime_snapshot().primary_entry_takeover_enabled)
+
+    def set_primary_entry_takeover_enabled(self, enabled: bool) -> dict[str, Any]:
+        setter = getattr(runtime_config, "set_primary_entry_takeover_enabled", None)
+        if callable(setter):
+            return setter(enabled)
+        current = runtime_config.load()
+        current["primary_entry_takeover_enabled"] = bool(enabled)
         return runtime_config.save(current)

@@ -793,18 +793,85 @@ AnswerFinalizer
 - 文件处理警告下降。
 - trace 能解释每一步为何选择该 skill/tool/agent。
 
-### Phase 5：调度中枢主切换
+### Phase 5：Primary 接管条件加固与报告闭环
 
 目标：
 
-- 正式编排中枢成为主调度。
-- 启发式只保留 fallback 和安全检查。
+- 不急于删除旧链路，先把 `primary` 接管条件变严。
+- 对正式契约完整性、validator、allowlist、legacy execution 对齐做 fail-closed 校验。
+- 把 RuntimeControl 的 fallback 原因、字段 mismatch、接管状态写入前端和长场景报告。
 
 完成标准：
 
-- `understanding/task_understanding.py` 大量规则不再是主路径。
-- `output_classifier.py` 从“理解答案”降级为输出边界和 fallback 检查。
-- 编排系统前端能显示编排计划、validator decision、runtime control、executor trace。
+- 缺少 `IntentFrame / MemoryPolicy / ContextPolicy / ResourcePolicy / ExecutionDirective / AnswerPolicy / Validation / Executions` 任一核心字段时，必须回退旧链路。
+- directive 与 legacy execution 的 `route / execution_kind / tool / worker_route / skill` 不一致时，必须回退旧链路。
+- 前端能直接显示 `contract_blockers / allowlist_blockers / execution_mismatches`。
+- 长场景报告能聚合 `runtime_control_source_counts / runtime_control_warning_counts / runtime_control_fallback_turns`。
+- core 长场景无非预期 runtime fallback。
+
+### Phase 6：低风险执行入口选择
+
+目标：
+
+- 把低风险 `primary` 从“只重排 legacy execution”推进到“能明确选择执行入口”。
+- 初始只做入口计划、资格诊断和预检结论，不直接创建新执行对象。
+- 为后续 `PrimaryExecutionAdapter` 做双轨对照准备。
+
+子阶段拆分：
+
+- Phase 6A：入口计划可观测化，只输出 `execution_entries`。
+- Phase 6B：入口计划进入长场景报告聚合。
+- Phase 6C：入口来源统计复核，修正实时工具来源识别。
+- Phase 6D：落地 `primary_entry_selection_enabled` 预览开关。
+- Phase 6E：开启入口选择预览跑 core 长场景，验证行为不漂移。
+- Phase 6F：为每个入口增加接管资格诊断。
+- Phase 6G：增加 `entry_selection` 接管预检结论。
+- Phase 6H：增加 `PrimaryExecutionAdapter` 只读双轨预览。
+- Phase 6I：小范围低风险入口实际接管，仅限 `general / rag / local_files`。
+- Phase 6J：暂停执行。原本用于评估 `document / data` 受控接管，但当前不再作为进入 Phase 7 的前置条件；`document / data` 继续保持阻断与 legacy fallback。
+
+完成标准：
+
+- `RuntimeControl.diagnostics.execution_entries` 能列出每个执行入口的：
+  - `entry_kind`
+  - `source`
+  - `tool`
+  - `worker_route`
+  - `agent_id`
+  - `strategy`
+- `primary_entry_selection_enabled` 默认关闭，开启后只进入 preview，不改变执行行为。
+- 每个 entry 都能给出 `eligible_for_primary_entry / eligibility_reason / eligibility_blockers`。
+- `entry_selection` 能输出 `disabled / ready / blocked / no_entries`。
+- 长场景报告能聚合 `entry_sources / entry_strategy / entry_eligible / entry_blockers / entry_selection`。
+- 联网、系统执行和高风险工具必须继续被标为不可接管。
+- 默认配置下 `primary_entry_selection_enabled=false` 且 `primary_entry_takeover_enabled=false`。
+- Phase 6I 完成后，`general / rag / local_files` 可在双开关开启时进入 `orchestration_primary_entry`；`document / data / web / system_execution` 继续阻断。Phase 7 不以扩大接管范围为前提，而以旧启发式权力审计和 readiness gate 为前提。
+
+### Phase 7：调度中枢主切换
+
+目标：
+
+- 在 Phase 5 和 Phase 6 的诊断、预检、报告都稳定后，再让正式编排中枢成为主调度。
+- 启发式逐步降级为 fallback、安全检查、兼容层和异常恢复，而不是继续作为隐藏调度脑。
+
+子阶段拆分：
+
+- Phase 7A：旧启发式权力审计与 Readiness Gate。只做审计、诊断和报告，不删除旧链路，不扩大接管范围。
+- Phase 7B：理解层降级为 `IntentFrame` 候选生成。`task_understanding.py` 继续保留规则，但不再拥有最终 route/tool/worker 决策权。
+- Phase 7C：编排中枢生成可执行 `ExecutionDirective`。低风险入口可由正式 directive 选择执行对象，但必须继续通过 `RuntimeToolBridge`、search policy、tool contract 和 agent binding。
+- Phase 7D：旧链路降级为 fallback/debug baseline。只有当 Phase 7A-7C 的 readiness、长场景和回滚验证都稳定后，才允许清理旧的重复调度分支。
+
+完成标准：
+
+- Phase 7A 必须先列出旧启发式仍拥有最终决策权的位置，包括 `QueryPlanner`、`task_understanding`、`RuntimeToolBridge`、`output_classifier`、记忆恢复和上下文绑定。
+- Phase 7A 必须输出 `phase7_readiness` 诊断，说明本轮是否满足主切换条件，以及不满足时的 blocker。
+- 默认配置必须继续保持 `primary_entry_selection_enabled=false` 且 `primary_entry_takeover_enabled=false`，除非测试环境显式开启。
+- 不得在 Phase 7A 删除 `QueryPlanner`、`task_understanding.py`、`output_classifier.py` 或旧执行 fallback。
+- 低风险入口可以由 `PrimaryExecutionAdapter` 生成或选择执行对象，并与 legacy 结果双轨对照。
+- `understanding/task_understanding.py` 的规则从“最终决策”退到 `IntentFrame` 候选生成。
+- `output_classifier.py` 从“理解答案”降级为输出边界、fallback 检查和协议清洗。
+- 编排系统前端能显示编排计划、validator decision、runtime control、executor trace 和最终执行差异。
+- 长场景测试、冒烟测试、稳定门禁均能解释主调度路径与 fallback 原因。
 
 ## 十、验证矩阵
 
@@ -898,20 +965,17 @@ AnswerFinalizer
 
 ## 十三、当前推进建议
 
-当前 Phase 1 与 Phase 2 的基础能力已经开始落地：`backend/capabilities`、`/operations/catalog`、对话级搜索权限、工具可见范围过滤和操作系统入口收敛都已进入实现链路。后续不要回到“先补 UI”的思路，而应把重心切到 Phase 3A：正式编排中枢契约骨架。
+截至 2026-04-27，Phase 1 到 Phase 4 已经完成基础闭环，Phase 5 已完成 primary 接管加固与报告闭环，Phase 6 已推进到 6I：入口计划、资格诊断、接管预检、只读双轨预览和小范围低风险实际接管都已可观测。后续不要再把“调度中枢主切换”放在 Phase 5；主切换已经后移为 Phase 7，必须等 Phase 6 的低风险入口实际接管稳定后再做。
 
 下一步执行顺序：
 
-1. 在 `backend/orchestration/models.py` 中补齐 `IntentFrame / MemoryPolicy / ContextPolicy / ResourcePolicy / ExecutionDirective / AnswerPolicy`。
-2. 在 `backend/orchestration/adapters.py` 中先从旧 `QueryPlan`、`RuntimeContextState`、`CapabilityManifest` 投影正式 directive。
-3. 在 `backend/orchestration/validation.py` 中建立 fail-closed 校验，不让未知 tool、未知 agent、未知来源权限进入执行。
-4. 在 `backend/orchestration/runtime_adapter.py` 中保持 `plan_only` 不改变行为，只输出 `RuntimeControl` 预览。
-5. 在测试系统和编排系统前端展示“计划、校验、实际执行、差异”，让用户能看懂这次请求为什么这样走。
-6. 用长场景测试验证文件处理、搜索权限、状态记忆恢复、子 agent 隔离和输出收口没有退化。
+1. 不执行 Phase 6J；`document / data` 暂不纳入实际接管。
+2. 进入 Phase 7A：旧启发式权力审计与 Readiness Gate，只做准备和可观测，不做主切换。
+3. Phase 7A 开始前必须保留 `primary_entry_takeover_enabled=false` 作为默认值。
+4. 冒烟、稳定门禁、长场景报告必须继续显示 `primary_takeover`、fallback、mismatch 和新增 `phase7_readiness`。
+5. 只有 Phase 7A 明确列出 blocker 并验证 readiness 稳定后，才进入 Phase 7B/7C 的实际主切换推进。
 
-完成 Phase 3A 后，再进入 Phase 4 的低风险 `primary` allowlist。这样编排层会真正成为运行时控制面，而不是又新增一个漂亮但不管事的观察层。
-
-Phase 3A 当前进展：
+当前进展：
 
 - 后端正式编排契约骨架已落地到 `backend/orchestration/models.py` 与 `backend/orchestration/adapters.py`。
 - `orchestration_plan` 现在会携带 `intent_frame / memory_policy / context_policy / resource_policy / execution_directives / answer_policy / validation`。
@@ -930,4 +994,13 @@ Phase 3A 当前进展：
 - Phase 6C 已复核长场景 core：`total=3 passed=3 failed=0`；入口统计稳定，实时专用工具 `get_weather / get_gold_price` 已正确归入 `web`，运营场景的 2 个 fallback 可解释为预期联网阻断。
 - Phase 6D 已落地 `primary_entry_selection_enabled` runtime 开关：默认关闭，开启后仅把 RuntimeControl entry strategy 标为 `primary_entry_selection_preview`，不改变执行路径。
 - Phase 6E 已在测试环境开启 `primary_entry_selection_enabled` 跑 core 长场景：`total=3 passed=3 failed=0`，报告中所有 entry strategy 均切为 `primary_entry_selection_preview`，行为未漂移。
-- 下一步可以设计真正的低风险 runtime 分支选择，但必须继续受 validation、allowlist、field mismatch 和一键回退保护；仍不直接删除旧链路。
+- Phase 6F 已新增 `execution_entry` 低风险接管资格诊断：每个入口都会标记 `eligible_for_primary_entry / eligibility_reason / eligibility_blockers`，长场景报告新增 `entry_eligible / entry_blockers`；core 长场景 `total=3 passed=3 failed=0`，联网入口继续被标为不可接管。
+- Phase 6G 已新增入口接管预检结论 `entry_selection`：默认关闭时为 `disabled`；开启 `primary_entry_selection_enabled` 后，低风险入口显示 `ready`，联网入口显示 `blocked`；两次 core 长场景均为 `total=3 passed=3 failed=0`。
+- Phase 6H 已新增 `PrimaryExecutionAdapter` 只读预览：`RuntimeControl.diagnostics.primary_execution_preview` 会输出 `disabled / ready / blocked / mismatch`，长场景报告新增 `primary_preview / primary_preview_mismatches`；默认与开启预览两次 core 长场景均为 `total=3 passed=3 failed=0`。
+- Phase 6I 已新增 `primary_entry_takeover_enabled` 小范围实际接管开关：仅 `general / rag / local_files` 且 `primary_execution_preview.ready` 时会进入 `orchestration_primary_entry`；默认与开启接管两次 core 长场景均为 `total=3 passed=3 failed=0`。
+- 下一步不再推进 Phase 6J，直接进入 Phase 7A 前置准备。Phase 7A 只做旧启发式权力审计、readiness 诊断和报告闭环；必须继续受 validation、allowlist、field mismatch、entry eligibility、entry selection、primary preview、primary takeover 和一键回退保护。
+- Phase 7A 已开始落地 `phase7_readiness` 诊断：默认状态为 `disabled`，低风险 takeover ready 路径可显示 `ready`，`document / data / web / system_execution` 继续显示 blocker；长场景报告和编排系统前端均已接入该诊断。
+- Phase 7A core 长场景观察已完成：`total=3 passed=3 failed=0`；默认配置下 readiness 全部为 `disabled`，运营场景明确暴露 `data / document / web` blocker，说明下一步应先设计 Phase 7B 的理解层降级细则，而不是扩大 takeover。
+- Phase 7B 已完成理解层候选化第一步：`task-understanding` 在编排计划中标为 `candidate`，`diagnostics.intent_candidates / intent_authority` 会说明理解层只提交候选、canonical owner 是 `orchestration.intent_frame`、旧 `QueryPlanner` 仍执行；core 长场景 `total=3 passed=3 failed=0`，`phase7_intent candidate_projected` 已进入报告。
+- Phase 7C 已完成 `ExecutionDirective` 可执行契约预览：`primary_execution_preview.executable_contract` 会显示 `preview_only / runnable=false / required_gates / execution_specs`；默认 core 长场景 `total=3 passed=3 failed=0`，开启入口选择预览后低风险场景显示 `phase7_execution preview_ready`，运营场景的 web 入口继续 blocked。
+- Phase 7D 已完成旧链路降级清单与删除门禁：`phase7_readiness.legacy_decommission` 会显示 protected modules、blockers 和 `delete_allowed=false`；core 长场景 `total=3 passed=3 failed=0`，所有场景均为 `phase7_decommission not_ready`，说明旧链路仍受保护，不允许直接删除。

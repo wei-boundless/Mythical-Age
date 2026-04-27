@@ -141,6 +141,17 @@ def test_reporter_renders_runtime_control_summary() -> None:
                     "runtime_entry_kind_counts": {"worker": 8, "direct_tool": 2},
                     "runtime_entry_source_counts": {"data": 3, "document": 2, "web": 2},
                     "runtime_entry_strategy_counts": {"primary_entry_selection_preview": 10},
+                    "runtime_entry_eligible_counts": {"eligible": 8, "blocked": 2},
+                    "runtime_entry_blocker_counts": {"source_not_low_risk:web": 2},
+                    "runtime_entry_selection_state_counts": {"ready": 8, "blocked": 2},
+                    "runtime_primary_preview_state_counts": {"ready": 8, "blocked": 2},
+                    "runtime_primary_preview_mismatch_counts": {},
+                    "runtime_primary_takeover_state_counts": {"active": 8, "blocked": 2},
+                    "runtime_phase7_readiness_state_counts": {"ready": 8, "blocked": 2},
+                    "runtime_phase7_readiness_blocker_counts": {"source_not_phase7_ready:web": 2},
+                    "runtime_phase7_intent_authority_state_counts": {"candidate_projected": 10},
+                    "runtime_phase7_execution_contract_state_counts": {"preview_ready": 8, "blocked": 2},
+                    "runtime_phase7_decommission_state_counts": {"not_ready": 10},
                     "runtime_control_fallback_turns": [{"index": 7}, {"index": 8}],
                 },
             )
@@ -155,3 +166,14 @@ def test_reporter_renders_runtime_control_summary() -> None:
     assert "entries `direct_tool:2, worker:8`" in report
     assert "entry_sources `data:3, document:2, web:2`" in report
     assert "entry_strategy `primary_entry_selection_preview:10`" in report
+    assert "entry_eligible `blocked:2, eligible:8`" in report
+    assert "entry_blockers `source_not_low_risk:web:2`" in report
+    assert "entry_selection `blocked:2, ready:8`" in report
+    assert "primary_preview `blocked:2, ready:8`" in report
+    assert "primary_preview_mismatches `none`" in report
+    assert "primary_takeover `active:8, blocked:2`" in report
+    assert "phase7_readiness `blocked:2, ready:8`" in report
+    assert "phase7_blockers `source_not_phase7_ready:web:2`" in report
+    assert "phase7_intent `candidate_projected:10`" in report
+    assert "phase7_execution `blocked:2, preview_ready:8`" in report
+    assert "phase7_decommission `not_ready:10`" in report

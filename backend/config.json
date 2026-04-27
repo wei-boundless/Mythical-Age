@@ -4,6 +4,8 @@
   "retrieval_shadow_compare": false,
   "retrieval_cutover_mode": "v2_primary",
   "orchestration_plan_mode": "primary",
+  "primary_entry_selection_enabled": false,
+  "primary_entry_takeover_enabled": false,
   "agent_system": {
     "enabled_agents": {
       "agent:local:worker": true,
@@ -90,4 +92,3 @@
     ]
   }
 }
-

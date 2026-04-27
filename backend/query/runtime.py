@@ -635,6 +635,7 @@ class QueryRuntime:
             legacy_plan=plan,
             legacy_executions=executions,
             primary_entry_selection_enabled=self._primary_entry_selection_enabled(),
+            primary_entry_takeover_enabled=self._primary_entry_takeover_enabled(),
         )
         executions = runtime_control.executions
         if orchestration_plan is not None:
@@ -1677,6 +1678,15 @@ class QueryRuntime:
                 return bool(getter())
             except Exception:
                 logger.exception("Failed to read primary entry selection setting")
+        return False
+
+    def _primary_entry_takeover_enabled(self) -> bool:
+        getter = getattr(self.settings_service, "get_primary_entry_takeover_enabled", None)
+        if callable(getter):
+            try:
+                return bool(getter())
+            except Exception:
+                logger.exception("Failed to read primary entry takeover setting")
         return False
 
     def _apply_runtime_control_to_orchestration_plan(self, orchestration_plan: dict[str, Any], runtime_control) -> None:

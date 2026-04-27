@@ -61,8 +61,14 @@ def test_plan_only_orchestration_plan_preserves_legacy_topology() -> None:
     assert payload["topology"]["route"] == "rag"
     assert payload["topology"]["execution_kind"] == "agent"
     assert payload["diagnostics"]["plan_compatible"] is True
+    assert payload["diagnostics"]["intent_authority"]["state"] == "candidate_projected"
+    assert payload["diagnostics"]["intent_authority"]["legacy_still_executes"] is True
+    assert payload["diagnostics"]["intent_candidates"][0]["authority"] == "candidate_only"
     assert payload["executions"][0]["execution_id"] == "main"
-    assert {decision["node_id"] for decision in payload["decisions"]} >= {
+    decision_by_id = {decision["node_id"]: decision for decision in payload["decisions"]}
+    assert decision_by_id["task-understanding"]["status"] == "candidate"
+    assert decision_by_id["task-understanding"]["outputs"]["authority"] == "candidate_only"
+    assert set(decision_by_id) >= {
         "input",
         "memory-intent",
         "task-understanding",

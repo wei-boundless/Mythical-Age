@@ -222,6 +222,7 @@ export type OrchestrationCatalog = {
   orchestration_plan_mode: string;
   supported_orchestration_plan_modes: string[];
   primary_entry_selection_enabled: boolean;
+  primary_entry_takeover_enabled: boolean;
   skills: OrchestrationCatalogSkill[];
   tools: OrchestrationCatalogTool[];
 };
@@ -909,6 +910,13 @@ export async function setOrchestrationPlanMode(mode: string) {
 
 export async function setPrimaryEntrySelection(enabled: boolean) {
   return request<{ enabled: boolean }>("/orchestration/primary-entry-selection", {
+    method: "PUT",
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export async function setPrimaryEntryTakeover(enabled: boolean) {
+  return request<{ enabled: boolean }>("/orchestration/primary-entry-takeover", {
     method: "PUT",
     body: JSON.stringify({ enabled })
   });
