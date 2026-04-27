@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -7,29 +9,25 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from soul.projection_store import delete_projection_card, list_projection_cards, reconcile_projection_store, select_projection_card, upsert_projection_card
+from soul.registry import (
+    ACTIVE_SEED_PATH,
+    AGENT_PROFILE_PATH,
+    BUILTIN_SEED_PATHS,
+    BUILTIN_SOUL_NAMES,
+    CORE_PATH,
+    SEED_CATALOG_PATH,
+    SoulRegistry,
+    normalize_path,
+    read_text,
+    write_text,
+)
 
 router = APIRouter()
 
-ACTIVE_SEED_PATH = "soul/agent_core/ACTIVE_SEED.md"
-CORE_PATH = "soul/agent_core/CORE.md"
-AGENT_PROFILE_PATH = "soul/agent.md"
-SEED_CATALOG_PATH = "soul/agent_core/SEED_CATALOG.md"
 SOUL_PORTRAIT_MAX_BYTES = 8 * 1024 * 1024
-
-SEED_PATHS: dict[str, str] = {
-    "hebo": "soul/agent_core/seeds/hebo.md",
-    "siyue": "soul/agent_core/seeds/siyue.md",
-    "zhurong": "soul/agent_core/seeds/zhurong.md",
-    "xuannv": "soul/agent_core/seeds/xuannv.md",
-}
-
-SOUL_NAMES: dict[str, str] = {
-    "hebo": "河伯",
-    "siyue": "四岳",
-    "zhurong": "祝融",
-    "xuannv": "玄女",
-}
-
+SEED_PATHS = BUILTIN_SEED_PATHS
+SOUL_NAMES = BUILTIN_SOUL_NAMES
 EDITABLE_SOUL_PATHS = {
     ACTIVE_SEED_PATH,
     CORE_PATH,
@@ -37,6 +35,7 @@ EDITABLE_SOUL_PATHS = {
     SEED_CATALOG_PATH,
     *SEED_PATHS.values(),
 }
+HIDDEN_STYLE_SECTION_PATTERN = re.compile(r"^##\s+(?:身份锚点|Identity Anchor)\s*[\r\n]+[\s\S]*?(?=^##\s+|\Z)", re.MULTILINE)
 
 
 class SoulSwitchRequest(BaseModel):
@@ -48,6 +47,54 @@ class SoulFileSaveRequest(BaseModel):
     path: str = Field(..., min_length=1)
     content: str
     reason: str = Field(default="frontend_edit")
+
+
+class SoulSkillViewPayload(BaseModel):
+    skill_id: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1)
+    capability_summary: str = ""
+    use_when: str = ""
+    input_boundary: str = ""
+    output_boundary: str = ""
+    forbidden_uses: str = ""
+    current_task_reason: str = ""
+
+
+class SoulToolViewPayload(BaseModel):
+    tool_id: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1)
+    capability_summary: str = ""
+    input_schema_summary: str = ""
+    output_schema_summary: str = ""
+    risk_summary: str = ""
+    authorized: bool = False
+    authorization_owner: str = "ResourcePolicy"
+
+
+class SoulProjectionCardRequest(BaseModel):
+    projection_id: str = ""
+    soul_id: str = Field(..., min_length=1)
+    role_type: str = "dialogue"
+    task_mode: str = "general_qa"
+    agent_profile_id: str = "general_agent"
+    projection_name: str = ""
+    skill_views: list[SoulSkillViewPayload] = Field(default_factory=list)
+    tool_views: list[SoulToolViewPayload] = Field(default_factory=list)
+    task_contract_summary: str = "当前投影没有绑定具体任务契约。"
+    memory_policy_summary: str = "预览模式不授予记忆写回权。"
+    output_contract_summary: str = "预览当前灵魂如何收束 prompt sections。"
+    style_content: str = ""
+    select_after_create: bool = True
+
+
+class CustomSoulSaveRequest(BaseModel):
+    soul_id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    soul_markdown: str = Field(default="# Soul Seed\n")
+    preferred_role_types: list[str] = Field(default_factory=list)
+    preferred_task_modes: list[str] = Field(default_factory=list)
+    enabled: bool = True
 
 
 def _project_root_from_backend(base_dir: Path) -> Path:
@@ -64,150 +111,31 @@ def _portrait_path(base_dir: Path, key: str) -> Path:
     return path
 
 
-def _read_text(path: Path) -> str:
-    if not path.exists():
-        return ""
-    encodings = ("utf-8", "utf-8-sig", "gb18030", "gbk")
-    for encoding in encodings:
-        try:
-            return path.read_text(encoding=encoding)
-        except UnicodeDecodeError:
-            continue
-    return path.read_text(encoding="utf-8", errors="ignore")
-
-
-def _write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-def _normalize_path(path: str) -> str:
-    return path.replace("\\", "/").strip("/")
-
-
 def _resolve_soul_path(base_dir: Path, path: str) -> Path:
-    normalized = _normalize_path(path)
-    if normalized not in EDITABLE_SOUL_PATHS:
-        raise HTTPException(status_code=400, detail="Path is not a managed soul file")
-    candidate = (base_dir / normalized).resolve()
-    root = base_dir.resolve()
-    if root not in candidate.parents and candidate != root:
-        raise HTTPException(status_code=400, detail="Path traversal detected")
-    return candidate
-
-
-def _extract_name(content: str, fallback: str) -> str:
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("-"):
-            continue
-        for left, right in (("“", "”"), ('"', '"')):
-            if left in stripped and right in stripped:
-                value = stripped.split(left, 1)[1].split(right, 1)[0].strip()
-                if value:
-                    return value
-    return fallback
-
-
-def _seed_key_from_content(base_dir: Path, active_content: str) -> str:
-    normalized_active = active_content.strip()
-    for key, path in SEED_PATHS.items():
-        if _read_text(base_dir / path).strip() == normalized_active:
-            return key
-    for key, name in SOUL_NAMES.items():
-        if name in active_content:
-            return key
-    return "hebo"
-
-
-def _file_payload(base_dir: Path, path: str, *, label: str, role: str, model_visible: bool, order: int | None) -> dict[str, Any]:
-    file_path = base_dir / path
-    content = _read_text(file_path)
-    updated_at = file_path.stat().st_mtime if file_path.exists() else None
-    return {
-        "path": path,
-        "label": label,
-        "role": role,
-        "model_visible": model_visible,
-        "injection_order": order,
-        "content": content,
-        "chars": len(content),
-        "updated_at": updated_at,
-    }
-
-
-def _seed_payload(base_dir: Path, key: str, active_key: str) -> dict[str, Any]:
-    path = SEED_PATHS[key]
-    content = _read_text(base_dir / path)
-    portrait_path = _portrait_path(base_dir, key)
-    portrait_updated_at = portrait_path.stat().st_mtime if portrait_path.exists() else None
-    return {
-        **_file_payload(
-            base_dir,
-            path,
-            label=SOUL_NAMES[key],
-            role="候选灵魂契约",
-            model_visible=key == active_key,
-            order=10 if key == active_key else None,
-        ),
-        "key": key,
-        "name": _extract_name(content, SOUL_NAMES[key]),
-        "active": key == active_key,
-        "portrait_path": f"/souls/{key}.png",
-        "portrait_updated_at": portrait_updated_at,
-    }
+    registry = SoulRegistry(base_dir)
+    try:
+        return registry.resolve_editable_path(path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def build_soul_catalog(base_dir: Path) -> dict[str, Any]:
-    active_content = _read_text(base_dir / ACTIVE_SEED_PATH)
-    active_key = _seed_key_from_content(base_dir, active_content)
-    seeds = [_seed_payload(base_dir, key, active_key) for key in SEED_PATHS]
-    active_seed = next((seed for seed in seeds if seed["key"] == active_key), seeds[0])
-    static_files = [
-        _file_payload(
-            base_dir,
-            ACTIVE_SEED_PATH,
-            label="当前灵魂契约",
-            role="当前真正进入模型的灵魂设定",
-            model_visible=True,
-            order=10,
-        ),
-        _file_payload(
-            base_dir,
-            CORE_PATH,
-            label="通用静态准则",
-            role="所有灵魂共享的事实、执行和输出底线",
-            model_visible=True,
-            order=20,
-        ),
-        _file_payload(
-            base_dir,
-            AGENT_PROFILE_PATH,
-            label="长期项目偏好",
-            role="用户或项目长期稳定生效的偏好与口径",
-            model_visible=True,
-            order=30,
-        ),
-        _file_payload(
-            base_dir,
-            SEED_CATALOG_PATH,
-            label="候选灵魂目录",
-            role="只给人看的候选灵魂说明，不直接进入模型",
-            model_visible=False,
-            order=None,
-        ),
-    ]
-    return {
-        "active_soul_key": active_key,
-        "active_soul_name": active_seed["name"],
-        "injection_chain": [
-            {"order": 10, "label": "当前灵魂契约", "path": ACTIVE_SEED_PATH},
-            {"order": 20, "label": "通用静态准则", "path": CORE_PATH},
-            {"order": 30, "label": "长期项目偏好", "path": AGENT_PROFILE_PATH},
-        ],
-        "static_files": static_files,
-        "seeds": seeds,
-    }
+    return SoulRegistry(base_dir).build_catalog()
+
+
+def _projection_profiles(registry: SoulRegistry) -> list[dict[str, Any]]:
+    return [profile.to_dict() for profile in registry.profiles().values()]
+
+
+def _visible_soul_style(content: str) -> str:
+    return HIDDEN_STYLE_SECTION_PATTERN.sub("", content).lstrip()
+
+
+def _projection_style_map(registry: SoulRegistry) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for soul_id, profile in registry.profiles().items():
+        result[soul_id] = _visible_soul_style(read_text(registry.base_dir / profile.seed_path))
+    return result
 
 
 @router.get("/soul/catalog")
@@ -219,25 +147,154 @@ async def soul_catalog() -> dict[str, Any]:
 @router.post("/soul/switch")
 async def switch_soul(payload: SoulSwitchRequest) -> dict[str, Any]:
     runtime = require_runtime()
-    key = payload.key.strip()
-    if key not in SEED_PATHS:
-        raise HTTPException(status_code=404, detail="Unknown soul seed")
-    source_path = runtime.base_dir / SEED_PATHS[key]
-    content = _read_text(source_path)
-    if not content.strip():
-        raise HTTPException(status_code=404, detail="Soul seed is empty or missing")
-    _write_text(runtime.base_dir / ACTIVE_SEED_PATH, content)
+    key = payload.key.strip().lower()
+    registry = SoulRegistry(runtime.base_dir)
+    try:
+        registry.switch(key)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown soul seed") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Soul seed is empty or missing") from exc
     runtime.refresh_indexes_for_path(ACTIVE_SEED_PATH)
-    return build_soul_catalog(runtime.base_dir)
+    return registry.build_catalog()
 
 
 @router.put("/soul/files")
 async def save_soul_file(payload: SoulFileSaveRequest) -> dict[str, Any]:
     runtime = require_runtime()
-    normalized = _normalize_path(payload.path)
+    normalized = normalize_path(payload.path)
     file_path = _resolve_soul_path(runtime.base_dir, normalized)
-    _write_text(file_path, payload.content)
+    write_text(file_path, payload.content)
     runtime.refresh_indexes_for_path(normalized)
+    return build_soul_catalog(runtime.base_dir)
+
+
+@router.get("/soul/projections")
+async def soul_projection_cards() -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = SoulRegistry(runtime.base_dir)
+    return list_projection_cards(
+        runtime.base_dir,
+        soul_profiles=_projection_profiles(registry),
+        active_soul_id=registry.active_soul_id(),
+        soul_style_map=_projection_style_map(registry),
+    )
+
+
+@router.post("/soul/projections")
+async def create_soul_projection_card(payload: SoulProjectionCardRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = SoulRegistry(runtime.base_dir)
+    profile = registry.get_profile(payload.soul_id.strip().lower())
+    if profile is None or not profile.enabled:
+        raise HTTPException(status_code=404, detail="Unknown or disabled soul")
+    request_payload = payload.model_dump()
+    request_payload["soul_id"] = request_payload["soul_id"].strip().lower()
+    request_payload["projection_id"] = request_payload.get("projection_id", "").strip()
+    if not request_payload.get("style_content"):
+        request_payload["style_content"] = _projection_style_map(registry).get(request_payload["soul_id"], "")
+    store = upsert_projection_card(
+        runtime.base_dir,
+        request=request_payload,
+        soul_name=profile.display_name,
+        selected=payload.select_after_create,
+    )
+    return reconcile_projection_store(
+        runtime.base_dir,
+        store=store,
+        soul_profiles=_projection_profiles(registry),
+        active_soul_id=registry.active_soul_id(),
+        soul_style_map=_projection_style_map(registry),
+        persist=True,
+    )
+
+
+@router.post("/soul/projections/{projection_id}/select")
+async def select_soul_projection(projection_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = SoulRegistry(runtime.base_dir)
+    try:
+        store = select_projection_card(runtime.base_dir, projection_id)
+        return reconcile_projection_store(
+            runtime.base_dir,
+            store=store,
+            soul_profiles=_projection_profiles(registry),
+            active_soul_id=registry.active_soul_id(),
+            soul_style_map=_projection_style_map(registry),
+            persist=True,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown projection card") from exc
+
+
+@router.delete("/soul/projections/{projection_id}")
+async def delete_soul_projection(projection_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = SoulRegistry(runtime.base_dir)
+    try:
+        store = delete_projection_card(runtime.base_dir, projection_id)
+        return reconcile_projection_store(
+            runtime.base_dir,
+            store=store,
+            soul_profiles=_projection_profiles(registry),
+            active_soul_id=registry.active_soul_id(),
+            soul_style_map=_projection_style_map(registry),
+            persist=True,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown projection card") from exc
+
+
+@router.post("/soul/custom")
+async def create_custom_soul(payload: CustomSoulSaveRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    soul_id = payload.soul_id.strip().lower()
+    if soul_id in SEED_PATHS:
+        raise HTTPException(status_code=400, detail="自制灵魂不能覆盖内置灵魂")
+    soul_dir = (runtime.base_dir / "soul" / "custom" / soul_id).resolve()
+    custom_root = (runtime.base_dir / "soul" / "custom").resolve()
+    if custom_root not in soul_dir.parents:
+        raise HTTPException(status_code=400, detail="Invalid custom soul path")
+    profile = {
+        "soul_id": soul_id,
+        "name": payload.name,
+        "source": "user",
+        "description": payload.description,
+        "preferred_role_types": payload.preferred_role_types,
+        "preferred_task_modes": payload.preferred_task_modes,
+        "enabled": payload.enabled,
+    }
+    write_text(soul_dir / "SOUL.md", payload.soul_markdown)
+    write_text(soul_dir / "profile.json", json.dumps(profile, ensure_ascii=False, indent=2))
+    return build_soul_catalog(runtime.base_dir)
+
+
+@router.put("/soul/custom/{soul_id}")
+async def update_custom_soul(soul_id: str, payload: CustomSoulSaveRequest) -> dict[str, Any]:
+    if payload.soul_id.strip().lower() != soul_id.strip().lower():
+        raise HTTPException(status_code=400, detail="soul_id 不一致")
+    return await create_custom_soul(payload)
+
+
+@router.post("/soul/custom/{soul_id}/enable")
+async def enable_custom_soul(soul_id: str) -> dict[str, Any]:
+    return _set_custom_soul_enabled(soul_id, True)
+
+
+@router.post("/soul/custom/{soul_id}/disable")
+async def disable_custom_soul(soul_id: str) -> dict[str, Any]:
+    return _set_custom_soul_enabled(soul_id, False)
+
+
+def _set_custom_soul_enabled(soul_id: str, enabled: bool) -> dict[str, Any]:
+    runtime = require_runtime()
+    normalized = soul_id.strip().lower()
+    profile_path = runtime.base_dir / "soul" / "custom" / normalized / "profile.json"
+    if not profile_path.exists():
+        raise HTTPException(status_code=404, detail="Unknown custom soul")
+    raw = json.loads(read_text(profile_path) or "{}")
+    raw["enabled"] = enabled
+    write_text(profile_path, json.dumps(raw, ensure_ascii=False, indent=2))
     return build_soul_catalog(runtime.base_dir)
 
 
@@ -262,3 +319,12 @@ async def upload_soul_portrait(key: str, file: UploadFile = File(...)) -> dict[s
     portrait_path.parent.mkdir(parents=True, exist_ok=True)
     portrait_path.write_bytes(content)
     return build_soul_catalog(runtime.base_dir)
+
+
+@router.get("/soul/{soul_id}")
+async def soul_profile(soul_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    profile = SoulRegistry(runtime.base_dir).get_profile(soul_id.strip().lower())
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Unknown soul")
+    return profile.to_dict()

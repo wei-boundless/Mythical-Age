@@ -1,17 +1,21 @@
-from .adapters import build_orchestration_plan
-from .behavior_dry_run import build_behavior_dry_run
-from .diff import actual_from_runtime_event, build_plan_actual_diff
-from .models import OrchestrationPlan
-from .planner import OrchestrationPlanner
-from .runtime_adapter import RuntimeControl, build_runtime_control
+from .candidates import CandidateEnvelope, CandidateSet
+from .contracts import PolicyHint, TaskContract, UnitDescriptor
+from .execution_graph import CommitCandidate, ExecutionGraph, ExecutionNode
+from .kernel import ControlKernel, ControlKernelResult
+from .unit_registry import BASE_UNIT_DESCRIPTORS, UnitCatalog, build_base_unit_catalog
 
 __all__ = [
-    "OrchestrationPlan",
-    "OrchestrationPlanner",
-    "RuntimeControl",
-    "actual_from_runtime_event",
-    "build_behavior_dry_run",
-    "build_plan_actual_diff",
-    "build_runtime_control",
-    "build_orchestration_plan",
+    "BASE_UNIT_DESCRIPTORS",
+    "CandidateEnvelope",
+    "CandidateSet",
+    "CommitCandidate",
+    "ControlKernel",
+    "ControlKernelResult",
+    "ExecutionGraph",
+    "ExecutionNode",
+    "PolicyHint",
+    "TaskContract",
+    "UnitCatalog",
+    "UnitDescriptor",
+    "build_base_unit_catalog",
 ]

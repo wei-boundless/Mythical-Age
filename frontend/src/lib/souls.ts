@@ -1,4 +1,4 @@
-export type SoulKey = "hebo" | "siyue" | "zhurong" | "xuannv";
+export type SoulKey = "goumang" | "hebo" | "siyue" | "zhurong" | "xuannv";
 
 export type SoulSummary = {
   key: SoulKey;
@@ -13,6 +13,7 @@ export type SoulSummary = {
 export const ACTIVE_SOUL_PATH = "soul/agent_core/ACTIVE_SEED.md";
 
 export const SOUL_SEED_PATHS: Record<SoulKey, string> = {
+  goumang: "soul/agent_core/seeds/goumang.md",
   hebo: "soul/agent_core/seeds/hebo.md",
   siyue: "soul/agent_core/seeds/siyue.md",
   zhurong: "soul/agent_core/seeds/zhurong.md",
@@ -20,6 +21,7 @@ export const SOUL_SEED_PATHS: Record<SoulKey, string> = {
 };
 
 const SOUL_NAME_TO_KEY: Record<string, SoulKey> = {
+  句芒: "goumang",
   河伯: "hebo",
   四岳: "siyue",
   祝融: "zhurong",
@@ -27,6 +29,11 @@ const SOUL_NAME_TO_KEY: Record<string, SoulKey> = {
 };
 
 const SOUL_COLORS: Record<SoulKey, { color: string; glow: string; intro: string }> = {
+  goumang: {
+    color: "#6fd6c9",
+    glow: "rgba(111, 214, 201, 0.34)",
+    intro: "句芒更偏对话、引导和统筹，会把复杂任务梳理成可生长的清楚主线。"
+  },
   hebo: {
     color: "#32b6ff",
     glow: "rgba(50, 182, 255, 0.38)",
@@ -65,6 +72,7 @@ export function parseSoulSeed(path: string, content: string): SoulSummary {
 
 export function inferSoulKey(path: string, name?: string): SoulKey {
   const lowered = path.toLowerCase();
+  if (lowered.includes("goumang")) return "goumang";
   if (lowered.includes("hebo")) return "hebo";
   if (lowered.includes("siyue")) return "siyue";
   if (lowered.includes("zhurong")) return "zhurong";

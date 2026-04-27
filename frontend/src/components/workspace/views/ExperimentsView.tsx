@@ -26,8 +26,6 @@ import {
   runOrchestrationDryRun,
   setOrchestrationPlanMode,
   setPermissionMode,
-  setPrimaryEntrySelection,
-  setPrimaryEntryTakeover,
   type OrchestrationCatalog,
   type OrchestrationEvent,
   type OrchestrationNode,
@@ -175,25 +173,11 @@ function compactValue(value: unknown) {
 
 const orchestrationModeCards = [
   {
-    mode: "plan_only",
-    title: "Plan-only 观测",
-    tone: "safe",
-    summary: "默认安全水位。生成计划、记录 diff，但不改变执行链。",
-    detail: "适合日常开发、前端调试和对比行为偏移。"
-  },
-  {
     mode: "primary",
     title: "Primary 控制",
     tone: "active",
-    summary: "运行时以 OrchestrationPlan 为准，legacy execution 作为兼容与回滚边界。",
-    detail: "已通过 smoke、stable、long core、long batches 和 60 轮 mega 验证。"
-  },
-  {
-    mode: "legacy",
-    title: "Legacy 回退",
-    tone: "fallback",
-    summary: "关闭 plan 事件，完全回到旧 planner/runtime 链路。",
-    detail: "用于线上异常回滚或验证编排层是否引入偏移。"
+    summary: "运行时以 OrchestrationPlan / ExecutionDirective 为唯一执行输入。",
+    detail: "缺契约、缺 directive 或 validator 阻断时 fail-closed，不再回旧链路。"
   }
 ];
 
@@ -242,24 +226,21 @@ type RuntimeExecutionMismatch = {
   execution_id: string;
   field: string;
   planned: string;
-  legacy: string;
+  actual: string;
 };
 
 type RuntimeExecutionEntry = {
   execution_id: string;
   step_id: string;
-  entry_kind: string;
+  execution_kind: string;
+  action: string;
   route: string;
   tool: string;
   worker_route: string;
   skill: string;
   agent_id: string;
   source: string;
-  strategy: string;
   risk_tags: string[];
-  eligible_for_primary_entry: boolean;
-  eligibility_reason: string;
-  eligibility_blockers: string[];
 };
 
 type PromptAssemblySection = {
@@ -382,7 +363,7 @@ function toRuntimeExecutionMismatches(value: unknown): RuntimeExecutionMismatch[
       execution_id: String(item.execution_id ?? ""),
       field: String(item.field ?? ""),
       planned: String(item.planned ?? ""),
-      legacy: String(item.legacy ?? "")
+      actual: String(item.actual ?? item.legacy ?? "")
     }))
     .filter((item) => item.field);
 }
@@ -396,37 +377,31 @@ function toRuntimeExecutionEntries(value: unknown): RuntimeExecutionEntry[] {
     .map((item) => ({
       execution_id: String(item.execution_id ?? ""),
       step_id: String(item.step_id ?? ""),
-      entry_kind: String(item.entry_kind ?? ""),
+      execution_kind: String(item.execution_kind ?? item.entry_kind ?? ""),
+      action: String(item.action ?? ""),
       route: String(item.route ?? ""),
       tool: String(item.tool ?? ""),
       worker_route: String(item.worker_route ?? ""),
       skill: String(item.skill ?? ""),
       agent_id: String(item.agent_id ?? ""),
       source: String(item.source ?? ""),
-      strategy: String(item.strategy ?? ""),
-      risk_tags: toStringList(item.risk_tags),
-      eligible_for_primary_entry: Boolean(item.eligible_for_primary_entry),
-      eligibility_reason: String(item.eligibility_reason ?? ""),
-      eligibility_blockers: toStringList(item.eligibility_blockers)
+      risk_tags: toStringList(item.risk_tags)
     }))
     .filter((item) => item.execution_id || item.step_id);
 }
 
 function runtimeWarningLabel(warning: string) {
-  if (warning === "primary_fallback_validation_blocked") {
-    return "编排校验未通过，已回退旧链路";
+  if (warning === "validation_blocked") {
+    return "编排校验未通过，已停止执行";
   }
-  if (warning === "primary_fallback_allowlist_blocked") {
-    return "超出低风险 primary 范围，已回退旧链路";
+  if (warning === "contract_incomplete") {
+    return "正式编排契约不完整，已停止执行";
   }
-  if (warning === "primary_fallback_legacy_execution_mismatch") {
-    return "计划分支与旧执行分支不匹配，已回退旧链路";
+  if (warning === "execution_directive_missing") {
+    return "缺少执行指令，已停止执行";
   }
-  if (warning === "primary_fallback_incomplete_contract") {
-    return "正式编排契约不完整，已回退旧链路";
-  }
-  if (warning === "primary_fallback_legacy_field_mismatch") {
-    return "正式计划和旧执行字段不一致，已回退旧链路";
+  if (warning === "execution_candidate_missing") {
+    return "执行指令无法匹配候选执行，已停止执行";
   }
   return warning;
 }
@@ -437,36 +412,27 @@ function runtimeControlSummary(data: Record<string, unknown>) {
   const primaryActive = Boolean(data.primary_active);
   if (warnings.length) {
     return {
-      status: "fallback",
-      title: "未接管执行",
+      status: "blocked",
+      title: "Fail-closed",
       detail: warnings.map(runtimeWarningLabel).join("；"),
-      source: String(data.source ?? "legacy_fallback"),
+      source: String(data.source ?? "orchestration_blocked"),
       diagnostics
     };
   }
   if (primaryActive) {
     return {
       status: "primary",
-      title: "Primary 已接管",
+      title: "Directive 已接管",
       detail: `执行模式：${String(data.execution_mode ?? "unknown")}`,
-      source: String(data.source ?? "orchestration_plan"),
-      diagnostics
-    };
-  }
-  if (data.source === "orchestration_plan_only") {
-    return {
-      status: "plan_only",
-      title: "Plan-only 观测",
-      detail: `不改变旧执行链；校验状态：${String(diagnostics.validation_status ?? "未记录")}`,
-      source: "orchestration_plan_only",
+      source: String(data.source ?? "orchestration_directive"),
       diagnostics
     };
   }
   return {
-    status: "legacy",
-    title: "Legacy 执行",
-    detail: `来源：${String(data.source ?? "legacy")}`,
-    source: String(data.source ?? "legacy"),
+    status: "blocked",
+    title: "Fail-closed",
+    detail: `运行控制源：${String(data.source ?? "unknown")}`,
+    source: String(data.source ?? "unknown"),
     diagnostics
   };
 }
@@ -586,7 +552,7 @@ export function ExperimentsView() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogAction, setCatalogAction] = useState("");
   const [selectedExecutionFilter, setSelectedExecutionFilter] = useState<ExecutionEventFilter | null>(null);
-  const currentPlanMode = catalog?.orchestration_plan_mode ?? "plan_only";
+  const currentPlanMode = catalog?.orchestration_plan_mode ?? "primary";
   const currentPlanModeCard = orchestrationModeCards.find((item) => item.mode === currentPlanMode) ?? orchestrationModeCards[0];
 
   const target = orchestrationInspectorTarget;
@@ -632,10 +598,9 @@ export function ExperimentsView() {
   const runtimeControlEvent = [...snapshot.events].reverse().find((event) => event.event === "orchestration_runtime_control");
   const runtimeControl = runtimeControlSummary(toRecord(runtimeControlEvent?.data));
   const runtimeDiagnostics = runtimeControl.diagnostics;
-  const runtimeEntrySelection = toRecord(runtimeDiagnostics.entry_selection);
-  const primaryExecutionPreview = toRecord(runtimeDiagnostics.primary_execution_preview);
-  const phase7ExecutionContract = toRecord(primaryExecutionPreview.executable_contract);
-  const primaryEntryTakeover = toRecord(runtimeDiagnostics.primary_entry_takeover);
+  const runtimeExecutionSpecs = Array.isArray(runtimeDiagnostics.execution_specs)
+    ? runtimeDiagnostics.execution_specs
+    : [];
   const phase7Readiness = toRecord(runtimeDiagnostics.phase7_readiness);
   const phase7Decommission = toRecord(phase7Readiness.legacy_decommission);
   const phase7PrincipleAlignment = toRecord(phase7Readiness.principle_alignment);
@@ -713,16 +678,13 @@ export function ExperimentsView() {
   const phase7LegacyPowerDomains = Array.isArray(phase7PrincipleAlignment.legacy_power_domains)
     ? phase7PrincipleAlignment.legacy_power_domains.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
     : [];
-  const primaryPreviewExecutions = Array.isArray(primaryExecutionPreview.preview_executions)
-    ? primaryExecutionPreview.preview_executions.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    : [];
   const runtimeExecutionMismatches = useMemo(
     () => toRuntimeExecutionMismatches(runtimeDiagnostics.execution_mismatches),
     [runtimeDiagnostics.execution_mismatches]
   );
   const runtimeExecutionEntries = useMemo(
-    () => toRuntimeExecutionEntries(runtimeDiagnostics.execution_entries),
-    [runtimeDiagnostics.execution_entries]
+    () => toRuntimeExecutionEntries(runtimeExecutionSpecs),
+    [runtimeExecutionSpecs]
   );
   const diffItems = useMemo(() => toDiffItems(orchestrationDiff.items), [orchestrationDiff.items]);
   const executionDiffItems = useMemo(
@@ -862,36 +824,6 @@ export function ExperimentsView() {
       setCatalogAction(`Orchestration plan mode 已切换为 ${nextCatalog.orchestration_plan_mode}。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "切换 orchestration plan mode 失败");
-    } finally {
-      setCatalogLoading(false);
-    }
-  }
-
-  async function changePrimaryEntrySelection(enabled: boolean) {
-    setCatalogLoading(true);
-    setCatalogAction("");
-    try {
-      await setPrimaryEntrySelection(enabled);
-      const nextCatalog = await getOrchestrationCatalog();
-      setCatalog(nextCatalog);
-      setCatalogAction(enabled ? "Primary entry selection 预览已开启。" : "Primary entry selection 预览已关闭。");
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "切换 primary entry selection 失败");
-    } finally {
-      setCatalogLoading(false);
-    }
-  }
-
-  async function changePrimaryEntryTakeover(enabled: boolean) {
-    setCatalogLoading(true);
-    setCatalogAction("");
-    try {
-      await setPrimaryEntryTakeover(enabled);
-      const nextCatalog = await getOrchestrationCatalog();
-      setCatalog(nextCatalog);
-      setCatalogAction(enabled ? "Primary entry takeover 已开启，仅 ready 且极低风险入口会实际接管。" : "Primary entry takeover 已关闭。");
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "切换 primary entry takeover 失败");
     } finally {
       setCatalogLoading(false);
     }
@@ -1085,12 +1017,12 @@ export function ExperimentsView() {
                   <p>{item.summary}</p>
                   <small>{item.detail}</small>
                   <button
-                    className={item.mode === "primary" ? "action-button action-button--primary" : "action-button action-button--muted"}
+                    className="action-button action-button--primary"
                     disabled={catalogLoading || !catalog || active || !supported}
                     onClick={() => void changeOrchestrationPlanMode(item.mode)}
                     type="button"
                   >
-                    {active ? "已启用" : item.mode === "legacy" ? "回退到 Legacy" : `切换到 ${item.mode}`}
+                    {active ? "已启用" : `切换到 ${item.mode}`}
                   </button>
                 </article>
               );
@@ -1098,40 +1030,16 @@ export function ExperimentsView() {
           </div>
           <div className="orchestration-runtime-ledger">
             <article>
-              <b>最近 primary 验证</b>
-              <span>smoke 2/2、stable 10/10、long core 3/3、long batches 6/6、mega 60 轮 1/1。</span>
+              <b>主路径</b>
+              <span>RuntimeControl 只读取 OrchestrationPlan / ExecutionDirective，不再排序或接管旧执行列表。</span>
             </article>
             <article>
-              <b>回滚边界</b>
-              <span>primary 匹配失败会自动 fallback legacy execution；手动可随时切回 plan-only 或 legacy。</span>
+              <b>阻断边界</b>
+              <span>缺契约、缺 directive、validator blocked、候选匹配失败都会 fail-closed。</span>
             </article>
             <article>
-              <b>使用建议</b>
-              <span>开发与测试优先 plan-only；专项验证可 primary；如果发现计划偏移或链路异常，先回 plan-only 再复盘 diff。</span>
-            </article>
-            <article>
-              <b>入口选择预览</b>
-              <span>{catalog?.primary_entry_selection_enabled ? "已开启：RuntimeControl 会标记 primary_entry_selection_preview。" : "默认关闭：继续复用 legacy execution，只观察入口计划。"}</span>
-              <button
-                className={catalog?.primary_entry_selection_enabled ? "action-button action-button--muted" : "action-button action-button--primary"}
-                disabled={catalogLoading || !catalog}
-                onClick={() => void changePrimaryEntrySelection(!catalog?.primary_entry_selection_enabled)}
-                type="button"
-              >
-                {catalog?.primary_entry_selection_enabled ? "关闭预览" : "开启预览"}
-              </button>
-            </article>
-            <article>
-              <b>低风险实际接管</b>
-              <span>{catalog?.primary_entry_takeover_enabled ? "已开启：仅 general / rag / local_files 且预览 ready 时接管。" : "默认关闭：Primary 只做预览，不接管执行入口。"}</span>
-              <button
-                className={catalog?.primary_entry_takeover_enabled ? "action-button action-button--muted" : "action-button action-button--primary"}
-                disabled={catalogLoading || !catalog || (!catalog.primary_entry_selection_enabled && !catalog.primary_entry_takeover_enabled)}
-                onClick={() => void changePrimaryEntryTakeover(!catalog?.primary_entry_takeover_enabled)}
-                type="button"
-              >
-                {catalog?.primary_entry_takeover_enabled ? "关闭接管" : "开启接管"}
-              </button>
+              <b>执行输入</b>
+              <span>QueryPlanner 只保留候选生成职责，真实执行顺序由 directive specs 决定。</span>
             </article>
           </div>
           {catalogAction ? <div className="workspace-alert">{catalogAction}</div> : null}
@@ -1206,7 +1114,7 @@ export function ExperimentsView() {
           <div className="orchestration-permission-bar">
             <div>
               <b>Orchestration Plan Mode</b>
-              <span>legacy 关闭计划事件，plan-only 只观测不改行为，primary 使用已验证的 OrchestrationPlan 控制面。</span>
+              <span>编排层现在只暴露 primary 主路径，RuntimeControl 以 validated directive 驱动执行。</span>
             </div>
             <select
               disabled={catalogLoading || !catalog}
@@ -1280,7 +1188,7 @@ export function ExperimentsView() {
           <span><b>{snapshot.execution_mode || "unknown"}</b> 执行模式</span>
           <span><b>{snapshot.route || "unknown"}</b> 路由</span>
           <span><b>{visitedCount}/{snapshot.nodes.length}</b> 节点经过</span>
-          <span><b>{String(orchestrationDiff.status ?? orchestrationPlan.mode ?? "plan_only")}</b> plan</span>
+          <span><b>{String(orchestrationDiff.status ?? orchestrationPlan.mode ?? "primary")}</b> plan</span>
           <span><b>{snapshot.events.length}</b> 事件</span>
         </div>
       </section>
@@ -1293,7 +1201,7 @@ export function ExperimentsView() {
             <span className={`tag-chip ${validationDecision.status === "blocked" ? "tag-chip--danger" : ""}`}>
               校验：{String(validationDecision.status ?? "未校验")}
             </span>
-            <span className="tag-chip">{String(orchestrationPlan.mode ?? "plan_only")}</span>
+            <span className="tag-chip">{String(orchestrationPlan.mode ?? "primary")}</span>
           </div>
           <div className="orchestration-contract-panel__grid">
             <article className="orchestration-contract-panel__card orchestration-contract-panel__card--focus">
@@ -1338,9 +1246,9 @@ export function ExperimentsView() {
             <article className={`orchestration-contract-panel__card ${validationIssues.length ? "orchestration-contract-panel__card--alert" : ""}`}>
               <span>ValidationDecision</span>
               <strong>{validationIssues.length ? `${validationIssues.length} 个问题` : "通过基础校验"}</strong>
-              <p>{validationIssues[0] ? `${String(validationIssues[0].code ?? "issue")}：${String(validationIssues[0].detail ?? "")}` : "directive 可被 runtime control 读取；plan-only 下不会改变执行。"}</p>
+              <p>{validationIssues[0] ? `${String(validationIssues[0].code ?? "issue")}：${String(validationIssues[0].detail ?? "")}` : "directive 可被 runtime control 读取并驱动执行。"}</p>
             </article>
-            <article className={`orchestration-contract-panel__card ${runtimeControl.status === "fallback" ? "orchestration-contract-panel__card--alert" : ""}`}>
+            <article className={`orchestration-contract-panel__card ${runtimeControl.status === "blocked" ? "orchestration-contract-panel__card--alert" : ""}`}>
               <span>RuntimeControl</span>
               <strong>{runtimeControl.title}</strong>
               <p>{runtimeControl.detail}</p>
@@ -1349,13 +1257,8 @@ export function ExperimentsView() {
                 {toStringList(runtimeDiagnostics.allowlist_blockers).slice(0, 4).map((item) => <em className="is-danger" key={item}>{item}</em>)}
                 {toStringList(runtimeDiagnostics.contract_blockers).slice(0, 4).map((item) => <em className="is-danger" key={item}>{item}</em>)}
                 {runtimeDiagnostics.validation_status ? <em>validation={String(runtimeDiagnostics.validation_status)}</em> : null}
-                {runtimeEntrySelection.state ? <em>入口预检：{String(runtimeEntrySelection.state)}</em> : null}
-                {runtimeEntrySelection.eligible_count !== undefined ? <em>可接管 {String(runtimeEntrySelection.eligible_count)}</em> : null}
-                {runtimeEntrySelection.blocked_count ? <em className="is-danger">阻断 {String(runtimeEntrySelection.blocked_count)}</em> : null}
-                {primaryExecutionPreview.state ? <em>Primary预览：{String(primaryExecutionPreview.state)}</em> : null}
-                {primaryExecutionPreview.mismatch_count ? <em className="is-danger">预览差异 {String(primaryExecutionPreview.mismatch_count)}</em> : null}
-                {phase7ExecutionContract.state ? <em>执行契约：{String(phase7ExecutionContract.state)}</em> : null}
-                {primaryEntryTakeover.state ? <em>实际接管：{String(primaryEntryTakeover.state)}</em> : null}
+                {runtimeDiagnostics.execution_spec_count !== undefined ? <em>执行 spec：{String(runtimeDiagnostics.execution_spec_count)}</em> : null}
+                {toStringList(runtimeDiagnostics.directive_sources).map((item) => <em key={item}>{item}</em>)}
                 {phase7Readiness.state ? <em className={phase7Readiness.state === "blocked" ? "is-danger" : ""}>Phase7准备：{String(phase7Readiness.state)}</em> : null}
                 {phase7RestoreAuthority.state ? <em>恢复权力：{String(phase7RestoreAuthority.state)}</em> : null}
                 {phase7OutputAuthority.state ? <em>输出写回：{String(phase7OutputAuthority.state)}</em> : null}
@@ -1637,7 +1540,7 @@ export function ExperimentsView() {
                       <b>{item.execution_id || `step-${index + 1}`}</b>
                       <span>{item.field}</span>
                       <code>{item.planned || "-"}</code>
-                      <i>旧执行：{item.legacy || "-"}</i>
+                      <i>实际：{item.actual || "-"}</i>
                     </li>
                   ))}
                 </ul>
@@ -1646,33 +1549,22 @@ export function ExperimentsView() {
                 <div className="orchestration-runtime-entry-list">
                   {runtimeExecutionEntries.slice(0, 4).map((item, index) => (
                     <span
-                      className={`orchestration-runtime-entry ${item.eligible_for_primary_entry ? "is-eligible" : "is-blocked"}`}
+                      className="orchestration-runtime-entry is-ready"
                       key={`${item.execution_id || item.step_id}-${index}`}
                     >
                       <b>{item.step_id || item.execution_id}</b>
-                      <span>{item.entry_kind || "entry"}{item.source ? ` / ${item.source}` : ""}</span>
-                      <em>{item.eligible_for_primary_entry ? "可接管" : "暂不接管"}</em>
-                      <i>{item.tool || item.worker_route || item.agent_id || item.eligibility_reason || "主链回答"}</i>
-                      {item.eligibility_blockers.length ? <small>{item.eligibility_blockers.slice(0, 2).join("，")}</small> : null}
+                      <span>{item.execution_kind || item.action || "entry"}{item.source ? ` / ${item.source}` : ""}</span>
+                      <em>directive</em>
+                      <i>{item.tool || item.worker_route || item.agent_id || "主链回答"}</i>
+                      {item.risk_tags.length ? <small>{item.risk_tags.slice(0, 2).join("，")}</small> : null}
                     </span>
                   ))}
                 </div>
               ) : null}
-              {primaryPreviewExecutions.length ? (
-                <div className="orchestration-runtime-preview-list">
-                  {primaryPreviewExecutions.slice(0, 3).map((item, index) => (
-                    <span className="orchestration-runtime-preview" key={`${String(item.execution_id ?? "preview")}-${index}`}>
-                      <b>{String(item.execution_id ?? `preview-${index + 1}`)}</b>
-                      <span>{String(item.entry_kind ?? "entry")} / {String(item.source ?? "unknown")}</span>
-                      <i>{String(item.tool || item.worker_route || item.agent_id || "legacy 对照")}</i>
-                    </span>
-                  ))}
-                </div>
-                ) : null}
               {phase7OutputAuthority.state ? (
                 <div className="orchestration-phase-readiness">
                   <b>Phase 7I 输出与写回：{String(phase7OutputAuthority.state)}</b>
-                  <p>{String(phase7OutputAuthority.rule || "输出收口与状态写回仍由 legacy runtime 执行；编排层只声明策略。")}</p>
+                  <p>{String(phase7OutputAuthority.rule || "输出收口与状态写回由 OutputCommitGate 汇总为显式提交计划。")}</p>
                   <div>
                     {phase7OutputBlockers.slice(0, 5).map((item) => <em className="is-danger" key={item}>{item}</em>)}
                   </div>
@@ -1698,13 +1590,6 @@ export function ExperimentsView() {
                     worker：{String(phase7DispatchAuthority.worker_directive_count ?? 0)}；
                     迁移计划：{String(phase7DispatchCutoverPlan.state ?? "未生成")}
                   </small>
-                </div>
-              ) : null}
-              {phase7ExecutionContract.state ? (
-                <div className="orchestration-phase-readiness">
-                  <b>ExecutionDirective 契约：{String(phase7ExecutionContract.state)}</b>
-                  <p>{String(phase7ExecutionContract.reason || "当前仍为 preview_only，不创建新执行对象。")}</p>
-                  <small>所需硬门：{toStringList(phase7ExecutionContract.required_gates).join("、") || "validation、RuntimeToolBridge"}</small>
                 </div>
               ) : null}
             </article>

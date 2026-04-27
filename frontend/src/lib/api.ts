@@ -221,8 +221,6 @@ export type OrchestrationCatalog = {
   tool_contract_mode: string;
   orchestration_plan_mode: string;
   supported_orchestration_plan_modes: string[];
-  primary_entry_selection_enabled: boolean;
-  primary_entry_takeover_enabled: boolean;
   skills: OrchestrationCatalogSkill[];
   tools: OrchestrationCatalogTool[];
 };
@@ -373,14 +371,102 @@ export type SoulSystemFile = {
 
 export type SoulSystemSeed = SoulSystemFile & {
   key: string;
+  soul_id?: string;
   name: string;
+  source?: "builtin" | "user" | string;
+  enabled?: boolean;
   active: boolean;
   portrait_path: string;
   portrait_updated_at: number | null;
+  profile?: SoulProfile;
+};
+
+export type SoulProfile = {
+  soul_id: string;
+  name: string;
+  display_name: string;
+  source: "builtin" | "user" | string;
+  version: string;
+  enabled: boolean;
+  seed_path: string;
+  description: string;
+  background: string;
+  personality_traits: string[];
+  expression_style: string[];
+  working_habits: string[];
+  preferred_role_types: string[];
+  preferred_task_modes: string[];
+  collaboration_tendencies: string[];
+  memory_preferences: string[];
+  risk_biases: string[];
+  guardrails: string[];
+  portrait: string | null;
+  validation_errors: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type SoulProjectionCard = {
+  projection_id: string;
+  title: string;
+  soul_id: string;
+  soul_name: string;
+  role_type: string;
+  task_mode: string;
+  agent_profile_id: string;
+  task_contract_summary: string;
+  skill_views: Array<Record<string, unknown>>;
+  tool_views: Array<Record<string, unknown>>;
+  memory_policy_summary: string;
+  output_contract_summary: string;
+  style_content: string;
+  created_at: number;
+  updated_at: number;
+  is_primary?: boolean;
+  is_system_default?: boolean;
+};
+
+export type SoulProjectionCatalog = {
+  selected_projection_id: string;
+  cards: SoulProjectionCard[];
+};
+
+export type SoulProjectionCardCreatePayload = {
+  projection_id?: string;
+  soul_id: string;
+  role_type?: string;
+  task_mode?: string;
+  agent_profile_id?: string;
+  projection_name?: string;
+  skill_views?: Array<{
+    skill_id: string;
+    title: string;
+    capability_summary: string;
+    use_when?: string;
+    input_boundary?: string;
+    output_boundary?: string;
+    forbidden_uses?: string;
+    current_task_reason?: string;
+  }>;
+  tool_views?: Array<{
+    tool_id: string;
+    title: string;
+    capability_summary: string;
+    input_schema_summary?: string;
+    output_schema_summary?: string;
+    risk_summary?: string;
+    authorized?: boolean;
+    authorization_owner?: string;
+  }>;
+  task_contract_summary?: string;
+  memory_policy_summary?: string;
+  output_contract_summary?: string;
+  style_content?: string;
+  select_after_create?: boolean;
 };
 
 export type SoulSystemCatalog = {
   active_soul_key: string;
+  active_soul_id?: string;
   active_soul_name: string;
   injection_chain: Array<{
     order: number;
@@ -389,6 +475,13 @@ export type SoulSystemCatalog = {
   }>;
   static_files: SoulSystemFile[];
   seeds: SoulSystemSeed[];
+  soul_profiles?: SoulProfile[];
+  management?: {
+    planes: string[];
+    authorization_owner: string;
+    prompt_manifest_enabled: boolean;
+    custom_soul_dir: string;
+  };
 };
 
 export type PromptManifestSection = {
@@ -908,20 +1001,6 @@ export async function setOrchestrationPlanMode(mode: string) {
   });
 }
 
-export async function setPrimaryEntrySelection(enabled: boolean) {
-  return request<{ enabled: boolean }>("/orchestration/primary-entry-selection", {
-    method: "PUT",
-    body: JSON.stringify({ enabled })
-  });
-}
-
-export async function setPrimaryEntryTakeover(enabled: boolean) {
-  return request<{ enabled: boolean }>("/orchestration/primary-entry-takeover", {
-    method: "PUT",
-    body: JSON.stringify({ enabled })
-  });
-}
-
 export async function getOperationCatalog() {
   return request<OperationCatalog>("/operations/catalog");
 }
@@ -1007,6 +1086,29 @@ export async function saveSoulSystemFile(path: string, content: string, reason =
   return request<SoulSystemCatalog>("/soul/files", {
     method: "PUT",
     body: JSON.stringify({ path, content, reason })
+  });
+}
+
+export async function getSoulProjectionCards() {
+  return request<SoulProjectionCatalog>("/soul/projections");
+}
+
+export async function createSoulProjectionCard(payload: SoulProjectionCardCreatePayload) {
+  return request<SoulProjectionCatalog>("/soul/projections", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function selectSoulProjectionCard(projectionId: string) {
+  return request<SoulProjectionCatalog>(`/soul/projections/${encodeURIComponent(projectionId)}/select`, {
+    method: "POST"
+  });
+}
+
+export async function deleteSoulProjectionCard(projectionId: string) {
+  return request<SoulProjectionCatalog>(`/soul/projections/${encodeURIComponent(projectionId)}`, {
+    method: "DELETE"
   });
 }
 

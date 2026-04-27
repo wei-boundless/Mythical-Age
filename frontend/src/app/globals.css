@@ -103,31 +103,80 @@ html[data-soul="hebo"] {
   --soul-filter: saturate(1.08) contrast(1.02);
 }
 
+html[data-soul="goumang"] {
+  --color-soul: #63ccbf;
+  --color-soul-soft: rgba(99, 204, 191, 0.2);
+  --color-accent: #ead58f;
+  --color-panel: rgba(9, 27, 30, 0.84);
+  --color-panel-soft: rgba(13, 39, 43, 0.7);
+  --color-panel-strong: rgba(18, 51, 55, 0.9);
+  --color-border: rgba(143, 224, 215, 0.16);
+  --color-border-strong: rgba(234, 213, 143, 0.28);
+  --glow-soul: 0 0 0 1px rgba(99, 204, 191, 0.2), 0 28px 110px rgba(3, 24, 27, 0.58);
+  --bg-radial-a: rgba(82, 196, 184, 0.25);
+  --bg-radial-b: rgba(234, 213, 143, 0.12);
+  --bg-gradient-top: #05191c;
+  --bg-gradient-mid: #0d383b;
+  --bg-gradient-bottom: #061415;
+  --backdrop-atmosphere:
+    linear-gradient(180deg, rgba(111, 214, 201, 0.1), transparent 38%),
+    radial-gradient(ellipse at 20% 14%, rgba(111, 214, 201, 0.24), transparent 32%),
+    radial-gradient(ellipse at 82% 8%, rgba(255, 227, 154, 0.12), transparent 26%);
+  --backdrop-detail:
+    repeating-linear-gradient(90deg, rgba(173, 244, 234, 0.05) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(0deg, rgba(255, 227, 154, 0.035) 0 1px, transparent 1px 32px);
+  --shell-atmosphere:
+    linear-gradient(110deg, transparent 0 20%, rgba(111, 214, 201, 0.1) 44%, transparent 70%),
+    linear-gradient(180deg, rgba(255, 227, 154, 0.035), transparent 42%);
+  --shell-detail:
+    linear-gradient(90deg, transparent 0 34%, rgba(206, 255, 248, 0.08) 50%, transparent 66%);
+  --soul-texture:
+    repeating-linear-gradient(90deg, rgba(154, 238, 226, 0.06) 0 1px, transparent 1px 20px),
+    linear-gradient(90deg, transparent, rgba(255, 227, 154, 0.06), transparent);
+  --panel-veil:
+    linear-gradient(180deg, rgba(154, 238, 226, 0.08), transparent 44%);
+  --panel-aura:
+    radial-gradient(ellipse at 50% 0%, rgba(111, 214, 201, 0.18), transparent 48%);
+  --portrait-aura:
+    radial-gradient(ellipse at 50% 0%, rgba(111, 214, 201, 0.34), transparent 48%),
+    linear-gradient(180deg, rgba(255, 227, 154, 0.08), transparent 62%);
+  --message-user-bg:
+    linear-gradient(180deg, rgba(111, 214, 201, 0.1), transparent 36%),
+    linear-gradient(135deg, rgba(11, 45, 49, 0.96), rgba(5, 24, 27, 0.94));
+  --radius-panel: 32px;
+  --radius-block: 1.7rem;
+  --radius-card: 1.25rem;
+  --radius-inner: 1.05rem;
+  --radius-control: 1rem;
+  --soul-motion: 20s;
+  --soul-filter: saturate(1.04) contrast(1.02);
+}
+
 html[data-soul="siyue"] {
-  --color-bg: #70501c;
-  --color-bg-alt: #c49336;
+  --color-bg: #2a2213;
+  --color-bg-alt: #4b3a1d;
   --color-text: #fff8e7;
   --color-text-soft: rgba(255, 248, 231, 0.76);
-  --color-ink: #3e2a0d;
-  --color-soul: #f7cb62;
-  --color-soul-soft: rgba(247, 203, 98, 0.26);
-  --color-accent: #f8dda0;
-  --color-panel: rgba(75, 49, 14, 0.54);
-  --color-panel-soft: rgba(96, 63, 18, 0.42);
-  --color-panel-strong: rgba(112, 73, 22, 0.62);
-  --color-border: rgba(255, 231, 166, 0.24);
-  --color-border-strong: rgba(255, 241, 190, 0.42);
-  --glow-soul: 0 0 0 1px rgba(247, 203, 98, 0.24), 0 18px 54px rgba(63, 39, 7, 0.3);
-  --bg-radial-a: rgba(247, 203, 98, 0.35);
-  --bg-radial-b: rgba(248, 221, 160, 0.22);
-  --bg-gradient-top: #795822;
-  --bg-gradient-mid: #c49336;
-  --bg-gradient-bottom: #614216;
+  --color-ink: #2a1d0f;
+  --color-soul: #d8b765;
+  --color-soul-soft: rgba(216, 183, 101, 0.22);
+  --color-accent: #e7cf92;
+  --color-panel: rgba(42, 32, 17, 0.78);
+  --color-panel-soft: rgba(58, 45, 24, 0.62);
+  --color-panel-strong: rgba(70, 54, 28, 0.84);
+  --color-border: rgba(231, 207, 146, 0.18);
+  --color-border-strong: rgba(231, 207, 146, 0.32);
+  --glow-soul: 0 0 0 1px rgba(216, 183, 101, 0.2), 0 24px 84px rgba(30, 22, 9, 0.48);
+  --bg-radial-a: rgba(216, 183, 101, 0.24);
+  --bg-radial-b: rgba(231, 207, 146, 0.14);
+  --bg-gradient-top: #211a10;
+  --bg-gradient-mid: #3f321b;
+  --bg-gradient-bottom: #17120b;
   --backdrop-atmosphere:
-    linear-gradient(180deg, rgba(248, 221, 160, 0.2), transparent 36%),
+    linear-gradient(180deg, rgba(231, 207, 146, 0.14), transparent 36%),
     radial-gradient(ellipse at 18% 8%, rgba(255, 224, 128, 0.27), transparent 32%),
-    radial-gradient(ellipse at 78% 14%, rgba(247, 203, 98, 0.19), transparent 34%),
-    linear-gradient(152deg, transparent 0 34%, rgba(247, 203, 98, 0.15) 48%, transparent 64%),
+    radial-gradient(ellipse at 78% 14%, rgba(216, 183, 101, 0.14), transparent 34%),
+    linear-gradient(152deg, transparent 0 34%, rgba(216, 183, 101, 0.11) 48%, transparent 64%),
     linear-gradient(0deg, rgba(90, 54, 12, 0.18), transparent 42%);
   --backdrop-detail:
     linear-gradient(145deg, rgba(255, 245, 204, 0.088) 0 1px, transparent 1px 40px),
@@ -161,45 +210,45 @@ html[data-soul="siyue"] {
 }
 
 html[data-soul="zhurong"] {
-  --color-soul: #e86f42;
-  --color-soul-soft: rgba(232, 111, 66, 0.18);
-  --color-accent: #f4b56a;
-  --color-panel: rgba(30, 16, 13, 0.84);
-  --color-panel-soft: rgba(48, 25, 18, 0.72);
-  --color-panel-strong: rgba(58, 29, 20, 0.93);
-  --color-border: rgba(244, 169, 106, 0.15);
-  --color-border-strong: rgba(244, 177, 118, 0.28);
-  --glow-soul: 0 0 0 1px rgba(232, 111, 66, 0.2), 0 28px 104px rgba(27, 9, 6, 0.62);
-  --bg-radial-a: rgba(232, 111, 66, 0.28);
-  --bg-radial-b: rgba(244, 181, 106, 0.15);
-  --bg-gradient-top: #1e0b07;
-  --bg-gradient-mid: #442015;
-  --bg-gradient-bottom: #140705;
+  --color-soul: #e58a62;
+  --color-soul-soft: rgba(229, 138, 98, 0.18);
+  --color-accent: #e8b17a;
+  --color-panel: rgba(29, 18, 16, 0.84);
+  --color-panel-soft: rgba(43, 27, 22, 0.7);
+  --color-panel-strong: rgba(52, 32, 25, 0.9);
+  --color-border: rgba(232, 177, 122, 0.14);
+  --color-border-strong: rgba(232, 177, 122, 0.26);
+  --glow-soul: 0 0 0 1px rgba(229, 138, 98, 0.18), 0 28px 104px rgba(24, 11, 8, 0.56);
+  --bg-radial-a: rgba(229, 138, 98, 0.22);
+  --bg-radial-b: rgba(232, 177, 122, 0.12);
+  --bg-gradient-top: #160d0b;
+  --bg-gradient-mid: #35211b;
+  --bg-gradient-bottom: #100807;
   --backdrop-atmosphere:
-    linear-gradient(135deg, rgba(232, 111, 66, 0.12), transparent 32%),
-    linear-gradient(25deg, transparent 0 42%, rgba(244, 181, 106, 0.1) 54%, transparent 68%),
-    radial-gradient(ellipse at 72% 18%, rgba(244, 181, 106, 0.1), transparent 30%),
+    linear-gradient(135deg, rgba(229, 138, 98, 0.09), transparent 32%),
+    linear-gradient(25deg, transparent 0 42%, rgba(232, 177, 122, 0.08) 54%, transparent 68%),
+    radial-gradient(ellipse at 72% 18%, rgba(232, 177, 122, 0.08), transparent 30%),
     linear-gradient(180deg, rgba(46, 17, 11, 0.2), transparent 42%);
   --backdrop-detail:
-    repeating-linear-gradient(122deg, rgba(244, 181, 106, 0.055) 0 1px, transparent 1px 18px),
-    repeating-linear-gradient(38deg, transparent 0 34px, rgba(232, 111, 66, 0.035) 34px 36px, transparent 36px 68px);
+    repeating-linear-gradient(122deg, rgba(232, 177, 122, 0.045) 0 1px, transparent 1px 18px),
+    repeating-linear-gradient(38deg, transparent 0 34px, rgba(229, 138, 98, 0.028) 34px 36px, transparent 36px 68px);
   --shell-atmosphere:
-    linear-gradient(124deg, transparent 0 22%, rgba(232, 111, 66, 0.1) 42%, rgba(244, 181, 106, 0.055) 56%, transparent 76%),
+    linear-gradient(124deg, transparent 0 22%, rgba(229, 138, 98, 0.08) 42%, rgba(232, 177, 122, 0.045) 56%, transparent 76%),
     linear-gradient(38deg, rgba(25, 8, 5, 0.18), transparent 36%);
   --shell-detail:
-    repeating-linear-gradient(124deg, transparent 0 30px, rgba(244, 181, 106, 0.05) 30px 31px, transparent 31px 62px);
+    repeating-linear-gradient(124deg, transparent 0 30px, rgba(232, 177, 122, 0.04) 30px 31px, transparent 31px 62px);
   --soul-texture:
-    repeating-linear-gradient(116deg, rgba(244, 181, 106, 0.075) 0 1px, transparent 1px 15px),
-    linear-gradient(128deg, rgba(232, 111, 66, 0.09), transparent 46%);
+    repeating-linear-gradient(116deg, rgba(232, 177, 122, 0.055) 0 1px, transparent 1px 15px),
+    linear-gradient(128deg, rgba(229, 138, 98, 0.07), transparent 46%);
   --panel-veil:
-    linear-gradient(145deg, rgba(244, 181, 106, 0.06), transparent 48%);
+    linear-gradient(145deg, rgba(232, 177, 122, 0.045), transparent 48%);
   --panel-aura:
-    linear-gradient(122deg, transparent 20%, rgba(232, 111, 66, 0.1) 45%, transparent 72%);
+    linear-gradient(122deg, transparent 20%, rgba(229, 138, 98, 0.08) 45%, transparent 72%);
   --portrait-aura:
-    radial-gradient(ellipse at 50% 6%, rgba(244, 181, 106, 0.22), transparent 38%),
-    repeating-linear-gradient(121deg, rgba(232, 111, 66, 0.08) 0 2px, transparent 2px 17px);
+    radial-gradient(ellipse at 50% 6%, rgba(232, 177, 122, 0.18), transparent 38%),
+    repeating-linear-gradient(121deg, rgba(229, 138, 98, 0.06) 0 2px, transparent 2px 17px);
   --message-user-bg:
-    linear-gradient(135deg, rgba(232, 111, 66, 0.12), transparent 38%),
+    linear-gradient(135deg, rgba(229, 138, 98, 0.09), transparent 38%),
     linear-gradient(135deg, rgba(58, 29, 20, 0.98), rgba(28, 10, 7, 0.96));
   --radius-panel: 26px;
   --radius-block: 1.35rem;
@@ -207,51 +256,51 @@ html[data-soul="zhurong"] {
   --radius-inner: 0.86rem;
   --radius-control: 0.95rem;
   --soul-motion: 14s;
-  --soul-filter: saturate(1.08) contrast(1.02);
+  --soul-filter: saturate(1.02) contrast(1.01);
 }
 
 html[data-soul="xuannv"] {
-  --color-soul: #f8fbf7;
-  --color-soul-soft: rgba(248, 251, 247, 0.24);
-  --color-accent: #b8e6dd;
-  --color-panel: rgba(20, 25, 29, 0.8);
-  --color-panel-soft: rgba(34, 41, 45, 0.68);
-  --color-panel-strong: rgba(45, 53, 58, 0.9);
-  --color-border: rgba(242, 249, 246, 0.18);
-  --color-border-strong: rgba(248, 251, 247, 0.4);
-  --glow-soul: 0 0 0 1px rgba(248, 251, 247, 0.28), 0 24px 110px rgba(40, 55, 64, 0.5);
-  --bg-radial-a: rgba(248, 251, 247, 0.24);
-  --bg-radial-b: rgba(184, 230, 221, 0.18);
-  --bg-gradient-top: #192027;
-  --bg-gradient-mid: #3b464f;
-  --bg-gradient-bottom: #13191e;
+  --color-soul: #c9dbea;
+  --color-soul-soft: rgba(201, 219, 234, 0.22);
+  --color-accent: #a8d7d1;
+  --color-panel: rgba(18, 25, 31, 0.82);
+  --color-panel-soft: rgba(29, 38, 45, 0.68);
+  --color-panel-strong: rgba(38, 49, 57, 0.9);
+  --color-border: rgba(201, 219, 234, 0.16);
+  --color-border-strong: rgba(201, 219, 234, 0.32);
+  --glow-soul: 0 0 0 1px rgba(201, 219, 234, 0.22), 0 24px 110px rgba(25, 39, 48, 0.48);
+  --bg-radial-a: rgba(201, 219, 234, 0.18);
+  --bg-radial-b: rgba(168, 215, 209, 0.14);
+  --bg-gradient-top: #111a22;
+  --bg-gradient-mid: #2d3a44;
+  --bg-gradient-bottom: #10171d;
   --backdrop-atmosphere:
-    linear-gradient(180deg, rgba(248, 251, 247, 0.11), transparent 34%),
-    radial-gradient(ellipse at 50% 4%, rgba(248, 251, 247, 0.18), transparent 34%),
-    linear-gradient(115deg, transparent 0 34%, rgba(184, 230, 221, 0.09) 48%, transparent 62%),
+    linear-gradient(180deg, rgba(201, 219, 234, 0.08), transparent 34%),
+    radial-gradient(ellipse at 50% 4%, rgba(201, 219, 234, 0.13), transparent 34%),
+    linear-gradient(115deg, transparent 0 34%, rgba(168, 215, 209, 0.07) 48%, transparent 62%),
     linear-gradient(0deg, rgba(9, 13, 16, 0.2), transparent 45%);
   --backdrop-detail:
-    linear-gradient(60deg, rgba(248, 251, 247, 0.08) 1px, transparent 1px),
-    linear-gradient(120deg, rgba(184, 230, 221, 0.055) 1px, transparent 1px),
-    repeating-linear-gradient(90deg, transparent 0 38px, rgba(248, 251, 247, 0.035) 38px 39px, transparent 39px 78px);
+    linear-gradient(60deg, rgba(201, 219, 234, 0.06) 1px, transparent 1px),
+    linear-gradient(120deg, rgba(168, 215, 209, 0.045) 1px, transparent 1px),
+    repeating-linear-gradient(90deg, transparent 0 38px, rgba(201, 219, 234, 0.028) 38px 39px, transparent 39px 78px);
   --shell-atmosphere:
-    linear-gradient(90deg, transparent 0 28%, rgba(248, 251, 247, 0.09) 48%, transparent 68%),
-    linear-gradient(145deg, transparent 0 38%, rgba(184, 230, 221, 0.07) 50%, transparent 66%);
+    linear-gradient(90deg, transparent 0 28%, rgba(201, 219, 234, 0.07) 48%, transparent 68%),
+    linear-gradient(145deg, transparent 0 38%, rgba(168, 215, 209, 0.055) 50%, transparent 66%);
   --shell-detail:
-    repeating-linear-gradient(120deg, transparent 0 36px, rgba(248, 251, 247, 0.045) 36px 37px, transparent 37px 72px);
+    repeating-linear-gradient(120deg, transparent 0 36px, rgba(201, 219, 234, 0.035) 36px 37px, transparent 37px 72px);
   --soul-texture:
-    linear-gradient(60deg, rgba(248, 251, 247, 0.1) 1px, transparent 1px),
-    linear-gradient(120deg, rgba(184, 230, 221, 0.075) 1px, transparent 1px);
+    linear-gradient(60deg, rgba(201, 219, 234, 0.075) 1px, transparent 1px),
+    linear-gradient(120deg, rgba(168, 215, 209, 0.058) 1px, transparent 1px);
   --panel-veil:
-    linear-gradient(180deg, rgba(248, 251, 247, 0.1), transparent 46%);
+    linear-gradient(180deg, rgba(201, 219, 234, 0.075), transparent 46%);
   --panel-aura:
-    linear-gradient(90deg, transparent, rgba(248, 251, 247, 0.12), transparent);
+    linear-gradient(90deg, transparent, rgba(201, 219, 234, 0.09), transparent);
   --portrait-aura:
-    radial-gradient(ellipse at 50% 0%, rgba(248, 251, 247, 0.38), transparent 48%),
-    radial-gradient(ellipse at 50% 28%, rgba(184, 230, 221, 0.14), transparent 58%),
-    linear-gradient(120deg, rgba(184, 230, 221, 0.1) 1px, transparent 1px);
+    radial-gradient(ellipse at 50% 0%, rgba(201, 219, 234, 0.28), transparent 48%),
+    radial-gradient(ellipse at 50% 28%, rgba(168, 215, 209, 0.11), transparent 58%),
+    linear-gradient(120deg, rgba(168, 215, 209, 0.075) 1px, transparent 1px);
   --message-user-bg:
-    linear-gradient(180deg, rgba(248, 251, 247, 0.13), transparent 36%),
+    linear-gradient(180deg, rgba(201, 219, 234, 0.1), transparent 36%),
     linear-gradient(135deg, rgba(48, 58, 64, 0.94), rgba(20, 26, 31, 0.92));
   --radius-panel: 32px;
   --radius-block: 1.65rem;
@@ -259,7 +308,7 @@ html[data-soul="xuannv"] {
   --radius-inner: 1rem;
   --radius-control: 999px;
   --soul-motion: 30s;
-  --soul-filter: saturate(0.96) brightness(1.12);
+  --soul-filter: saturate(0.98) brightness(1.06);
 }
 
 * {
@@ -8745,8 +8794,8 @@ html[data-soul="siyue"] .chat-input-panel {
   border-color: rgba(255, 241, 190, 0.28);
   background:
     linear-gradient(180deg, rgba(255, 246, 214, 0.12), transparent 36%),
-    linear-gradient(138deg, rgba(247, 203, 98, 0.08), transparent 46%),
-    rgba(73, 46, 12, 0.62);
+    linear-gradient(138deg, rgba(216, 183, 101, 0.06), transparent 46%),
+    rgba(50, 38, 18, 0.66);
   box-shadow:
     inset 0 0 0 1px rgba(255, 246, 214, 0.07),
     0 22px 58px rgba(49, 30, 6, 0.32);
@@ -8757,7 +8806,7 @@ html[data-soul="siyue"] .chat-input-panel__shortcut {
   border-color: rgba(255, 241, 190, 0.24);
   background:
     linear-gradient(180deg, rgba(255, 246, 214, 0.11), transparent 50%),
-    rgba(91, 57, 14, 0.6);
+    rgba(64, 49, 24, 0.62);
   color: rgba(255, 248, 231, 0.84);
 }
 
@@ -8766,15 +8815,15 @@ html[data-soul="siyue"] .chat-input-panel__textarea {
   border-color: rgba(255, 241, 190, 0.22);
   background:
     linear-gradient(180deg, rgba(255, 246, 214, 0.1), transparent 42%),
-    linear-gradient(125deg, rgba(247, 203, 98, 0.09), transparent 58%),
-    rgba(63, 40, 11, 0.64);
+    linear-gradient(125deg, rgba(216, 183, 101, 0.065), transparent 58%),
+    rgba(47, 36, 18, 0.66);
 }
 
 html[data-soul="siyue"] .right-rail__item--active {
   border-color: rgba(255, 231, 166, 0.5);
   background:
-    linear-gradient(180deg, rgba(247, 203, 98, 0.2), transparent 62%),
-    rgba(94, 61, 18, 0.66);
+    linear-gradient(180deg, rgba(216, 183, 101, 0.14), transparent 62%),
+    rgba(65, 50, 24, 0.68);
   box-shadow:
     inset 0 0 0 1px rgba(255, 246, 214, 0.08),
     0 12px 28px rgba(58, 36, 8, 0.28);
@@ -8782,8 +8831,8 @@ html[data-soul="siyue"] .right-rail__item--active {
 
 html[data-soul="siyue"] .right-rail__item--active .right-rail__item-icon {
   border-color: rgba(255, 241, 190, 0.28);
-  background: rgba(247, 203, 98, 0.22);
-  box-shadow: 0 0 18px rgba(247, 203, 98, 0.12);
+  background: rgba(216, 183, 101, 0.16);
+  box-shadow: 0 0 18px rgba(216, 183, 101, 0.1);
 }
 
 html[data-soul="siyue"] .archive-block--ornate::before,
@@ -8807,9 +8856,9 @@ html[data-soul="zhurong"] .message-shell {
 html[data-soul="zhurong"] .action-button--primary,
 html[data-soul="zhurong"] .session-card--active {
   background:
-    linear-gradient(128deg, var(--color-soul), #f4b56a 62%, #d95d37);
+    linear-gradient(128deg, var(--color-soul), #e8b17a 62%, #c86e4d);
   box-shadow:
-    0 12px 30px rgba(232, 111, 66, 0.2),
+    0 12px 30px rgba(229, 138, 98, 0.16),
     inset 0 0 0 1px rgba(255, 255, 255, 0.14);
 }
 
@@ -8827,14 +8876,14 @@ html[data-soul="xuannv"] .archive-block,
 html[data-soul="xuannv"] .chat-empty-state,
 html[data-soul="xuannv"] .chat-input-panel__textarea {
   background:
-    linear-gradient(180deg, rgba(248, 251, 247, 0.11), transparent 44%),
-    linear-gradient(120deg, rgba(184, 230, 221, 0.08), transparent 58%),
+    linear-gradient(180deg, rgba(201, 219, 234, 0.08), transparent 44%),
+    linear-gradient(120deg, rgba(168, 215, 209, 0.06), transparent 58%),
     var(--color-panel-soft);
 }
 
 html[data-soul="xuannv"] .soul-portrait__label {
-  border: 1px solid rgba(248, 251, 247, 0.18);
-  box-shadow: 0 8px 24px rgba(248, 251, 247, 0.08);
+  border: 1px solid rgba(201, 219, 234, 0.16);
+  box-shadow: 0 8px 24px rgba(201, 219, 234, 0.06);
 }
 
 @media (max-width: 1279px) {
@@ -9716,6 +9765,610 @@ html[data-soul="xuannv"] .soul-portrait__label {
   color: #ffd8d2;
 }
 
+.soul-profile-card {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 28%, var(--color-border));
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 10%, transparent), transparent 52%),
+    var(--color-panel-soft);
+  padding: 1rem;
+}
+
+.soul-profile-card > span,
+.soul-projection-static-card article > span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.soul-profile-card > strong {
+  color: var(--color-text);
+  font-size: 1.05rem;
+}
+
+.soul-profile-card > p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+.soul-profile-card > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.soul-profile-card em {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 26%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+  padding: 0.25rem 0.5rem;
+}
+
+.soul-profile-card label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.soul-profile-card small {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+}
+
+.soul-profile-card input,
+.soul-profile-card textarea {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, var(--color-border));
+  border-radius: 0.85rem;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--color-text);
+  outline: none;
+  padding: 0.65rem 0.75rem;
+}
+
+.soul-profile-card textarea {
+  resize: vertical;
+}
+
+.soul-profile-card input:focus,
+.soul-profile-card textarea:focus {
+  border-color: color-mix(in srgb, var(--color-soul) 62%, white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-soul) 16%, transparent);
+}
+
+.soul-profile-card--wide {
+  align-content: start;
+}
+
+.soul-create-projection {
+  width: 100%;
+  justify-content: center;
+}
+
+.soul-projection-group {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.soul-projection-group > span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.soul-seed-grid--compact {
+  gap: 0.55rem;
+}
+
+.soul-seed-grid--compact .soul-seed-card {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0.55rem;
+}
+
+.soul-seed-grid--compact .soul-seed-card__main {
+  padding: 0.72rem;
+}
+
+.soul-seed-card__main {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.soul-rule-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.025);
+  padding: 0.55rem;
+}
+
+.soul-rule-create input {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: 0.75rem;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--color-text);
+  outline: none;
+  padding: 0.62rem 0.7rem;
+}
+
+.soul-rule-create input:focus {
+  border-color: color-mix(in srgb, var(--color-soul) 58%, white);
+}
+
+.soul-submodule-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.025);
+  padding: 0.35rem;
+}
+
+.soul-submodule-switcher button {
+  border: 0;
+  border-radius: 0.72rem;
+  background: transparent;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.55rem 0.4rem;
+}
+
+.soul-submodule-switcher button:hover,
+.soul-submodule-switcher button.active {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 18%, transparent), transparent 62%),
+    rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+}
+
+.soul-empty-panel {
+  border: 1px dashed color-mix(in srgb, var(--color-soul) 28%, var(--color-border));
+  border-radius: var(--radius-inner);
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  padding: 0.9rem;
+}
+
+.soul-section-nav {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.soul-section-nav__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: stretch;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.025);
+  padding: 0.25rem;
+}
+
+.soul-section-nav__row:hover,
+.soul-section-nav__row--active {
+  border-color: color-mix(in srgb, var(--color-soul) 52%, white);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 12%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.045);
+}
+
+.soul-section-nav__item {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  border: 0;
+  border-radius: 0.82rem;
+  background: transparent;
+  color: inherit;
+  padding: 0.62rem;
+  text-align: left;
+}
+
+.soul-section-nav__item span {
+  color: var(--color-soul);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.soul-section-nav__item strong {
+  color: var(--color-text);
+  font-size: 0.88rem;
+}
+
+.soul-projection-card-list {
+  display: grid;
+  gap: 0.65rem;
+  align-content: start;
+}
+
+.soul-projection-card {
+  display: grid;
+  gap: 0.3rem;
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.025);
+  color: inherit;
+  padding: 0.85rem;
+  text-align: left;
+}
+
+.soul-projection-card:hover,
+.soul-projection-card--selected {
+  border-color: color-mix(in srgb, var(--color-soul) 58%, white);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 13%, transparent), transparent 56%),
+    rgba(255, 255, 255, 0.035);
+}
+
+.soul-projection-card span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.soul-projection-card strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--color-text);
+}
+
+.soul-projection-card em {
+  color: var(--color-text-soft);
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.soul-projection-card--create {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-soul) 34%, var(--color-border));
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 9%, transparent), transparent 56%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.soul-projection-card--create strong {
+  color: color-mix(in srgb, var(--color-soul) 78%, var(--color-text));
+}
+
+.soul-projection-card--create:hover,
+.soul-projection-card--create.soul-projection-card--selected {
+  border-style: solid;
+}
+
+.soul-projection-panel {
+  display: grid;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.soul-projection-editor-list {
+  display: grid;
+  gap: 0.9rem;
+  min-height: 0;
+}
+
+.soul-projection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.025);
+  padding: 0.75rem 0.9rem;
+}
+
+.soul-projection-toolbar > div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.soul-projection-toolbar span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.soul-projection-toolbar strong {
+  color: var(--color-text);
+  font-size: 0.94rem;
+}
+
+.soul-projection-toolbar__new {
+  border-color: color-mix(in srgb, var(--color-soul) 26%, var(--color-border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 62%),
+    rgba(255, 255, 255, 0.035);
+  color: color-mix(in srgb, var(--color-soul) 78%, var(--color-text));
+}
+
+.soul-projection-toolbar__new:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-soul) 54%, white);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 18%, transparent), transparent 62%),
+    rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+}
+
+.soul-projection-rail-head {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.soul-projection-rail-head > div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.soul-projection-rail-head span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.soul-projection-rail-head strong {
+  color: var(--color-text);
+  font-size: 0.94rem;
+}
+
+.soul-projection-editor-card {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 24%, var(--color-border));
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 54%),
+    var(--color-panel-soft);
+  padding: 1rem;
+}
+
+.soul-projection-editor-card--draft {
+  border-color: color-mix(in srgb, var(--color-soul) 34%, var(--color-border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-soul) 10%, transparent);
+}
+
+.soul-projection-editor-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  padding-bottom: 0.85rem;
+}
+
+.soul-projection-editor-card__head > div {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 0;
+}
+
+.soul-projection-editor-card__head span,
+.soul-projection-editor-card__contract small,
+.soul-projection-form-grid small {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.soul-projection-editor-card__head strong {
+  color: var(--color-text);
+  font-size: 1.02rem;
+  overflow-wrap: anywhere;
+}
+
+.soul-projection-editor-card__head em,
+.soul-projection-editor-card__head small {
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+  font-style: normal;
+}
+
+.soul-projection-editor-card__head > small {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 24%, var(--color-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-soul) 10%, transparent);
+  padding: 0.28rem 0.55rem;
+}
+
+.soul-projection-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.soul-projection-form-grid label,
+.soul-projection-editor-card__contract {
+  display: grid;
+  gap: 0.36rem;
+}
+
+.soul-projection-form-grid input,
+.soul-projection-editor-card__contract textarea {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, var(--color-border));
+  border-radius: 0.78rem;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--color-text);
+  outline: none;
+  padding: 0.68rem 0.76rem;
+}
+
+.soul-projection-editor-card__contract textarea {
+  min-height: 11rem;
+  resize: vertical;
+}
+
+.soul-projection-form-grid input:focus,
+.soul-projection-editor-card__contract textarea:focus {
+  border-color: color-mix(in srgb, var(--color-soul) 62%, white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-soul) 14%, transparent);
+}
+
+.soul-projection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.soul-projection-static-card {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.soul-projection-static-card article {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 24%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 48%),
+    rgba(255, 255, 255, 0.025);
+  padding: 0.9rem;
+}
+
+.soul-projection-static-card article strong {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--color-text);
+}
+
+.soul-projection-static-card article em {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+  font-style: normal;
+}
+
+.soul-projection-static-card article p {
+  margin: 0.7rem 0 0;
+  white-space: pre-wrap;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.soul-managed-sections {
+  display: grid;
+  gap: 0.85rem;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+
+.soul-managed-section {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 7%, transparent), transparent 54%),
+    rgba(255, 255, 255, 0.025);
+  padding: 0.95rem;
+}
+
+.soul-managed-section > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.soul-managed-section__head {
+  display: flex !important;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.soul-managed-section__head > div {
+  display: grid;
+  flex: 1;
+  gap: 0.25rem;
+}
+
+.soul-managed-section span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.soul-managed-section strong {
+  color: var(--color-text);
+  font-size: 0.98rem;
+}
+
+.soul-managed-section__title-input {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: 0.72rem;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 700;
+  outline: none;
+  padding: 0.55rem 0.65rem;
+}
+
+.soul-managed-section__title-input:focus {
+  border-color: color-mix(in srgb, var(--color-soul) 58%, white);
+}
+
+.soul-managed-section pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--color-text-soft);
+  font-family: inherit;
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+.soul-managed-section textarea {
+  min-height: 150px;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--color-text);
+  font: inherit;
+  line-height: 1.65;
+  outline: none;
+  padding: 0.75rem;
+  resize: vertical;
+}
+
+.soul-managed-section textarea:focus {
+  border-color: color-mix(in srgb, var(--color-soul) 64%, white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-soul) 14%, transparent);
+}
+
+.soul-managed-section--editing {
+  border-color: color-mix(in srgb, var(--color-soul) 34%, var(--color-border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 10%, transparent), transparent 54%),
+    rgba(255, 255, 255, 0.035);
+}
+
+
 @media (max-width: 980px) {
   .agent-system-hero,
   .agent-mode-switcher,
@@ -9774,7 +10427,8 @@ html[data-soul="xuannv"] .soul-portrait__label {
 @media (max-width: 640px) {
   .agent-system-hero__stats,
   .agent-node-grid,
-  .agent-detail__matrix {
+  .agent-detail__matrix,
+  .soul-projection-form-grid {
     grid-template-columns: 1fr;
   }
 

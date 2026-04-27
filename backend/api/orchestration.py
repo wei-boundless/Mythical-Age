@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from orchestration import build_behavior_dry_run
+from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
 
 router = APIRouter()
 
@@ -20,33 +20,29 @@ class BehaviorDryRunRequest(BaseModel):
 
 
 class OrchestrationModeRequest(BaseModel):
-    mode: str = Field(default="plan_only")
-
-
-class PrimaryEntrySelectionRequest(BaseModel):
-    enabled: bool = False
-
-
-class PrimaryEntryTakeoverRequest(BaseModel):
-    enabled: bool = False
-
-
-class RestoreShadowConsumerRequest(BaseModel):
-    enabled: bool = False
-    mode: str = Field(default="disabled")
+    mode: str = Field(default="primary")
 
 
 @router.post("/orchestration/dry-run")
 async def orchestration_dry_run(payload: BehaviorDryRunRequest) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        return await build_behavior_dry_run(
-            runtime,
+        task = TaskContract(
+            task_id=f"dry-run:{payload.session_id}",
             session_id=payload.session_id,
-            message=payload.message,
-            ephemeral_system_messages=payload.ephemeral_system_messages,
-            explicit_subtasks=payload.explicit_subtasks,
+            user_goal=payload.message,
+            inputs={
+                "ephemeral_system_message_count": len(payload.ephemeral_system_messages),
+                "explicit_subtask_count": len(payload.explicit_subtasks),
+            },
         )
+        control = ControlKernel().collect(task=task)
+        return {
+            "state": "wiring_cleared",
+            "control": control.to_dict(),
+            "unit_catalog": build_base_unit_catalog().to_list(),
+            "runtime_available": runtime is not None,
+        }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -75,12 +71,9 @@ async def orchestration_catalog() -> dict[str, Any]:
         "supported_permission_modes": runtime.permission_service.supported_modes(),
         "tool_contract_mode": runtime.query_runtime.tool_contract_gate.mode,
         "orchestration_plan_mode": runtime.settings.get_orchestration_plan_mode(),
-        "supported_orchestration_plan_modes": ["legacy", "plan_only", "primary"],
-        "primary_entry_selection_enabled": runtime.settings.get_primary_entry_selection_enabled(),
-        "primary_entry_takeover_enabled": runtime.settings.get_primary_entry_takeover_enabled(),
-        "restore_shadow_consumer_enabled": runtime.settings.get_restore_shadow_consumer_enabled(),
-        "restore_shadow_consumer_mode": runtime.settings.get_restore_shadow_consumer_mode(),
-        "supported_restore_shadow_consumer_modes": ["disabled", "observe_only"],
+        "orchestration_state": "wiring_cleared",
+        "supported_orchestration_plan_modes": ["primary"],
+        "unit_catalog": build_base_unit_catalog().to_list(),
         "skills": skills,
         "tools": tools,
     }
@@ -98,36 +91,6 @@ async def set_orchestration_plan_mode(payload: OrchestrationModeRequest) -> dict
     runtime = require_runtime()
     config = runtime.settings.set_orchestration_plan_mode(payload.mode)
     return {
-        "mode": str(config.get("orchestration_plan_mode", "plan_only") or "plan_only"),
-        "supported_modes": ["legacy", "plan_only", "primary"],
-    }
-
-
-@router.put("/orchestration/primary-entry-selection")
-async def set_primary_entry_selection(payload: PrimaryEntrySelectionRequest) -> dict[str, Any]:
-    runtime = require_runtime()
-    config = runtime.settings.set_primary_entry_selection_enabled(payload.enabled)
-    return {
-        "enabled": bool(config.get("primary_entry_selection_enabled", False)),
-    }
-
-
-@router.put("/orchestration/primary-entry-takeover")
-async def set_primary_entry_takeover(payload: PrimaryEntryTakeoverRequest) -> dict[str, Any]:
-    runtime = require_runtime()
-    config = runtime.settings.set_primary_entry_takeover_enabled(payload.enabled)
-    return {
-        "enabled": bool(config.get("primary_entry_takeover_enabled", False)),
-    }
-
-
-@router.put("/orchestration/restore-shadow-consumer")
-async def set_restore_shadow_consumer(payload: RestoreShadowConsumerRequest) -> dict[str, Any]:
-    runtime = require_runtime()
-    mode_config = runtime.settings.set_restore_shadow_consumer_mode(payload.mode)
-    enabled_config = runtime.settings.set_restore_shadow_consumer_enabled(payload.enabled)
-    return {
-        "enabled": bool(enabled_config.get("restore_shadow_consumer_enabled", False)),
-        "mode": str(mode_config.get("restore_shadow_consumer_mode", "disabled") or "disabled"),
-        "supported_modes": ["disabled", "observe_only"],
+        "mode": str(config.get("orchestration_plan_mode", "primary") or "primary"),
+        "supported_modes": ["primary"],
     }

@@ -1,7 +1,9 @@
 # Soul
 
-`soul/` 是静态 prompt 层。
-这里放的不是运行日志，也不是实现说明，而是会参与模型长期行为塑形的静态设定。
+`soul/` 当前仍承担静态 prompt 层。
+新架构中它会升级为可管理的灵魂系统：管理 SoulProfile、SoulProjection、prompt sections、skills/tools 可见视图和多灵魂协作投影。
+
+这里放的不是运行日志，也不是实现说明，而是会参与模型长期行为塑形的静态设定和后续灵魂契约。
 
 这个目录里正式保留两类内容：
 
@@ -28,6 +30,8 @@
 - `README.md`
 - `agent_core/SEED_CATALOG.md`
 - `agent_core/seeds/*.md`
+
+后续新增的 `contracts.py`、`registry.py`、`projection.py`、`prompt_assembly.py` 也不直接进入模型可见 prompt；它们只负责把灵魂档案装配成受控的 `SoulRuntimeView`。
 
 ## 模型实际读到的顺序
 
@@ -120,3 +124,21 @@
 - 换一份人格设定后，这条内容本来就应该变化
 
 如果一条内容是用户或项目长期想固定下来的口径，但既不属于系统底线，也不属于人格风格，进入 `agent.md`。
+
+## 新架构方向
+
+灵魂系统后续不再只是人格切换器。
+
+目标是：
+
+- `SoulProfile` 管理灵魂身份、背景、风格、工作习惯和偏好。
+- `SoulProjection` 根据任务、AgentProfile、SkillScope、ToolScope 生成当前运行时视图。
+- `SoulRuntimeView` 作为最终 prompt 装配输入。
+- `PromptManifest` 记录每段 prompt 的来源。
+- tools / skills 可以进入灵魂视图，但授权仍然由 `ControlKernel / ResourcePolicy` 决定。
+
+详细方案见：
+
+- `docs/系统规划/01-灵魂系统完整构建方案-20260427.md`
+- `docs/系统规划/02-任务系统与灵魂意志联动方案-20260427.md`
+- `docs/系统规划/03-灵魂系统管理与多态投影方案-20260427.md`

@@ -162,22 +162,18 @@ function eventSummary(event: string, data: Record<string, unknown>) {
   if (event === "orchestration_plan") {
     const plan = (data.plan ?? {}) as Record<string, unknown>;
     const topology = (plan.topology ?? {}) as Record<string, unknown>;
-    return `${String(plan.mode ?? "plan_only")} plan: ${String(topology.mode ?? "unknown")} / ${String(topology.route ?? "unknown")} / ${String(topology.execution_kind ?? "unknown")}`;
+    return `${String(plan.mode ?? "primary")} plan: ${String(topology.mode ?? "unknown")} / ${String(topology.route ?? "unknown")} / ${String(topology.execution_kind ?? "unknown")}`;
   }
   if (event === "orchestration_runtime_control") {
-    const diagnostics = (data.diagnostics ?? {}) as Record<string, unknown>;
     const warnings = Array.isArray(data.warnings) ? data.warnings.map((item) => String(item)) : [];
     const reason = warnings.map(runtimeControlWarningLabel).filter(Boolean)[0];
     if (reason) {
-      return `运行控制：已回退旧链路，原因是${reason}`;
+      return `运行控制：已 fail-closed，原因是${reason}`;
     }
     if (data.primary_active) {
-      return `运行控制：primary 已接管 ${String(data.execution_mode ?? "unknown")}。`;
+      return `运行控制：directive 已接管 ${String(data.execution_mode ?? "unknown")}。`;
     }
-    if (data.source === "orchestration_plan_only") {
-      return `运行控制：plan-only 只观测，不改变执行。校验=${String(diagnostics.validation_status ?? "未记录")}`;
-    }
-    return `运行控制：${String(data.source ?? "legacy")} / ${String(data.execution_mode ?? "unknown")}`;
+    return `运行控制：${String(data.source ?? "orchestration_blocked")} / ${String(data.execution_mode ?? "unknown")}`;
   }
   if (event === "orchestration_diff") {
     const diff = (data.diff ?? {}) as Record<string, unknown>;
@@ -213,20 +209,17 @@ function eventSummary(event: string, data: Record<string, unknown>) {
 }
 
 function runtimeControlWarningLabel(warning: string) {
-  if (warning === "primary_fallback_validation_blocked") {
+  if (warning === "validation_blocked") {
     return "编排校验未通过";
   }
-  if (warning === "primary_fallback_allowlist_blocked") {
-    return "超出低风险 primary 范围";
-  }
-  if (warning === "primary_fallback_incomplete_contract") {
+  if (warning === "contract_incomplete") {
     return "正式编排契约不完整";
   }
-  if (warning === "primary_fallback_legacy_field_mismatch") {
-    return "正式计划和旧执行字段不一致";
+  if (warning === "execution_directive_missing") {
+    return "缺少执行指令";
   }
-  if (warning === "primary_fallback_legacy_execution_mismatch") {
-    return "计划分支和旧执行分支无法一一匹配";
+  if (warning === "execution_candidate_missing") {
+    return "执行指令无法匹配候选执行";
   }
   return warning;
 }

@@ -271,9 +271,7 @@ def _collect_quality_warnings(
             f"orchestration.diff.warning={turn.orchestration_diff_summary or 'missing comparable fields'}",
         )
     for runtime_warning in turn.runtime_control_warnings:
-        if runtime_warning == "primary_fallback_allowlist_blocked":
-            continue
-        _append_warning(warnings, f"orchestration.runtime_fallback={runtime_warning}")
+        _append_warning(warnings, f"orchestration.runtime_control={runtime_warning}")
 
     response_text = str(turn.response_text or "")
     for marker in _WARNING_OUTPUT_MARKERS:
@@ -704,323 +702,46 @@ def _execute_scenario(
         for turn in turn_results
         for warning in turn.runtime_control_warnings
     )
-    runtime_entry_kind_counts = Counter(
-        str(entry.get("entry_kind") or "unknown")
+    runtime_execution_spec_kind_counts = Counter(
+        str(spec.get("execution_kind") or "unknown")
         for turn in turn_results
-        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
-        if isinstance(entry, dict)
+        for spec in list(turn.runtime_control_diagnostics.get("execution_specs") or [])
+        if isinstance(spec, dict)
     )
-    runtime_entry_source_counts = Counter(
-        str(entry.get("source") or "unknown")
+    runtime_execution_spec_source_counts = Counter(
+        str(spec.get("source") or "unknown")
         for turn in turn_results
-        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
-        if isinstance(entry, dict)
+        for spec in list(turn.runtime_control_diagnostics.get("execution_specs") or [])
+        if isinstance(spec, dict)
     )
-    runtime_entry_strategy_counts = Counter(
-        str(entry.get("strategy") or "unknown")
+    runtime_execution_spec_action_counts = Counter(
+        str(spec.get("action") or "unknown")
         for turn in turn_results
-        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
-        if isinstance(entry, dict)
+        for spec in list(turn.runtime_control_diagnostics.get("execution_specs") or [])
+        if isinstance(spec, dict)
     )
-    runtime_entry_eligible_counts = Counter(
-        "eligible" if bool(entry.get("eligible_for_primary_entry")) else "blocked"
+    runtime_execution_spec_risk_counts = Counter(
+        str(risk or "unknown")
         for turn in turn_results
-        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
-        if isinstance(entry, dict)
+        for spec in list(turn.runtime_control_diagnostics.get("execution_specs") or [])
+        if isinstance(spec, dict)
+        for risk in list(spec.get("risk_tags") or [])
     )
-    runtime_entry_blocker_counts = Counter(
-        str(blocker or "unknown")
+    runtime_validation_status_counts = Counter(
+        str(turn.runtime_control_diagnostics.get("validation_status") or "missing")
         for turn in turn_results
-        for entry in list(turn.runtime_control_diagnostics.get("execution_entries") or [])
-        if isinstance(entry, dict)
-        for blocker in list(entry.get("eligibility_blockers") or [])
+        if turn.runtime_control_diagnostics
     )
-    runtime_entry_selection_state_counts = Counter(
-        str((turn.runtime_control_diagnostics.get("entry_selection") or {}).get("state") or "missing")
+    runtime_blocked_reason_counts = Counter(
+        str(turn.runtime_control_diagnostics.get("blocked_reason") or "unknown")
         for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("entry_selection"), dict)
+        if turn.runtime_control_source == "orchestration_blocked"
+        or bool(turn.runtime_control_diagnostics.get("fail_closed"))
     )
-    runtime_primary_preview_state_counts = Counter(
-        str((turn.runtime_control_diagnostics.get("primary_execution_preview") or {}).get("state") or "missing")
+    runtime_directive_source_counts = Counter(
+        str(source or "unknown")
         for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("primary_execution_preview"), dict)
-    )
-    runtime_primary_preview_mismatch_counts = Counter(
-        str(item.get("field") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("primary_execution_preview"), dict)
-        for item in list((turn.runtime_control_diagnostics.get("primary_execution_preview") or {}).get("mismatches") or [])
-        if isinstance(item, dict)
-    )
-    runtime_primary_takeover_state_counts = Counter(
-        str((turn.runtime_control_diagnostics.get("primary_entry_takeover") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("primary_entry_takeover"), dict)
-    )
-    runtime_phase7_readiness_state_counts = Counter(
-        str((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_readiness_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("blockers") or [])
-    )
-    runtime_phase7_intent_authority_state_counts = Counter(
-        str(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("intent_authority") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_restore_authority_state_counts = Counter(
-        str(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_restore_authority_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("blockers") or [])
-    )
-    runtime_phase7_restore_candidate_type_counts = Counter(
-        str(candidate.get("candidate_type") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for candidate in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("candidates") or [])
-        if isinstance(candidate, dict)
-    )
-    runtime_phase7_restore_adoption_state_counts = Counter(
-        str(candidate.get("adoption_state") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for candidate in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("candidates") or [])
-        if isinstance(candidate, dict)
-    )
-    runtime_phase7_restore_adoption_gate_state_counts = Counter(
-        str((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("adoption_gate") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_restore_adoption_gate_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("adoption_gate") or {}).get("blockers") or []))
-    )
-    runtime_phase7_restore_adoption_decision_counts = Counter(
-        str(decision.get("decision") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for decision in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("adoption_decisions") or [])
-        if isinstance(decision, dict)
-    )
-    runtime_phase7_memory_context_validation_counts = Counter(
-        str((dict(decision.get("memory_context_validation") or {})).get("status") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for decision in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("adoption_decisions") or [])
-        if isinstance(decision, dict)
-    )
-    runtime_phase7_restore_cutover_state_counts = Counter(
-        str((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("cutover_plan") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_restore_cutover_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("cutover_plan") or {}).get("blockers") or []))
-    )
-    runtime_phase7_restore_dry_run_state_counts = Counter(
-        str((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("dry_run_comparison") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_restore_dry_run_alignment_counts = Counter(
-        str(item.get("alignment") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("dry_run_comparison") or {}).get("comparisons") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_formal_review_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("formal_adoption_review") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_formal_decision_counts = Counter(
-        str(decision.get("decision") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for decision in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("formal_adoption_review") or {}).get("decisions") or []))
-        if isinstance(decision, dict)
-    )
-    runtime_phase8_restore_legacy_alignment_counts = Counter(
-        str(item.get("alignment") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list((((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("formal_adoption_review") or {}).get("comparison") or {}).get("items") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_trace_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_adoption_trace") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_trace_status_counts = Counter(
-        str(item.get("status") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_adoption_trace") or {}).get("traces") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_trace_replacement_point_counts = Counter(
-        str(item.get("replacement_point") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_adoption_trace") or {}).get("traces") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_trace_alignment_counts = Counter(
-        str(item.get("alignment") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_adoption_trace") or {}).get("traces") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_shadow_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_replacement_plan") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_shadow_status_counts = Counter(
-        str(item.get("shadow_status") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_replacement_plan") or {}).get("replacement_candidates") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_shadow_replacement_point_counts = Counter(
-        str(item.get("replacement_point") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_replacement_plan") or {}).get("replacement_candidates") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_shadow_compare_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_comparison") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_shadow_compare_result_counts = Counter(
-        str(item.get("comparison") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_comparison") or {}).get("shadow_observations") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_shadow_observation_state_counts = Counter(
-        str(item.get("shadow_state") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_comparison") or {}).get("shadow_observations") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_real_shadow_gate_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_real_shadow_consumer_gate") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_real_shadow_gate_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_real_shadow_consumer_gate") or {}).get("blockers") or []))
-    )
-    runtime_phase8_restore_real_shadow_design_status_counts = Counter(
-        str(item.get("design_status") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_real_shadow_consumer_gate") or {}).get("candidate_plan") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_real_shadow_interface_counts = Counter(
-        str(item.get("interface") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_real_shadow_consumer_gate") or {}).get("runtime_interfaces") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_shadow_contract_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_consumer_contract") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_shadow_contract_candidate_counts = Counter(
-        str(item.get("consumer_state") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_consumer_contract") or {}).get("contract_candidates") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_shadow_consumer_control_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_consumer_control") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_shadow_consumer_control_mode_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_consumer_control") or {}).get("mode")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_shadow_consumer_observation_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_consumer_observation") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_shadow_consumer_observation_item_counts = Counter(
-        str(item.get("observation_state") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_shadow_consumer_observation") or {}).get("observations") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_legacy_decommission_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_legacy_decommission_plan") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase8_restore_legacy_decommission_target_counts = Counter(
-        str(item.get("state") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for item in list(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_legacy_decommission_plan") or {}).get("targets") or []))
-        if isinstance(item, dict)
-    )
-    runtime_phase8_restore_authority_context_gate_state_counts = Counter(
-        str(((((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("restore_authority") or {}).get("restore_authority_context_gate") or {}).get("state")) or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_output_authority_state_counts = Counter(
-        str(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("output_authority") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_output_authority_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("output_authority") or {}).get("blockers") or [])
-    )
-    runtime_phase7_output_writeback_scope_counts = Counter(
-        str(scope or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for scope in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("output_authority") or {}).get("writeback_scope") or [])
+        for source in list(turn.runtime_control_diagnostics.get("directive_sources") or [])
     )
     runtime_phase8_output_commit_state_counts = Counter(
         str((turn.output_commit_diagnostics or {}).get("state") or "missing")
@@ -1032,94 +753,12 @@ def _execute_scenario(
         for item in list((turn.output_commit_diagnostics or {}).get("candidates") or [])
         if isinstance(item, dict)
     )
-    runtime_phase7_dispatch_authority_state_counts = Counter(
-        str(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("dispatch_authority") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_dispatch_authority_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("dispatch_authority") or {}).get("blockers") or [])
-    )
-    runtime_phase7_dispatch_target_counts = Counter(
-        str(target.get("action") or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for target in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("dispatch_authority") or {}).get("execution_targets") or [])
-        if isinstance(target, dict)
-    )
-    runtime_phase7_cutover_readiness_state_counts = Counter(
-        str(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("cutover_readiness") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_cutover_readiness_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("cutover_readiness") or {}).get("blockers") or [])
-    )
-    runtime_phase7_cutover_gate_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("cutover_readiness") or {}).get("gate_blockers") or [])
-    )
-    runtime_phase7_cutover_top_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("cutover_readiness") or {}).get("top_blockers") or [])
-    )
-    runtime_phase7_cutover_domain_state_counts = Counter(
-        f"{domain.get('domain') or 'unknown'}:{domain.get('state') or 'missing'}"
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for domain in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("cutover_readiness") or {}).get("domains") or [])
-        if isinstance(domain, dict)
-    )
-    runtime_phase7_cutover_domain_blocker_counts = Counter(
-        f"{summary.get('domain') or 'unknown'}:{blocker}"
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for summary in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("cutover_readiness") or {}).get("domain_summaries") or [])
-        if isinstance(summary, dict)
-        for blocker in list(summary.get("primary_blockers") or [])
-    )
-    runtime_phase7_cutover_migration_task_counts = Counter(
-        f"{task.get('domain') or 'unknown'}:{task.get('state') or 'missing'}"
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for task in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("cutover_readiness") or {}).get("migration_tasks") or [])
-        if isinstance(task, dict)
-    )
-    runtime_phase7_execution_contract_state_counts = Counter(
-        str(((turn.runtime_control_diagnostics.get("primary_execution_preview") or {}).get("executable_contract") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("primary_execution_preview"), dict)
-    )
-    runtime_phase7_decommission_state_counts = Counter(
-        str(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("legacy_decommission") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_principle_alignment_state_counts = Counter(
-        str(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("principle_alignment") or {}).get("state") or "missing")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-    )
-    runtime_phase7_principle_alignment_blocker_counts = Counter(
-        str(blocker or "unknown")
-        for turn in turn_results
-        if isinstance(turn.runtime_control_diagnostics.get("phase7_readiness"), dict)
-        for blocker in list(((turn.runtime_control_diagnostics.get("phase7_readiness") or {}).get("principle_alignment") or {}).get("blockers") or [])
-    )
-    runtime_fallback_turns = [
+    runtime_blocked_turns = [
         turn
         for turn in turn_results
-        if turn.runtime_control_warnings or turn.runtime_control_source == "legacy_fallback"
+        if turn.runtime_control_warnings
+        or turn.runtime_control_source == "orchestration_blocked"
+        or bool(turn.runtime_control_diagnostics.get("fail_closed"))
     ]
     duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
     request_ms = round(sum(float(turn.timing.get("duration_ms", 0.0) or 0.0) for turn in turn_results), 2)
@@ -1129,8 +768,8 @@ def _execute_scenario(
         summary += f"; first failure turn={failed_turns[0].index}"
     if warning_turns:
         summary += f"; warnings={len(warning_turns)} turns"
-    if runtime_fallback_turns:
-        summary += f"; runtime_fallback={len(runtime_fallback_turns)} turns"
+    if runtime_blocked_turns:
+        summary += f"; runtime_blocked={len(runtime_blocked_turns)} turns"
 
     details = {
         "goal": scenario.goal,
@@ -1142,76 +781,16 @@ def _execute_scenario(
         "quality_warning_counts": dict(sorted(warning_counts.items())),
         "runtime_control_source_counts": dict(sorted(runtime_source_counts.items())),
         "runtime_control_warning_counts": dict(sorted(runtime_warning_counts.items())),
-        "runtime_entry_kind_counts": dict(sorted(runtime_entry_kind_counts.items())),
-        "runtime_entry_source_counts": dict(sorted(runtime_entry_source_counts.items())),
-        "runtime_entry_strategy_counts": dict(sorted(runtime_entry_strategy_counts.items())),
-        "runtime_entry_eligible_counts": dict(sorted(runtime_entry_eligible_counts.items())),
-        "runtime_entry_blocker_counts": dict(sorted(runtime_entry_blocker_counts.items())),
-        "runtime_entry_selection_state_counts": dict(sorted(runtime_entry_selection_state_counts.items())),
-        "runtime_primary_preview_state_counts": dict(sorted(runtime_primary_preview_state_counts.items())),
-        "runtime_primary_preview_mismatch_counts": dict(sorted(runtime_primary_preview_mismatch_counts.items())),
-        "runtime_primary_takeover_state_counts": dict(sorted(runtime_primary_takeover_state_counts.items())),
-        "runtime_phase7_readiness_state_counts": dict(sorted(runtime_phase7_readiness_state_counts.items())),
-        "runtime_phase7_readiness_blocker_counts": dict(sorted(runtime_phase7_readiness_blocker_counts.items())),
-        "runtime_phase7_intent_authority_state_counts": dict(sorted(runtime_phase7_intent_authority_state_counts.items())),
-        "runtime_phase7_restore_authority_state_counts": dict(sorted(runtime_phase7_restore_authority_state_counts.items())),
-        "runtime_phase7_restore_authority_blocker_counts": dict(sorted(runtime_phase7_restore_authority_blocker_counts.items())),
-        "runtime_phase7_restore_candidate_type_counts": dict(sorted(runtime_phase7_restore_candidate_type_counts.items())),
-        "runtime_phase7_restore_adoption_state_counts": dict(sorted(runtime_phase7_restore_adoption_state_counts.items())),
-        "runtime_phase7_restore_adoption_gate_state_counts": dict(sorted(runtime_phase7_restore_adoption_gate_state_counts.items())),
-        "runtime_phase7_restore_adoption_gate_blocker_counts": dict(sorted(runtime_phase7_restore_adoption_gate_blocker_counts.items())),
-        "runtime_phase7_restore_adoption_decision_counts": dict(sorted(runtime_phase7_restore_adoption_decision_counts.items())),
-        "runtime_phase7_memory_context_validation_counts": dict(sorted(runtime_phase7_memory_context_validation_counts.items())),
-        "runtime_phase7_restore_cutover_state_counts": dict(sorted(runtime_phase7_restore_cutover_state_counts.items())),
-        "runtime_phase7_restore_cutover_blocker_counts": dict(sorted(runtime_phase7_restore_cutover_blocker_counts.items())),
-        "runtime_phase7_restore_dry_run_state_counts": dict(sorted(runtime_phase7_restore_dry_run_state_counts.items())),
-        "runtime_phase7_restore_dry_run_alignment_counts": dict(sorted(runtime_phase7_restore_dry_run_alignment_counts.items())),
-        "runtime_phase8_restore_formal_review_state_counts": dict(sorted(runtime_phase8_restore_formal_review_state_counts.items())),
-        "runtime_phase8_restore_formal_decision_counts": dict(sorted(runtime_phase8_restore_formal_decision_counts.items())),
-        "runtime_phase8_restore_legacy_alignment_counts": dict(sorted(runtime_phase8_restore_legacy_alignment_counts.items())),
-        "runtime_phase8_restore_trace_state_counts": dict(sorted(runtime_phase8_restore_trace_state_counts.items())),
-        "runtime_phase8_restore_trace_status_counts": dict(sorted(runtime_phase8_restore_trace_status_counts.items())),
-        "runtime_phase8_restore_trace_replacement_point_counts": dict(sorted(runtime_phase8_restore_trace_replacement_point_counts.items())),
-        "runtime_phase8_restore_trace_alignment_counts": dict(sorted(runtime_phase8_restore_trace_alignment_counts.items())),
-        "runtime_phase8_restore_shadow_state_counts": dict(sorted(runtime_phase8_restore_shadow_state_counts.items())),
-        "runtime_phase8_restore_shadow_status_counts": dict(sorted(runtime_phase8_restore_shadow_status_counts.items())),
-        "runtime_phase8_restore_shadow_replacement_point_counts": dict(sorted(runtime_phase8_restore_shadow_replacement_point_counts.items())),
-        "runtime_phase8_restore_shadow_compare_state_counts": dict(sorted(runtime_phase8_restore_shadow_compare_state_counts.items())),
-        "runtime_phase8_restore_shadow_compare_result_counts": dict(sorted(runtime_phase8_restore_shadow_compare_result_counts.items())),
-        "runtime_phase8_restore_shadow_observation_state_counts": dict(sorted(runtime_phase8_restore_shadow_observation_state_counts.items())),
-        "runtime_phase8_restore_real_shadow_gate_state_counts": dict(sorted(runtime_phase8_restore_real_shadow_gate_state_counts.items())),
-        "runtime_phase8_restore_real_shadow_gate_blocker_counts": dict(sorted(runtime_phase8_restore_real_shadow_gate_blocker_counts.items())),
-        "runtime_phase8_restore_real_shadow_design_status_counts": dict(sorted(runtime_phase8_restore_real_shadow_design_status_counts.items())),
-        "runtime_phase8_restore_real_shadow_interface_counts": dict(sorted(runtime_phase8_restore_real_shadow_interface_counts.items())),
-        "runtime_phase8_restore_shadow_contract_state_counts": dict(sorted(runtime_phase8_restore_shadow_contract_state_counts.items())),
-        "runtime_phase8_restore_shadow_contract_candidate_counts": dict(sorted(runtime_phase8_restore_shadow_contract_candidate_counts.items())),
-        "runtime_phase8_restore_shadow_consumer_control_state_counts": dict(sorted(runtime_phase8_restore_shadow_consumer_control_state_counts.items())),
-        "runtime_phase8_restore_shadow_consumer_control_mode_counts": dict(sorted(runtime_phase8_restore_shadow_consumer_control_mode_counts.items())),
-        "runtime_phase8_restore_shadow_consumer_observation_state_counts": dict(sorted(runtime_phase8_restore_shadow_consumer_observation_state_counts.items())),
-        "runtime_phase8_restore_shadow_consumer_observation_item_counts": dict(sorted(runtime_phase8_restore_shadow_consumer_observation_item_counts.items())),
-        "runtime_phase8_restore_legacy_decommission_state_counts": dict(sorted(runtime_phase8_restore_legacy_decommission_state_counts.items())),
-        "runtime_phase8_restore_legacy_decommission_target_counts": dict(sorted(runtime_phase8_restore_legacy_decommission_target_counts.items())),
-        "runtime_phase8_restore_authority_context_gate_state_counts": dict(sorted(runtime_phase8_restore_authority_context_gate_state_counts.items())),
-        "runtime_phase7_output_authority_state_counts": dict(sorted(runtime_phase7_output_authority_state_counts.items())),
-        "runtime_phase7_output_authority_blocker_counts": dict(sorted(runtime_phase7_output_authority_blocker_counts.items())),
-        "runtime_phase7_output_writeback_scope_counts": dict(sorted(runtime_phase7_output_writeback_scope_counts.items())),
+        "runtime_execution_spec_kind_counts": dict(sorted(runtime_execution_spec_kind_counts.items())),
+        "runtime_execution_spec_source_counts": dict(sorted(runtime_execution_spec_source_counts.items())),
+        "runtime_execution_spec_action_counts": dict(sorted(runtime_execution_spec_action_counts.items())),
+        "runtime_execution_spec_risk_counts": dict(sorted(runtime_execution_spec_risk_counts.items())),
+        "runtime_validation_status_counts": dict(sorted(runtime_validation_status_counts.items())),
+        "runtime_blocked_reason_counts": dict(sorted(runtime_blocked_reason_counts.items())),
+        "runtime_directive_source_counts": dict(sorted(runtime_directive_source_counts.items())),
         "runtime_phase8_output_commit_state_counts": dict(sorted(runtime_phase8_output_commit_state_counts.items())),
         "runtime_phase8_output_commit_candidate_type_counts": dict(sorted(runtime_phase8_output_commit_candidate_type_counts.items())),
-        "runtime_phase7_dispatch_authority_state_counts": dict(sorted(runtime_phase7_dispatch_authority_state_counts.items())),
-        "runtime_phase7_dispatch_authority_blocker_counts": dict(sorted(runtime_phase7_dispatch_authority_blocker_counts.items())),
-        "runtime_phase7_dispatch_target_counts": dict(sorted(runtime_phase7_dispatch_target_counts.items())),
-        "runtime_phase7_cutover_readiness_state_counts": dict(sorted(runtime_phase7_cutover_readiness_state_counts.items())),
-        "runtime_phase7_cutover_readiness_blocker_counts": dict(sorted(runtime_phase7_cutover_readiness_blocker_counts.items())),
-        "runtime_phase7_cutover_gate_blocker_counts": dict(sorted(runtime_phase7_cutover_gate_blocker_counts.items())),
-        "runtime_phase7_cutover_top_blocker_counts": dict(sorted(runtime_phase7_cutover_top_blocker_counts.items())),
-        "runtime_phase7_cutover_domain_state_counts": dict(sorted(runtime_phase7_cutover_domain_state_counts.items())),
-        "runtime_phase7_cutover_domain_blocker_counts": dict(sorted(runtime_phase7_cutover_domain_blocker_counts.items())),
-        "runtime_phase7_cutover_migration_task_counts": dict(sorted(runtime_phase7_cutover_migration_task_counts.items())),
-        "runtime_phase7_execution_contract_state_counts": dict(sorted(runtime_phase7_execution_contract_state_counts.items())),
-        "runtime_phase7_decommission_state_counts": dict(sorted(runtime_phase7_decommission_state_counts.items())),
-        "runtime_phase7_principle_alignment_state_counts": dict(sorted(runtime_phase7_principle_alignment_state_counts.items())),
-        "runtime_phase7_principle_alignment_blocker_counts": dict(sorted(runtime_phase7_principle_alignment_blocker_counts.items())),
-        "runtime_control_fallback_turns": [
+        "runtime_control_blocked_turns": [
             {
                 "index": turn.index,
                 "session_alias": turn.session_alias,
@@ -1219,12 +798,12 @@ def _execute_scenario(
                 "source": turn.runtime_control_source,
                 "primary_active": turn.runtime_primary_active,
                 "warnings": list(turn.runtime_control_warnings),
-                "allowlist_blockers": list(turn.runtime_control_diagnostics.get("allowlist_blockers") or []),
                 "contract_blockers": list(turn.runtime_control_diagnostics.get("contract_blockers") or []),
-                "execution_mismatches": list(turn.runtime_control_diagnostics.get("execution_mismatches") or []),
+                "blocked_reason": str(turn.runtime_control_diagnostics.get("blocked_reason") or ""),
+                "missing_execution_ids": list(turn.runtime_control_diagnostics.get("missing_execution_ids") or []),
                 "artifact_path": str(scenario_dir / f"turn-{turn.index:02d}-{_slug(turn.session_alias)}.json"),
             }
-            for turn in runtime_fallback_turns
+            for turn in runtime_blocked_turns
         ],
         "quality_warning_turns": [
             {

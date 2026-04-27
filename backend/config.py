@@ -535,11 +535,7 @@ class RuntimeConfigManager:
             "permission_mode": "default",
             "retrieval_shadow_compare": False,
             "retrieval_cutover_mode": "v2_primary",
-            "orchestration_plan_mode": "plan_only",
-            "primary_entry_selection_enabled": False,
-            "primary_entry_takeover_enabled": False,
-            "restore_shadow_consumer_enabled": False,
-            "restore_shadow_consumer_mode": "disabled",
+            "orchestration_plan_mode": "primary",
         }
 
     def load(self) -> dict[str, Any]:
@@ -601,50 +597,10 @@ class RuntimeConfigManager:
         return self.save({"retrieval_cutover_mode": normalized})
 
     def get_orchestration_plan_mode(self) -> str:
-        value = str(self.load().get("orchestration_plan_mode", "plan_only") or "plan_only").strip().lower()
-        if value == "shadow":
-            return "plan_only"
-        if value in {"legacy", "plan_only", "primary"}:
-            return value
-        return "plan_only"
+        return "primary"
 
     def set_orchestration_plan_mode(self, mode: str) -> dict[str, Any]:
-        normalized = str(mode or "plan_only").strip().lower() or "plan_only"
-        if normalized == "shadow":
-            normalized = "plan_only"
-        if normalized not in {"legacy", "plan_only", "primary"}:
-            normalized = "plan_only"
-        return self.save({"orchestration_plan_mode": normalized})
-
-    def get_primary_entry_selection_enabled(self) -> bool:
-        return bool(self.load().get("primary_entry_selection_enabled", False))
-
-    def set_primary_entry_selection_enabled(self, enabled: bool) -> dict[str, Any]:
-        return self.save({"primary_entry_selection_enabled": bool(enabled)})
-
-    def get_primary_entry_takeover_enabled(self) -> bool:
-        return bool(self.load().get("primary_entry_takeover_enabled", False))
-
-    def set_primary_entry_takeover_enabled(self, enabled: bool) -> dict[str, Any]:
-        return self.save({"primary_entry_takeover_enabled": bool(enabled)})
-
-    def get_restore_shadow_consumer_enabled(self) -> bool:
-        return bool(self.load().get("restore_shadow_consumer_enabled", False))
-
-    def set_restore_shadow_consumer_enabled(self, enabled: bool) -> dict[str, Any]:
-        return self.save({"restore_shadow_consumer_enabled": bool(enabled)})
-
-    def get_restore_shadow_consumer_mode(self) -> str:
-        value = str(self.load().get("restore_shadow_consumer_mode", "disabled") or "disabled").strip().lower()
-        if value in {"disabled", "observe_only"}:
-            return value
-        return "disabled"
-
-    def set_restore_shadow_consumer_mode(self, mode: str) -> dict[str, Any]:
-        normalized = str(mode or "disabled").strip().lower() or "disabled"
-        if normalized not in {"disabled", "observe_only"}:
-            normalized = "disabled"
-        return self.save({"restore_shadow_consumer_mode": normalized})
+        return self.save({"orchestration_plan_mode": "primary"})
 
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")
