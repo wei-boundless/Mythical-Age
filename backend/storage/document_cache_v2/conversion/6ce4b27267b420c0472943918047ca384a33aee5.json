@@ -1,0 +1,441 @@
+{
+  "doc_id": "6ce4b27267b420c0472943918047ca384a33aee5",
+  "collection": "durable_memory",
+  "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
+  "source_type": "md",
+  "version_digest": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834",
+  "parser_backend": "docling",
+  "title": "记住-以后复杂问题先给结论-再展开解释",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:0",
+      "block_type": "heading",
+      "text": "##",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:1",
+      "block_type": "paragraph",
+      "text": "schema\\_version: durable-memory.v3",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:2",
+      "block_type": "paragraph",
+      "text": "title: 记住：以后复杂问题先给结论，再展开解释。",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:3",
+      "block_type": "paragraph",
+      "text": "summary: 记住：以后复杂问题先给结论，再展开解释。",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:4",
+      "block_type": "paragraph",
+      "text": "canonical\\_statement: 记住：以后复杂问题先给结论，再展开解释。",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:5",
+      "block_type": "paragraph",
+      "text": "type: user",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:6",
+      "block_type": "paragraph",
+      "text": "memory\\_class: preference",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:7",
+      "block_type": "paragraph",
+      "text": "tags: [user, preference]",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:8",
+      "block_type": "paragraph",
+      "text": "retrieval\\_hints: [记住：以后复杂问题先给结论，再展开解释。, 记住：以后复杂问题先给结论，再展开解释。]",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:9",
+      "block_type": "paragraph",
+      "text": "created\\_at: 2026-04-27T03:13:35+00:00",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:10",
+      "block_type": "paragraph",
+      "text": "updated\\_at: 2026-04-27T03:13:35+00:00",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:11",
+      "block_type": "paragraph",
+      "text": "created\\_by: durable\\_write\\_agent",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:12",
+      "block_type": "paragraph",
+      "text": "source\\_session\\_id:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:13",
+      "block_type": "paragraph",
+      "text": "source\\_role: private",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:14",
+      "block_type": "paragraph",
+      "text": "source\\_message\\_excerpt: 记住：以后复杂问题先给结论，再展开解释。",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:15",
+      "block_type": "paragraph",
+      "text": "confidence: medium",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:16",
+      "block_type": "paragraph",
+      "text": "status: active",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:17",
+      "block_type": "paragraph",
+      "text": "last\\_confirmed\\_at:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:18",
+      "block_type": "paragraph",
+      "text": "scope: project",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:19",
+      "block_type": "paragraph",
+      "text": "stability: stable",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:20",
+      "block_type": "paragraph",
+      "text": "source\\_kind:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:21",
+      "block_type": "paragraph",
+      "text": "eligible\\_for\\_injection: true",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:22",
+      "block_type": "paragraph",
+      "text": "review\\_after:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:23",
+      "block_type": "paragraph",
+      "text": "supersedes:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:24",
+      "block_type": "paragraph",
+      "text": "invalidation\\_reason:",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    },
+    {
+      "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:25",
+      "block_type": "paragraph",
+      "text": "Canonical: 记住：以后复杂问题先给结论，再展开解释。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论，再展开解释。",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
+    "fallback_used": false
+  }
+}

@@ -16,6 +16,8 @@ from orchestration.adapters import build_orchestration_plan
 from orchestration.behavior_trace import build_behavior_snapshot
 from orchestration.contract_preview import build_contract_previews
 from orchestration.diff import actual_from_runtime_event, build_plan_actual_diff, update_actual_trace
+from orchestration.execution_candidate import ExecutionCandidateGate
+from orchestration.output_commit import OutputCommitGate, OutputCommitPlan
 from orchestration.runtime_adapter import build_runtime_control
 from query.answer_assembler import AnswerAssembler
 from query.context_models import MainContextState, TaskSummaryRef
@@ -45,6 +47,7 @@ from skill_system import SkillDefinition
 from tasks.coordinator import TaskCoordinator
 from tools.contracts import ToolContractDecision, ToolContractGate, ToolScope
 from understanding import QueryUnderstanding, analyze_memory_intent, evaluate_memory_write
+from orchestration.restore_context import RestoreAuthorityContextGate
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +83,9 @@ class QueryRuntime:
             task_coordinator,
             session_state_loader=self._load_session_binding_snapshot,
         )
+        self.restore_context_gate = RestoreAuthorityContextGate()
+        self.execution_candidate_gate = ExecutionCandidateGate()
+        self.output_commit_gate = OutputCommitGate()
         self.answer_assembler = AnswerAssembler()
         self._output_policy = RuntimeOutputPolicy(
             model_runtime=model_runtime,
@@ -422,32 +428,23 @@ class QueryRuntime:
                             current_segment,
                             fallback_content=str(event.get("content", "") or ""),
                         )
-                        self._capture_session_memory_projection(
-                            request.session_id,
-                            main_context_payload=event.get("main_context"),
-                            task_summary_payloads=event.get("task_summary_refs"),
-                        )
                         assistant_messages = self._build_assistant_messages(
                             segments,
                             canonical_content=str(event.get("content", "") or ""),
                             answer_metadata=self._assistant_metadata_from_done_event(event),
                         )
-                        if assistant_messages:
-                            self.session_manager.append_messages(request.session_id, assistant_messages)
-                            assistant_persisted = True
-
-                        trace.annotate(
-                            {
-                                "app.final_segment_count": len(segments),
-                                "app.assistant_persisted": assistant_persisted,
-                            }
+                        output_commit_plan = self._build_output_commit_plan(
+                            done_event=event,
+                            assistant_messages=assistant_messages,
+                            segment_count=len(segments),
+                            title_seed=request.message if is_first_user_message else None,
                         )
-                        asyncio.create_task(
-                            self._run_post_turn_tasks(
-                                request.session_id,
-                                title_seed=request.message if is_first_user_message else None,
-                            )
+                        assistant_persisted = self._apply_output_commit_plan(
+                            request.session_id,
+                            output_commit_plan,
+                            trace=trace,
                         )
+                        event = {**event, "output_commit": dict(output_commit_plan.diagnostics)}
 
                         yield event
                         break
@@ -488,7 +485,8 @@ class QueryRuntime:
         search_policy: list[str] | None = None,
         trace=None,
     ):
-        authority_context = self._load_session_authoritative_context(session_id)
+        authority_context_result = self._planner_authority_context_result(session_id)
+        authority_context = authority_context_result.context
         followup_risk_snapshot = self._preview_followup_runtime_risk(
             session_id=session_id,
             history=history,
@@ -630,12 +628,15 @@ class QueryRuntime:
             plan=plan,
             contract_previews=contract_previews,
         )
+        self._attach_restore_context_gate_diagnostics(orchestration_plan, authority_context_result.diagnostics)
         runtime_control = build_runtime_control(
             orchestration_plan=orchestration_plan,
             legacy_plan=plan,
             legacy_executions=executions,
             primary_entry_selection_enabled=self._primary_entry_selection_enabled(),
             primary_entry_takeover_enabled=self._primary_entry_takeover_enabled(),
+            restore_shadow_consumer_enabled=self._restore_shadow_consumer_enabled(),
+            restore_shadow_consumer_mode=self._restore_shadow_consumer_mode(),
         )
         executions = runtime_control.executions
         if orchestration_plan is not None:
@@ -791,13 +792,16 @@ class QueryRuntime:
         ephemeral_system_messages: list[str] | None = None,
         trace=None,
     ):
-        self._restore_evidence_state_from_session(session_id)
+        self._apply_evidence_restore_candidates(
+            session_id,
+            self._load_evidence_restore_candidates(session_id),
+        )
         plan = self._planner_build_plan(
             session_id=session_id,
             message=message,
             history=history,
             ephemeral_system_messages=ephemeral_system_messages,
-            authority_context=self._load_session_authoritative_context(session_id),
+            authority_context=self._planner_authority_context(session_id),
         )
         executions = plan.iter_executions()
         execution = executions[0]
@@ -1020,20 +1024,32 @@ class QueryRuntime:
         uri = str(getattr(source, "uri", "") or "").strip()
         return uri if _structured_dataset_path(uri) else ""
 
-    def _restore_evidence_state_from_session(self, session_id: str) -> None:
+    def _load_evidence_restore_candidates(self, session_id: str) -> dict[str, Any]:
         loader = getattr(self.session_manager, "get_runtime_state", None)
         if not callable(loader):
-            return
+            return {}
         try:
             state = loader(session_id, "evidence_state")
         except Exception:
-            return
+            return {}
         if not isinstance(state, dict) or not state:
+            return {}
+        candidates: dict[str, Any] = {}
+        binding_candidates = state.get("binding_candidates")
+        if isinstance(binding_candidates, dict):
+            candidates["binding_candidates"] = binding_candidates
+        evidence_graph = state.get("evidence_graph")
+        if isinstance(evidence_graph, dict):
+            candidates["evidence_graph"] = evidence_graph
+        return candidates
+
+    def _apply_evidence_restore_candidates(self, session_id: str, candidates_payload: dict[str, Any]) -> None:
+        if not isinstance(candidates_payload, dict) or not candidates_payload:
             return
-        candidates = state.get("binding_candidates")
+        candidates = candidates_payload.get("binding_candidates")
         if isinstance(candidates, dict):
             self.binding_candidate_store.restore(session_id, candidates)
-        graph = state.get("evidence_graph")
+        graph = candidates_payload.get("evidence_graph")
         if isinstance(graph, dict):
             self.evidence_graph_store.restore(session_id, graph)
 
@@ -1160,6 +1176,7 @@ class QueryRuntime:
         if execution_stage is not None:
             execution_stage.__enter__()
         try:
+            execution_candidate = self.execution_candidate_gate.build_candidate(execution)
             context = QueryContext(
                 session_id=session_id,
                 history=list(execution.history),
@@ -1182,7 +1199,18 @@ class QueryRuntime:
                     session_id,
                     context.augmented_history,
                 )
-            yield {"type": "context_management", "context": context.context_compaction}
+            if trace is not None:
+                trace.annotate(
+                    {
+                        "app.execution_candidate_state": str(execution_candidate.diagnostics.get("state") or ""),
+                        "app.execution_candidate_kind": str(execution_candidate.diagnostics.get("execution_kind") or ""),
+                    }
+                )
+            yield {
+                "type": "context_management",
+                "context": context.context_compaction,
+                "execution_candidate": dict(execution_candidate.diagnostics),
+            }
 
             if execution.execution_kind == "worker" and execution.worker_plan is not None:
                 async for event in self.evidence_orchestrator.stream_execution(
@@ -1689,6 +1717,25 @@ class QueryRuntime:
                 logger.exception("Failed to read primary entry takeover setting")
         return False
 
+    def _restore_shadow_consumer_enabled(self) -> bool:
+        getter = getattr(self.settings_service, "get_restore_shadow_consumer_enabled", None)
+        if callable(getter):
+            try:
+                return bool(getter())
+            except Exception:
+                logger.exception("Failed to read restore shadow consumer setting")
+        return False
+
+    def _restore_shadow_consumer_mode(self) -> str:
+        getter = getattr(self.settings_service, "get_restore_shadow_consumer_mode", None)
+        if callable(getter):
+            try:
+                mode = str(getter() or "disabled").strip().lower()
+                return mode if mode in {"disabled", "observe_only"} else "disabled"
+            except Exception:
+                logger.exception("Failed to read restore shadow consumer mode")
+        return "disabled"
+
     def _apply_runtime_control_to_orchestration_plan(self, orchestration_plan: dict[str, Any], runtime_control) -> None:
         diagnostics = orchestration_plan.setdefault("diagnostics", {})
         if isinstance(diagnostics, dict):
@@ -2125,11 +2172,88 @@ class QueryRuntime:
             task_summary_payloads=task_summary_payloads,
         )
 
+    def _build_output_commit_plan(
+        self,
+        *,
+        done_event: dict[str, Any],
+        assistant_messages: list[dict[str, Any]],
+        segment_count: int,
+        title_seed: str | None,
+    ) -> OutputCommitPlan:
+        return self.output_commit_gate.build_plan(
+            done_event=done_event,
+            assistant_messages=assistant_messages,
+            segment_count=segment_count,
+            title_seed=title_seed,
+        )
+
+    def _apply_output_commit_plan(
+        self,
+        session_id: str,
+        commit_plan: OutputCommitPlan,
+        *,
+        trace=None,
+    ) -> bool:
+        projection = dict(commit_plan.projection or {})
+        self._capture_session_memory_projection(
+            session_id,
+            main_context_payload=projection.get("main_context"),
+            task_summary_payloads=projection.get("task_summary_refs"),
+        )
+
+        assistant_persisted = False
+        assistant_messages = list(commit_plan.assistant_messages or [])
+        if assistant_messages:
+            self.session_manager.append_messages(session_id, assistant_messages)
+            assistant_persisted = True
+
+        if trace is not None:
+            trace.annotate(
+                {
+                    "app.final_segment_count": int(commit_plan.diagnostics.get("segment_count") or 0),
+                    "app.assistant_persisted": assistant_persisted,
+                    "app.output_commit_state": str(commit_plan.diagnostics.get("state") or ""),
+                }
+            )
+
+        post_turn = dict(commit_plan.post_turn or {})
+        asyncio.create_task(
+            self._run_post_turn_tasks(
+                session_id,
+                title_seed=str(post_turn.get("title_seed") or "") or None,
+            )
+        )
+        return assistant_persisted
+
     def _load_session_binding_snapshot(self, session_id: str) -> dict[str, Any]:
         return self._context_state.load_session_binding_snapshot(session_id)
 
-    def _load_session_authoritative_context(self, session_id: str) -> dict[str, Any]:
-        return self._context_state.load_session_authoritative_context(session_id)
+    def _load_session_restore_candidates(self, session_id: str) -> dict[str, Any]:
+        return self._context_state.load_session_restore_candidates(session_id)
+
+    def _planner_authority_context(self, session_id: str) -> dict[str, Any]:
+        return self._planner_authority_context_result(session_id).context
+
+    def _planner_authority_context_result(self, session_id: str):
+        return self.restore_context_gate.filter_for_planner(
+            restore_candidates=self._load_session_restore_candidates(session_id),
+            restore_shadow_consumer_enabled=self._restore_shadow_consumer_enabled(),
+            restore_shadow_consumer_mode=self._restore_shadow_consumer_mode(),
+        )
+
+    def _attach_restore_context_gate_diagnostics(
+        self,
+        orchestration_plan: dict[str, Any] | None,
+        diagnostics: dict[str, Any],
+    ) -> None:
+        if not isinstance(orchestration_plan, dict) or not diagnostics:
+            return
+        plan_diagnostics = orchestration_plan.setdefault("diagnostics", {})
+        if not isinstance(plan_diagnostics, dict):
+            return
+        restore_authority = plan_diagnostics.setdefault("restore_authority", {})
+        if isinstance(restore_authority, dict):
+            restore_authority["restore_authority_context_gate"] = dict(diagnostics)
 
     def _preview_followup_runtime_risk(
         self,

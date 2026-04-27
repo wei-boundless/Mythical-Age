@@ -538,6 +538,8 @@ class RuntimeConfigManager:
             "orchestration_plan_mode": "plan_only",
             "primary_entry_selection_enabled": False,
             "primary_entry_takeover_enabled": False,
+            "restore_shadow_consumer_enabled": False,
+            "restore_shadow_consumer_mode": "disabled",
         }
 
     def load(self) -> dict[str, Any]:
@@ -625,6 +627,24 @@ class RuntimeConfigManager:
 
     def set_primary_entry_takeover_enabled(self, enabled: bool) -> dict[str, Any]:
         return self.save({"primary_entry_takeover_enabled": bool(enabled)})
+
+    def get_restore_shadow_consumer_enabled(self) -> bool:
+        return bool(self.load().get("restore_shadow_consumer_enabled", False))
+
+    def set_restore_shadow_consumer_enabled(self, enabled: bool) -> dict[str, Any]:
+        return self.save({"restore_shadow_consumer_enabled": bool(enabled)})
+
+    def get_restore_shadow_consumer_mode(self) -> str:
+        value = str(self.load().get("restore_shadow_consumer_mode", "disabled") or "disabled").strip().lower()
+        if value in {"disabled", "observe_only"}:
+            return value
+        return "disabled"
+
+    def set_restore_shadow_consumer_mode(self, mode: str) -> dict[str, Any]:
+        normalized = str(mode or "disabled").strip().lower() or "disabled"
+        if normalized not in {"disabled", "observe_only"}:
+            normalized = "disabled"
+        return self.save({"restore_shadow_consumer_mode": normalized})
 
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")

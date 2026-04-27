@@ -148,20 +148,20 @@ class RuntimeContextState:
             "active_subset_handle_id": str(getattr(slots, "active_subset_handle_id", "") or "").strip(),
         }
 
-    def load_session_authoritative_context(self, session_id: str) -> dict[str, Any]:
+    def load_session_restore_candidates(self, session_id: str) -> dict[str, Any]:
         snapshot = self.load_session_binding_snapshot(session_id)
-        context: dict[str, Any] = {}
+        candidates: dict[str, Any] = {}
         committed_pdf = str(snapshot.get("committed_pdf", "") or "").strip()
         if committed_pdf:
-            context["active_pdf"] = committed_pdf
+            candidates["active_pdf"] = committed_pdf
         committed_dataset = str(snapshot.get("committed_dataset", "") or "").strip()
         if committed_dataset:
-            context["active_dataset"] = committed_dataset
+            candidates["active_dataset"] = committed_dataset
         for key in ("active_object_handle_id", "active_result_handle_id", "active_subset_handle_id"):
             value = str(snapshot.get(key, "") or "").strip()
             if value:
-                context[key] = value
-        return context
+                candidates[key] = value
+        return candidates
 
     def apply_execution_binding_to_constraints(
         self,

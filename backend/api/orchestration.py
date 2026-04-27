@@ -31,6 +31,11 @@ class PrimaryEntryTakeoverRequest(BaseModel):
     enabled: bool = False
 
 
+class RestoreShadowConsumerRequest(BaseModel):
+    enabled: bool = False
+    mode: str = Field(default="disabled")
+
+
 @router.post("/orchestration/dry-run")
 async def orchestration_dry_run(payload: BehaviorDryRunRequest) -> dict[str, Any]:
     runtime = require_runtime()
@@ -73,6 +78,9 @@ async def orchestration_catalog() -> dict[str, Any]:
         "supported_orchestration_plan_modes": ["legacy", "plan_only", "primary"],
         "primary_entry_selection_enabled": runtime.settings.get_primary_entry_selection_enabled(),
         "primary_entry_takeover_enabled": runtime.settings.get_primary_entry_takeover_enabled(),
+        "restore_shadow_consumer_enabled": runtime.settings.get_restore_shadow_consumer_enabled(),
+        "restore_shadow_consumer_mode": runtime.settings.get_restore_shadow_consumer_mode(),
+        "supported_restore_shadow_consumer_modes": ["disabled", "observe_only"],
         "skills": skills,
         "tools": tools,
     }
@@ -110,4 +118,16 @@ async def set_primary_entry_takeover(payload: PrimaryEntryTakeoverRequest) -> di
     config = runtime.settings.set_primary_entry_takeover_enabled(payload.enabled)
     return {
         "enabled": bool(config.get("primary_entry_takeover_enabled", False)),
+    }
+
+
+@router.put("/orchestration/restore-shadow-consumer")
+async def set_restore_shadow_consumer(payload: RestoreShadowConsumerRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    mode_config = runtime.settings.set_restore_shadow_consumer_mode(payload.mode)
+    enabled_config = runtime.settings.set_restore_shadow_consumer_enabled(payload.enabled)
+    return {
+        "enabled": bool(enabled_config.get("restore_shadow_consumer_enabled", False)),
+        "mode": str(mode_config.get("restore_shadow_consumer_mode", "disabled") or "disabled"),
+        "supported_modes": ["disabled", "observe_only"],
     }

@@ -9,6 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from query.output_boundary import sanitize_visible_assistant_content
 from query.runtime_persistence import RuntimePersistenceAssembler
+from orchestration.output_commit import OutputCommitGate
 
 
 def test_output_boundary_strips_pdf_canonical_protocol_block() -> None:
@@ -31,9 +32,38 @@ def test_persistence_gate_rejects_procedural_partial_even_with_tool_receipt() ->
     assert gated == "当前还没有形成真实查询结果。"
 
 
+def test_output_commit_gate_projects_persist_candidates_without_takeover() -> None:
+    gate = OutputCommitGate()
+
+    plan = gate.build_plan(
+        done_event={
+            "answer_channel": "answer_candidate",
+            "answer_source": "segment.visible_text",
+            "answer_persist_policy": "persist_canonical",
+            "main_context": {"active_goal": "整理报告"},
+            "task_summary_refs": [{"task_id": "task:1"}],
+        },
+        assistant_messages=[{"role": "assistant", "content": "结论"}],
+        segment_count=1,
+        title_seed="整理报告",
+    )
+
+    assert plan.diagnostics["phase"] == "8L"
+    assert plan.diagnostics["state"] == "commit_candidates_projected"
+    assert plan.diagnostics["takeover_allowed"] is False
+    assert plan.diagnostics["assistant_message_count"] == 1
+    assert {item["candidate_type"] for item in plan.diagnostics["candidates"]} == {
+        "state_memory_projection",
+        "session_transcript",
+        "post_turn_refresh",
+    }
+    assert plan.projection["task_summary_refs"] == [{"task_id": "task:1"}]
+
+
 def main() -> None:
     test_output_boundary_strips_pdf_canonical_protocol_block()
     test_persistence_gate_rejects_procedural_partial_even_with_tool_receipt()
+    test_output_commit_gate_projects_persist_candidates_without_takeover()
     print("ALL PASSED (runtime persistence regression)")
 
 

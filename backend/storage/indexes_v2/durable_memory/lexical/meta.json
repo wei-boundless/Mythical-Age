@@ -1,10 +1,10 @@
 {
   "collection": "durable_memory",
   "status": "ready",
-  "lexical_documents": 1,
+  "lexical_documents": 3,
   "tokenizer": "mixed_word_cjk_bigram_v1",
   "k1": 1.5,
   "b": 0.75,
-  "build_id": "durable_memory-941faa14c932",
-  "build_started_at_utc": "2026-04-26T14:25:59.592808Z"
+  "build_id": "durable_memory-ef936cc5c1bc",
+  "build_started_at_utc": "2026-04-27T03:13:37.033103Z"
 }

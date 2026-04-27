@@ -9,6 +9,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from orchestration.runtime_adapter import build_runtime_control
+from orchestration.restore_context import RestoreAuthorityContextGate
+from orchestration.execution_candidate import ExecutionCandidateGate
 
 
 class LegacyPlan:
@@ -312,6 +314,9 @@ def test_runtime_control_primary_entry_selection_flag_changes_entry_strategy() -
     assert control.diagnostics["primary_execution_preview"]["executable_contract"]["runnable"] is False
     assert control.diagnostics["primary_entry_takeover"]["state"] == "disabled"
     assert control.diagnostics["phase7_readiness"]["state"] == "disabled"
+    assert control.diagnostics["phase7_readiness"]["principle_alignment"]["phase"] == "7E"
+    assert control.diagnostics["phase7_readiness"]["principle_alignment"]["state"] == "blocked"
+    assert "doc66_output_specialty_only" in control.diagnostics["phase7_readiness"]["principle_alignment"]["blockers"]
 
 
 def test_runtime_control_primary_falls_back_for_non_allowlisted_sources() -> None:
@@ -507,6 +512,9 @@ def test_runtime_control_primary_entry_takeover_activates_for_minimal_low_risk_s
     assert control.diagnostics["phase7_readiness"]["blockers"] == []
     assert control.diagnostics["phase7_readiness"]["legacy_decommission"]["state"] == "not_ready"
     assert control.diagnostics["phase7_readiness"]["legacy_decommission"]["delete_allowed"] is False
+    assert control.diagnostics["phase7_readiness"]["principle_alignment"]["state"] == "blocked"
+    assert "legacy_power_domain:decide" in control.diagnostics["phase7_readiness"]["principle_alignment"]["blockers"]
+    assert control.diagnostics["phase7_readiness"]["principle_alignment"]["legacy_power_domains"][0]["module"] == "backend/query/planner.py"
 
 
 def test_runtime_control_primary_entry_takeover_blocks_document_and_data_scope_initially() -> None:
@@ -532,6 +540,16 @@ def test_runtime_control_primary_entry_takeover_blocks_document_and_data_scope_i
                 {"step_id": "step_1", "execution_id": "a", "tool": "structured_data_analysis", "risk_tags": []},
             ],
             "answer_policy": {"answer_channel": "runtime_output_boundary"},
+            "diagnostics": {
+                "output_authority": {
+                    "state": "candidate_projected",
+                    "blockers": ["legacy_present_still_executes"],
+                },
+                "dispatch_authority": {
+                    "state": "candidate_projected",
+                    "blockers": ["legacy_decide_still_executes"],
+                },
+            },
             "topology": {"mode": "single_execution"},
             "executions": [{"execution_id": "a", "route": "tool", "tool_name": "structured_data_analysis"}],
         },
@@ -548,6 +566,16 @@ def test_runtime_control_primary_entry_takeover_blocks_document_and_data_scope_i
     assert control.diagnostics["primary_entry_takeover"]["blocked_sources"] == ["data"]
     assert control.diagnostics["phase7_readiness"]["state"] == "blocked"
     assert "source_not_phase7_ready:data" in control.diagnostics["phase7_readiness"]["blockers"]
+    assert control.diagnostics["phase7_readiness"]["output_authority"]["state"] == "candidate_projected"
+    assert control.diagnostics["phase7_readiness"]["dispatch_authority"]["state"] == "candidate_projected"
+    assert control.diagnostics["phase7_readiness"]["cutover_readiness"]["state"] == "blocked"
+    assert control.diagnostics["phase7_readiness"]["cutover_readiness"]["delete_allowed"] is False
+    assert control.diagnostics["phase7_readiness"]["cutover_readiness"]["gate_blockers"]
+    assert control.diagnostics["phase7_readiness"]["cutover_readiness"]["top_blockers"]
+    assert control.diagnostics["phase7_readiness"]["cutover_readiness"]["domain_summaries"][0]["domain"] == "restore"
+    assert control.diagnostics["phase7_readiness"]["cutover_readiness"]["migration_tasks"][0]["task_id"].startswith("phase7m:")
+    assert control.diagnostics["phase7_readiness"]["cutover_readiness"]["migration_tasks"][0]["scope"] == "diagnostic_only"
+    assert "权力域" in control.diagnostics["phase7_readiness"]["cutover_readiness"]["human_summary"]
 
 
 def test_runtime_control_primary_falls_back_for_system_execution_tools() -> None:
@@ -579,3 +607,144 @@ def test_runtime_control_primary_falls_back_for_system_execution_tools() -> None
     assert "high_risk_tool:terminal" in control.diagnostics["allowlist_blockers"]
     assert control.diagnostics["execution_entries"][0]["eligible_for_primary_entry"] is False
     assert "system_execution:terminal" in control.diagnostics["execution_entries"][0]["eligibility_blockers"]
+
+
+def test_restore_shadow_consumer_observe_only_stays_read_only() -> None:
+    executions = [RichLegacyExecution("a", route="knowledge", execution_kind="agent")]
+
+    control = build_runtime_control(
+        orchestration_plan={
+            "mode": "primary",
+            "plan_id": "orch:test",
+            "validation": {"status": "passed", "issues": []},
+            "intent_frame": {"intent": "followup"},
+            "memory_policy": {"read_mode": "session"},
+            "context_policy": {"mode": "runtime"},
+            "resource_policy": {"allowed_sources": ["general"]},
+            "execution_directives": [{"step_id": "step_1", "execution_id": "a", "risk_tags": []}],
+            "answer_policy": {"answer_channel": "runtime_output_boundary"},
+            "diagnostics": {
+                "restore_authority": {
+                    "state": "candidate_projected",
+                    "restore_authority_context_gate": {
+                        "state": "orchestration_filtered",
+                        "mode": "observe_only",
+                        "filtered_keys": ["active_pdf"],
+                    },
+                    "restore_shadow_consumer_contract": {
+                        "state": "contract_ready",
+                        "candidate_count": 1,
+                        "state_write_allowed": False,
+                        "takeover_allowed": False,
+                        "delete_allowed": False,
+                        "contract_candidates": [
+                            {
+                                "candidate_id": "restore:1",
+                                "replacement_point": "context_handle_restore",
+                                "legacy_consumer": "query.runtime_context_state",
+                                "comparison": "shadow_matches_legacy_observation",
+                                "consumer_state": "observe_only_ready",
+                                "state_write_allowed": False,
+                                "takeover_allowed": False,
+                            }
+                        ],
+                    },
+                }
+            },
+            "topology": {"mode": "single_execution"},
+            "executions": [{"execution_id": "a", "route": "knowledge"}],
+        },
+        legacy_plan=LegacyPlan(),
+        legacy_executions=executions,
+        restore_shadow_consumer_enabled=True,
+        restore_shadow_consumer_mode="observe_only",
+    )
+
+    restore_authority = control.diagnostics["phase7_readiness"]["restore_authority"]
+    shadow_control = restore_authority["restore_shadow_consumer_control"]
+    shadow_observation = restore_authority["restore_shadow_consumer_observation"]
+    legacy_decommission = restore_authority["restore_legacy_decommission_plan"]
+    assert shadow_control["state"] == "observe_only_active"
+    assert shadow_control["state_write_allowed"] is False
+    assert shadow_control["takeover_allowed"] is False
+    assert shadow_observation["state"] == "observed"
+    assert shadow_observation["observations"][0]["observation_state"] == "captured_observe_only"
+    assert shadow_observation["observations"][0]["state_write_allowed"] is False
+    assert shadow_observation["observations"][0]["takeover_allowed"] is False
+    assert legacy_decommission["state"] == "first_cut_removed"
+    assert legacy_decommission["delete_allowed"] is False
+    assert legacy_decommission["targets"][0]["state"] == "removed"
+    assert legacy_decommission["targets"][0]["first_cut"] is True
+    assert legacy_decommission["targets"][1]["state"] == "removed"
+
+
+def test_restore_authority_context_gate_legacy_passthrough_when_disabled() -> None:
+    gate = RestoreAuthorityContextGate()
+
+    result = gate.filter_for_planner(
+        restore_candidates={
+            "active_pdf": "files/a.pdf",
+            "active_dataset": "tables/a.csv",
+            "untrusted_extra": "ignored-by-normalizer",
+        },
+        restore_shadow_consumer_enabled=False,
+        restore_shadow_consumer_mode="observe_only",
+    )
+
+    assert result.context == {
+        "active_pdf": "files/a.pdf",
+        "active_dataset": "tables/a.csv",
+    }
+    assert result.diagnostics["state"] == "legacy_passthrough"
+    assert result.diagnostics["mode"] == "observe_only"
+    assert result.diagnostics["candidate_keys"] == ["active_dataset", "active_pdf"]
+    assert result.diagnostics["state_write_allowed"] is False
+    assert result.diagnostics["takeover_allowed"] is False
+    assert result.diagnostics["delete_allowed"] is False
+
+
+def test_restore_authority_context_gate_filters_for_planner_in_observe_only() -> None:
+    gate = RestoreAuthorityContextGate()
+
+    result = gate.filter_for_planner(
+        restore_candidates={
+            "active_pdf": "files/a.pdf",
+            "active_dataset": "",
+            "active_result_handle_id": "result-1",
+            "legacy_decision_hint": "must_not_reach_planner",
+        },
+        restore_shadow_consumer_enabled=True,
+        restore_shadow_consumer_mode="observe_only",
+    )
+
+    assert result.context == {
+        "active_pdf": "files/a.pdf",
+        "active_result_handle_id": "result-1",
+    }
+    assert result.diagnostics["phase"] == "8I"
+    assert result.diagnostics["state"] == "orchestration_filtered"
+    assert result.diagnostics["candidate_keys"] == ["active_pdf", "active_result_handle_id"]
+    assert result.diagnostics["filtered_keys"] == ["active_pdf", "active_result_handle_id"]
+    assert "legacy_decision_hint" not in result.diagnostics["legacy_keys"]
+    assert result.diagnostics["replacement_seam"] == "orchestration.restore_context.RestoreAuthorityContextGate"
+
+
+def test_execution_candidate_gate_projects_legacy_execution_without_takeover() -> None:
+    execution = RichLegacyExecution(
+        "a",
+        route="tool",
+        execution_kind="direct_tool",
+        tool_name="pdf_analysis",
+        worker_route="pdf",
+        skill_name="pdf-reading",
+    )
+
+    candidate = ExecutionCandidateGate().build_candidate(execution)
+
+    assert candidate.diagnostics["phase"] == "8M"
+    assert candidate.diagnostics["state"] == "execution_candidate_projected"
+    assert candidate.diagnostics["execution_id"] == "a"
+    assert candidate.diagnostics["execution_kind"] == "direct_tool"
+    assert candidate.diagnostics["tool"] == "pdf_analysis"
+    assert candidate.diagnostics["takeover_allowed"] is False
+    assert candidate.diagnostics["delete_allowed"] is False

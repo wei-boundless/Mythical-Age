@@ -6,6 +6,8 @@
   "orchestration_plan_mode": "primary",
   "primary_entry_selection_enabled": false,
   "primary_entry_takeover_enabled": false,
+  "restore_shadow_consumer_enabled": false,
+  "restore_shadow_consumer_mode": "disabled",
   "agent_system": {
     "enabled_agents": {
       "agent:local:worker": true,

@@ -177,6 +177,31 @@ def test_actual_trace_captures_context_and_prompt_manifest() -> None:
     assert diff["actual"]["prompt_manifest_id"] == "prompt-a"
 
 
+def test_missing_prompt_manifest_observation_does_not_emit_quality_warning() -> None:
+    plan = {
+        "plan_id": "orch:test",
+        "topology": {
+            "mode": "single_execution",
+            "route": "agent",
+            "execution_kind": "agent",
+        },
+        "context_policy": {"mode": "runtime"},
+        "prompt_policy": {"mode": "runtime", "active_skill_name": "structured-data-analysis"},
+        "executions": [{"execution_id": "main", "execution_kind": "agent"}],
+    }
+    trace: dict[str, object] = {}
+    trace = update_actual_trace(trace, {"type": "context_management", "context": {"pressure_level": "normal"}})
+
+    actual = actual_from_runtime_event({"type": "done", "answer_source": "model"}, plan=plan, actual_trace=trace)
+    diff = build_plan_actual_diff(plan, actual=actual)
+    by_field = {item["field"]: item for item in diff["items"]}
+
+    assert diff["status"] == "matched"
+    assert by_field["prompt_policy.prompt_manifest"]["status"] == "unknown"
+    assert by_field["prompt_policy.active_skill_name"]["status"] == "unknown"
+    assert by_field["prompt_policy.prompt_manifest"]["reason"] == "prompt_manifest_event_not_observed"
+
+
 def test_direct_tool_contract_denial_is_reported_as_mismatch() -> None:
     plan = {
         "plan_id": "orch:test",

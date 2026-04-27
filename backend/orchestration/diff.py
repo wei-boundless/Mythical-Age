@@ -313,8 +313,8 @@ def _policy_observation_items(
                 "prompt_policy.prompt_manifest",
                 True,
                 bool(actual.get("prompt_manifest_present")),
-                missing_status="warning",
-                missing_reason="prompt_manifest_event_missing",
+                missing_status="unknown",
+                missing_reason="prompt_manifest_event_not_observed",
             )
         )
     if execution_kind == "direct_tool":
@@ -368,8 +368,8 @@ def _policy_observation_items(
                     "prompt_policy.active_skill_name",
                     expected_skill,
                     expected_skill if bool(actual.get("prompt_manifest_present")) else "",
-                    missing_status="warning",
-                    missing_reason="prompt_manifest_event_missing",
+                    missing_status="unknown",
+                    missing_reason="prompt_manifest_event_not_observed",
                 )
             )
     return items

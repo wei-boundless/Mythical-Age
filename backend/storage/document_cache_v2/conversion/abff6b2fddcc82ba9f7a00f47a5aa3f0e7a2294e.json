@@ -1,0 +1,61 @@
+{
+  "doc_id": "abff6b2fddcc82ba9f7a00f47a5aa3f0e7a2294e",
+  "collection": "durable_memory",
+  "source_path": "durable_memory/index/MEMORY.md",
+  "source_type": "md",
+  "version_digest": "9a312ebad7dc0e54cb9233bedbf3e9ff519cca33",
+  "parser_backend": "docling",
+  "title": "MEMORY",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "9a312ebad7dc0e54cb9233bedbf3e9ff519cca33:0",
+      "block_type": "heading",
+      "text": "# Memory Index",
+      "modality": "text",
+      "section_label": "Memory Index",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Memory Index"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/index/MEMORY.md"
+      }
+    },
+    {
+      "block_id": "9a312ebad7dc0e54cb9233bedbf3e9ff519cca33:1",
+      "block_type": "paragraph",
+      "text": "- [复杂问题的回答顺序](复杂问题的回答顺序.md) - 以后复杂问题先给结论，再展开解释。\n- [记住：以后复杂问题先给结论，再展开解释。](记住-以后复杂问题先给结论-再展开解释.md) - 记住：以后复杂问题先给结论，再展开解释。",
+      "modality": "text",
+      "section_label": "Memory Index",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Memory Index"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "durable_memory/index/MEMORY.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "durable_memory/index/MEMORY.md",
+    "fallback_used": false
+  }
+}

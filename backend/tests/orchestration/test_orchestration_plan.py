@@ -64,6 +64,10 @@ def test_plan_only_orchestration_plan_preserves_legacy_topology() -> None:
     assert payload["diagnostics"]["intent_authority"]["state"] == "candidate_projected"
     assert payload["diagnostics"]["intent_authority"]["legacy_still_executes"] is True
     assert payload["diagnostics"]["intent_candidates"][0]["authority"] == "candidate_only"
+    assert payload["diagnostics"]["restore_authority"]["phase"] == "7F"
+    assert payload["diagnostics"]["restore_authority"]["state"] == "candidate_projected"
+    assert payload["diagnostics"]["restore_authority"]["current_turn_override_allowed"] is False
+    assert payload["diagnostics"]["restore_authority"]["candidates"] == []
     assert payload["executions"][0]["execution_id"] == "main"
     decision_by_id = {decision["node_id"]: decision for decision in payload["decisions"]}
     assert decision_by_id["task-understanding"]["status"] == "candidate"
@@ -207,6 +211,64 @@ def test_orchestration_plan_exports_formal_directive_contract() -> None:
     assert payload["intent_frame"]["source_needs"] == ["local_files", "document"]
     assert payload["memory_policy"]["use_session_state"] is True
     assert payload["context_policy"]["required_handles"] == ["pdf:active"]
+    assert payload["diagnostics"]["restore_authority"]["memory_candidates"] == ["session_state"]
+    assert payload["diagnostics"]["restore_authority"]["handle_candidates"] == ["pdf:active"]
+    assert "session_state_restore_candidate" in payload["diagnostics"]["restore_authority"]["blockers"]
+    restore_candidates = payload["diagnostics"]["restore_authority"]["candidates"]
+    assert payload["diagnostics"]["restore_authority"]["candidate_count"] == 2
+    assert {item["candidate_type"] for item in restore_candidates} == {"session_state", "target_handle"}
+    assert all(item["adoption_state"] == "adopted_by_legacy" for item in restore_candidates)
+    assert all(item["can_override_current_intent"] is False for item in restore_candidates)
+    handle_candidate = next(item for item in restore_candidates if item["candidate_type"] == "target_handle")
+    assert handle_candidate["owner_module"] == "query.runtime_context_state"
+    assert handle_candidate["value"] == "pdf:active"
+    adoption_gate = payload["diagnostics"]["restore_authority"]["adoption_gate"]
+    adoption_decisions = payload["diagnostics"]["restore_authority"]["adoption_decisions"]
+    cutover_plan = payload["diagnostics"]["restore_authority"]["cutover_plan"]
+    dry_run_comparison = payload["diagnostics"]["restore_authority"]["dry_run_comparison"]
+    formal_review = payload["diagnostics"]["restore_authority"]["formal_adoption_review"]
+    assert {item["decision"] for item in adoption_decisions} == {"blocked"}
+    assert all(item["validator"] == "phase7g_restore_adoption_preview" for item in adoption_decisions)
+    assert {item["memory_context_validation"]["status"] for item in adoption_decisions} == {"passed"}
+    assert adoption_gate["phase"] == "7G"
+    assert adoption_gate["state"] == "blocked"
+    assert adoption_gate["blocked_decision_count"] == 2
+    assert adoption_gate["validator_blocked_count"] == 0
+    assert "restore_candidates_still_adopted_by_legacy" in adoption_gate["blockers"]
+    assert adoption_gate["current_turn_override_allowed"] is False
+    assert cutover_plan["phase"] == "7H"
+    assert cutover_plan["state"] == "blocked"
+    assert cutover_plan["delete_allowed"] is False
+    assert set(cutover_plan["candidate_types"]) == {"session_state", "target_handle"}
+    assert "adoption_gate:blocked" in cutover_plan["blockers"]
+    assert dry_run_comparison["phase"] == "7H"
+    assert dry_run_comparison["state"] == "observed_delta"
+    assert dry_run_comparison["delta_count"] == 2
+    assert {item["alignment"] for item in dry_run_comparison["comparisons"]} == {"expected_legacy_delta"}
+    assert formal_review["phase"] == "8A"
+    assert formal_review["mode"] == "diagnostic_only"
+    assert formal_review["state"] == "candidate_decisions_ready"
+    assert formal_review["accepted_count"] == 2
+    assert formal_review["rejected_count"] == 0
+    assert {item["decision"] for item in formal_review["decisions"]} == {"accepted"}
+    assert {item["alignment"] for item in formal_review["comparison"]["items"]} == {"legacy_matches_formal_acceptance"}
+    assert formal_review["takeover_allowed"] is False
+    output_authority = payload["diagnostics"]["output_authority"]
+    assert output_authority["phase"] == "7I"
+    assert output_authority["state"] == "candidate_projected"
+    assert output_authority["legacy_still_executes"] is True
+    assert output_authority["answer_channel"] == "runtime_output_boundary"
+    assert "legacy_present_still_executes" in output_authority["blockers"]
+    assert "legacy_persist_still_executes" in output_authority["blockers"]
+    assert output_authority["cutover_plan"]["delete_allowed"] is False
+    dispatch_authority = payload["diagnostics"]["dispatch_authority"]
+    assert dispatch_authority["phase"] == "7J"
+    assert dispatch_authority["state"] == "candidate_projected"
+    assert dispatch_authority["legacy_still_executes"] is True
+    assert dispatch_authority["tool_directive_count"] == 1
+    assert "legacy_decide_still_executes" in dispatch_authority["blockers"]
+    assert "legacy_execute_still_executes" in dispatch_authority["blockers"]
+    assert dispatch_authority["cutover_plan"]["delete_allowed"] is False
     assert payload["resource_policy"]["allowed_sources"] == ["data", "document", "general", "local_files"]
     assert payload["execution_directives"][0]["action"] == "call_tool"
     assert payload["execution_directives"][0]["tool"] == "pdf_analysis"

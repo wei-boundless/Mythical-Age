@@ -35,19 +35,6 @@ class QueryContinuationResolver:
         promoted = self.promote_knowledge_followup_query(message, history, promoted)
         return self.promote_session_summary_query(message, history, promoted)
 
-    def apply_authoritative_context(
-        self,
-        *,
-        message: str,
-        understanding: QueryUnderstanding,
-        authority_context: dict[str, Any] | None,
-    ) -> QueryUnderstanding:
-        # Restored authority may help later handle/bundle arbitration, but it must
-        # not rewrite the current-turn route. Follow-up execution should be
-        # recovered through explicit handle resolution, not by injecting
-        # active_pdf/active_dataset back into understanding.
-        return understanding
-
     def promote_pdf_query(
         self,
         message: str,

@@ -13,6 +13,7 @@ NODE_DEFS: tuple[tuple[str, str, str], ...] = (
     ("execution-mode", "执行模式", "选择 single_execution、bundle_execution 或 explicit_fanout。"),
     ("context", "上下文压缩", "整理历史窗口，决定是否压缩与保留哪些上下文。"),
     ("memory", "记忆读取", "读取状态记忆、长期记忆和上下文包。"),
+    ("restore", "恢复仲裁", "把状态记忆、长期记忆和上下文句柄恢复结果投影为候选，并预检是否允许采用。"),
     ("prompt", "Prompt 装配", "组合 soul、core、memory、skill、turn 等提示词片段。"),
     ("capability", "能力调度", "决定是否进入工具、worker、证据编排或模型直答。"),
     ("model", "模型生成", "请求模型流式生成，并处理中途工具调用。"),
@@ -28,7 +29,8 @@ EDGE_DEFS: tuple[tuple[str, str, str, str], ...] = (
     ("planner-execution", "planner", "execution-mode", "确定执行拓扑"),
     ("execution-context", "execution-mode", "context", "创建执行上下文"),
     ("context-memory", "context", "memory", "读取记忆上下文"),
-    ("memory-prompt", "memory", "prompt", "注入可见上下文"),
+    ("memory-restore", "memory", "restore", "提交恢复候选"),
+    ("restore-prompt", "restore", "prompt", "注入允许使用的上下文"),
     ("prompt-capability", "prompt", "capability", "交给能力调度"),
     ("capability-model", "capability", "model", "模型主链"),
     ("capability-worker", "capability", "worker", "证据/worker 分支"),
@@ -236,7 +238,7 @@ def _visited_node_ids(
     event_names: list[str],
     payload: dict[str, Any],
 ) -> set[str]:
-    visited = {"input", "followup", "planner", "execution-mode", "context", "memory", "prompt", "capability", "output", "persistence"}
+    visited = {"input", "followup", "planner", "execution-mode", "context", "memory", "restore", "prompt", "capability", "output", "persistence"}
     route = str(plan.get("route") or result.get("runtime_effective_route") or result.get("plan_route") or "")
     if route:
         visited.add("model")
@@ -318,6 +320,17 @@ def _node_summary(
     if node_id == "memory":
         memory_sync = _dict(payload.get("memory_sync"))
         return f"session summary {memory_sync.get('session_summary_chars') or 0} chars / durable saved {memory_sync.get('durable_saved') or 0}"
+    if node_id == "restore":
+        restore = _restore_authority_from_payload(payload)
+        if restore:
+            gate = _dict(restore.get("adoption_gate"))
+            dry_run = _dict(restore.get("dry_run_comparison"))
+            return (
+                f"候选 {restore.get('candidate_count') or 0} / "
+                f"采用门禁 {gate.get('state') or 'unknown'} / "
+                f"对照 {dry_run.get('state') or 'unknown'}"
+            )
+        return "本轮未记录恢复仲裁。"
     if node_id == "prompt":
         return "prompt_manifest" if "prompt_manifest" in event_names or result.get("prompt_manifest_id") else "该 turn 未记录 prompt manifest。"
     if node_id == "capability":
@@ -339,6 +352,7 @@ def _node_source_event(node_id: str, event_names: list[str]) -> str:
     preferred = {
         "context": "context_management",
         "memory": "memory_context",
+        "restore": "orchestration_runtime_control",
         "prompt": "prompt_manifest",
         "worker": "worker_end",
         "tool": "tool_end",
@@ -467,6 +481,21 @@ def _apply_plan_overlay_to_nodes(
         if summary:
             node["summary"] = summary
 
+    diagnostics = _dict(orchestration_plan.get("diagnostics"))
+    restore_authority = _dict(diagnostics.get("restore_authority"))
+    if restore_authority:
+        node = by_id.get("restore")
+        if node is not None:
+            node["source_module"] = "orchestration.restore_authority"
+            node["source_event"] = "orchestration_runtime_control"
+            node["outputs"] = restore_authority
+            node["reasons"] = [str(item) for item in list(restore_authority.get("blockers") or []) if str(item).strip()]
+            node["refs"] = {
+                "orchestration_plan_id": plan_id,
+                "phase": str(restore_authority.get("phase") or "7F"),
+            }
+            node["summary"] = _decision_summary("restore", restore_authority, node["reasons"])
+
     if str(orchestration_diff.get("status") or "") == "mismatch":
         planner = by_id.get("planner")
         if planner is not None:
@@ -528,6 +557,7 @@ def _apply_prompt_manifest_to_nodes(nodes: list[dict[str, Any]], prompt_manifest
 def _decision_node_id(node_id: str) -> str:
     return {
         "memory-intent": "memory",
+        "restore-authority": "restore",
         "task-understanding": "planner",
         "execution-topology": "execution-mode",
         "skill-policy": "capability",
@@ -546,6 +576,12 @@ def _decision_summary(node_id: str, outputs: dict[str, Any], reasons: list[str])
             f"intent={outputs.get('intent') or 'general'} / "
             f"read={outputs.get('read_mode') or 'none'} / "
             f"write={outputs.get('write_mode') or 'none'}"
+        )
+    if node_id == "restore":
+        return (
+            f"候选={outputs.get('candidate_count') or 0} / "
+            f"门禁={_dict(outputs.get('adoption_gate')).get('state') or '-'} / "
+            f"dry-run={_dict(outputs.get('dry_run_comparison')).get('state') or '-'}"
         )
     if node_id == "planner":
         return (
@@ -624,6 +660,18 @@ def _summary_text(
 
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _restore_authority_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    events = _events(payload)
+    runtime_control = _latest_event_payload(events, "orchestration_runtime_control")
+    restore = _dict(
+        _dict(_dict(runtime_control.get("diagnostics")).get("phase7_readiness")).get("restore_authority")
+    )
+    if restore:
+        return restore
+    plan = _dict(_latest_event_payload(events, "orchestration_plan").get("plan"))
+    return _dict(_dict(plan.get("diagnostics")).get("restore_authority"))
 
 
 def _repo_relative(path: Path) -> str:

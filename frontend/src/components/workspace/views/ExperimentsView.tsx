@@ -43,6 +43,7 @@ function emptySnapshot(sessionId: string | null): OrchestrationSnapshot {
     ["execution-mode", "执行模式", "进入 single、bundle 或 explicit fanout 执行拓扑。"],
     ["context", "上下文压缩", "整理历史窗口和上下文压力。"],
     ["memory", "记忆读取", "读取状态记忆、长期记忆和上下文包。"],
+    ["restore", "恢复仲裁", "把记忆与上下文句柄恢复结果投影为候选，并预检是否允许采用。"],
     ["prompt", "上下文装配", "组合灵魂、准则、记忆、skill 和本轮提示。"],
     ["capability", "能力调度", "决定进入模型、工具或 worker 分支。"],
     ["model", "模型生成", "模型主链流式输出或发起工具调用。"],
@@ -115,7 +116,7 @@ function jsonText(value: unknown) {
 }
 
 function nodeIcon(nodeId: string) {
-  if (nodeId === "memory") {
+  if (nodeId === "memory" || nodeId === "restore") {
     return <BrainCircuit size={16} />;
   }
   if (nodeId === "prompt") {
@@ -142,7 +143,7 @@ const stageGroups = [
   {
     title: "策略",
     hint: "用什么上下文和行为包",
-    nodes: ["execution-mode", "skill-policy", "context", "memory", "prompt"]
+    nodes: ["execution-mode", "skill-policy", "context", "memory", "restore", "prompt"]
   },
   {
     title: "能力",
@@ -637,8 +638,81 @@ export function ExperimentsView() {
   const primaryEntryTakeover = toRecord(runtimeDiagnostics.primary_entry_takeover);
   const phase7Readiness = toRecord(runtimeDiagnostics.phase7_readiness);
   const phase7Decommission = toRecord(phase7Readiness.legacy_decommission);
+  const phase7PrincipleAlignment = toRecord(phase7Readiness.principle_alignment);
+  const phase7CutoverReadiness = toRecord(phase7Readiness.cutover_readiness);
+  const phase7RestoreAuthority = toRecord(phase7Readiness.restore_authority);
+  const phase7RestoreAdoptionGate = toRecord(phase7RestoreAuthority.adoption_gate);
+  const phase7RestoreCutoverPlan = toRecord(phase7RestoreAuthority.cutover_plan);
+  const phase7RestoreDryRunComparison = toRecord(phase7RestoreAuthority.dry_run_comparison);
+  const phase8RestoreFormalReview = toRecord(phase7RestoreAuthority.formal_adoption_review);
+  const phase8RestoreAdoptionTrace = toRecord(phase7RestoreAuthority.restore_adoption_trace);
+  const phase8RestoreShadowPlan = toRecord(phase7RestoreAuthority.restore_shadow_replacement_plan);
+  const phase8RestoreShadowComparison = toRecord(phase7RestoreAuthority.restore_shadow_comparison);
+  const phase8RestoreRealShadowGate = toRecord(phase7RestoreAuthority.restore_real_shadow_consumer_gate);
+  const phase8RestoreShadowContract = toRecord(phase7RestoreAuthority.restore_shadow_consumer_contract);
+  const phase8RestoreShadowControl = toRecord(phase7RestoreAuthority.restore_shadow_consumer_control);
+  const phase8RestoreShadowConsumerObservation = toRecord(phase7RestoreAuthority.restore_shadow_consumer_observation);
+  const phase8RestoreLegacyDecommission = toRecord(phase7RestoreAuthority.restore_legacy_decommission_plan);
+  const phase8RestoreAuthorityContextGate = toRecord(phase7RestoreAuthority.restore_authority_context_gate);
+  const phase7OutputAuthority = toRecord(phase7Readiness.output_authority);
+  const phase7OutputCutoverPlan = toRecord(phase7OutputAuthority.cutover_plan);
+  const phase7DispatchAuthority = toRecord(phase7Readiness.dispatch_authority);
+  const phase7DispatchCutoverPlan = toRecord(phase7DispatchAuthority.cutover_plan);
   const phase7ReadinessBlockers = toStringList(phase7Readiness.blockers);
   const phase7LegacyAuthorities = toStringList(phase7Readiness.legacy_authorities);
+  const phase7PrincipleBlockers = toStringList(phase7PrincipleAlignment.blockers);
+  const phase7CutoverBlockers = toStringList(phase7CutoverReadiness.blockers);
+  const phase7CutoverGateBlockers = toStringList(phase7CutoverReadiness.gate_blockers);
+  const phase7CutoverTopBlockers = toStringList(phase7CutoverReadiness.top_blockers);
+  const phase7CutoverDomains = Array.isArray(phase7CutoverReadiness.domains)
+    ? phase7CutoverReadiness.domains.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase7CutoverDomainSummaries = Array.isArray(phase7CutoverReadiness.domain_summaries)
+    ? phase7CutoverReadiness.domain_summaries.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase7CutoverMigrationTasks = Array.isArray(phase7CutoverReadiness.migration_tasks)
+    ? phase7CutoverReadiness.migration_tasks.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase7RestoreBlockers = toStringList(phase7RestoreAuthority.blockers);
+  const phase7OutputBlockers = toStringList(phase7OutputAuthority.blockers);
+  const phase7OutputWritebackScope = toStringList(phase7OutputAuthority.writeback_scope);
+  const phase7DispatchBlockers = toStringList(phase7DispatchAuthority.blockers);
+  const phase7RestoreCandidates = Array.isArray(phase7RestoreAuthority.candidates)
+    ? phase7RestoreAuthority.candidates.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase7RestoreAdoptionDecisions = Array.isArray(phase7RestoreAuthority.adoption_decisions)
+    ? phase7RestoreAuthority.adoption_decisions.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase8RestoreFormalDecisions = Array.isArray(phase8RestoreFormalReview.decisions)
+    ? phase8RestoreFormalReview.decisions.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase8RestoreTraceEntries = Array.isArray(phase8RestoreAdoptionTrace.traces)
+    ? phase8RestoreAdoptionTrace.traces.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase8RestoreShadowCandidates = Array.isArray(phase8RestoreShadowPlan.replacement_candidates)
+    ? phase8RestoreShadowPlan.replacement_candidates.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase8RestoreShadowObservations = Array.isArray(phase8RestoreShadowComparison.shadow_observations)
+    ? phase8RestoreShadowComparison.shadow_observations.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase8RestoreRealShadowInterfaces = Array.isArray(phase8RestoreRealShadowGate.runtime_interfaces)
+    ? phase8RestoreRealShadowGate.runtime_interfaces.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase8RestoreRealShadowPlan = Array.isArray(phase8RestoreRealShadowGate.candidate_plan)
+    ? phase8RestoreRealShadowGate.candidate_plan.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase8RestoreShadowContractCandidates = Array.isArray(phase8RestoreShadowContract.contract_candidates)
+    ? phase8RestoreShadowContract.contract_candidates.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase8RestoreShadowConsumerObservations = Array.isArray(phase8RestoreShadowConsumerObservation.observations)
+    ? phase8RestoreShadowConsumerObservation.observations.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase8RestoreLegacyDecommissionTargets = Array.isArray(phase8RestoreLegacyDecommission.targets)
+    ? phase8RestoreLegacyDecommission.targets.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const phase7LegacyPowerDomains = Array.isArray(phase7PrincipleAlignment.legacy_power_domains)
+    ? phase7PrincipleAlignment.legacy_power_domains.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
   const primaryPreviewExecutions = Array.isArray(primaryExecutionPreview.preview_executions)
     ? primaryExecutionPreview.preview_executions.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
     : [];
@@ -837,6 +911,7 @@ export function ExperimentsView() {
       "execution-mode": ["query-core"],
       context: ["query-core", "memory"],
       memory: ["memory"],
+      restore: ["query-core", "memory"],
       prompt: ["prompt"],
       capability: ["query-core", "tooling"],
       model: ["model"],
@@ -1282,6 +1357,11 @@ export function ExperimentsView() {
                 {phase7ExecutionContract.state ? <em>执行契约：{String(phase7ExecutionContract.state)}</em> : null}
                 {primaryEntryTakeover.state ? <em>实际接管：{String(primaryEntryTakeover.state)}</em> : null}
                 {phase7Readiness.state ? <em className={phase7Readiness.state === "blocked" ? "is-danger" : ""}>Phase7准备：{String(phase7Readiness.state)}</em> : null}
+                {phase7RestoreAuthority.state ? <em>恢复权力：{String(phase7RestoreAuthority.state)}</em> : null}
+                {phase7OutputAuthority.state ? <em>输出写回：{String(phase7OutputAuthority.state)}</em> : null}
+                {phase7DispatchAuthority.state ? <em>调度权力：{String(phase7DispatchAuthority.state)}</em> : null}
+                {phase7CutoverReadiness.state ? <em className={phase7CutoverReadiness.state === "blocked" ? "is-danger" : ""}>切换门禁：{String(phase7CutoverReadiness.state)}</em> : null}
+                {phase7PrincipleAlignment.state ? <em className={phase7PrincipleAlignment.state === "blocked" ? "is-danger" : ""}>准则校准：{String(phase7PrincipleAlignment.state)}</em> : null}
               </div>
               {phase7Readiness.state ? (
                 <div className="orchestration-phase-readiness">
@@ -1297,6 +1377,256 @@ export function ExperimentsView() {
                   ) : null}
                   {phase7Decommission.state ? (
                     <small>旧链路清理：{String(phase7Decommission.state)}，删除允许：{phase7Decommission.delete_allowed ? "是" : "否"}</small>
+                  ) : null}
+                  {phase7PrincipleAlignment.state ? (
+                    <small>架构准则：{String(phase7PrincipleAlignment.reason || "phase7e_principle_alignment_required")}</small>
+                  ) : null}
+                </div>
+              ) : null}
+              {phase7PrincipleAlignment.state ? (
+                <div className="orchestration-phase-readiness">
+                  <b>Phase 7E 架构校准：{String(phase7PrincipleAlignment.state)}</b>
+                  <p>{String(phase7PrincipleAlignment.next_safe_phase || "只允许做诊断、权力归档和迁移计划。")}</p>
+                  {phase7PrincipleBlockers.length ? (
+                    <div>
+                      {phase7PrincipleBlockers.slice(0, 6).map((item) => <em className="is-danger" key={item}>{item}</em>)}
+                    </div>
+                  ) : null}
+                  {phase7LegacyPowerDomains.length ? (
+                    <small>
+                      权力域：{phase7LegacyPowerDomains.slice(0, 4).map((item) => `${String(item.module || "")}=${toStringList(item.domains).join("/")}`).join("、")}
+                    </small>
+                  ) : null}
+                </div>
+              ) : null}
+              {phase7CutoverReadiness.state ? (
+                <div className="orchestration-phase-readiness">
+                  <b>Phase 7L 五域切换门禁：{String(phase7CutoverReadiness.state)}</b>
+                  <p>{String(phase7CutoverReadiness.human_summary || phase7CutoverReadiness.next_safe_step || "五个权力域全部 ready 前，不允许删除旧链路或扩大接管范围。")}</p>
+                  {phase7CutoverTopBlockers.length ? (
+                    <div>
+                      {phase7CutoverTopBlockers.slice(0, 6).map((item) => <em className="is-danger" key={item}>{item}</em>)}
+                    </div>
+                  ) : null}
+                  <small>
+                    域数量：{String(phase7CutoverReadiness.domain_count ?? 0)}；
+                    阻断域：{String(phase7CutoverReadiness.blocked_domain_count ?? 0)}；
+                    接管允许：{phase7CutoverReadiness.takeover_allowed ? "是" : "否"}；
+                    删除允许：{phase7CutoverReadiness.delete_allowed ? "是" : "否"}
+                  </small>
+                  {phase7CutoverGateBlockers.length ? (
+                    <small>总门禁：{phase7CutoverGateBlockers.slice(0, 4).join("、")}</small>
+                  ) : null}
+                  {phase7CutoverDomainSummaries.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase7CutoverDomainSummaries.map((item) => (
+                        <span className={`orchestration-runtime-entry ${item.state === "ready" ? "is-ready" : "is-blocked"}`} key={String(item.domain ?? "domain")}>
+                          <b>{String(item.domain ?? "权力域")}</b>
+                          <span>{String(item.next_action ?? "等待下一步迁移计划")}</span>
+                          <em>{String(item.state ?? "unknown")}</em>
+                          <i>{toStringList(item.primary_blockers).slice(0, 2).join("、") || "无阻断"}</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : phase7CutoverDomains.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase7CutoverDomains.map((item) => (
+                        <span className={`orchestration-runtime-entry ${item.state === "ready" ? "is-ready" : "is-blocked"}`} key={String(item.domain ?? "domain")}>
+                          <b>{String(item.domain ?? "权力域")}</b>
+                          <span>{String(item.canonical_owner ?? "orchestration")}</span>
+                          <em>{String(item.state ?? "unknown")}</em>
+                          <i>{toStringList(item.blockers).slice(0, 2).join("、") || "无阻断"}</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase7CutoverMigrationTasks.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase7CutoverMigrationTasks.slice(0, 5).map((item) => (
+                        <span className="orchestration-runtime-entry is-blocked" key={String(item.task_id ?? item.domain ?? "migration")}>
+                          <b>{String(item.domain ?? "迁移任务")}</b>
+                          <span>{String(item.target ?? "编排切换任务")}</span>
+                          <em>优先级 {String(item.priority ?? "-")}</em>
+                          <i>{String(item.safe_rule ?? "只做诊断，不改变运行行为。")}</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {!phase7CutoverTopBlockers.length && phase7CutoverBlockers.length ? (
+                    <small>完整阻断：{phase7CutoverBlockers.slice(0, 4).join("、")}</small>
+                  ) : null}
+                </div>
+              ) : null}
+              {phase7RestoreAuthority.state ? (
+                <div className="orchestration-phase-readiness">
+                  <b>Phase 7F 恢复权力：{String(phase7RestoreAuthority.state)}</b>
+                  <p>{String(phase7RestoreAuthority.rule || "恢复层只能提交候选，不得覆盖当前轮 IntentFrame。")}</p>
+                  <div>
+                    {phase7RestoreBlockers.slice(0, 5).map((item) => <em className="is-danger" key={item}>{item}</em>)}
+                  </div>
+                  <small>
+                    候选数：{String(phase7RestoreAuthority.candidate_count ?? 0)}；
+                    覆盖当前轮：{phase7RestoreAuthority.current_turn_override_allowed ? "允许" : "禁止"}；
+                    采用门禁：{String(phase7RestoreAdoptionGate.state ?? "未评估")}；
+                    迁移计划：{String(phase7RestoreCutoverPlan.state ?? "未生成")}；
+                    对照：{String(phase7RestoreDryRunComparison.state ?? "未生成")}；
+                    正式裁决：{String(phase8RestoreFormalReview.state ?? "未生成")}；
+                    采纳追踪：{String(phase8RestoreAdoptionTrace.state ?? "未生成")}；
+                    影子替换：{String(phase8RestoreShadowPlan.state ?? "未生成")}；
+                    只读对照：{String(phase8RestoreShadowComparison.state ?? "未生成")}；
+                    真实影子门禁：{String(phase8RestoreRealShadowGate.state ?? "未生成")}；
+                    观测契约：{String(phase8RestoreShadowContract.state ?? "未生成")}；
+                    运行开关：{String(phase8RestoreShadowControl.state ?? "未生成")} / {String(phase8RestoreShadowControl.mode ?? "disabled")}；
+                    只读观测：{String(phase8RestoreShadowConsumerObservation.state ?? "未生成")}；
+                    旧链路退场：{String(phase8RestoreLegacyDecommission.state ?? "未生成")}；
+                    Planner 入口门：{String(phase8RestoreAuthorityContextGate.state ?? "未生成")}
+                  </small>
+                  {phase8RestoreAuthorityContextGate.state ? (
+                    <div className="orchestration-runtime-entry-list">
+                      <span className={`orchestration-runtime-entry ${phase8RestoreAuthorityContextGate.state === "orchestration_filtered" ? "is-ready" : "is-blocked"}`}>
+                        <b>Planner 恢复入口</b>
+                        <span>{String(phase8RestoreAuthorityContextGate.replacement_seam ?? "RestoreAuthorityContextGate")}</span>
+                        <em>{String(phase8RestoreAuthorityContextGate.state)}</em>
+                        <i>
+                          进入 planner：{toStringList(phase8RestoreAuthorityContextGate.filtered_keys).join("、") || "无"}；
+                          恢复候选：{toStringList(phase8RestoreAuthorityContextGate.candidate_keys).join("、") || toStringList(phase8RestoreAuthorityContextGate.legacy_keys).join("、") || "无"}
+                        </i>
+                      </span>
+                    </div>
+                  ) : null}
+                  {phase8RestoreLegacyDecommissionTargets.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase8RestoreLegacyDecommissionTargets.slice(0, 4).map((item) => (
+                        <span className={`orchestration-runtime-entry ${item.state === "ready_for_first_cut_review" || item.state === "removed" ? "is-ready" : "is-blocked"}`} key={String(item.target_id ?? item.legacy_entry ?? "restore-decommission")}>
+                          <b>{String(item.target_id ?? "旧恢复入口")}</b>
+                          <span>{String(item.legacy_entry ?? "legacy restore")}</span>
+                          <em>{String(item.state ?? "blocked")}</em>
+                          <i>{String(item.replacement_seam ?? "编排恢复 seam")}；删除仍需单独门禁</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase8RestoreShadowConsumerObservations.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase8RestoreShadowConsumerObservations.slice(0, 4).map((item) => (
+                        <span className="orchestration-runtime-entry is-ready" key={String(item.candidate_id ?? item.replacement_point ?? "restore-shadow-observation-runtime")}>
+                          <b>{String(item.replacement_point ?? "只读观测")}</b>
+                          <span>{String(item.legacy_consumer ?? "旧恢复消费")}</span>
+                          <em>{String(item.observation_state ?? "captured_observe_only")}</em>
+                          <i>{String(item.comparison ?? "等待对照")}；未写入状态</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase8RestoreShadowContractCandidates.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase8RestoreShadowContractCandidates.slice(0, 4).map((item) => (
+                        <span className={`orchestration-runtime-entry ${item.consumer_state === "observe_only_ready" ? "is-ready" : "is-blocked"}`} key={String(item.candidate_id ?? item.replacement_point ?? "restore-shadow-contract")}>
+                          <b>{String(item.replacement_point ?? "观测契约")}</b>
+                          <span>{String(item.legacy_consumer ?? "旧恢复消费")}</span>
+                          <em>{String(item.consumer_state ?? "blocked")}</em>
+                          <i>只读观测：不写状态，不接管，不删除旧链路</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase8RestoreRealShadowInterfaces.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase8RestoreRealShadowInterfaces.slice(0, 4).map((item) => (
+                        <span className="orchestration-runtime-entry is-blocked" key={String(item.interface ?? "restore-shadow-interface")}>
+                          <b>{String(item.interface ?? "影子接口")}</b>
+                          <span>{String(item.owner ?? "编排层")}</span>
+                          <em>{item.required_before_enable ? "启用前必需" : "可选"}</em>
+                          <i>{String(item.purpose ?? "真实 shadow consumer 的安全接口")}</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase8RestoreRealShadowPlan.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase8RestoreRealShadowPlan.slice(0, 4).map((item) => (
+                        <span className={`orchestration-runtime-entry ${item.design_status === "ready_for_interface_design" ? "is-ready" : "is-blocked"}`} key={String(item.candidate_id ?? item.replacement_point ?? "restore-shadow-design")}>
+                          <b>{String(item.replacement_point ?? "设计候选")}</b>
+                          <span>{String(item.legacy_consumer ?? "旧恢复消费")}</span>
+                          <em>{String(item.design_status ?? "blocked")}</em>
+                          <i>{String(item.comparison ?? "等待对照")}；启用仍禁止</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase8RestoreShadowObservations.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase8RestoreShadowObservations.slice(0, 4).map((item) => (
+                        <span className={`orchestration-runtime-entry ${item.comparison === "shadow_matches_legacy_observation" ? "is-ready" : "is-blocked"}`} key={String(item.candidate_id ?? item.replacement_point ?? "restore-shadow-observation")}>
+                          <b>{String(item.replacement_point ?? "只读对照")}</b>
+                          <span>{String(item.shadow_state ?? "shadow")} / {String(item.legacy_consumer ?? "旧恢复消费")}</span>
+                          <em>{String(item.comparison ?? "observed")}</em>
+                          <i>{String(item.shadow_value ?? "无影子观测值")}；不写状态</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase8RestoreShadowCandidates.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase8RestoreShadowCandidates.slice(0, 4).map((item) => (
+                        <span className={`orchestration-runtime-entry ${item.shadow_status === "eligible_for_shadow" ? "is-ready" : "is-blocked"}`} key={String(item.candidate_id ?? item.replacement_point ?? "restore-shadow")}>
+                          <b>{String(item.replacement_point ?? "影子替换")}</b>
+                          <span>{String(item.legacy_consumer ?? "旧恢复消费")} 到 {String(item.target_owner ?? "编排恢复")}</span>
+                          <em>{String(item.shadow_status ?? "blocked")}</em>
+                          <i>{String(item.alignment ?? "等待对照")}；只读影子，不接管</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase8RestoreTraceEntries.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase8RestoreTraceEntries.slice(0, 4).map((item) => (
+                        <span className={`orchestration-runtime-entry ${item.status === "ready_for_shadow_replacement" ? "is-ready" : "is-blocked"}`} key={String(item.trace_id ?? item.candidate_id ?? "restore-trace")}>
+                          <b>{String(item.replacement_point ?? "替换点")}</b>
+                          <span>{String(item.candidate_type ?? "恢复候选")} / {String(item.legacy_consumer ?? "旧消费点")}</span>
+                          <em>{String(item.status ?? "observed")}</em>
+                          <i>{String(item.alignment ?? "未对齐")}；目标：{String(item.target_owner ?? "编排恢复裁决")}</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase8RestoreFormalDecisions.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase8RestoreFormalDecisions.slice(0, 4).map((item) => (
+                        <span className={`orchestration-runtime-entry ${item.decision === "accepted" ? "is-ready" : "is-blocked"}`} key={String(item.candidate_id ?? "formal-restore")}>
+                          <b>{String(item.candidate_type ?? "恢复候选")}</b>
+                          <span>{String(item.owner_module ?? "unknown")}</span>
+                          <em>{String(item.decision ?? "unknown")}</em>
+                          <i>{toStringList(item.blockers).join("、") || String(item.reason ?? "已通过正式裁决")}</i>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {phase7RestoreCandidates.length ? (
+                    <div className="orchestration-runtime-entry-list">
+                      {phase7RestoreCandidates.slice(0, 4).map((item, index) => (
+                        <span className="orchestration-runtime-entry is-blocked" key={String(item.candidate_id ?? `restore-${index}`)}>
+                          {(() => {
+                            const adoptionDecision = toRecord(phase7RestoreAdoptionDecisions[index]);
+                            const memoryContextValidation = toRecord(adoptionDecision.memory_context_validation);
+                            const decisionLabel = adoptionDecision.decision ? String(adoptionDecision.decision) : "";
+                            const validationLabel = memoryContextValidation.status ? String(memoryContextValidation.status) : "";
+                            return (
+                              <>
+                          <b>{String(item.candidate_type ?? "恢复候选")}</b>
+                          <span>{String(item.owner_module ?? item.source ?? "unknown")}</span>
+                          <em>{String(item.adoption_state ?? "candidate")}</em>
+                          <i>
+                            {String(item.value ?? "-")}
+                            {decisionLabel ? ` / ${decisionLabel}` : ""}
+                            {validationLabel ? ` / 校验${validationLabel}` : ""}
+                          </i>
+                              </>
+                            );
+                          })()}
+                        </span>
+                      ))}
+                    </div>
                   ) : null}
                 </div>
               ) : null}
@@ -1337,6 +1667,37 @@ export function ExperimentsView() {
                       <i>{String(item.tool || item.worker_route || item.agent_id || "legacy 对照")}</i>
                     </span>
                   ))}
+                </div>
+                ) : null}
+              {phase7OutputAuthority.state ? (
+                <div className="orchestration-phase-readiness">
+                  <b>Phase 7I 输出与写回：{String(phase7OutputAuthority.state)}</b>
+                  <p>{String(phase7OutputAuthority.rule || "输出收口与状态写回仍由 legacy runtime 执行；编排层只声明策略。")}</p>
+                  <div>
+                    {phase7OutputBlockers.slice(0, 5).map((item) => <em className="is-danger" key={item}>{item}</em>)}
+                  </div>
+                  <small>
+                    答案通道：{String(phase7OutputAuthority.answer_channel ?? "未记录")}；
+                    允许回退：{phase7OutputAuthority.allow_fallback ? "是" : "否"}；
+                    写回范围：{phase7OutputWritebackScope.join("、") || "无"}；
+                    迁移计划：{String(phase7OutputCutoverPlan.state ?? "未生成")}
+                  </small>
+                </div>
+              ) : null}
+              {phase7DispatchAuthority.state ? (
+                <div className="orchestration-phase-readiness">
+                  <b>Phase 7J 调度权力：{String(phase7DispatchAuthority.state)}</b>
+                  <p>{String(phase7DispatchAuthority.rule || "route、tool、worker、agent 的最终接管仍受 RuntimeControl 和旧链路保护。")}</p>
+                  <div>
+                    {phase7DispatchBlockers.slice(0, 5).map((item) => <em className="is-danger" key={item}>{item}</em>)}
+                  </div>
+                  <small>
+                    route：{String(phase7DispatchAuthority.route ?? "unknown")}；
+                    指令数：{String(phase7DispatchAuthority.directive_count ?? 0)}；
+                    工具：{String(phase7DispatchAuthority.tool_directive_count ?? 0)}；
+                    worker：{String(phase7DispatchAuthority.worker_directive_count ?? 0)}；
+                    迁移计划：{String(phase7DispatchCutoverPlan.state ?? "未生成")}
+                  </small>
                 </div>
               ) : null}
               {phase7ExecutionContract.state ? (

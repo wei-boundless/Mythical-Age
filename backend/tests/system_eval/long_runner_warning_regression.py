@@ -150,8 +150,44 @@ def test_reporter_renders_runtime_control_summary() -> None:
                     "runtime_phase7_readiness_state_counts": {"ready": 8, "blocked": 2},
                     "runtime_phase7_readiness_blocker_counts": {"source_not_phase7_ready:web": 2},
                     "runtime_phase7_intent_authority_state_counts": {"candidate_projected": 10},
+                    "runtime_phase7_restore_authority_state_counts": {"candidate_projected": 10},
+                    "runtime_phase7_restore_authority_blocker_counts": {"legacy_restore_still_executes": 10},
+                    "runtime_phase7_restore_candidate_type_counts": {"target_handle": 2, "session_state": 1},
+                    "runtime_phase7_restore_adoption_state_counts": {"adopted_by_legacy": 3},
+                    "runtime_phase7_restore_adoption_gate_state_counts": {"blocked": 10},
+                    "runtime_phase7_restore_adoption_gate_blocker_counts": {"legacy_restore_still_executes": 10},
+                    "runtime_phase7_restore_adoption_decision_counts": {"blocked": 3},
+                    "runtime_phase7_memory_context_validation_counts": {"passed": 3},
+                    "runtime_phase7_restore_cutover_state_counts": {"blocked": 10},
+                    "runtime_phase7_restore_cutover_blocker_counts": {"legacy_restore_still_executes": 10},
+                    "runtime_phase7_restore_dry_run_state_counts": {"observed_delta": 3, "blocked": 7},
+                    "runtime_phase7_restore_dry_run_alignment_counts": {"expected_legacy_delta": 3},
+                    "runtime_phase8_restore_formal_review_state_counts": {"candidate_decisions_ready": 3, "no_candidates": 7},
+                    "runtime_phase8_restore_formal_decision_counts": {"accepted": 3},
+                    "runtime_phase8_restore_legacy_alignment_counts": {"legacy_matches_formal_acceptance": 3},
+                    "runtime_phase7_output_authority_state_counts": {"candidate_projected": 10},
+                    "runtime_phase7_output_authority_blocker_counts": {"legacy_present_still_executes": 10},
+                    "runtime_phase7_output_writeback_scope_counts": {"state_memory": 1},
+                    "runtime_phase8_output_commit_state_counts": {"commit_candidates_projected": 10},
+                    "runtime_phase8_output_commit_candidate_type_counts": {
+                        "post_turn_refresh": 10,
+                        "session_transcript": 10,
+                        "state_memory_projection": 10,
+                    },
+                    "runtime_phase7_dispatch_authority_state_counts": {"candidate_projected": 10},
+                    "runtime_phase7_dispatch_authority_blocker_counts": {"legacy_decide_still_executes": 10},
+                    "runtime_phase7_dispatch_target_counts": {"call_tool": 8, "delegate_agent": 1, "respond": 1},
+                    "runtime_phase7_cutover_readiness_state_counts": {"blocked": 10},
+                    "runtime_phase7_cutover_readiness_blocker_counts": {"decide:not_ready": 10},
+                    "runtime_phase7_cutover_gate_blocker_counts": {"principle_alignment_not_ready": 10},
+                    "runtime_phase7_cutover_top_blocker_counts": {"gate:principle_alignment_not_ready": 10},
+                    "runtime_phase7_cutover_domain_state_counts": {"decide:blocked": 10, "execute:blocked": 10},
+                    "runtime_phase7_cutover_domain_blocker_counts": {"decide:legacy_decide_still_executes": 10},
+                    "runtime_phase7_cutover_migration_task_counts": {"decide:planned": 10},
                     "runtime_phase7_execution_contract_state_counts": {"preview_ready": 8, "blocked": 2},
                     "runtime_phase7_decommission_state_counts": {"not_ready": 10},
+                    "runtime_phase7_principle_alignment_state_counts": {"blocked": 10},
+                    "runtime_phase7_principle_alignment_blocker_counts": {"legacy_power_domain:decide": 10},
                     "runtime_control_fallback_turns": [{"index": 7}, {"index": 8}],
                 },
             )
@@ -175,5 +211,38 @@ def test_reporter_renders_runtime_control_summary() -> None:
     assert "phase7_readiness `blocked:2, ready:8`" in report
     assert "phase7_blockers `source_not_phase7_ready:web:2`" in report
     assert "phase7_intent `candidate_projected:10`" in report
+    assert "phase7_restore `candidate_projected:10`" in report
+    assert "phase7_restore_blockers `legacy_restore_still_executes:10`" in report
+    assert "phase7_restore_types `session_state:1, target_handle:2`" in report
+    assert "phase7_restore_adoption `adopted_by_legacy:3`" in report
+    assert "phase7_restore_gate `blocked:10`" in report
+    assert "phase7_restore_gate_blockers `legacy_restore_still_executes:10`" in report
+    assert "phase7_restore_decisions `blocked:3`" in report
+    assert "phase7_memory_context_validation `passed:3`" in report
+    assert "phase7_restore_cutover `blocked:10`" in report
+    assert "phase7_restore_cutover_blockers `legacy_restore_still_executes:10`" in report
+    assert "phase7_restore_dry_run `blocked:7, observed_delta:3`" in report
+    assert "phase7_restore_dry_run_alignments `expected_legacy_delta:3`" in report
+    assert "phase8_restore_formal `candidate_decisions_ready:3, no_candidates:7`" in report
+    assert "phase8_restore_decisions `accepted:3`" in report
+    assert "phase8_restore_alignment `legacy_matches_formal_acceptance:3`" in report
+    assert "phase7_output `candidate_projected:10`" in report
+    assert "phase7_output_blockers `legacy_present_still_executes:10`" in report
+    assert "phase7_output_writeback `state_memory:1`" in report
+    assert "## Output Commit" in report
+    assert "phase8_output_commit `commit_candidates_projected:10`" in report
+    assert "commit_candidates `post_turn_refresh:10, session_transcript:10, state_memory_projection:10`" in report
+    assert "phase7_dispatch `candidate_projected:10`" in report
+    assert "phase7_dispatch_blockers `legacy_decide_still_executes:10`" in report
+    assert "phase7_dispatch_targets `call_tool:8, delegate_agent:1, respond:1`" in report
+    assert "phase7_cutover `blocked:10`" in report
+    assert "phase7_cutover_top `gate:principle_alignment_not_ready:10`" in report
+    assert "phase7_cutover_gate `principle_alignment_not_ready:10`" in report
+    assert "phase7_cutover_domains `decide:blocked:10, execute:blocked:10`" in report
+    assert "phase7_cutover_domain_blockers `decide:legacy_decide_still_executes:10`" in report
+    assert "phase7_cutover_tasks `decide:planned:10`" in report
+    assert "phase7_cutover_blockers_full `decide:not_ready:10`" in report
     assert "phase7_execution `blocked:2, preview_ready:8`" in report
     assert "phase7_decommission `not_ready:10`" in report
+    assert "phase7_principles `blocked:10`" in report
+    assert "phase7_principle_blockers `legacy_power_domain:decide:10`" in report

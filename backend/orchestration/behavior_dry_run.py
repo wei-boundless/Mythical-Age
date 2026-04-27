@@ -25,7 +25,7 @@ async def build_behavior_dry_run(
 
     history = _load_existing_history(runtime, normalized_session_id)
     query_runtime = runtime.query_runtime
-    authority_context = query_runtime._load_session_authoritative_context(normalized_session_id)
+    authority_context = query_runtime._planner_authority_context(normalized_session_id)
     plan = query_runtime._planner_build_plan(
         session_id=normalized_session_id,
         message=normalized_message,

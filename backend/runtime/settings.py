@@ -15,6 +15,8 @@ class RuntimeSettingsSnapshot:
     orchestration_plan_mode: str
     primary_entry_selection_enabled: bool
     primary_entry_takeover_enabled: bool
+    restore_shadow_consumer_enabled: bool
+    restore_shadow_consumer_mode: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +73,8 @@ class AppSettingsService:
             orchestration_plan_mode=str(payload.get("orchestration_plan_mode", "plan_only") or "plan_only"),
             primary_entry_selection_enabled=bool(payload.get("primary_entry_selection_enabled", False)),
             primary_entry_takeover_enabled=bool(payload.get("primary_entry_takeover_enabled", False)),
+            restore_shadow_consumer_enabled=bool(payload.get("restore_shadow_consumer_enabled", False)),
+            restore_shadow_consumer_mode=str(payload.get("restore_shadow_consumer_mode", "disabled") or "disabled"),
         )
 
     def policy_snapshot(self) -> PolicySettingsSnapshot:
@@ -167,4 +171,36 @@ class AppSettingsService:
             return setter(enabled)
         current = runtime_config.load()
         current["primary_entry_takeover_enabled"] = bool(enabled)
+        return runtime_config.save(current)
+
+    def get_restore_shadow_consumer_enabled(self) -> bool:
+        getter = getattr(runtime_config, "get_restore_shadow_consumer_enabled", None)
+        if callable(getter):
+            return bool(getter())
+        return bool(self.runtime_snapshot().restore_shadow_consumer_enabled)
+
+    def set_restore_shadow_consumer_enabled(self, enabled: bool) -> dict[str, Any]:
+        setter = getattr(runtime_config, "set_restore_shadow_consumer_enabled", None)
+        if callable(setter):
+            return setter(enabled)
+        current = runtime_config.load()
+        current["restore_shadow_consumer_enabled"] = bool(enabled)
+        return runtime_config.save(current)
+
+    def get_restore_shadow_consumer_mode(self) -> str:
+        getter = getattr(runtime_config, "get_restore_shadow_consumer_mode", None)
+        if callable(getter):
+            return str(getter() or "disabled")
+        mode = str(self.runtime_snapshot().restore_shadow_consumer_mode or "disabled").strip().lower()
+        return mode if mode in {"disabled", "observe_only"} else "disabled"
+
+    def set_restore_shadow_consumer_mode(self, mode: str) -> dict[str, Any]:
+        setter = getattr(runtime_config, "set_restore_shadow_consumer_mode", None)
+        if callable(setter):
+            return setter(mode)
+        normalized = str(mode or "disabled").strip().lower() or "disabled"
+        if normalized not in {"disabled", "observe_only"}:
+            normalized = "disabled"
+        current = runtime_config.load()
+        current["restore_shadow_consumer_mode"] = normalized
         return runtime_config.save(current)

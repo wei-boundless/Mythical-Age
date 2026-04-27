@@ -1,11 +1,11 @@
 [
   {
-    "unit_id": "eeceb2d773a0cc1adeead41bfcb343a85b1aa8d4",
+    "unit_id": "673ed166f4752eab91cbe84ac332d38a2ecbc8e2",
     "unit_type": "parent_section",
     "collection": "durable_memory",
-    "doc_id": "da9079ebc5be392cbd1c406c94eca52bf656ed6b",
+    "doc_id": "abff6b2fddcc82ba9f7a00f47a5aa3f0e7a2294e",
     "source_path": "durable_memory/index/MEMORY.md",
-    "text": "# Memory Index",
+    "text": "# Memory Index - [复杂问题的回答顺序](复杂问题的回答顺序.md) - 以后复杂问题先给结论，再展开解释。 - [记住：以后复杂问题先给结论，再展开解释。](记住-以后复杂问题先给结论-再展开解释.md) - 记住：以后复杂问题先给结论，再展开解释。",
     "modality": "text",
     "block_id": null,
     "object_ref_id": null,
@@ -35,24 +35,25 @@
       ],
       "unit_view": "parent_section",
       "child_unit_ids": [
-        "1bd76da4fdba60c4a10b1952bfdae821ca590259"
+        "acdcb94d0e8bcf724d60d99859ff700f88509a3b"
       ],
       "merged_block_ids": [
-        "1bc91af8e0dc4ac07f031bce8048c3f3fb1dafd9:0"
+        "9a312ebad7dc0e54cb9233bedbf3e9ff519cca33:0",
+        "9a312ebad7dc0e54cb9233bedbf3e9ff519cca33:1"
       ],
-      "token_count": 2
+      "token_count": 88
     },
     "quality_flags": []
   },
   {
-    "unit_id": "1bd76da4fdba60c4a10b1952bfdae821ca590259",
+    "unit_id": "acdcb94d0e8bcf724d60d99859ff700f88509a3b",
     "unit_type": "content_block",
     "collection": "durable_memory",
-    "doc_id": "da9079ebc5be392cbd1c406c94eca52bf656ed6b",
+    "doc_id": "abff6b2fddcc82ba9f7a00f47a5aa3f0e7a2294e",
     "source_path": "durable_memory/index/MEMORY.md",
-    "text": "# Memory Index",
+    "text": "# Memory Index\n\n- [复杂问题的回答顺序](复杂问题的回答顺序.md) - 以后复杂问题先给结论，再展开解释。 - [记住：以后复杂问题先给结论，再展开解释。](记住-以后复杂问题先给结论-再展开解释.md) - 记住：以后复杂问题先给结论，再展开解释。",
     "modality": "text",
-    "block_id": "1bc91af8e0dc4ac07f031bce8048c3f3fb1dafd9:0",
+    "block_id": "9a312ebad7dc0e54cb9233bedbf3e9ff519cca33:0",
     "object_ref_id": null,
     "page": null,
     "block_type": "heading",
@@ -81,19 +82,20 @@
       ],
       "unit_view": "leaf_block",
       "block_ids": [
-        "1bc91af8e0dc4ac07f031bce8048c3f3fb1dafd9:0"
+        "9a312ebad7dc0e54cb9233bedbf3e9ff519cca33:0",
+        "9a312ebad7dc0e54cb9233bedbf3e9ff519cca33:1"
       ],
-      "token_count": 2
+      "token_count": 88
     },
     "quality_flags": []
   },
   {
-    "unit_id": "abbc1df3f1a16991595d988d02c0356e4427e8dd",
+    "unit_id": "1bf55501ec27c229b8e31019afad07b3f93fc9b8",
     "unit_type": "document_summary",
     "collection": "durable_memory",
-    "doc_id": "da9079ebc5be392cbd1c406c94eca52bf656ed6b",
+    "doc_id": "abff6b2fddcc82ba9f7a00f47a5aa3f0e7a2294e",
     "source_path": "durable_memory/index/MEMORY.md",
-    "text": "# Memory Index",
+    "text": "# Memory Index - [复杂问题的回答顺序](复杂问题的回答顺序.md) - 以后复杂问题先给结论，再展开解释。 - [记住：以后复杂问题先给结论，再展开解释。](记住-以后复杂问题先给结论-再展开解释.md) - 记住：以后复杂问题先给结论，再展开解释。",
     "modality": "text",
     "block_id": null,
     "object_ref_id": null,
@@ -110,7 +112,329 @@
         "context_only"
       ],
       "child_unit_ids": [
-        "eeceb2d773a0cc1adeead41bfcb343a85b1aa8d4"
+        "673ed166f4752eab91cbe84ac332d38a2ecbc8e2"
+      ],
+      "fallback_used": false
+    },
+    "quality_flags": []
+  },
+  {
+    "unit_id": "6d99b82c8bcc4b05c4b17becef367b97107aad7e",
+    "unit_type": "parent_section",
+    "collection": "durable_memory",
+    "doc_id": "aa786bd564252f52ca0cc48ff95b6ca22d9dde76",
+    "source_path": "durable_memory/notes/复杂问题的回答顺序.md",
+    "text": "schema\\_version: durable-memory.v3 title: 复杂问题的回答顺序 summary: 以后复杂问题先给结论，再展开解释。 canonical\\_statement: 以后复杂问题先给结论，再展开解释。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [复杂问题的回答顺序, 以后复杂问题先给结论，再展开解释。, 复杂问题回答顺序偏好] created\\_at: 2026-04-26T21:56:00+00:00 updated\\_at: 2026-04-27T01:39:34+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论，再展开解释。 confidence: medium status: active last\\_confirmed\\_at: 2026-04-27T01:39:34+00:00 scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 以后复杂问题先给结论，再展开解释。 Why: Durable memory candidate Evidence: 以后复杂问题先给结论，再展开解释。",
+    "modality": "text",
+    "block_id": null,
+    "object_ref_id": null,
+    "page": null,
+    "block_type": "parent_section",
+    "section_path": [],
+    "metadata": {
+      "source_type": "md",
+      "source_path": "durable_memory/notes/复杂问题的回答顺序.md",
+      "parser_backend": "docling",
+      "section_label": "",
+      "structure_role": "content",
+      "title": "复杂问题的回答顺序",
+      "section": "",
+      "structure_contract_version": "structure_contract_v1",
+      "parser_route": [
+        "docling"
+      ],
+      "fallback_used": false,
+      "cleaning_flags": [],
+      "eligibility": "keep",
+      "drop_reasons": [],
+      "index_profiles": [
+        "context_only"
+      ],
+      "unit_view": "parent_section",
+      "child_unit_ids": [
+        "63887597986cc8adc3d35a19b1ca438fdd6211ab"
+      ],
+      "merged_block_ids": [
+        "caef19f494c6640ba845824451f16fad854bb9ea:1",
+        "caef19f494c6640ba845824451f16fad854bb9ea:2",
+        "caef19f494c6640ba845824451f16fad854bb9ea:3",
+        "caef19f494c6640ba845824451f16fad854bb9ea:4",
+        "caef19f494c6640ba845824451f16fad854bb9ea:5",
+        "caef19f494c6640ba845824451f16fad854bb9ea:6",
+        "caef19f494c6640ba845824451f16fad854bb9ea:7",
+        "caef19f494c6640ba845824451f16fad854bb9ea:8",
+        "caef19f494c6640ba845824451f16fad854bb9ea:9",
+        "caef19f494c6640ba845824451f16fad854bb9ea:10",
+        "caef19f494c6640ba845824451f16fad854bb9ea:11",
+        "caef19f494c6640ba845824451f16fad854bb9ea:12",
+        "caef19f494c6640ba845824451f16fad854bb9ea:13",
+        "caef19f494c6640ba845824451f16fad854bb9ea:14",
+        "caef19f494c6640ba845824451f16fad854bb9ea:15",
+        "caef19f494c6640ba845824451f16fad854bb9ea:16",
+        "caef19f494c6640ba845824451f16fad854bb9ea:17",
+        "caef19f494c6640ba845824451f16fad854bb9ea:18",
+        "caef19f494c6640ba845824451f16fad854bb9ea:19",
+        "caef19f494c6640ba845824451f16fad854bb9ea:20",
+        "caef19f494c6640ba845824451f16fad854bb9ea:21",
+        "caef19f494c6640ba845824451f16fad854bb9ea:22",
+        "caef19f494c6640ba845824451f16fad854bb9ea:23",
+        "caef19f494c6640ba845824451f16fad854bb9ea:24",
+        "caef19f494c6640ba845824451f16fad854bb9ea:25"
+      ],
+      "token_count": 204
+    },
+    "quality_flags": []
+  },
+  {
+    "unit_id": "63887597986cc8adc3d35a19b1ca438fdd6211ab",
+    "unit_type": "content_block",
+    "collection": "durable_memory",
+    "doc_id": "aa786bd564252f52ca0cc48ff95b6ca22d9dde76",
+    "source_path": "durable_memory/notes/复杂问题的回答顺序.md",
+    "text": "schema\\_version: durable-memory.v3\n\ntitle: 复杂问题的回答顺序\n\nsummary: 以后复杂问题先给结论，再展开解释。\n\ncanonical\\_statement: 以后复杂问题先给结论，再展开解释。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: [user, preference]\n\nretrieval\\_hints: [复杂问题的回答顺序, 以后复杂问题先给结论，再展开解释。, 复杂问题回答顺序偏好]\n\ncreated\\_at: 2026-04-26T21:56:00+00:00\n\nupdated\\_at: 2026-04-27T01:39:34+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private\n\nsource\\_message\\_excerpt: 以后复杂问题先给结论，再展开解释。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at: 2026-04-27T01:39:34+00:00\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 以后复杂问题先给结论，再展开解释。 Why: Durable memory candidate Evidence: 以后复杂问题先给结论，再展开解释。",
+    "modality": "text",
+    "block_id": "caef19f494c6640ba845824451f16fad854bb9ea:1",
+    "object_ref_id": null,
+    "page": null,
+    "block_type": "paragraph",
+    "section_path": [],
+    "metadata": {
+      "source_type": "md",
+      "source_path": "durable_memory/notes/复杂问题的回答顺序.md",
+      "parser_backend": "docling",
+      "section_label": "",
+      "structure_role": "content",
+      "title": "复杂问题的回答顺序",
+      "section": "",
+      "structure_contract_version": "structure_contract_v1",
+      "parser_route": [
+        "docling"
+      ],
+      "fallback_used": false,
+      "cleaning_flags": [],
+      "eligibility": "keep",
+      "drop_reasons": [],
+      "index_profiles": [
+        "dense_main",
+        "lexical_main"
+      ],
+      "unit_view": "leaf_block",
+      "block_ids": [
+        "caef19f494c6640ba845824451f16fad854bb9ea:1",
+        "caef19f494c6640ba845824451f16fad854bb9ea:2",
+        "caef19f494c6640ba845824451f16fad854bb9ea:3",
+        "caef19f494c6640ba845824451f16fad854bb9ea:4",
+        "caef19f494c6640ba845824451f16fad854bb9ea:5",
+        "caef19f494c6640ba845824451f16fad854bb9ea:6",
+        "caef19f494c6640ba845824451f16fad854bb9ea:7",
+        "caef19f494c6640ba845824451f16fad854bb9ea:8",
+        "caef19f494c6640ba845824451f16fad854bb9ea:9",
+        "caef19f494c6640ba845824451f16fad854bb9ea:10",
+        "caef19f494c6640ba845824451f16fad854bb9ea:11",
+        "caef19f494c6640ba845824451f16fad854bb9ea:12",
+        "caef19f494c6640ba845824451f16fad854bb9ea:13",
+        "caef19f494c6640ba845824451f16fad854bb9ea:14",
+        "caef19f494c6640ba845824451f16fad854bb9ea:15",
+        "caef19f494c6640ba845824451f16fad854bb9ea:16",
+        "caef19f494c6640ba845824451f16fad854bb9ea:17",
+        "caef19f494c6640ba845824451f16fad854bb9ea:18",
+        "caef19f494c6640ba845824451f16fad854bb9ea:19",
+        "caef19f494c6640ba845824451f16fad854bb9ea:20",
+        "caef19f494c6640ba845824451f16fad854bb9ea:21",
+        "caef19f494c6640ba845824451f16fad854bb9ea:22",
+        "caef19f494c6640ba845824451f16fad854bb9ea:23",
+        "caef19f494c6640ba845824451f16fad854bb9ea:24",
+        "caef19f494c6640ba845824451f16fad854bb9ea:25"
+      ],
+      "token_count": 204
+    },
+    "quality_flags": []
+  },
+  {
+    "unit_id": "77805b87a8086f9ac277c1279f86814a22bdca47",
+    "unit_type": "document_summary",
+    "collection": "durable_memory",
+    "doc_id": "aa786bd564252f52ca0cc48ff95b6ca22d9dde76",
+    "source_path": "durable_memory/notes/复杂问题的回答顺序.md",
+    "text": "schema\\_version: durable-memory.v3 title: 复杂问题的回答顺序 summary: 以后复杂问题先给结论，再展开解释。 canonical\\_statement: 以后复杂问题先给结论，再展开解释。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [复杂问题的回答顺序, 以后复杂问题先给结论，再展开解释。, 复杂问题回答顺序偏好] created\\_at: 2026-04-26T21:56:00+00:00 updated\\_at: 2026-04-27T01:39:34+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 以后复杂问题先给结论，再展开解释。 confidence: medium status: active last\\_confirmed\\_at: 2026-04-27T01:39:34+00:00 scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 以后复杂问题先给结论，再展开解释。 Why: Durable memory candidate Evidence: 以后复杂问题先给结论，再展开解释。",
+    "modality": "text",
+    "block_id": null,
+    "object_ref_id": null,
+    "page": null,
+    "block_type": "document_summary",
+    "section_path": [],
+    "metadata": {
+      "title": "复杂问题的回答顺序",
+      "parser_backend": "docling",
+      "source_type": "md",
+      "structure_contract_version": "structure_contract_v1",
+      "unit_view": "document_summary",
+      "index_profiles": [
+        "context_only"
+      ],
+      "child_unit_ids": [
+        "6d99b82c8bcc4b05c4b17becef367b97107aad7e"
+      ],
+      "fallback_used": false
+    },
+    "quality_flags": []
+  },
+  {
+    "unit_id": "5da244a84e18d5bd8fe7a0cf5f0fc0d75ecada4a",
+    "unit_type": "parent_section",
+    "collection": "durable_memory",
+    "doc_id": "6ce4b27267b420c0472943918047ca384a33aee5",
+    "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
+    "text": "schema\\_version: durable-memory.v3 title: 记住：以后复杂问题先给结论，再展开解释。 summary: 记住：以后复杂问题先给结论，再展开解释。 canonical\\_statement: 记住：以后复杂问题先给结论，再展开解释。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [记住：以后复杂问题先给结论，再展开解释。, 记住：以后复杂问题先给结论，再展开解释。] created\\_at: 2026-04-27T03:13:35+00:00 updated\\_at: 2026-04-27T03:13:35+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 记住：以后复杂问题先给结论，再展开解释。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：以后复杂问题先给结论，再展开解释。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论，再展开解释。",
+    "modality": "text",
+    "block_id": null,
+    "object_ref_id": null,
+    "page": null,
+    "block_type": "parent_section",
+    "section_path": [],
+    "metadata": {
+      "source_type": "md",
+      "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
+      "parser_backend": "docling",
+      "section_label": "",
+      "structure_role": "content",
+      "title": "记住-以后复杂问题先给结论-再展开解释",
+      "section": "",
+      "structure_contract_version": "structure_contract_v1",
+      "parser_route": [
+        "docling"
+      ],
+      "fallback_used": false,
+      "cleaning_flags": [],
+      "eligibility": "keep",
+      "drop_reasons": [],
+      "index_profiles": [
+        "context_only"
+      ],
+      "unit_view": "parent_section",
+      "child_unit_ids": [
+        "65455111dcf5f99f46e5b27575d42e5bd074c46d"
+      ],
+      "merged_block_ids": [
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:1",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:2",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:3",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:4",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:5",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:6",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:7",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:8",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:9",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:10",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:11",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:12",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:13",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:14",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:15",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:16",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:17",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:18",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:19",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:20",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:21",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:22",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:23",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:24",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:25"
+      ],
+      "token_count": 229
+    },
+    "quality_flags": []
+  },
+  {
+    "unit_id": "65455111dcf5f99f46e5b27575d42e5bd074c46d",
+    "unit_type": "content_block",
+    "collection": "durable_memory",
+    "doc_id": "6ce4b27267b420c0472943918047ca384a33aee5",
+    "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
+    "text": "schema\\_version: durable-memory.v3\n\ntitle: 记住：以后复杂问题先给结论，再展开解释。\n\nsummary: 记住：以后复杂问题先给结论，再展开解释。\n\ncanonical\\_statement: 记住：以后复杂问题先给结论，再展开解释。\n\ntype: user\n\nmemory\\_class: preference\n\ntags: [user, preference]\n\nretrieval\\_hints: [记住：以后复杂问题先给结论，再展开解释。, 记住：以后复杂问题先给结论，再展开解释。]\n\ncreated\\_at: 2026-04-27T03:13:35+00:00\n\nupdated\\_at: 2026-04-27T03:13:35+00:00\n\ncreated\\_by: durable\\_write\\_agent\n\nsource\\_session\\_id:\n\nsource\\_role: private\n\nsource\\_message\\_excerpt: 记住：以后复杂问题先给结论，再展开解释。\n\nconfidence: medium\n\nstatus: active\n\nlast\\_confirmed\\_at:\n\nscope: project\n\nstability: stable\n\nsource\\_kind:\n\neligible\\_for\\_injection: true\n\nreview\\_after:\n\nsupersedes:\n\ninvalidation\\_reason:\n\nCanonical: 记住：以后复杂问题先给结论，再展开解释。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论，再展开解释。",
+    "modality": "text",
+    "block_id": "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:1",
+    "object_ref_id": null,
+    "page": null,
+    "block_type": "paragraph",
+    "section_path": [],
+    "metadata": {
+      "source_type": "md",
+      "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
+      "parser_backend": "docling",
+      "section_label": "",
+      "structure_role": "content",
+      "title": "记住-以后复杂问题先给结论-再展开解释",
+      "section": "",
+      "structure_contract_version": "structure_contract_v1",
+      "parser_route": [
+        "docling"
+      ],
+      "fallback_used": false,
+      "cleaning_flags": [],
+      "eligibility": "keep",
+      "drop_reasons": [],
+      "index_profiles": [
+        "dense_main",
+        "lexical_main"
+      ],
+      "unit_view": "leaf_block",
+      "block_ids": [
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:1",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:2",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:3",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:4",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:5",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:6",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:7",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:8",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:9",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:10",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:11",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:12",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:13",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:14",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:15",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:16",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:17",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:18",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:19",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:20",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:21",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:22",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:23",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:24",
+        "d43e2f4b9d55884f5940986ddbbc23b17ebdf834:25"
+      ],
+      "token_count": 229
+    },
+    "quality_flags": []
+  },
+  {
+    "unit_id": "8ccc00a366ea75d0e4a1eb801e05cf0bcb4e283b",
+    "unit_type": "document_summary",
+    "collection": "durable_memory",
+    "doc_id": "6ce4b27267b420c0472943918047ca384a33aee5",
+    "source_path": "durable_memory/notes/记住-以后复杂问题先给结论-再展开解释.md",
+    "text": "schema\\_version: durable-memory.v3 title: 记住：以后复杂问题先给结论，再展开解释。 summary: 记住：以后复杂问题先给结论，再展开解释。 canonical\\_statement: 记住：以后复杂问题先给结论，再展开解释。 type: user memory\\_class: preference tags: [user, preference] retrieval\\_hints: [记住：以后复杂问题先给结论，再展开解释。, 记住：以后复杂问题先给结论，再展开解释。] created\\_at: 2026-04-27T03:13:35+00:00 updated\\_at: 2026-04-27T03:13:35+00:00 created\\_by: durable\\_write\\_agent source\\_session\\_id: source\\_role: private source\\_message\\_excerpt: 记住：以后复杂问题先给结论，再展开解释。 confidence: medium status: active last\\_confirmed\\_at: scope: project stability: stable source\\_kind: eligible\\_for\\_injection: true review\\_after: supersedes: invalidation\\_reason: Canonical: 记住：以后复杂问题先给结论，再展开解释。 Why: stable\\_user\\_preference How to apply: Apply this only when the same user/project context clearly recurs. Evidence: 记住：以后复杂问题先给结论，再展开解释。",
+    "modality": "text",
+    "block_id": null,
+    "object_ref_id": null,
+    "page": null,
+    "block_type": "document_summary",
+    "section_path": [],
+    "metadata": {
+      "title": "记住-以后复杂问题先给结论-再展开解释",
+      "parser_backend": "docling",
+      "source_type": "md",
+      "structure_contract_version": "structure_contract_v1",
+      "unit_view": "document_summary",
+      "index_profiles": [
+        "context_only"
+      ],
+      "child_unit_ids": [
+        "5da244a84e18d5bd8fe7a0cf5f0fc0d75ecada4a"
       ],
       "fallback_used": false
     },

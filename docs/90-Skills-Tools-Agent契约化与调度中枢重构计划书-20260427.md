@@ -1004,3 +1004,194 @@ AnswerFinalizer
 - Phase 7B 已完成理解层候选化第一步：`task-understanding` 在编排计划中标为 `candidate`，`diagnostics.intent_candidates / intent_authority` 会说明理解层只提交候选、canonical owner 是 `orchestration.intent_frame`、旧 `QueryPlanner` 仍执行；core 长场景 `total=3 passed=3 failed=0`，`phase7_intent candidate_projected` 已进入报告。
 - Phase 7C 已完成 `ExecutionDirective` 可执行契约预览：`primary_execution_preview.executable_contract` 会显示 `preview_only / runnable=false / required_gates / execution_specs`；默认 core 长场景 `total=3 passed=3 failed=0`，开启入口选择预览后低风险场景显示 `phase7_execution preview_ready`，运营场景的 web 入口继续 blocked。
 - Phase 7D 已完成旧链路降级清单与删除门禁：`phase7_readiness.legacy_decommission` 会显示 protected modules、blockers 和 `delete_allowed=false`；core 长场景 `total=3 passed=3 failed=0`，所有场景均为 `phase7_decommission not_ready`，说明旧链路仍受保护，不允许直接删除。
+
+## 十四、Phase 7 后续推进的架构准则校准
+
+本计划后续不能只参考 `docs/66-Claude式输出后处理去启发式重构计划书-20260425.md`。doc66 是输出层专项计划，适合指导 `output_classifier / output_boundary / answer_finalizer` 的局部去启发式；但编排层主切换属于全系统重构，必须优先服从 `docs/设计原则/01-25` 的系统级约束。
+
+### 14.1 必须纳入的设计原则来源
+
+后续 Phase 7E 及之后的实现，至少要对照以下文档：
+
+- `01-项目全景.md`：对话循环、工具系统、权限安全、多 Agent 编排是同一个运行时，不应产生第二套隐藏调度脑。
+- `03-状态管理.md`：状态分层、单一状态源、React 与非 React 共享 Store 但互不耦合；前端展示不能替代后端运行时真相。
+- `04-System-Prompt-工程.md` 与 `07-Prompt-Cache.md`：能力 manifest、工具 schema、动态上下文必须保持 prompt/cache 边界稳定，不能把每轮易变诊断塞进静态提示段。
+- `05-对话循环.md`：主对话循环是事件状态机，错误恢复、工具回传、输出收口必须有清晰 transition，不能让局部判断绕过循环。
+- `06-上下文管理.md`：上下文管理负责压缩、预算、片段装配和恢复索引，不负责最终 route / tool / agent 决策。
+- `09-工具系统设计.md`、`10-BashTool-深度剖析.md`、`11-命令系统.md`：工具是注册表中的带契约执行资源；系统执行类工具必须维持高风险边界。
+- `12-Agent-系统.md`、`13-内置Agent设计模式.md`、`14-任务系统.md`：Agent/worker 默认隔离，只有明确共享通道才能写回主状态；后台任务注册与清理属于基础设施穿透。
+- `15-MCP-协议实现.md`、`24-Skill-Plugin开发实战.md`：外部扩展、skills、agents、tools 必须通过注册、契约和权限进入系统，不能由 prompt 自发生成不可校验资源。
+- `16-权限系统.md`、`17-Settings-系统.md`、`19-Feature-Flag与编译期优化.md`：权限 deny 优先，bypass 不能覆盖显式安全约束；运行开关必须默认安全，切换必须可回滚。
+- `20-API调用与错误恢复.md`：主链切换要保留错误恢复与 fallback，不得让新编排层吃掉可恢复错误或把暂扣错误暴露给用户。
+- `23-Memory系统.md`：长期记忆只保存稳定偏好、项目约定、反馈和参考信息；临时任务状态、文件派生状态和当前轮目标不得写成长期记忆。
+- `25-架构模式总结.md`：单一注册入口、三层过滤、默认隔离显式共享、权限管线、prompt 分段缓存，是本次重构的架构底线。
+
+### 14.2 从设计原则转成的硬约束
+
+后续实现必须遵守这些硬约束：
+
+- **主循环唯一**：`QueryRuntime` 可以被拆分和瘦身，但在迁移窗口内只能有一条实际执行主循环；`OrchestrationPlan` 不能变成与旧 planner 并行争权的第二套主链。
+- **事实源唯一**：skills、tools、agents、bindings、search policy 必须来自 `CapabilityManifest / ResourcePolicy`，前端不再自行推断绑定关系。
+- **恢复不等于决策**：memory、continuation、context restore、file handle restore 只能提交候选；是否采用由编排层加 validator 裁决。
+- **执行不等于答案**：tool/worker/agent 原始输出不能直接进入最终回答或长期记忆，必须经过 canonical answer/output boundary。
+- **默认隔离显式共享**：子 agent、worker、后台任务、memory writer 默认不能写主线程状态；共享通道必须在 `ExecutionDirective` 或对应 runtime context 中显式声明。
+- **权限 fail-closed**：未知 tool、未知 agent、未知 skill、未知来源权限、缺失绑定、缺失 active file handle，默认 blocked 或 legacy fallback。
+- **Prompt/cache 稳定**：模型可见能力说明要稳定排序、结构化摘要、按 section 缓存；每轮诊断、trace、runtime diff 只能进动态上下文或测试报告。
+- **配置默认安全**：`primary_entry_selection_enabled=false` 与 `primary_entry_takeover_enabled=false` 仍是默认安全态；任何扩大接管范围都必须有显式开关、报告和回滚。
+
+### 14.3 Phase 7E 前置校准目标
+
+Phase 7E 不应立刻做输出层改写或删除旧链路。它的目标是建立“设计准则校准门”：
+
+1. 盘点当前 Phase 7A-7D 与 `docs/设计原则/01-25` 的一致点和偏移点。
+2. 把 `output_classifier`、记忆恢复、上下文绑定、RuntimeToolBridge、QueryPlanner 的剩余权力按 `restore / decide / execute / present / persist` 五类重新归档。
+3. 明确 doc66 只作为输出层专项参考，不作为编排层主切换的唯一依据。
+4. 在计划书和执行细则中补齐“下一阶段禁止事项、入口条件、退出条件、验证矩阵”。
+5. 只有 Phase 7E 校准通过后，才允许继续推进 Phase 7F 或输出层去启发式专项。
+
+当前进展补充：
+
+- Phase 7E 已把 01-25 设计原则接入 `phase7_readiness.principle_alignment` 诊断。
+- `principle_alignment` 会输出 `required_principles / legacy_power_domains / blockers / next_safe_phase`。
+- 长场景报告已新增 `runtime_phase7_principle_alignment_state_counts` 与 `runtime_phase7_principle_alignment_blocker_counts` 聚合。
+- 编排系统前端已显示准则校准状态和旧模块权力域摘要。
+- Phase 7E 当前默认 `blocked` 是预期状态，表示旧链路的 `restore / decide / execute / present / persist` 权力尚未完全迁移，不允许删除旧链路或扩大接管范围。
+- Phase 7E core 长场景已复核：`total=3 passed=3 failed=0`；三个 core 场景均显示 `phase7_principles blocked`，说明准则校准诊断稳定，但旧链路权力域仍未迁移完成。
+
+Phase 7F 建议方向：
+
+1. 优先迁移 `restore` 权力域：memory、context、continuation、file handle restore 只能输出候选，不得覆盖当前轮 `IntentFrame`。
+2. 再处理 `present / persist` 权力域：参考 doc66 做输出层专项，但只能降级为 canonical answer、协议清洗、fallback 检查和持久化策略。
+3. 最后处理 `decide / execute` 权力域：逐步把 planner、tool visibility、worker/agent selection 收束进正式编排中枢。
+
+Phase 7F 当前进展：
+
+- `restore_authority` 已进入 `orchestration_plan.diagnostics` 与 `phase7_readiness`。
+- Runtime Control 报告已新增 `phase7_restore / phase7_restore_blockers`。
+- 前端编排系统已展示“恢复权力”卡片。
+- core 长场景已复核：`total=3 passed=3 failed=0`，三个场景均显示 `phase7_restore candidate_projected`。
+- 观察结论：PDF/句柄恢复、长期记忆召回和 legacy runtime 消费恢复结果，是 Phase 7F 后续需要继续细化候选对象与采用原因的重点。
+- Phase 7F 第二步已开始把恢复结果拆成细粒度 `candidates[]`：
+  - 每个候选包含 `candidate_id / source / owner_module / candidate_type / value / ref / execution_id`。
+  - 每个候选包含 `adoption_state / adoption_reason / can_override_current_intent`。
+  - 当前阶段统一保持 `can_override_current_intent=false`，并标记为 `adopted_by_legacy`，表示旧 runtime 仍消费这些恢复结果。
+  - 长场景报告新增 `phase7_restore_types / phase7_restore_adoption`，前端可直接阅读恢复候选明细。
+- Phase 7G 已开始建立恢复采用门禁：
+  - `restore_authority.adoption_gate` 会显示恢复候选是否可以由编排层接管。
+  - 当前默认 `blocked` 是预期状态，因为 legacy restore 仍在消费候选。
+  - 门禁要求候选 schema、owner、采用原因、当前轮覆盖保护、legacy 消费替换和 memory/context validator 全部具备后，才允许进入恢复接管。
+  - `restore_authority.adoption_decisions[]` 会给每个恢复候选生成逐条裁决预览，当前均保持 `blocked`，只做诊断不改变行为。
+  - 每条 `adoption_decisions[]` 已嵌入 `memory_context_validation`，用于区分“候选自身结构是否合格”和“是否允许被正式采用”。
+- Phase 7H 已开始建立 restore cutover 迁移计划：
+  - `restore_authority.cutover_plan` 会按候选类型归档 memory restore、context handle restore、current turn override guard 三类替换点。
+  - 当前 `delete_allowed=false`，只允许做 dry-run 裁决和 legacy 消费点对照。
+  - `restore_authority.dry_run_comparison` 会把 legacy 当前采用状态与编排层 adoption decision 对齐，当前差异以 `expected_legacy_delta` 呈现，不改变运行行为。
+  - 编排复盘图新增 `恢复仲裁` 节点，位于 `记忆读取 -> Prompt 装配` 之间，用于直接阅读 restore 候选数、采用门禁、cutover 计划和 dry-run 对照。
+- Phase 7H 补充完成 diff 可观测噪声清理：
+  - `prompt_manifest` 这类可选观测事件未出现时，不再把 `orchestration.diff` 推成质量 warning。
+  - 最新 core 长场景 `20260427-orchestration-phase7h-diff-observability-cleanup` 为 `total=3 passed=3 failed=0`。
+  - `orchestration.diff.warning` 已从报告中消失，剩余 warning 均为真实 PDF 文本质量或章节定位问题。
+  - 下一步不删除旧 restore 链路，优先进入 `present / persist` 权力域诊断，把输出收口和状态写回的旧权力点显式化。
+- Phase 7I 已完成 `present / persist` 权力域诊断：
+  - `diagnostics.output_authority` 会显示答案通道、fallback 允许状态、写回范围、持久化候选和 cutover 计划。
+  - Runtime Control、长场景报告和前端编排卡片已新增 `phase7_output / phase7_output_blockers / phase7_output_writeback`。
+  - 最新 core 长场景 `20260427-orchestration-phase7i-output-persist-authority` 为 `total=3 passed=3 failed=0`。
+  - 输出收口和状态写回仍由 legacy runtime 执行；当前只做诊断，不改变最终答案或持久化路径。
+- Phase 7J 已完成 `decide / execute` 权力域诊断：
+  - `diagnostics.dispatch_authority` 会显示 route、execution kind、允许资源、执行目标和旧调度 blocker。
+  - Runtime Control、长场景报告和前端编排卡片已新增 `phase7_dispatch / phase7_dispatch_blockers / phase7_dispatch_targets`。
+  - 最新 core 长场景 `20260427-orchestration-phase7j-dispatch-authority` 为 `total=3 passed=3 failed=0`。
+  - route/tool/worker/agent 的旧裁决权已可观测，但仍不扩大 primary 接管范围，不删除旧 planner/runtime fallback。
+- Phase 7K 已完成五域切换总门禁：
+  - `phase7_readiness.cutover_readiness` 汇总 `restore / present / persist / decide / execute` 五个权力域。
+  - 总门禁会输出 `domains / blockers / delete_allowed / takeover_allowed`。
+  - 当前默认结论仍为 `blocked`，这是安全态，表示旧链路仍受保护。
+  - 最新 core 长场景 `20260427-orchestration-phase7k-cutover-readiness` 为 `total=3 passed=3 failed=0`。
+- Phase 7L 正在推进切换门禁可读化：
+  - 保留完整 `blockers` 供机器分析。
+  - 新增 `gate_blockers / domain_summaries / top_blockers / human_summary` 供报告和前端阅读。
+  - 目标是让用户能直接看出“卡在哪个权力域、优先处理哪个 blocker”，而不是阅读一整串内部字段。
+  - Phase 7L 不改变执行行为，不删除旧链路，不扩大 primary 接管范围。
+- Phase 7M 正在推进切换迁移任务化：
+  - 在 `cutover_readiness` 中新增 `migration_tasks`。
+  - 每个任务对应一个被阻断的权力域，包含 `priority / target / required_controls / safe_rule / next_action`。
+  - 目标是把 blocker 从“诊断信息”升级成“下一步迁移清单”。
+  - Phase 7M 仍为 diagnostic-only，不改变执行行为，不删除旧链路，不扩大接管范围。
+- Phase 8A 开始进入 Restore 域迁移准备：
+  - 在 `restore_authority` 中新增 `formal_adoption_review`。
+  - `formal_adoption_review.decisions[]` 只判断恢复候选自身是否可正式采用，不再把 legacy 仍执行当成候选自身失败。
+  - `legacy_observations[]` 单独记录旧 runtime 实际采用状态、采用原因和消费模块。
+  - `comparison.items[]` 对齐正式裁决与 legacy 实际采用，识别 `legacy_matches_formal_acceptance` 或 `legacy_over_adopts_rejected_candidate`。
+  - Phase 8A 仍为 diagnostic-only，不替换 legacy restore 消费入口。
+- Phase 8B 开始建立 Restore 采纳追踪链：
+  - 在 `restore_authority` 中新增 `restore_adoption_trace`。
+  - 每条 trace 串联恢复候选、正式裁决、legacy 观测、alignment 和未来替换点。
+  - 替换点归档为 `memory_restore / context_handle_restore / current_turn_override_guard`。
+  - 长场景报告和前端会显示 trace 状态、候选状态、替换点分布和 alignment。
+  - Phase 8B 仍为 diagnostic-only，只准备 shadow replacement 的审计依据，不改变真实恢复消费。
+- Phase 8C 开始建立 Restore 影子替换准备态：
+  - 在 `restore_authority` 中新增 `restore_shadow_replacement_plan`。
+  - 只把 Phase 8B 中 `ready_for_shadow_replacement` 的候选整理为只读 shadow 候选。
+  - 每个候选声明旧消费模块、目标控制点、替换点和 required controls。
+  - 长场景报告和前端会显示 shadow 计划状态、候选状态和替换点分布。
+  - Phase 8C 仍不实现真实 shadow consumer，不替换 legacy restore 消费入口。
+- Phase 8D 开始建立 Restore 只读 shadow 对照器：
+  - 在 `restore_authority` 中新增 `restore_shadow_comparison`。
+  - 只对 Phase 8C 中 `eligible_for_shadow` 的候选生成只读 shadow observation。
+  - observation 只记录规范化候选值、legacy 观测和对照结论，不读取或写入真实 runtime 状态。
+  - 长场景报告和前端会显示 shadow 对照状态与匹配结果。
+  - Phase 8D 仍不替换 legacy restore 消费入口，不改变 `MemoryPolicy / ContextPolicy / IntentFrame`。
+- Phase 8E 开始建立 Restore 真实 shadow consumer 设计门禁：
+  - 在 `restore_authority` 中新增 `restore_real_shadow_consumer_gate`。
+  - 把只读 shadow 对照结果转成候选计划和启用前必需接口。
+  - 必需接口包括只读消费器、对照记录槽、状态写入保护和 legacy 回滚门禁。
+  - 长场景报告和前端会显示真实 shadow consumer 启用前仍缺哪些接口和保护。
+  - Phase 8E 仍不实现真实 shadow consumer，不添加运行开关，不替换 legacy restore 消费入口。
+- Phase 8F 开始建立 Restore observe-only consumer 契约与运行开关门禁：
+  - 在 `restore_authority` 中新增 `restore_shadow_consumer_contract`。
+  - RuntimeControl 会把 `restore_shadow_consumer_enabled / restore_shadow_consumer_mode` 下注到 `restore_shadow_consumer_control`。
+  - 默认配置继续为关闭态；显式开启也只能进入 `observe_only_active`，不允许写状态、不允许接管、不允许删除旧链路。
+  - 长场景报告和前端会显示契约状态、候选只读消费状态、运行开关状态和模式。
+  - Phase 8F 的意义是把 shadow 从“设计门禁”推进到“可开关观测契约”，不是替换 legacy restore。
+- Phase 8G 开始建立 Restore observe-only runtime observation：
+  - RuntimeControl 在 observe-only 开启且契约 ready 时，生成 `restore_shadow_consumer_observation`。
+  - observation 只记录候选、替换点、旧消费点和捕获状态，不写 `MemoryPolicy / ContextPolicy / IntentFrame`。
+  - 默认配置下 observation 仍为 `disabled`，这符合安全态。
+  - Phase 8G 是真实替换前的只读仪表盘，不是主链恢复结果。
+- Phase 8H 开始建立 Restore 旧链路退场计划：
+  - 在 `restore_authority` 中新增 `restore_legacy_decommission_plan`。
+  - 退场计划直接列出旧入口、新 seam、删除范围、first cut 顺序和 blocker。
+  - 第一批只考虑 `load_session_authoritative_context` 与已退场的 `apply_authoritative_context` 壳接口，它们是 authoritative-context restore 的浅层入口。
+  - 证据图、绑定候选、长期记忆恢复暂不纳入第一批删除，避免把状态恢复与记忆读写一起切。
+  - 后续推进应从“替换一个入口、验证、删除一个入口”开始，而不是继续扩大 shadow 诊断。
+- Phase 8I 开始建立 Restore authoritative context first-cut seam：
+  - 新增 `orchestration.restore_context.RestoreAuthorityContextGate`，作为旧 `RuntimeContextState.load_session_authoritative_context` 与 planner `authority_context` 之间的第一道编排 seam。
+  - `QueryRuntime._execution_events()`、`_stream_single_execution()`、行为 dry-run 与长场景预期计划都必须通过 `_planner_authority_context()`，不再直接把旧 session authoritative context 送进 planner。
+  - 默认或关闭 observe-only 时保持 `legacy_passthrough`，用于安全回滚；显式 observe-only 时输出 `orchestration_filtered`，只允许 `active_pdf / active_dataset / active_object_handle_id / active_result_handle_id / active_subset_handle_id` 等恢复句柄进入 planner。
+  - `restore_authority.restore_authority_context_gate` 会记录 `legacy_keys / filtered_keys / state_write_allowed=false / takeover_allowed=false / delete_allowed=false`，证明这一刀只切入口、不写状态、不接管、不删除。
+  - `restore_legacy_decommission_plan` 的 first-cut ready 条件增加 `authority_context_gate.state == orchestration_filtered`，避免在 planner 入口尚未下沉到编排 Gate 前误删旧链路。
+  - 长场景报告新增 `phase8_restore_authority_context_gate` 聚合，用于确认测试系统看到的是新 seam，而不是旧 restore 直通。
+  - `query.continuation_resolver.apply_authoritative_context` 已确认不在生产路径中使用，并完成删除；对应回归脚本不再直接调用旧 restore 改写接口。
+- Phase 8J 开始把 Restore 入口从“权威上下文”改名并降级为“恢复候选”：
+  - `RuntimeContextState.load_session_authoritative_context` 已退场，替换为 `load_session_restore_candidates`。
+  - `QueryRuntime._load_session_authoritative_context` 已退场，替换为 `_load_session_restore_candidates`。
+  - `RestoreAuthorityContextGate.filter_for_planner()` 入参从 `legacy_context` 调整为 `restore_candidates`，诊断新增 `candidate_keys / candidate_context_present`，旧 `legacy_keys` 仅作为兼容字段保留。
+  - 这一步的意义是从命名和接口层面取消 session restore 的“权威”身份：它只能提交候选，最终是否进入 planner 由编排 Gate 裁决。
+  - `restore_legacy_decommission_plan` 中 `restore-context-authority` 与 `restore-continuation-context` 均标为 `removed`，整体状态显示 `first_cut_removed`；剩余 deep restore 入口仍受保护，不进入本批删除。
+- Phase 8K 开始把 Evidence restore 深层入口候选化：
+  - `QueryRuntime._restore_evidence_state_from_session` 已拆成 `_load_evidence_restore_candidates` 与 `_apply_evidence_restore_candidates`。
+  - 这一步不删除 `binding_candidate_store` 与 `evidence_graph_store` 的恢复能力，因为它们仍支撑文件候选确认、表格物化和证据续接。
+  - `restore_legacy_decommission_plan` 中 `restore-evidence-runtime-state` 标为 `candidateized`，blocker 为 `deep_restore_candidateized_not_deleted`。
+  - 目标是先取消“隐式 restore state”入口，把深层 evidence restore 变成可被编排层继续接管的候选读取/应用 seam。
+- Phase 8L 开始把 Present/Persist 的最终写回候选化：
+  - 新增 `orchestration.output_commit.OutputCommitGate`，把 done 事件后的写回动作整理成 commit candidates。
+  - `QueryRuntime.astream()` 不再直接散落执行状态投影、助手消息持久化和 post-turn 任务，而是先构造 `OutputCommitPlan`，再由 `_apply_output_commit_plan()` 显式应用。
+  - commit candidates 包括 `state_memory_projection / session_transcript / post_turn_refresh`。
+  - done 事件会附加 `output_commit` 诊断，标记 `phase=8L / state=commit_candidates_projected / apply_mode=legacy_runtime_apply`。
+  - `diagnostics.output_authority.output_commit_gate` 已声明新 seam；当前仍不接管写回权限，后续需要接入 `MemoryPolicy.writeback_scope` 与持久化 validator。
+  - 长场景报告新增 `Output Commit` 区块，聚合 `runtime_phase8_output_commit_state_counts` 与 `runtime_phase8_output_commit_candidate_type_counts`。
+- Phase 8M 开始把 Execute 入口候选化：
+  - 新增 `orchestration.execution_candidate.ExecutionCandidateGate`。
+  - `_stream_planned_execution()` 在进入真实执行前，会把 legacy `QueryExecutionPlan` 投影为 `execution_candidate` 诊断。
+  - `context_management` 事件附加 `execution_candidate`，包含 `execution_kind / route / tool / worker_route / skill / apply_mode=legacy_runtime_apply`。
+  - 当前不接管执行，不新增执行对象，不改变 RuntimeToolBridge/worker/model 分支；目标是为后续 validated `ExecutionDirective` 接管执行入口准备 seam。
