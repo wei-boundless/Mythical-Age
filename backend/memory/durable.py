@@ -48,6 +48,11 @@ class DurableMemoryLayer:
         notes = self.extractor.save_extracted(messages)
         return len(notes)
 
+    def preview_extraction_notes(self, messages: list[Message]) -> list[Any]:
+        """Build durable-memory note candidates without writing the store."""
+
+        return self.extractor.extract(messages)
+
     def schedule_extraction_from_context_state(
         self,
         session_id: str,
@@ -80,6 +85,22 @@ class DurableMemoryLayer:
         )
         notes = self.extractor.save_extracted(projected)
         return len(notes)
+
+    def preview_extraction_notes_from_context_state(
+        self,
+        session_id: str,
+        main_context: Any,
+        *,
+        task_summaries: list[Any] | None = None,
+        corrections: list[str] | None = None,
+    ) -> list[Any]:
+        projected = self._project_context_state_messages(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
+        )
+        return self.preview_extraction_notes(projected)
 
     def build_persistent_memory_block(
         self,

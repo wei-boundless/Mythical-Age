@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from memory.manifest_scan import MemoryHeader, load_memory_header, scan_memory_headers
+from memory_system import MemoryGovernance
 from structured_memory.frontmatter import format_frontmatter, parse_frontmatter
 from structured_memory.models import DEFAULT_DURABLE_SCHEMA_VERSION, MemoryNote, utc_now_iso
 from understanding.memory_intent import analyze_memory_intent
@@ -383,28 +384,40 @@ def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", l
     assert runtime.memory_facade is not None
     messages = runtime.session_manager.load_session(session_id)
     intent = analyze_memory_intent(query) if query.strip() else None
-    inspect = runtime.memory_facade.inspect_query_context(
-        session_id,
-        history=messages,
-        pending_user_message=query.strip() or None,
+    preview = runtime.memory_facade.build_memory_context_package_preview(
+        session_id=session_id,
+        query=query.strip() or None,
         memory_intent=intent,
         note_limit=limit,
     )
-    session = dict(inspect.get("session_memory") or {})
+    payload = preview.to_dict()
+    package = dict(payload.get("package") or {})
+    sections = dict(package.get("model_visible_sections") or {})
+    memory_view = runtime.memory_facade.build_memory_runtime_view(
+        session_id=session_id,
+        query=query.strip() or None,
+        memory_intent=intent,
+        note_limit=limit,
+    )
+    state = memory_view.state_snapshot
+    rendered_sections = "\n".join(
+        "\n".join(str(item) for item in list(sections.get(name, []) or []))
+        for name in ("active_process_context", "hot_truth_window", "relevant_durable_context")
+    ).strip()
     return {
-        "present": bool(session.get("present")),
-        "preview": _compact_text(str(session.get("preview") or ""), 900),
-        "model_preview": _compact_text(str(session.get("model_visible", {}).get("preview") or ""), 900),
-        "debug_preview": _compact_text(str(session.get("debug_visible", {}).get("preview") or ""), 900),
-        "active_goal": str(session.get("active_goal") or ""),
-        "flow_state": dict(session.get("flow_state") or {}),
-        "task_state": dict(session.get("task_state") or {}),
-        "context_slots": dict(session.get("context_slots") or {}),
-        "risk": dict(session.get("risk") or {}),
-        "warm_snapshots": list(session.get("warm_snapshots") or [])[:8],
-        "storage": dict(session.get("storage") or {}),
-        "context_management": dict(inspect.get("context_management") or {}),
-        "durable_matches": dict(inspect.get("durable_memory") or {}),
+        "present": bool(memory_view.context_candidates or memory_view.restore_candidates),
+        "preview": _compact_text(rendered_sections, 900),
+        "model_preview": _compact_text(rendered_sections, 900),
+        "debug_preview": _compact_text(json.dumps(payload, ensure_ascii=False), 900),
+        "active_goal": str(getattr(state, "active_goal", "") or ""),
+        "flow_state": dict(getattr(state, "flow_state", {}) or {}),
+        "task_state": dict(getattr(state, "task_state", {}) or {}),
+        "context_slots": dict(getattr(state, "context_slots", {}) or {}),
+        "risk": {},
+        "warm_snapshots": [],
+        "storage": {"memory_runtime_view": memory_view.view_id},
+        "context_management": package,
+        "durable_matches": {"long_term_record_count": len(memory_view.long_term_records)},
     }
 
 
@@ -579,15 +592,21 @@ def _dedupe(items: list[str]) -> list[str]:
 
 
 def _append_governance_log(base_dir: Path, action: str, filenames: list[str], *, reason: str = "", created: str = "") -> None:
-    log_dir = base_dir / "durable_memory" / "meta"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "ts": utc_now_iso(),
-        "action": action,
-        "filenames": filenames,
-        "created": created,
-        "reason": reason,
-        "actor": "memory_governance_ui",
-    }
-    with (log_dir / "governance_log.jsonl").open("a", encoding="utf-8", newline="\n") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    mapped_action = {
+        "create": "manual_create",
+        "disable": "manual_disable",
+        "activate": "manual_activate",
+        "archive": "manual_archive",
+        "delete": "manual_delete",
+        "merge": "manual_merge",
+    }.get(action, "manual_update")
+    MemoryGovernance(base_dir).record(
+        action=mapped_action,  # type: ignore[arg-type]
+        commit_layer="long_term",
+        target_refs=tuple(filenames),
+        created_ref=created,
+        reason=reason,
+        actor="memory_governance_ui",
+        allowed=True,
+        metadata={"legacy_action": action},
+    )

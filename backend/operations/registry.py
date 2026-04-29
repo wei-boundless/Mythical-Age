@@ -96,6 +96,17 @@ def _descriptor(
 def default_operation_descriptors() -> list[OperationDescriptor]:
     return [
         _descriptor(
+            "op.model_response",
+            "model",
+            "Model response",
+            "Generate a model-only answer without tools, workers, file writes, or memory writes.",
+            aliases=("model_response", "main_response"),
+            risk_tags=("model_only", "read_only"),
+            read_only=True,
+            idempotent=False,
+            concurrency_safe=True,
+        ),
+        _descriptor(
             "op.read_file",
             "filesystem",
             "Read file",
@@ -265,4 +276,3 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
 
 def build_default_operation_registry() -> OperationRegistry:
     return OperationRegistry(default_operation_descriptors())
-

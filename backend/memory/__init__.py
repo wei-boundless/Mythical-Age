@@ -10,7 +10,6 @@ __all__ = [
     "DurableStoreWriter",
     "DurableWriteExtractorAgent",
     "MemoryHeader",
-    "MemoryContextLayer",
     "MemoryFacade",
     "MemoryMessageAdapter",
     "MemoryReadAgent",
@@ -55,10 +54,6 @@ def __getattr__(name: str):
             "MemoryRecallResult": MemoryRecallResult,
             "MemoryRecallSelection": MemoryRecallSelection,
         }[name]
-    if name in {"MemoryContextLayer"}:
-        from memory.context import MemoryContextLayer
-
-        return MemoryContextLayer
     if name in {"DurableMemoryLayer"}:
         from memory.durable import DurableMemoryLayer
 

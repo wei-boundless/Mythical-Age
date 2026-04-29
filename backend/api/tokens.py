@@ -41,7 +41,7 @@ async def session_tokens(session_id: str) -> dict[str, Any]:
     raw_history_tokens = compactor.conversation_tokens(py_messages)
     context_compaction: dict[str, Any] = {}
     try:
-        _compacted_history, context_compaction = runtime.memory_facade.compact_history_for_query(
+        _compacted_history, context_compaction = runtime.memory_facade.preview_memory_context_compaction(
             session_id,
             record.get("messages", []),
         )

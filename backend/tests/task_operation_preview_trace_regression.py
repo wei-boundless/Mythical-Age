@@ -26,6 +26,13 @@ def test_task_operation_preview_snapshots_cover_acceptance_cases() -> None:
         assert snapshot["control_kernel_result"]["status"] == "blocked"
         assert snapshot["control_kernel_result"]["directives"] == []
         assert snapshot["control_kernel_result"]["execution_graph"]["nodes"] == []
+        assert snapshot["adoption_block"]["blocked"] is True
+        assert snapshot["runtime_directive_block"]["blocked"] is True
+        assert snapshot["operation_gate_preflight"]["operation_gate_passed"] is False
+        assert snapshot["directive_only_executor_preview"]["will_dispatch"] is False
+        assert snapshot["commit_gate_preview"]["status"] == "blocked"
+        assert snapshot["commit_gate_preview"]["commit_allowed"] is False
+        assert all(item["authority"] == "candidate_only" for item in snapshot["understanding_candidate_preview"])
         assert snapshot["control_kernel_diagnostics"]["runtime_directive_enabled"] is False
         assert snapshot["control_kernel_diagnostics"]["runtime_executable"] is False
 
@@ -52,6 +59,7 @@ def test_task_operation_preview_snapshots_api_is_read_only_preview() -> None:
     assert payload["status"] == "preview_only"
     assert payload["invariants"]["runtime_directive_enabled"] is False
     assert payload["invariants"]["execution_nodes"] == 0
+    assert payload["invariants"]["runtime_executable"] is False
     assert all(item["validation"]["passed"] for item in payload["snapshots"])
 
 

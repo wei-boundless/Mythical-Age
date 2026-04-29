@@ -113,44 +113,83 @@ class RuntimeContextState:
             }
         ]
 
-    def load_session_binding_snapshot(self, session_id: str) -> dict[str, Any]:
-        session_memory = getattr(self.memory_facade, "session_memory", None)
-        if session_memory is None or not hasattr(session_memory, "manager"):
-            return {}
+    def load_state_memory_snapshot(self, session_id: str):
+        loader = getattr(self.memory_facade, "build_state_memory_snapshot", None)
+        if not callable(loader):
+            return None
         try:
-            manager = session_memory.manager(session_id)
-            state = manager.load_state()
+            return loader(session_id)
         except Exception:
-            logger.exception("Failed to load session binding snapshot for %s", session_id)
-            return {}
-        slots = getattr(state, "context_slots", None)
-        if slots is None:
-            return {}
-        committed_pdf = str(getattr(slots, "committed_pdf", "") or getattr(slots, "active_pdf", "") or "").strip()
-        committed_dataset = str(
-            getattr(slots, "committed_dataset", "") or getattr(slots, "active_dataset", "") or ""
-        ).strip()
-        return {
-            "committed_pdf": committed_pdf,
-            "committed_pdf_owner_task_id": str(
-                getattr(slots, "committed_pdf_owner_task_id", "")
-                or (getattr(slots, "active_binding_owner_task_id", "") if committed_pdf else "")
-                or ""
-            ).strip(),
-            "committed_dataset": committed_dataset,
-            "committed_dataset_owner_task_id": str(
-                getattr(slots, "committed_dataset_owner_task_id", "")
-                or (getattr(slots, "active_binding_owner_task_id", "") if committed_dataset else "")
-                or ""
-            ).strip(),
-            "active_object_handle_id": str(getattr(slots, "active_object_handle_id", "") or "").strip(),
-            "active_result_handle_id": str(getattr(slots, "active_result_handle_id", "") or "").strip(),
-            "active_subset_handle_id": str(getattr(slots, "active_subset_handle_id", "") or "").strip(),
-        }
+            logger.exception("Failed to load StateMemory snapshot for %s", session_id)
+            return None
+
+    def load_state_memory_restore_candidate_contracts(self, session_id: str) -> tuple[Any, ...]:
+        loader = getattr(self.memory_facade, "build_state_memory_restore_candidates", None)
+        if not callable(loader):
+            return ()
+        try:
+            return tuple(loader(session_id) or ())
+        except Exception:
+            logger.exception("Failed to load StateMemory restore candidates for %s", session_id)
+            return ()
+
+    def load_session_binding_snapshot(self, session_id: str) -> dict[str, Any]:
+        state_snapshot = self.load_state_memory_snapshot(session_id)
+        if state_snapshot is not None:
+            slots = dict(getattr(state_snapshot, "context_slots", {}) or {})
+            committed_pdf = str(slots.get("committed_pdf", "") or slots.get("active_pdf", "") or "").strip()
+            committed_dataset = str(
+                slots.get("committed_dataset", "") or slots.get("active_dataset", "") or ""
+            ).strip()
+            return {
+                "committed_pdf": committed_pdf,
+                "committed_pdf_owner_task_id": str(
+                    slots.get("committed_pdf_owner_task_id", "")
+                    or (slots.get("active_binding_owner_task_id", "") if committed_pdf else "")
+                    or ""
+                ).strip(),
+                "committed_dataset": committed_dataset,
+                "committed_dataset_owner_task_id": str(
+                    slots.get("committed_dataset_owner_task_id", "")
+                    or (slots.get("active_binding_owner_task_id", "") if committed_dataset else "")
+                    or ""
+                ).strip(),
+                "active_object_handle_id": str(slots.get("active_object_handle_id", "") or "").strip(),
+                "active_result_handle_id": str(slots.get("active_result_handle_id", "") or "").strip(),
+                "active_subset_handle_id": str(slots.get("active_subset_handle_id", "") or "").strip(),
+            }
+        return {}
 
     def load_session_restore_candidates(self, session_id: str) -> dict[str, Any]:
-        snapshot = self.load_session_binding_snapshot(session_id)
         candidates: dict[str, Any] = {}
+        restore_contracts = self.load_state_memory_restore_candidate_contracts(session_id)
+        for contract in restore_contracts:
+            if str(getattr(contract, "authority", "") or "") != "candidate_only":
+                continue
+            if bool(getattr(contract, "can_promote_to_current_fact", False)):
+                continue
+            restore_kind = str(getattr(contract, "restore_kind", "") or "")
+            metadata = dict(getattr(contract, "metadata", {}) or {})
+            value = getattr(contract, "value", "")
+            if restore_kind == "context_slot":
+                slot_name = str(metadata.get("slot_name", "") or "").strip()
+                if slot_name in {"committed_pdf", "active_pdf"}:
+                    candidates.setdefault("active_pdf", str(value or "").strip())
+                elif slot_name in {"committed_dataset", "active_dataset"}:
+                    candidates.setdefault("active_dataset", str(value or "").strip())
+            elif restore_kind == "result_handle":
+                handle_name = str(metadata.get("handle_name", "") or "").strip()
+                if handle_name in {"active_object_handle_id", "active_result_handle_id", "active_subset_handle_id"}:
+                    candidates.setdefault(handle_name, str(value or "").strip())
+        candidates = {
+            key: value
+            for key, value in candidates.items()
+            if str(value or "").strip()
+        }
+        if candidates:
+            return candidates
+
+        snapshot = self.load_session_binding_snapshot(session_id)
         committed_pdf = str(snapshot.get("committed_pdf", "") or "").strip()
         if committed_pdf:
             candidates["active_pdf"] = committed_pdf

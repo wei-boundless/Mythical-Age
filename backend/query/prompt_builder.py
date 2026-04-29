@@ -187,13 +187,13 @@ def build_turn_prompt(
         if context_package is not None
         else ""
     )
-    durable_memory_block = (
-        persistent_memory
-        if persistent_memory is not None
-        else package_durable_memory
-        if package_durable_memory
-        else long_term_context.memory_block
-    ).strip()
+    if context_package is not None:
+        durable_memory_block = package_durable_memory
+    elif persistent_memory is not None:
+        durable_memory_block = persistent_memory
+    else:
+        durable_memory_block = long_term_context.memory_block
+    durable_memory_block = durable_memory_block.strip()
     if durable_memory_block:
         parts.append(
             f"## 当前最相关的已记住事实\n{_truncate(durable_memory_block, settings.component_char_limit)}"
@@ -344,7 +344,7 @@ def build_system_prompt_with_manifest(
                 section_id="session_context",
                 title="当前情境",
                 layer="session",
-                source="memory_facade.build_context_package",
+                source="MemorySystem.MemoryRuntimeView -> ContextPolicy.ContextPackagePreview",
                 content=rendered_session_memory,
                 order=order,
             )
@@ -359,13 +359,13 @@ def build_system_prompt_with_manifest(
         if context_package is not None
         else ""
     )
-    durable_memory_block = (
-        persistent_memory
-        if persistent_memory is not None
-        else package_durable_memory
-        if package_durable_memory
-        else long_term_context.memory_block
-    ).strip()
+    if context_package is not None:
+        durable_memory_block = package_durable_memory
+    elif persistent_memory is not None:
+        durable_memory_block = persistent_memory
+    else:
+        durable_memory_block = long_term_context.memory_block
+    durable_memory_block = durable_memory_block.strip()
     if durable_memory_block:
         order += 1
         sections.append(
@@ -373,7 +373,7 @@ def build_system_prompt_with_manifest(
                 section_id="turn_relevant_memory",
                 title="当前最相关的已记住事实",
                 layer="turn",
-                source="durable_memory / context_package",
+                source="ContextPolicy.ContextPackagePreview.relevant_durable_context",
                 content=durable_memory_block,
                 order=order,
             )

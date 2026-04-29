@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import inspect
 import json
 import logging
 import os
@@ -12,7 +11,16 @@ from typing import Any
 
 from agents import MAIN_AGENT
 from observability import build_debug_trace_event, start_turn_trace
-from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
+from operations import OperationGate, ResourceDecision, ResourcePolicy, build_default_operation_registry
+from orchestration import (
+    ControlKernel,
+    RuntimeDirective,
+    TaskContract,
+    build_agent_runtime_chain_preview,
+    build_blocked_runtime_commit_gate,
+    build_base_unit_catalog,
+    build_user_message_commit_decision,
+)
 from query.answer_assembler import AnswerAssembler
 from query.context_models import MainContextState, TaskSummaryRef
 from query.evidence_orchestrator import EvidenceOrchestrator
@@ -37,11 +45,12 @@ from query.prompt_manifest import PromptManifest, compact_prompt_manifest
 from query.planner import QueryPlanner
 from query.worker_models import WorkerExecutionPlan, WorkerRequest
 from runtime.model_runtime import ModelRuntime, ModelRuntimeError, stringify_content
+from memory_system import MemoryWritebackPreviewService
 from skill_system import SkillDefinition
 from tasks.contract_builder import build_task_runtime_contract_preview
 from tasks.coordinator import TaskCoordinator
 from tools.contracts import ToolContractDecision, ToolContractGate, ToolScope
-from understanding import QueryUnderstanding, analyze_memory_intent, evaluate_memory_write
+from understanding import QueryUnderstanding, analyze_memory_intent
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +88,25 @@ class QueryRuntime:
         )
         self.control_kernel = ControlKernel()
         self.unit_catalog = build_base_unit_catalog()
+        self.operation_registry = build_default_operation_registry()
+        self.operation_gate = OperationGate(self.operation_registry)
         self.restore_context_gate = None
         self.execution_candidate_gate = None
         self.output_commit_gate = None
+        self.memory_gate_preview = None
         self.answer_assembler = AnswerAssembler()
         self._output_policy = RuntimeOutputPolicy(
             model_runtime=model_runtime,
             stringify_tool_output=self._stringify_tool_output,
         )
         self._persistence = RuntimePersistenceAssembler(hidden_skill_notice=HIDDEN_SKILL_NOTICE)
+        self._memory_writeback = MemoryWritebackPreviewService(
+            memory_facade,
+            session_history_loader=lambda session_id: self.session_manager.load_session_for_agent(
+                session_id,
+                include_compressed_context=False,
+            ),
+        )
         self.binding_candidate_store = BindingCandidateStore()
         self.evidence_graph_store = EvidenceGraphStore()
         self.retrieval_worker = RetrievalWorker(retrieval_service=retrieval_service)
@@ -140,27 +159,17 @@ class QueryRuntime:
         active_skill: SkillDefinition | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
     ) -> str:
-        context_package = None
-        persistent_memory = None
-        if session_id:
-            context_package = self.memory_facade.build_context_package(
-                session_id,
-                history=history,
-                pending_user_message=pending_user_message,
-                memory_intent=memory_intent,
-                relevant_notes=relevant_memory_notes,
-                retrieval_results=retrieval_results,
-                rebuild_reason="prompt_assembly",
-            )
-        persistent_memory = self.memory_facade.build_persistent_memory_block(
-            query=pending_user_message,
+        context_package = self._build_context_package_preview_for_session(
+            session_id=session_id or "",
+            pending_user_message=pending_user_message,
             memory_intent=memory_intent,
-            relevant_notes=relevant_memory_notes,
+            relevant_memory_notes=relevant_memory_notes,
+            retrieval_results=retrieval_results,
         )
         return build_system_prompt(
             self.base_dir,
             self.settings_service.get_rag_mode(),
-            persistent_memory=persistent_memory,
+            persistent_memory=None,
             session_memory=None,
             context_package=context_package,
             active_skill=self._render_active_skill_prompt(active_skill),
@@ -176,35 +185,17 @@ class QueryRuntime:
         active_skill: SkillDefinition | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
     ) -> str:
-        context_package = None
-        persistent_memory = None
-        if session_id:
-            context_package = self.memory_facade.build_context_package(
-                session_id,
-                history=history,
-                pending_user_message=pending_user_message,
-                memory_intent=memory_intent,
-                relevant_notes=relevant_memory_notes,
-                retrieval_results=retrieval_results,
-                rebuild_reason="prompt_assembly",
-            )
-        async_builder = getattr(self.memory_facade, "abuild_persistent_memory_block", None)
-        if callable(async_builder):
-            persistent_memory = await async_builder(
-                query=pending_user_message,
-                memory_intent=memory_intent,
-                relevant_notes=relevant_memory_notes,
-            )
-        else:
-            persistent_memory = self.memory_facade.build_persistent_memory_block(
-                query=pending_user_message,
-                memory_intent=memory_intent,
-                relevant_notes=relevant_memory_notes,
-            )
+        context_package = self._build_context_package_preview_for_session(
+            session_id=session_id or "",
+            pending_user_message=pending_user_message,
+            memory_intent=memory_intent,
+            relevant_memory_notes=relevant_memory_notes,
+            retrieval_results=retrieval_results,
+        )
         return build_system_prompt(
             self.base_dir,
             self.settings_service.get_rag_mode(),
-            persistent_memory=persistent_memory,
+            persistent_memory=None,
             session_memory=None,
             context_package=context_package,
             active_skill=self._render_active_skill_prompt(active_skill),
@@ -218,36 +209,20 @@ class QueryRuntime:
         retrieval_results: list[dict[str, Any]] | None = None,
         relevant_memory_notes: list[Any] | None = None,
     ) -> str:
-        context_package = self.memory_facade.build_context_package(
-            session_id,
-            history=execution.history,
+        context_package = self._build_context_package_preview_for_session(
+            session_id=session_id,
             pending_user_message=execution.message,
             memory_intent=execution.memory_intent,
-            relevant_notes=relevant_memory_notes,
+            relevant_memory_notes=relevant_memory_notes,
             retrieval_results=retrieval_results,
-            rebuild_reason="prompt_assembly",
         )
         if self._is_session_summary_execution(execution):
             context_package = self._filter_runtime_sections_from_context_package(context_package)
 
-        async_builder = getattr(self.memory_facade, "abuild_persistent_memory_block", None)
-        if callable(async_builder):
-            persistent_memory = await async_builder(
-                query=execution.message,
-                memory_intent=execution.memory_intent,
-                relevant_notes=relevant_memory_notes,
-            )
-        else:
-            persistent_memory = self.memory_facade.build_persistent_memory_block(
-                query=execution.message,
-                memory_intent=execution.memory_intent,
-                relevant_notes=relevant_memory_notes,
-            )
-
         return build_system_prompt(
             self.base_dir,
             self.settings_service.get_rag_mode(),
-            persistent_memory=persistent_memory,
+            persistent_memory=None,
             session_memory=None,
             context_package=context_package,
             active_skill=self._render_execution_skill_prompt(execution),
@@ -261,42 +236,49 @@ class QueryRuntime:
         retrieval_results: list[dict[str, Any]] | None = None,
         relevant_memory_notes: list[Any] | None = None,
     ) -> tuple[str, PromptManifest]:
-        context_package = self.memory_facade.build_context_package(
-            session_id,
-            history=execution.history,
+        context_package = self._build_context_package_preview_for_session(
+            session_id=session_id,
             pending_user_message=execution.message,
             memory_intent=execution.memory_intent,
-            relevant_notes=relevant_memory_notes,
+            relevant_memory_notes=relevant_memory_notes,
             retrieval_results=retrieval_results,
-            rebuild_reason="prompt_assembly",
         )
         if self._is_session_summary_execution(execution):
             context_package = self._filter_runtime_sections_from_context_package(context_package)
 
-        async_builder = getattr(self.memory_facade, "abuild_persistent_memory_block", None)
-        if callable(async_builder):
-            persistent_memory = await async_builder(
-                query=execution.message,
-                memory_intent=execution.memory_intent,
-                relevant_notes=relevant_memory_notes,
-            )
-        else:
-            persistent_memory = self.memory_facade.build_persistent_memory_block(
-                query=execution.message,
-                memory_intent=execution.memory_intent,
-                relevant_notes=relevant_memory_notes,
-            )
-
         return build_system_prompt_with_manifest(
             self.base_dir,
             self.settings_service.get_rag_mode(),
-            persistent_memory=persistent_memory,
+            persistent_memory=None,
             session_memory=None,
             context_package=context_package,
             active_skill=self._render_execution_skill_prompt(execution),
             session_id=session_id,
             turn_id=str(getattr(execution, "execution_id", "") or getattr(execution, "message", "") or "")[:64],
         )
+
+    def _build_context_package_preview_for_session(
+        self,
+        *,
+        session_id: str,
+        pending_user_message: str | None,
+        memory_intent: Any | None,
+        relevant_memory_notes: list[Any] | None,
+        retrieval_results: list[dict[str, Any]] | None,
+    ):
+        if not session_id:
+            return None
+        preview_builder = getattr(self.memory_facade, "build_memory_context_package_preview", None)
+        if callable(preview_builder):
+            result = preview_builder(
+                session_id=session_id,
+                query=pending_user_message,
+                memory_intent=memory_intent,
+                relevant_notes=relevant_memory_notes,
+                retrieval_results=retrieval_results,
+            )
+            return getattr(result, "package", result)
+        return None
 
     def _render_active_skill_prompt(self, active_skill: SkillDefinition | None) -> str | None:
         if active_skill is None:
@@ -377,7 +359,11 @@ class QueryRuntime:
         current_segment = self._new_segment()
         assistant_persisted = False
 
-        self.session_manager.save_message(request.session_id, "user", request.message)
+        input_commit_gate = self._commit_user_message(
+            session_id=request.session_id,
+            content=request.message,
+            task_id=f"turn:{request.session_id}:{len(history_record.get('messages', [])) + 1}",
+        )
 
         try:
             with start_turn_trace(
@@ -390,111 +376,56 @@ class QueryRuntime:
                 debug_event = build_debug_trace_event(trace)
                 if debug_event is not None:
                     yield debug_event
+                yield {
+                    "type": "input_commit_gate",
+                    "commit_gate": input_commit_gate.to_dict(),
+                }
 
-                task_operation_preview = self._build_live_task_operation_preview(
+                chain_preview = self._build_live_agent_runtime_chain_preview(
                     session_id=request.session_id,
                     task_id=f"turn:{request.session_id}:{len(history_record.get('messages', [])) + 1}",
                     message=request.message,
                     source="query_runtime.astream",
                 )
-                control_result = dict(task_operation_preview.get("control_kernel_result") or {})
-                yield {
-                    "type": "task_operation_preview",
-                    "preview": task_operation_preview,
-                }
-                yield {
-                    "type": "orchestration_control",
-                    "control": control_result,
-                    "unit_catalog": self.unit_catalog.to_list(),
-                    "task_operation_preview_ref": _preview_ref_payload(task_operation_preview),
-                }
-                yield {
-                    "type": "error",
-                    "error": str(control_result.get("reason") or "preview_only"),
-                    "content": "旧编排连线已清空；新的 ControlKernel/ExecutionGraph 接线完成前，本轮按 fail-closed 策略停止执行。",
-                    "answer_channel": "orchestration_fail_closed",
-                    "answer_source": "control_kernel",
-                }
-                return
-
-                async for event in self._execution_events(
-                    request.session_id,
-                    request.message,
-                    history,
-                    ephemeral_system_messages=request.ephemeral_system_messages,
-                    explicit_subtasks=request.explicit_subtasks,
-                    search_policy=request.search_policy,
-                    trace=trace,
+                for event in self._agent_runtime_chain_preview_events(
+                    chain_preview,
+                    fail_closed_message="旧编排连线已清空；新的 ControlKernel/ExecutionGraph 接线完成前，本轮按 fail-closed 策略停止执行。",
+                    include_fail_closed=False,
                 ):
-                    event_type = event["type"]
-
-                    if event_type == "token":
-                        current_segment["content"] += str(event.get("content", ""))
-                    elif event_type == "tool_start":
-                        current_segment["tool_calls"].append(
-                            {
-                                "tool": event.get("tool", "tool"),
-                                "input": event.get("input", ""),
-                                "output": "",
-                            }
-                        )
-                    elif event_type == "tool_end":
-                        if current_segment["tool_calls"]:
-                            current_segment["tool_calls"][-1]["output"] = event.get("output", "")
-                    elif event_type == "new_response":
-                        segments = self._finalize_segments(segments, current_segment)
-                        current_segment = self._new_segment()
-                    elif event_type == "done":
-                        segments = self._finalize_segments(
-                            segments,
-                            current_segment,
-                            fallback_content=str(event.get("content", "") or ""),
-                        )
-                        assistant_messages = self._build_assistant_messages(
-                            segments,
-                            canonical_content=str(event.get("content", "") or ""),
-                            answer_metadata=self._assistant_metadata_from_done_event(event),
-                        )
-                        output_commit_plan = self._build_output_commit_plan(
-                            done_event=event,
-                            assistant_messages=assistant_messages,
-                            segment_count=len(segments),
-                            title_seed=request.message if is_first_user_message else None,
-                        )
-                        assistant_persisted = self._apply_output_commit_plan(
-                            request.session_id,
-                            output_commit_plan,
-                            trace=trace,
-                        )
-                        event = {**event, "output_commit": dict(output_commit_plan.diagnostics)}
-
-                        yield event
-                        break
-
                     yield event
+                async for event in self._stream_model_response_directive(
+                    request=request,
+                    chain_preview=chain_preview,
+                    history=history,
+                ):
+                    yield event
+                return
         except Exception as exc:
             failure_text = self._user_visible_error(exc)
-            if not assistant_persisted:
-                try:
-                    partial_segments = self._finalize_segments(segments, current_segment)
-                    assistant_messages = self._build_assistant_messages(partial_segments)
-                    if assistant_messages:
-                        self.session_manager.append_messages(request.session_id, assistant_messages)
-                    else:
-                        self.session_manager.save_message(
-                            request.session_id,
-                            "assistant",
-                            f"Request failed: {failure_text}",
-                        )
-                except Exception:
-                    logger.exception(
-                        "Failed to persist errored assistant response for session %s",
-                        request.session_id,
-                    )
             error_payload = {"type": "error", "error": failure_text}
             if isinstance(exc, ModelRuntimeError):
                 error_payload["code"] = exc.code
             yield error_payload
+
+    def _commit_user_message(self, *, session_id: str, content: str, task_id: str):
+        decision = build_user_message_commit_decision(
+            session_id=session_id,
+            content=content,
+            task_id=task_id,
+            source="query_runtime.adapter_input",
+        )
+        if decision.commit_allowed:
+            payload = dict(decision.commit_candidate.payload)
+            self.session_manager.append_messages(
+                session_id,
+                [
+                    {
+                        "role": payload.get("role"),
+                        "content": payload.get("content"),
+                    }
+                ],
+            )
+        return decision
 
     async def _execution_events(
         self,
@@ -507,39 +438,79 @@ class QueryRuntime:
         search_policy: list[str] | None = None,
         trace=None,
     ):
-        task_operation_preview = self._build_live_task_operation_preview(
+        chain_preview = self._build_live_agent_runtime_chain_preview(
             session_id=session_id,
             task_id=f"turn:{session_id}:execution_events",
             message=message,
             source="query_runtime.execution_events",
         )
-        control_result = dict(task_operation_preview.get("control_kernel_result") or {})
         if trace is not None:
             trace.annotate(
                 {
-                    "app.orchestration_state": "task_operation_preview",
+                    "app.orchestration_state": "agent_runtime_chain_preview",
                     "app.fail_closed": "true",
                     "app.resource_policy_ref": str(
-                        task_operation_preview.get("resource_policy", {}).get("policy_id", "")
+                        chain_preview.get("task_operation_preview", {}).get("resource_policy", {}).get("policy_id", "")
                     ),
                 }
             )
-        yield {
-            "type": "task_operation_preview",
-            "preview": task_operation_preview,
-        }
-        yield {
-            "type": "orchestration_control",
-            "control": control_result,
-            "unit_catalog": self.unit_catalog.to_list(),
-            "task_operation_preview_ref": _preview_ref_payload(task_operation_preview),
-        }
-        yield {
-            "type": "error",
-            "error": str(control_result.get("reason") or "preview_only"),
-            "content": "旧编排执行链已清空；新的 ExecutionGraph/RuntimeDirective 接线完成前，本轮停止执行。",
-            "answer_channel": "orchestration_fail_closed",
-            "answer_source": "control_kernel",
+        for event in self._agent_runtime_chain_preview_events(
+            chain_preview,
+            fail_closed_message="旧编排执行链已清空；新的 ExecutionGraph/RuntimeDirective 接线完成前，本轮停止执行。",
+        ):
+            yield event
+
+    def _build_live_agent_runtime_chain_preview(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        message: str,
+        source: str,
+    ) -> dict[str, Any]:
+        memory_intent = analyze_memory_intent(message)
+        memory_payload: dict[str, Any] = {}
+        context_payload: dict[str, Any] = {}
+        memory_view_builder = getattr(self.memory_facade, "build_memory_runtime_view", None)
+        if callable(memory_view_builder):
+            memory_view = memory_view_builder(
+                session_id=session_id,
+                query=message,
+                memory_intent=memory_intent,
+            )
+            memory_payload = memory_view.to_dict() if hasattr(memory_view, "to_dict") else dict(memory_view or {})
+        context_builder = getattr(self.memory_facade, "build_memory_context_package_preview", None)
+        if callable(context_builder):
+            context_policy_result = context_builder(
+                session_id=session_id,
+                query=message,
+                memory_intent=memory_intent,
+            )
+            context_payload = (
+                context_policy_result.to_dict()
+                if hasattr(context_policy_result, "to_dict")
+                else dict(context_policy_result or {})
+            )
+        task_operation_preview = build_task_runtime_contract_preview(
+            session_id=session_id,
+            task_id=task_id,
+            user_goal=message,
+            source=source,
+            memory_runtime_view=memory_payload,
+            context_policy_preview=context_payload,
+        )
+        chain = build_agent_runtime_chain_preview(
+            session_id=session_id,
+            task_operation_preview=task_operation_preview,
+            memory_runtime_view=memory_payload,
+            context_policy_preview=context_payload,
+        )
+        return {
+            "agent_runtime_chain_preview": chain.to_dict(),
+            "memory_runtime_view": memory_payload,
+            "context_policy_preview": context_payload,
+            "task_operation_preview": task_operation_preview,
+            "status": chain.status,
         }
 
     def _build_live_task_operation_preview(
@@ -550,12 +521,306 @@ class QueryRuntime:
         message: str,
         source: str,
     ) -> dict[str, Any]:
-        return build_task_runtime_contract_preview(
+        return self._build_live_agent_runtime_chain_preview(
             session_id=session_id,
             task_id=task_id,
-            user_goal=message,
+            message=message,
             source=source,
+        )["task_operation_preview"]
+
+    def _agent_runtime_chain_preview_events(
+        self,
+        chain_preview: dict[str, Any],
+        *,
+        fail_closed_message: str,
+        include_fail_closed: bool = True,
+    ) -> list[dict[str, Any]]:
+        task_operation_preview = dict(chain_preview.get("task_operation_preview") or {})
+        events = [
+            {
+                "type": "agent_runtime_chain_preview",
+                "preview": dict(chain_preview.get("agent_runtime_chain_preview") or {}),
+                "memory_runtime_view": dict(chain_preview.get("memory_runtime_view") or {}),
+                "context_policy_preview": dict(chain_preview.get("context_policy_preview") or {}),
+            }
+        ]
+        events.extend(
+            self._task_operation_preview_events(
+                task_operation_preview,
+                fail_closed_message=fail_closed_message,
+            )
         )
+        if not include_fail_closed:
+            events = [
+                event
+                for event in events
+                if not (
+                    event.get("type") == "error"
+                    and str(event.get("answer_source") or "") == "control_kernel"
+                )
+            ]
+        return events
+
+    async def _stream_model_response_directive(
+        self,
+        *,
+        request: QueryRequest,
+        chain_preview: dict[str, Any],
+        history: list[dict[str, Any]],
+    ):
+        task_operation_preview = dict(chain_preview.get("task_operation_preview") or {})
+        directive, resource_policy = self._build_model_response_runtime_directive(task_operation_preview)
+        gate_result = self.operation_gate.check(
+            "op.model_response",
+            resource_policy=resource_policy,
+            directive_ref=directive.directive_id,
+        )
+        yield {
+            "type": "runtime_directive",
+            "directive": directive.to_dict(),
+            "resource_policy": resource_policy.to_dict(),
+        }
+        yield {
+            "type": "operation_gate",
+            "gate": gate_result.to_dict(),
+        }
+        if not gate_result.allowed:
+            yield {
+                "type": "error",
+                "error": gate_result.reason,
+                "content": "OperationGate 未放行模型回答，本轮停止执行。",
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "operation_gate",
+            }
+            return
+        invoker = getattr(self.model_runtime, "invoke_messages", None)
+        if not callable(invoker):
+            yield {
+                "type": "error",
+                "error": "model_runtime_unavailable",
+                "content": "模型运行时不可用，本轮停止执行。",
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "runtime_directive_executor",
+            }
+            return
+        context_package = self._build_context_package_preview_for_session(
+            session_id=request.session_id,
+            pending_user_message=request.message,
+            memory_intent=analyze_memory_intent(request.message),
+            relevant_memory_notes=None,
+            retrieval_results=None,
+        )
+        system_prompt = build_system_prompt(
+            self.base_dir,
+            self.settings_service.get_rag_mode(),
+            persistent_memory=None,
+            session_memory=None,
+            context_package=context_package,
+            active_skill=None,
+        )
+        model_messages = [
+            {"role": "system", "content": system_prompt},
+            *[
+                {
+                    "role": str(item.get("role") or "user"),
+                    "content": str(item.get("content") or ""),
+                }
+                for item in list(history or [])
+                if str(item.get("content") or "").strip()
+            ],
+            {"role": "user", "content": request.message},
+        ]
+        response = await invoker(model_messages)
+        raw_content = stringify_content(getattr(response, "content", response))
+        output_boundary = AssistantOutputBoundary()
+        output_boundary.ingest_ai_update(raw_content, has_tool_calls=False)
+        output_boundary.finalize_segment(fallback_content=raw_content)
+        output_response = output_boundary.build_response(
+            route="",
+            execution_posture="model",
+            user_message=request.message,
+            tool_name="",
+            retrieval_results=None,
+        )
+        content = sanitize_visible_assistant_content(output_response.canonical_answer).strip()
+        if not content:
+            content = "我已接入新的单 agent 主链，但这轮模型没有返回可展示内容。"
+        runtime_commit_gate = build_blocked_runtime_commit_gate(
+            task_id=directive.task_id,
+            plan_ref=directive.plan_ref,
+            execution_graph_ref=directive.execution_graph_ref,
+            directive_ref=directive.directive_id,
+            output_response=output_response,
+        )
+        yield {
+            "type": "answer_candidate",
+            "content": content,
+            "source": "runtime_directive:model_response",
+            "directive_ref": directive.directive_id,
+        }
+        yield {
+            "type": "output_boundary",
+            "output": {
+                "visible_text": output_response.visible_text,
+                "canonical_answer": content,
+                "selected_channel": output_response.selected_channel,
+                "selected_source": output_response.selected_source,
+                "canonical_state": output_response.canonical_state,
+                "persist_policy": output_response.persist_policy,
+                "finalization_policy": output_response.finalization_policy,
+                "leak_flags": list(output_response.leak_flags),
+                "fallback_reason": output_response.fallback_reason,
+            },
+        }
+        yield {
+            "type": "runtime_commit_gate",
+            "commit_gate": runtime_commit_gate.to_dict(),
+        }
+        yield {
+            "type": "done",
+            "content": content,
+            "main_context": {},
+            "task_summary_refs": [],
+            "answer_channel": output_response.selected_channel,
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": output_response.canonical_state,
+            "answer_persist_policy": output_response.persist_policy,
+            "answer_finalization_policy": output_response.finalization_policy,
+            "answer_fallback_reason": output_response.fallback_reason,
+            "answer_leak_flags": list(output_response.leak_flags),
+            "persist_policy": "commit_gate_blocked",
+            "commit_gate": runtime_commit_gate.to_dict(),
+        }
+
+    def _build_model_response_runtime_directive(
+        self,
+        task_operation_preview: dict[str, Any],
+    ) -> tuple[RuntimeDirective, ResourcePolicy]:
+        task_contract = dict(task_operation_preview.get("task_contract") or {})
+        task_id = str(task_contract.get("task_id") or "task-runtime")
+        plan_preview = dict(task_operation_preview.get("orchestration_plan_preview") or {})
+        stages = list(plan_preview.get("stages") or [])
+        stage_preview = dict(stages[0] if stages else {})
+        policy_ref = f"respol:{task_id}:model-response:runtime"
+        decision = ResourceDecision(
+            operation_id="op.model_response",
+            decision="allow",
+            reason="model-only response is the phase-1 executable lane",
+            risk_tags=("model_only", "read_only"),
+        )
+        resource_policy = ResourcePolicy(
+            policy_id=policy_ref,
+            task_id=task_id,
+            allowed_operations=("op.model_response",),
+            denied_operations=(),
+            requires_approval_operations=(),
+            preview_only_operations=(),
+            allowed_tools=(),
+            denied_tools=(),
+            allowed_workers=(),
+            denied_workers=(),
+            allowed_agents=(),
+            denied_agents=(),
+            memory_read_scope="context_package_preview",
+            memory_write_scope="none",
+            approval_policy="model_only",
+            preview_only=False,
+            adopted=True,
+            runtime_executable=True,
+            decisions=(decision,),
+            diagnostics={
+                "runtime_executable": True,
+                "adopted": True,
+                "model_only": True,
+                "tools_allowed": False,
+                "workers_allowed": False,
+                "memory_write_allowed": False,
+                "filesystem_write_allowed": False,
+            },
+        )
+        directive = RuntimeDirective(
+            directive_id=f"runtime-directive:{task_id}:model-response",
+            task_id=task_id,
+            plan_ref=str(plan_preview.get("plan_id") or f"orchplan:{task_id}").replace(":preview", ":runtime"),
+            stage_ref=str(stage_preview.get("stage_id") or f"orchstage:{task_id}:model").replace(":preview", ":runtime"),
+            executor_type="model",
+            adopted_resource_policy_ref=policy_ref,
+            operation_refs=("op.model_response",),
+            input_contract_ref=str(task_operation_preview.get("task_prompt_contract", {}).get("contract_id") or ""),
+            output_contract_ref=str(task_operation_preview.get("task_prompt_contract", {}).get("contract_id") or ""),
+            execution_graph_ref=str(task_operation_preview.get("execution_graph_preview", {}).get("graph_preview_id") or "").replace(":preview", ":runtime"),
+            runtime_executable=True,
+            diagnostics={
+                "source_preview_plan_ref": str(plan_preview.get("plan_id") or ""),
+                "source_preview_stage_ref": str(stage_preview.get("stage_id") or ""),
+                "directive_only_executor": True,
+                "model_only": True,
+            },
+        )
+        return directive, resource_policy
+
+    def _task_operation_preview_events(
+        self,
+        task_operation_preview: dict[str, Any],
+        *,
+        fail_closed_message: str,
+    ) -> list[dict[str, Any]]:
+        control_result = dict(task_operation_preview.get("control_kernel_result") or {})
+        ref_payload = _preview_ref_payload(task_operation_preview)
+        return [
+            {
+                "type": "task_operation_preview",
+                "preview": task_operation_preview,
+            },
+            {
+                "type": "candidate_set_preview",
+                "candidates": list(task_operation_preview.get("candidate_set_preview") or []),
+                "task_operation_preview_ref": ref_payload,
+            },
+            {
+                "type": "orchestration_plan_preview",
+                "plan": dict(task_operation_preview.get("orchestration_plan_preview") or {}),
+                "task_operation_preview_ref": ref_payload,
+            },
+            {
+                "type": "plan_validation",
+                "validation": dict(task_operation_preview.get("plan_validation") or {}),
+                "task_operation_preview_ref": ref_payload,
+            },
+            {
+                "type": "execution_graph_preview",
+                "graph_preview": dict(task_operation_preview.get("execution_graph_preview") or {}),
+                "task_operation_preview_ref": ref_payload,
+            },
+            {
+                "type": "adoption_candidate_preview",
+                "adoption": dict(task_operation_preview.get("adoption_candidate_preview") or {}),
+                "task_operation_preview_ref": ref_payload,
+            },
+            {
+                "type": "runtime_directive_candidate_preview",
+                "candidates": list(task_operation_preview.get("runtime_directive_candidates") or []),
+                "task_operation_preview_ref": ref_payload,
+            },
+            {
+                "type": "commit_gate_preview",
+                "commit_gate": dict(task_operation_preview.get("commit_gate_preview") or {}),
+                "task_operation_preview_ref": ref_payload,
+            },
+            {
+                "type": "orchestration_control",
+                "control": control_result,
+                "unit_catalog": self.unit_catalog.to_list(),
+                "task_operation_preview_ref": ref_payload,
+            },
+            {
+                "type": "error",
+                "error": str(control_result.get("reason") or "preview_only"),
+                "content": fail_closed_message,
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "control_kernel",
+            },
+        ]
 
     async def _stream_bundle_execution(
         self,
@@ -566,35 +831,18 @@ class QueryRuntime:
         plan: QueryPlan,
         trace=None,
     ):
-        bundle_results: list[dict[str, object]] = []
-        async for event in self.task_coordinator.run_query_tasks(
-            session_id,
-            executions,
-            lambda execution: self._stream_planned_execution(session_id, execution, trace=trace),
-            subtasks=None,
-        ):
-            if event.get("type") == "subtask_end":
-                bundle_results.append(dict(event))
-            yield event
-        main_context = self._build_bundle_main_context(
-            message,
-            bundle_results,
-            bundle_plan=plan.bundle_plan,
+        chain_preview = self._build_live_agent_runtime_chain_preview(
+            session_id=session_id,
+            task_id=f"turn:{session_id}:legacy_bundle_removed",
+            message=message,
+            source="query_runtime.stream_bundle_execution.removed",
         )
-        task_summary_refs = self._task_summary_refs_from_results(bundle_results)
-        answer_plan = self.answer_assembler.build_plan(results=bundle_results, main_context=main_context)
-        answer_content = self.answer_assembler.render(answer_plan)
-        yield {
-            "type": "done",
-            "content": answer_content,
-            "main_context": main_context.to_dict(),
-            "task_summary_refs": [item.to_dict() for item in task_summary_refs],
-            "answer_assembly": self._answer_assembly_payload(answer_plan, content=answer_content),
-            "answer_channel": "answer_candidate",
-            "answer_source": "answer_assembler",
-            "answer_fallback_reason": "",
-            "answer_leak_flags": [],
-        }
+        for event in self._agent_runtime_chain_preview_events(
+            chain_preview,
+            fail_closed_message="旧 bundle 执行链已清理；等待 RuntimeDirective 主链接管。",
+        ):
+            yield event
+        return
 
     async def _stream_single_execution(
         self,
@@ -605,22 +853,18 @@ class QueryRuntime:
         ephemeral_system_messages: list[str] | None = None,
         trace=None,
     ):
-        self._apply_evidence_restore_candidates(
-            session_id,
-            self._load_evidence_restore_candidates(session_id),
-        )
-        plan = self._planner_build_plan(
+        chain_preview = self._build_live_agent_runtime_chain_preview(
             session_id=session_id,
+            task_id=f"turn:{session_id}:legacy_single_removed",
             message=message,
-            history=history,
-            ephemeral_system_messages=ephemeral_system_messages,
-            authority_context=self._planner_authority_context(session_id),
+            source="query_runtime.stream_single_execution.removed",
         )
-        executions = plan.iter_executions()
-        execution = executions[0]
-        execution = self._maybe_build_candidate_selection_execution(session_id, execution)
-        async for event in self._stream_planned_execution(session_id, execution, trace=trace):
+        for event in self._agent_runtime_chain_preview_events(
+            chain_preview,
+            fail_closed_message="旧 single execution 链已清理；等待 RuntimeDirective 主链接管。",
+        ):
             yield event
+        return
 
     def _maybe_build_candidate_selection_execution(
         self,
@@ -977,405 +1221,23 @@ class QueryRuntime:
         *,
         trace=None,
     ):
-        execution_stage = (
-            trace.stage(
-                "query.single_execution",
-                inputs={"message": execution.message},
-                metadata={"session_id": session_id},
-            )
-            if trace is not None
-            else None
+        chain_preview = self._build_live_agent_runtime_chain_preview(
+            session_id=session_id,
+            task_id=f"turn:{session_id}:legacy_planned_removed",
+            message=str(getattr(execution, "message", "") or ""),
+            source="query_runtime.stream_planned_execution.removed",
         )
-        if execution_stage is not None:
-            execution_stage.__enter__()
-        try:
-            execution_candidate = self.execution_candidate_gate.build_candidate(execution)
-            context = QueryContext(
-                session_id=session_id,
-                history=list(execution.history),
-                augmented_history=list(execution.history),
-                main_context=self._build_main_working_context(execution),
-                ephemeral_system_messages=list(execution.ephemeral_system_messages),
-            )
-
-            if trace is not None:
-                with trace.stage(
-                    "query.context_compaction",
-                    metadata={"history_length": len(context.augmented_history)},
-                ):
-                    context.augmented_history, context.context_compaction = self.memory_facade.compact_history_for_query(
-                        session_id,
-                        context.augmented_history,
-                    )
-            else:
-                context.augmented_history, context.context_compaction = self.memory_facade.compact_history_for_query(
-                    session_id,
-                    context.augmented_history,
-                )
-            if trace is not None:
-                trace.annotate(
-                    {
-                        "app.execution_candidate_state": str(execution_candidate.diagnostics.get("state") or ""),
-                        "app.execution_candidate_kind": str(execution_candidate.diagnostics.get("execution_kind") or ""),
-                    }
-                )
-            yield {
-                "type": "context_management",
-                "context": context.context_compaction,
-                "execution_candidate": dict(execution_candidate.diagnostics),
-            }
-
-            if execution.execution_kind == "worker" and execution.worker_plan is not None:
-                async for event in self.evidence_orchestrator.stream_execution(
-                    session_id=session_id,
-                    execution=execution,
-                    worker_plan=execution.worker_plan,
-                    main_context=context.main_context,
-                    trace=trace,
-                ):
-                    event = self._attach_execution_branch_fields(dict(event), execution)
-                    if event.get("type") == "done":
-                        event = self._materialize_worker_done_event(
-                            session_id=session_id,
-                            execution=execution,
-                            event=dict(event),
-                        )
-                    yield event
-                self._persist_evidence_state_to_session(session_id)
-                return
-
-            if execution.execution_kind == "direct_tool" and execution.query_understanding.tool_name:
-                async for event in self._stream_direct_tool_execution(session_id, execution, trace=trace):
-                    event = self._attach_execution_branch_fields(dict(event), execution)
-                    if event.get("type") == "done":
-                        event = dict(event)
-                        event.setdefault("main_context", context.main_context.to_dict())
-                        if "task_summary_refs" not in event:
-                            final_content = str(event.get("content", "") or "")
-                            event["task_summary_refs"] = [
-                                item.to_dict()
-                                for item in self._build_single_execution_task_summaries(
-                                    execution,
-                                    final_content,
-                                )
-                            ]
-                    yield event
-                return
-
-            if self._is_stale_non_worker_rag_plan(execution):
-                if trace is not None:
-                    trace.annotate(
-                        {
-                            "app.stale_rag_plan": "blocked",
-                            "app.stale_rag_plan_reason": "retrieval_agent_required",
-                        }
-                    )
-
-            if self._should_prefetch_durable_context(execution):
-                try:
-                    context.relevant_memory_notes = await asyncio.to_thread(
-                        self.memory_facade.prefetch_relevant_notes,
-                        execution.message,
-                        execution.memory_intent,
-                        limit=3,
-                    )
-                except Exception:
-                    context.relevant_memory_notes = None
-
-            memory_trace = self.memory_facade.inspect_query_context(
-                session_id,
-                history=execution.history,
-                pending_user_message=execution.message,
-                memory_intent=execution.memory_intent,
-                relevant_notes=context.relevant_memory_notes,
-                context_compaction=context.context_compaction,
-                retrieval_results=context.retrieval_results,
-            )
-            yield {"type": "memory_context", "memory": memory_trace}
-
-            if self._should_isolate_augmented_history(execution):
-                context.augmented_history = []
-
-            if self._is_session_summary_execution(execution):
-                session_summary_guide = self._build_session_summary_instruction_block(
-                    session_id=session_id,
-                    history=execution.history,
-                )
-                if session_summary_guide:
-                    context.ephemeral_system_messages.append(session_summary_guide)
-
-            if self._should_handle_memory_write_directly(execution):
-                final_content = self._build_memory_write_acknowledgement(execution.message)
-                if trace is not None:
-                    trace.annotate(
-                        {
-                            "app.answer_chars": len(final_content),
-                            "app.answer_channel": "answer_candidate",
-                            "app.answer_source": "memory_write_ack",
-                            "app.answer_fallback_reason": "",
-                            "app.output_leak_flags": "",
-                            "app.tool_receipt_count": 0,
-                        }
-                    )
-                yield {
-                    "type": "done",
-                    "content": final_content,
-                    "main_context": context.main_context.to_dict(),
-                    "task_summary_refs": [],
-                    "answer_channel": "answer_candidate",
-                    "answer_source": "memory_write_ack",
-                    "answer_fallback_reason": "",
-                    "answer_leak_flags": [],
-                }
-                return
-
-            allowed_names = self._allowed_tool_names_for_execution(execution)
-            tools = [
-                tool
-                for tool in self.tool_runtime.instances
-                if getattr(tool, "name", "") in allowed_names
-            ]
-            system_prompt, prompt_manifest = await self._abuild_system_prompt_with_manifest_for_execution(
-                session_id=session_id,
-                execution=execution,
-                retrieval_results=context.retrieval_results,
-                relevant_memory_notes=context.relevant_memory_notes,
-            )
-            compact_manifest = compact_prompt_manifest(prompt_manifest)
-            if trace is not None:
-                trace.annotate(
-                    {
-                        "app.prompt_manifest_id": compact_manifest.get("prompt_id", ""),
-                        "app.prompt_total_chars": compact_manifest.get("total_chars", 0),
-                        "app.prompt_total_sections": compact_manifest.get("total_sections", 0),
-                        "app.prompt_manifest": compact_manifest,
-                    }
-                )
-            yield {"type": "prompt_manifest", "prompt_manifest": compact_manifest}
-            agent = self.model_runtime.create_conversation_agent(
-                system_prompt=system_prompt,
-                tools=tools,
-                agent_definition=MAIN_AGENT,
-            )
-            messages = self._build_agent_messages(context)
-            messages.append({"role": "user", "content": execution.message})
-
-            last_ai_message = ""
-            pending_tools: dict[str, dict[str, str]] = {}
-            recent_tool_receipts: list[dict[str, str]] = []
-            tool_step_count = 0
-            output_boundary = AssistantOutputBoundary()
-
-            if trace is not None:
-                trace.annotate(
-                    {
-                        "app.route": execution.query_understanding.route,
-                        "app.execution_posture": str(
-                            execution.execution_posture or getattr(execution.query_understanding, "execution_posture", "") or ""
-                        ),
-                        "app.direct_route_reason": str(
-                            getattr(execution.query_understanding, "direct_route_reason", "") or ""
-                        ),
-                        "app.tool_count": len(tools),
-                        "app.bound_candidate_tools": ",".join(list(getattr(execution.query_understanding, "candidate_tools", []) or [])),
-                    }
-                )
-            stream_context = (
-                trace.stage(
-                    "query.model_stream",
-                    metadata={
-                        "route": execution.query_understanding.route,
-                        "tool_count": len(tools),
-                    },
-                )
-                if trace is not None
-                else None
-            )
-            if stream_context is not None:
-                stream_context.__enter__()
-            model_stream_error: ModelRuntimeError | None = None
-            try:
-                async for mode, payload in agent.astream(
-                    {"messages": messages},
-                    stream_mode=["messages", "updates"],
-                ):
-                    if mode == "messages":
-                        chunk, _metadata = payload
-                        chunk_type = str(getattr(chunk, "type", "") or "").strip().lower()
-                        if chunk_type == "tool":
-                            continue
-                        text = stringify_content(getattr(chunk, "content", ""))
-                        if text:
-                            visible_delta = output_boundary.ingest_stream_text(text)
-                            if visible_delta:
-                                yield {"type": "token", "content": visible_delta}
-                        continue
-
-                    if mode != "updates":
-                        continue
-
-                    for update in payload.values():
-                        for agent_message in update.get("messages", []):
-                            message_type = getattr(agent_message, "type", "")
-                            tool_calls = getattr(agent_message, "tool_calls", []) or []
-
-                            if message_type == "ai" and not tool_calls:
-                                candidate = stringify_content(getattr(agent_message, "content", ""))
-                                if candidate:
-                                    output_boundary.ingest_ai_update(candidate, has_tool_calls=False)
-                                    last_ai_message = sanitize_visible_assistant_content(candidate)
-
-                            if tool_calls:
-                                for tool_call in tool_calls:
-                                    tool_step_count += 1
-                                    if tool_step_count > self.max_tool_steps:
-                                        failure_event = self._tool_step_guard_done_event(
-                                            execution=execution,
-                                            recent_tool_receipts=recent_tool_receipts,
-                                        )
-                                        if trace is not None:
-                                            trace.annotate(
-                                                {
-                                                    "app.answer_chars": len(str(failure_event.get("content", "") or "")),
-                                                    "app.answer_channel": str(failure_event.get("answer_channel", "") or ""),
-                                                    "app.answer_source": str(failure_event.get("answer_source", "") or ""),
-                                                    "app.answer_fallback_reason": str(failure_event.get("answer_fallback_reason", "") or ""),
-                                                    "app.output_leak_flags": "",
-                                                    "app.tool_receipt_count": len(recent_tool_receipts),
-                                                }
-                                            )
-                                        yield failure_event
-                                        return
-                                    call_id = str(tool_call.get("id") or tool_call.get("name"))
-                                    tool_name = str(tool_call.get("name", "tool"))
-                                    tool_args = tool_call.get("args", "")
-                                    if not isinstance(tool_args, str):
-                                        tool_args = json.dumps(tool_args, ensure_ascii=False)
-                                    receipt_index = len(recent_tool_receipts)
-                                    recent_tool_receipts.append(
-                                        {
-                                            "tool": tool_name,
-                                            "input": str(tool_args),
-                                            "output": "",
-                                        }
-                                    )
-                                    pending_tools[call_id] = {
-                                        "tool": tool_name,
-                                        "input": str(tool_args),
-                                        "receipt_index": str(receipt_index),
-                                    }
-                                    output_boundary.ingest_tool_call(tool_name, str(tool_args))
-                                    yield self._attach_execution_branch_fields(
-                                        {
-                                            "type": "tool_start",
-                                            "tool": tool_name,
-                                            "input": str(tool_args),
-                                        },
-                                        execution,
-                                    )
-
-                            if message_type == "tool":
-                                tool_call_id = str(getattr(agent_message, "tool_call_id", ""))
-                                pending = pending_tools.pop(
-                                    tool_call_id,
-                                    {"tool": getattr(agent_message, "name", "tool"), "input": ""},
-                                )
-                                output = stringify_content(getattr(agent_message, "content", ""))
-                                receipt_index_raw = str(pending.get("receipt_index", "") or "").strip()
-                                if receipt_index_raw.isdigit():
-                                    receipt_index = int(receipt_index_raw)
-                                    if 0 <= receipt_index < len(recent_tool_receipts):
-                                        recent_tool_receipts[receipt_index]["output"] = output
-                                output_boundary.ingest_tool_result(str(pending["tool"]), output)
-                                yield self._attach_execution_branch_fields(
-                                    {
-                                        "type": "tool_end",
-                                        "tool": pending["tool"],
-                                        "output": output,
-                                    },
-                                    execution,
-                                )
-                                yield {"type": "new_response"}
-            except ModelRuntimeError as exc:
-                model_stream_error = exc
-            finally:
-                if stream_context is not None:
-                    stream_context.__exit__(None, None, None)
-
-            if model_stream_error is not None:
-                failure_event = self._model_runtime_failure_done_event(
-                    execution=execution,
-                    main_context=context.main_context,
-                    error=model_stream_error,
-                    recent_tool_receipts=recent_tool_receipts,
-                )
-                if trace is not None:
-                    trace.annotate(
-                        {
-                            "app.answer_chars": len(str(failure_event.get("content", "") or "")),
-                            "app.answer_channel": str(failure_event.get("answer_channel", "") or ""),
-                            "app.answer_source": str(failure_event.get("answer_source", "") or ""),
-                            "app.answer_fallback_reason": str(failure_event.get("answer_fallback_reason", "") or ""),
-                            "app.output_leak_flags": "",
-                            "app.tool_receipt_count": len(recent_tool_receipts),
-                        }
-                    )
-                yield failure_event
-                return
-
-            output_boundary.finalize_segment(fallback_content=last_ai_message)
-            output_response = output_boundary.build_response(
-                route=str(execution.query_understanding.route or ""),
-                execution_posture=str(execution.execution_posture or execution.query_understanding.execution_posture or ""),
-                user_message=execution.message,
-                tool_name=str(execution.query_understanding.tool_name or ""),
-                retrieval_results=context.retrieval_results,
-            )
-            output_response = self._maybe_gate_memory_output(
-                execution=execution,
-                output_response=output_response,
-            )
-            final_content = output_response.canonical_answer.strip()
-            if trace is not None:
-                trace.annotate(
-                    {
-                        "app.answer_chars": len(final_content),
-                        "app.answer_channel": output_response.selected_channel,
-                        "app.answer_source": output_response.selected_source,
-                        "app.answer_canonical_state": str(getattr(output_response, "canonical_state", "") or ""),
-                        "app.answer_persist_policy": str(getattr(output_response, "persist_policy", "") or ""),
-                        "app.answer_finalization_policy": str(getattr(output_response, "finalization_policy", "") or ""),
-                        "app.answer_fallback_reason": output_response.fallback_reason,
-                        "app.output_leak_flags": ",".join(output_response.leak_flags),
-                        "app.tool_receipt_count": len(list(getattr(output_response, "tool_receipts", []) or [])),
-                    }
-                )
-            task_summary_refs = self._build_single_execution_task_summaries(
-                execution,
-                final_content,
-            )
-            yield {
-                "type": "done",
-                "content": final_content,
-                "main_context": context.main_context.to_dict(),
-                "task_summary_refs": [item.to_dict() for item in task_summary_refs],
-                "answer_channel": output_response.selected_channel,
-                "answer_source": output_response.selected_source,
-                "answer_canonical_state": str(getattr(output_response, "canonical_state", "") or ""),
-                "answer_persist_policy": str(getattr(output_response, "persist_policy", "") or ""),
-                "answer_finalization_policy": str(getattr(output_response, "finalization_policy", "") or ""),
-                "answer_fallback_reason": output_response.fallback_reason,
-                "answer_leak_flags": list(output_response.leak_flags),
-            }
-        finally:
-            if execution_stage is not None:
-                execution_stage.__exit__(None, None, None)
-
+        for event in self._agent_runtime_chain_preview_events(
+            chain_preview,
+            fail_closed_message="旧 planned execution 链已清理；等待 RuntimeDirective 主链接管。",
+        ):
+            yield event
+        return
     async def _run_post_turn_tasks(self, session_id: str, *, title_seed: str | None = None) -> None:
         try:
-            await asyncio.to_thread(self.refresh_session_memory, session_id)
+            await asyncio.to_thread(self.preview_session_memory_refresh, session_id)
         except Exception:
-            logger.exception("Failed to refresh session memory for %s", session_id)
+            logger.exception("Failed to preview session memory refresh for %s", session_id)
 
         try:
             await asyncio.to_thread(self.schedule_durable_memory_extraction, session_id)
@@ -1390,35 +1252,21 @@ class QueryRuntime:
                 logger.exception("Failed to generate title for session %s", session_id)
 
     def refresh_session_memory(self, session_id: str) -> str:
+        self.preview_session_memory_refresh(session_id)
+        return ""
+
+    def preview_session_memory_refresh(self, session_id: str):
         projection = self._context_state.peek_session_memory_projection(session_id)
-        if projection is not None:
-            try:
-                summary = self.memory_facade.refresh_session_memory_from_context_state(
-                    session_id,
-                    projection.get("main_context"),
-                    task_summaries=list(projection.get("task_summary_refs", []) or []),
-                    corrections=list(projection.get("corrections", []) or []),
-                )
-                return summary
-            except Exception:
-                logger.exception(
-                    "Failed to refresh session memory from context-state projection for %s; falling back to committed messages",
-                    session_id,
-                )
-        summary = self.memory_facade.refresh_session_memory(
-            session_id,
-            self.session_manager.load_session_for_agent(session_id, include_compressed_context=False),
-        )
-        return summary
+        gate = self._memory_writeback.preview_session_projection(session_id, projection)
+        return self._merge_memory_gate_preview(session_id, gate)
 
     def commit_durable_memory_extraction(self, session_id: str) -> int:
         projections = self._context_state.drain_durable_memory_projections(session_id)
         if projections:
-            return self._commit_durable_projection_batch(session_id, projections)
-        return self.memory_facade.commit_durable_memory_extraction(
-            session_id,
-            self.session_manager.load_session_for_agent(session_id, include_compressed_context=False),
-        )
+            self._merge_memory_gate_preview(session_id, self._preview_durable_projection_batch(session_id, projections))
+            return 0
+        self._merge_memory_gate_preview(session_id, self._memory_writeback.preview_durable_history(session_id))
+        return 0
 
     def schedule_durable_memory_extraction(self, session_id: str) -> int:
         pending_projection_count = self._context_state.pending_durable_projection_count(session_id)
@@ -1431,11 +1279,19 @@ class QueryRuntime:
                 return 0
             projections = self._context_state.drain_durable_memory_projections(session_id)
             if projections:
-                return self._commit_durable_projection_batch(session_id, projections)
-        return self.memory_facade.submit_durable_memory_extraction(
-            session_id,
-            self.session_manager.load_session_for_agent(session_id, include_compressed_context=False),
-        )
+                gate = self._preview_durable_projection_batch(session_id, projections)
+                self._merge_memory_gate_preview(session_id, gate)
+                return 0
+        self._merge_memory_gate_preview(session_id, self._memory_writeback.preview_durable_history(session_id))
+        return 0
+
+    def preview_durable_memory_extraction(self, session_id: str):
+        projections = self._context_state.peek_durable_memory_projections(session_id)
+        if projections:
+            gate = self._preview_durable_projection_batch(session_id, projections)
+        else:
+            gate = self._memory_writeback.preview_durable_history(session_id)
+        return self._merge_memory_gate_preview(session_id, gate)
 
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
@@ -1454,24 +1310,9 @@ class QueryRuntime:
         explicit_subtasks: list[dict[str, Any]] | None = None,
         search_policy: list[str] | None = None,
     ) -> QueryPlan:
-        try:
-            parameters = inspect.signature(self.planner.build_plan).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-        kwargs: dict[str, Any] = {
-            "session_id": session_id,
-            "message": message,
-            "history": history,
-        }
-        if "ephemeral_system_messages" in parameters:
-            kwargs["ephemeral_system_messages"] = ephemeral_system_messages
-        if "authority_context" in parameters:
-            kwargs["authority_context"] = authority_context
-        if "explicit_subtasks" in parameters:
-            kwargs["explicit_subtasks"] = explicit_subtasks
-        if "search_policy" in parameters:
-            kwargs["search_policy"] = search_policy
-        return self.planner.build_plan(**kwargs)
+        raise RuntimeError(
+            "legacy QueryPlanner execution path is retired; use AgentRuntimeChainPreview and RuntimeDirective"
+        )
 
     async def _build_orchestration_plan(
         self,
@@ -1995,36 +1836,15 @@ class QueryRuntime:
         *,
         trace=None,
     ) -> bool:
-        projection = dict(commit_plan.get("projection") or {})
-        self._capture_session_memory_projection(
-            session_id,
-            main_context_payload=projection.get("main_context"),
-            task_summary_payloads=projection.get("task_summary_refs"),
-        )
-
-        assistant_persisted = False
-        assistant_messages = list(commit_plan.get("assistant_messages") or [])
-        if assistant_messages:
-            self.session_manager.append_messages(session_id, assistant_messages)
-            assistant_persisted = True
-
         if trace is not None:
             trace.annotate(
                 {
                     "app.final_segment_count": int(dict(commit_plan.get("diagnostics") or {}).get("segment_count") or 0),
-                    "app.assistant_persisted": assistant_persisted,
-                    "app.output_commit_state": str(dict(commit_plan.get("diagnostics") or {}).get("state") or ""),
+                    "app.assistant_persisted": False,
+                    "app.output_commit_state": "commit_gate_blocked",
                 }
             )
-
-        post_turn = dict(commit_plan.get("post_turn") or {})
-        asyncio.create_task(
-            self._run_post_turn_tasks(
-                session_id,
-                title_seed=str(post_turn.get("title_seed") or "") or None,
-            )
-        )
-        return assistant_persisted
+        return False
 
     def _load_session_binding_snapshot(self, session_id: str) -> dict[str, Any]:
         return self._context_state.load_session_binding_snapshot(session_id)
@@ -2101,31 +1921,45 @@ class QueryRuntime:
         return max(1, threshold)
 
     def _has_explicit_durable_projection(self, session_id: str) -> bool:
-        for projection in self._context_state.peek_durable_memory_projections(session_id):
-            main_context = projection.get("main_context")
-            if isinstance(main_context, dict):
-                active_goal = str(main_context.get("active_goal", "") or "").strip()
-            else:
-                active_goal = str(getattr(main_context, "active_goal", "") or "").strip()
-            intent = analyze_memory_intent(active_goal)
-            if str(getattr(intent, "intent", "") or "") == "durable_memory_statement":
-                return True
-        return False
+        return self._memory_writeback.has_explicit_durable_projection(
+            self._context_state.peek_durable_memory_projections(session_id)
+        )
 
     def _commit_durable_projection_batch(
         self,
         session_id: str,
         projections: list[dict[str, Any]],
     ) -> int:
-        total_saved = 0
-        for projection in projections:
-            total_saved += self.memory_facade.commit_durable_memory_extraction_from_context_state(
-                session_id,
-                projection.get("main_context"),
-                task_summaries=list(projection.get("task_summary_refs", []) or []),
-                corrections=list(projection.get("corrections", []) or []),
-            )
-        return total_saved
+        self._merge_memory_gate_preview(session_id, self._preview_durable_projection_batch(session_id, projections))
+        return 0
+
+    def _preview_durable_projection_batch(
+        self,
+        session_id: str,
+        projections: list[dict[str, Any]],
+    ):
+        return self._memory_writeback.preview_durable_projections(session_id, projections)
+
+    def _merge_memory_gate_preview(self, session_id: str, gate):
+        candidates = tuple(getattr(gate, "write_candidates", ()) or ())
+        return self._build_blocked_memory_gate_preview(session_id, candidates)
+
+    def _build_blocked_memory_gate_preview(self, session_id: str, candidates):
+        builder = getattr(self.memory_facade, "build_memory_gate_preview", None)
+        if not callable(builder):
+            self.memory_gate_preview = None
+            return None
+        existing_candidates = tuple(getattr(self.memory_gate_preview, "write_candidates", ()) or ())
+        incoming_candidates = tuple(candidates or ())
+        by_id = {str(getattr(candidate, "candidate_id", "") or index): candidate for index, candidate in enumerate(existing_candidates)}
+        for index, candidate in enumerate(incoming_candidates):
+            by_id[str(getattr(candidate, "candidate_id", "") or f"incoming-{index}")] = candidate
+        self.memory_gate_preview = builder(
+            tuple(by_id.values()),
+            gate_id=f"memory-gate:{session_id or 'session'}:writeback-preview",
+            reason="query_runtime_writeback_preview_only",
+        )
+        return self.memory_gate_preview
 
     def _guard_followup_resolution_by_runtime_risk(
         self,
@@ -2503,19 +2337,6 @@ class QueryRuntime:
             return message.strip()
         return ""
 
-    def _should_prefetch_durable_context(self, execution: QueryExecutionPlan) -> bool:
-        if getattr(execution.memory_intent, "ignore_memory", False):
-            return False
-        if not str(getattr(execution, "message", "") or "").strip():
-            return False
-        if getattr(execution.memory_intent, "intent", "") == "session_continuity_query":
-            return False
-        route = str(getattr(execution.query_understanding, "route", "") or "")
-        modality = str(getattr(execution.query_understanding, "modality", "") or "")
-        if route == "tool" and modality in {"realtime", "web"}:
-            return False
-        return True
-
     def _new_segment(self) -> dict[str, Any]:
         return {"content": "", "tool_calls": []}
 
@@ -2532,8 +2353,18 @@ class QueryRuntime:
         *,
         trace=None,
     ):
-        async for event in self._tool_bridge.stream_direct_tool_execution(session_id, execution, trace=trace):
+        chain_preview = self._build_live_agent_runtime_chain_preview(
+            session_id=session_id,
+            task_id=f"turn:{session_id}:legacy_direct_tool_removed",
+            message=str(getattr(execution, "message", "") or ""),
+            source="query_runtime.stream_direct_tool_execution.removed",
+        )
+        for event in self._agent_runtime_chain_preview_events(
+            chain_preview,
+            fail_closed_message="旧 direct tool 执行链已清理；工具只能通过 RuntimeDirective + OperationGate 进入。",
+        ):
             yield event
+        return
 
     def _evaluate_tool_contract(
         self,
@@ -2761,19 +2592,7 @@ class QueryRuntime:
         return intent_name == "durable_memory_statement" and write_mode == "durable_fact"
 
     def _build_memory_write_acknowledgement(self, message: str) -> str:
-        normalized = self._normalize_memory_write_statement(message)
-        decision = evaluate_memory_write(message)
-        if decision.action == "durable_fact":
-            if normalized:
-                return f"好，我会把这条作为长期记忆保留：{normalized}"
-            return "好，我会把这条作为长期记忆保留。"
-        if decision.action == "session_only":
-            if normalized:
-                return f"这条我会按当前会话记住，但不写入长期记忆：{normalized}"
-            return "这条我会按当前会话记住，但不写入长期记忆。"
-        if normalized:
-            return f"这条我不会写入长期记忆；它更适合作为当前会话约定或静态设定处理：{normalized}"
-        return "这条我不会写入长期记忆；它更适合作为当前会话约定或静态设定处理。"
+        return self._memory_writeback.build_acknowledgement(message)
 
     def _normalize_memory_write_statement(self, message: str) -> str:
         normalized = sanitize_visible_assistant_content(str(message or "")).strip()
@@ -2925,6 +2744,17 @@ def _preview_ref_payload(preview: dict[str, Any]) -> dict[str, Any]:
     resource_policy = dict(preview.get("resource_policy") or {})
     task_prompt_contract = dict(preview.get("task_prompt_contract") or {})
     prompt_manifest = dict(preview.get("prompt_manifest_preview") or {})
+    topology = dict(preview.get("execution_topology_preview") or {})
+    coordination_policy = dict(preview.get("coordination_policy_preview") or {})
+    orchestration_plan = dict(preview.get("orchestration_plan_preview") or {})
+    plan_validation = dict(preview.get("plan_validation") or {})
+    graph_preview = dict(preview.get("execution_graph_preview") or {})
+    adoption = dict(preview.get("adoption_candidate_preview") or {})
+    adoption_block = dict(preview.get("adoption_block") or {})
+    runtime_directive_block = dict(preview.get("runtime_directive_block") or {})
+    operation_gate_preflight = dict(preview.get("operation_gate_preflight") or {})
+    directive_only_executor = dict(preview.get("directive_only_executor_preview") or {})
+    commit_gate = dict(preview.get("commit_gate_preview") or {})
     control_kernel_result = dict(preview.get("control_kernel_result") or {})
     execution_graph = dict(control_kernel_result.get("execution_graph") or {})
     return {
@@ -2934,6 +2764,36 @@ def _preview_ref_payload(preview: dict[str, Any]) -> dict[str, Any]:
         "resource_policy_ref": str(resource_policy.get("policy_id") or ""),
         "task_prompt_contract_ref": str(task_prompt_contract.get("contract_id") or ""),
         "prompt_manifest_ref": str(prompt_manifest.get("manifest_id") or ""),
+        "execution_topology_ref": str(topology.get("topology_id") or ""),
+        "execution_topology_mode": str(topology.get("mode") or "single_agent"),
+        "coordination_policy_ref": str(coordination_policy.get("policy_id") or ""),
+        "orchestration_plan_ref": str(orchestration_plan.get("plan_id") or ""),
+        "plan_validation_ref": str(plan_validation.get("validation_id") or ""),
+        "plan_validation_status": str(plan_validation.get("status") or ""),
+        "execution_graph_preview_ref": str(graph_preview.get("graph_preview_id") or ""),
+        "execution_graph_preview_node_count": len(list(graph_preview.get("node_previews") or [])),
+        "adoption_candidate_ref": str(adoption.get("candidate_id") or ""),
+        "adoption_candidate_status": str(adoption.get("status") or ""),
+        "adoption_block_ref": str(adoption_block.get("block_id") or ""),
+        "adopted_resource_policy_available": False,
+        "runtime_directive_candidate_count": len(list(preview.get("runtime_directive_candidates") or [])),
+        "runtime_directive_block_ref": str(runtime_directive_block.get("block_id") or ""),
+        "runtime_directive_available": False,
+        "operation_gate_preflight_ref": str(operation_gate_preflight.get("preflight_id") or ""),
+        "operation_gate_passed": bool(operation_gate_preflight.get("operation_gate_passed") is True),
+        "operation_gate_check_count": len(list(operation_gate_preflight.get("checks") or [])),
+        "directive_only_executor_ref": str(directive_only_executor.get("preview_id") or ""),
+        "executor_dispatch_enabled": bool(directive_only_executor.get("will_dispatch") is True),
+        "executor_accepts_only": str(directive_only_executor.get("accepted_input_type") or ""),
+        "commit_gate_ref": str(commit_gate.get("gate_id") or ""),
+        "commit_gate_status": str(commit_gate.get("status") or ""),
+        "commit_allowed": bool(commit_gate.get("commit_allowed") is True),
+        "commit_candidate_count": len(list(commit_gate.get("commit_candidates") or [])),
+        "understanding_candidate_count": len(list(preview.get("understanding_candidate_preview") or [])),
+        "candidate_count": len(list(preview.get("candidate_set_preview") or [])),
+        "multi_agent_enabled": False,
+        "agent_seat_count": len(list(preview.get("agent_seat_plan_previews") or [])),
+        "agent_assignment_count": len(list(preview.get("agent_assignment_candidates") or [])),
         "control_status": str(control_kernel_result.get("status") or ""),
         "control_reason": str(control_kernel_result.get("reason") or ""),
         "execution_node_count": len(list(execution_graph.get("nodes") or [])),
@@ -2942,3 +2802,4 @@ def _preview_ref_payload(preview: dict[str, Any]) -> dict[str, Any]:
         "runtime_directive_enabled": False,
         "runtime_executable": False,
     }
+

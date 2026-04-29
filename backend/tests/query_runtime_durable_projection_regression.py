@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from memory import MemoryFacade
+from memory_system import MemoryGateDecision
 from query import QueryRuntime
 
 
@@ -83,7 +84,7 @@ def _capture(runtime: QueryRuntime, session_id: str, active_goal: str) -> None:
     )
 
 
-def test_commit_durable_memory_extraction_drains_all_pending_projections() -> None:
+def test_commit_durable_memory_extraction_blocks_all_pending_projections() -> None:
     root = _tempdir()
     runtime = _build_runtime(root)
     session_id = "projection-queue"
@@ -93,14 +94,20 @@ def test_commit_durable_memory_extraction_drains_all_pending_projections() -> No
 
     saved = runtime.commit_durable_memory_extraction(session_id)
     notes = runtime.memory_facade.memory_manager.list_notes()
-    canonicals = {note.canonical_statement for note in notes}
+    gate = runtime.memory_gate_preview
 
-    assert saved >= 2
-    assert "记住：以后复杂问题先给结论。" in canonicals
-    assert "记住：回答我时可以直接称呼我岩。" in canonicals
+    assert saved == 0
+    assert notes == []
+    assert isinstance(gate, MemoryGateDecision)
+    assert gate.status == "blocked"
+    assert gate.memory_write_allowed is False
+    assert len(gate.write_candidates) >= 2
+    contents = {candidate.content for candidate in gate.write_candidates}
+    assert "记住：以后复杂问题先给结论。" in contents
+    assert "记住：回答我时可以直接称呼我岩。" in contents
 
 
-def test_schedule_durable_memory_extraction_commits_explicit_write_without_waiting_for_threshold() -> None:
+def test_schedule_durable_memory_extraction_blocks_explicit_write_without_waiting_for_threshold() -> None:
     root = _tempdir()
     runtime = _build_runtime(root)
     session_id = "projection-explicit-write"
@@ -109,15 +116,22 @@ def test_schedule_durable_memory_extraction_commits_explicit_write_without_waiti
 
     saved = runtime.schedule_durable_memory_extraction(session_id)
     notes = runtime.memory_facade.memory_manager.list_notes()
+    gate = runtime.memory_gate_preview
 
-    assert saved >= 1
-    assert any(note.canonical_statement == "记住：回答我时可以直接称呼我岩。" for note in notes)
+    assert saved == 0
+    assert notes == []
+    assert isinstance(gate, MemoryGateDecision)
+    assert gate.status == "blocked"
+    assert gate.memory_write_allowed is False
+    assert gate.commit_allowed is False
+    assert len(gate.write_candidates) >= 1
+    assert any(candidate.content == "记住：回答我时可以直接称呼我岩。" for candidate in gate.write_candidates)
 
 
 def main() -> None:
     tests = [
-        test_commit_durable_memory_extraction_drains_all_pending_projections,
-        test_schedule_durable_memory_extraction_commits_explicit_write_without_waiting_for_threshold,
+        test_commit_durable_memory_extraction_blocks_all_pending_projections,
+        test_schedule_durable_memory_extraction_blocks_explicit_write_without_waiting_for_threshold,
     ]
     for test in tests:
         test()

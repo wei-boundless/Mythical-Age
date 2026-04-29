@@ -57,12 +57,12 @@ const SOUL_MODES: Array<{
   {
     id: "contract",
     label: "灵魂设定",
-    description: "切换并维护灵魂本体设定。"
+    description: "切换当前对话灵魂，并维护灵魂设定，洪荒智能体已经召唤了五个古老的灵魂，未来将开放召唤系统。"
   },
   {
     id: "projection",
-    label: "任务投影",
-    description: "按灵魂管理任务投影，并分别维护投影契约与投影设定。"
+    label: "投影",
+    description: "在执行不同任务的时候，我们可以让其它灵魂降下投影，从而更好的执行特定任务，投影可以根据需要进行管理。"
   },
   {
     id: "core",
@@ -179,12 +179,6 @@ type ManagedSection = {
   content: string;
 };
 
-function managedSectionLabel(mode: SoulPanelMode) {
-  if (mode === "contract") return "灵魂模块";
-  if (mode === "core") return "契约模块";
-  if (mode === "profile") return "偏好模块";
-  return "管理模块";
-}
 
 function emptySectionTitle(mode: SoulPanelMode) {
   if (mode === "contract") return "灵魂设定";
@@ -437,7 +431,7 @@ export function PlaygroundView() {
       role_type: roleType,
       task_mode: taskMode,
       agent_profile_id: "general_agent",
-      task_contract_summary: "当前任务：根据用户目标生成一个可在任务中选用的任务投影。",
+      task_contract_summary: "当前任务：根据用户目标生成一个可在任务中选用的灵魂投影。",
       memory_policy_summary: "预览模式不授予记忆写回权。",
       output_contract_summary: "预览当前灵魂如何收束 prompt sections。",
       style_content: inheritedProjectionStyle(seed)
@@ -651,16 +645,16 @@ export function PlaygroundView() {
       skill_views: [
         {
           skill_id: "soul_projection_preview",
-          title: "任务投影",
-          capability_summary: "这个任务投影记录当前任务允许看到的 skill 摘要。",
-          current_task_reason: "用于后续任务选用这个任务投影。"
+          title: "投影",
+          capability_summary: "这个投影记录当前任务允许看到的 skill 摘要。",
+          current_task_reason: "用于后续任务选用这个投影。"
         }
       ],
       tool_views: [
         {
           tool_id: "tool_visibility_demo",
           title: "工具可见性示例",
-          capability_summary: "记录这个任务投影关联的工具可见摘要，但不会授予调用权。",
+          capability_summary: "记录这个投影关联的工具可见摘要，但不会授予调用权。",
           authorized: false,
           risk_summary: "预览模式只展示边界，不执行工具。"
         }
@@ -908,7 +902,6 @@ export function PlaygroundView() {
                       onClick={() => setSelectedManagedSectionId(section.id)}
                       type="button"
                     >
-                      <span>{managedSectionLabel(mode)}</span>
                       <strong>{section.title}</strong>
                     </button>
                   </div>
@@ -1199,7 +1192,6 @@ export function PlaygroundView() {
                             <article className="soul-managed-section soul-managed-section--editing" key={section.id}>
                               <div className="soul-managed-section__head">
                                 <div>
-                                  <span>{managedSectionLabel("contract")}</span>
                                   <strong>{section.title}</strong>
                                 </div>
                               </div>
@@ -1249,7 +1241,6 @@ export function PlaygroundView() {
                               <article className="soul-managed-section soul-managed-section--editing" key={section.id}>
                                 <div className="soul-managed-section__head">
                                   <div>
-                                    <span>{managedSectionLabel("contract")}</span>
                                     <strong>{section.title}</strong>
                                   </div>
                                 </div>
@@ -1310,7 +1301,6 @@ export function PlaygroundView() {
                     <article className="soul-managed-section soul-managed-section--editing" key={section.id}>
                       <div className="soul-managed-section__head">
                         <div>
-                          <span>{managedSectionLabel(mode)}</span>
                           {mode === "core" ? (
                             <input
                               className="soul-managed-section__title-input"
@@ -1335,7 +1325,6 @@ export function PlaygroundView() {
                   {(mode === "core" && selectedManagedSection ? [selectedManagedSection] : managedSections).map((section) => (
                     <article className="soul-managed-section" key={section.id}>
                       <div>
-                        <span>{managedSectionLabel(mode)}</span>
                         <strong>{section.title}</strong>
                       </div>
                       <pre>{section.content || "暂无内容。"}</pre>
