@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
-from api.operations import _safe_skill_name
+from api.operations import ResourcePolicyPreviewRequest, resource_policy_preview, _safe_skill_name
 from capabilities import (
     agent_tool_bindings,
     default_tool_type,
@@ -103,3 +104,31 @@ metadata:
     assert allowed == ["pdf_analysis"]
     assert "pdf_analysis" in text
     assert "unknown" not in text
+
+
+def test_resource_policy_preview_api_is_preview_only_and_fail_closed() -> None:
+    payload = ResourcePolicyPreviewRequest(
+        task_id="api-task-1",
+        operation_scope=["op.read_file", "op.edit_file"],
+        approval_context={
+            "interactive_ui_available": False,
+            "headless_mode": True,
+            "approval_hook_available": False,
+            "bubble_to_parent_allowed": False,
+        },
+    )
+
+    response = asyncio.run(resource_policy_preview(payload))
+    decisions = {item["operation_id"]: item for item in response["decisions"]}
+    views = {item["resource_id"]: item for item in response["resource_runtime_views"]}
+
+    assert response["operation_requirement"]["authority"] == "candidate_only"
+    assert response["resource_policy"]["authority"] == "resource_policy"
+    assert response["resource_policy"]["preview_only"] is True
+    assert response["resource_policy"]["adopted"] is False
+    assert response["diagnostics"]["fail_closed"] is True
+    assert decisions["op.read_file"]["decision"] == "allow"
+    assert decisions["op.edit_file"]["decision"] == "deny"
+    assert decisions["op.edit_file"]["reason"] == "approval unavailable in headless context"
+    assert views["op.read_file"]["preview_available"] is True
+    assert views["op.read_file"]["runtime_executable"] is False

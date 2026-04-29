@@ -38,6 +38,7 @@ from query.planner import QueryPlanner
 from query.worker_models import WorkerExecutionPlan, WorkerRequest
 from runtime.model_runtime import ModelRuntime, ModelRuntimeError, stringify_content
 from skill_system import SkillDefinition
+from tasks.contract_builder import build_task_runtime_contract_preview
 from tasks.coordinator import TaskCoordinator
 from tools.contracts import ToolContractDecision, ToolContractGate, ToolScope
 from understanding import QueryUnderstanding, analyze_memory_intent, evaluate_memory_write
@@ -390,25 +391,26 @@ class QueryRuntime:
                 if debug_event is not None:
                     yield debug_event
 
-                task = TaskContract(
-                    task_id=f"turn:{request.session_id}:{len(history_record.get('messages', [])) + 1}",
-                    user_goal=request.message,
+                task_operation_preview = self._build_live_task_operation_preview(
                     session_id=request.session_id,
-                    inputs={
-                        "ephemeral_system_message_count": len(request.ephemeral_system_messages),
-                        "explicit_subtask_count": len(request.explicit_subtasks),
-                        "search_policy": list(request.search_policy or []),
-                    },
+                    task_id=f"turn:{request.session_id}:{len(history_record.get('messages', [])) + 1}",
+                    message=request.message,
+                    source="query_runtime.astream",
                 )
-                control_result = self.control_kernel.collect(task=task)
+                control_result = dict(task_operation_preview.get("control_kernel_result") or {})
+                yield {
+                    "type": "task_operation_preview",
+                    "preview": task_operation_preview,
+                }
                 yield {
                     "type": "orchestration_control",
-                    "control": control_result.to_dict(),
+                    "control": control_result,
                     "unit_catalog": self.unit_catalog.to_list(),
+                    "task_operation_preview_ref": _preview_ref_payload(task_operation_preview),
                 }
                 yield {
                     "type": "error",
-                    "error": "wiring_cleared_pending_control_kernel",
+                    "error": str(control_result.get("reason") or "preview_only"),
                     "content": "旧编排连线已清空；新的 ControlKernel/ExecutionGraph 接线完成前，本轮按 fail-closed 策略停止执行。",
                     "answer_channel": "orchestration_fail_closed",
                     "answer_source": "control_kernel",
@@ -505,37 +507,55 @@ class QueryRuntime:
         search_policy: list[str] | None = None,
         trace=None,
     ):
-        task = TaskContract(
-            task_id=f"turn:{session_id}:execution_events",
-            user_goal=message,
+        task_operation_preview = self._build_live_task_operation_preview(
             session_id=session_id,
-            inputs={
-                "history_length": len(history),
-                "ephemeral_system_message_count": len(ephemeral_system_messages or []),
-                "explicit_subtask_count": len(explicit_subtasks or []),
-                "search_policy": list(search_policy or []),
-            },
+            task_id=f"turn:{session_id}:execution_events",
+            message=message,
+            source="query_runtime.execution_events",
         )
-        control_result = self.control_kernel.collect(task=task)
+        control_result = dict(task_operation_preview.get("control_kernel_result") or {})
         if trace is not None:
             trace.annotate(
                 {
-                    "app.orchestration_state": "wiring_cleared",
+                    "app.orchestration_state": "task_operation_preview",
                     "app.fail_closed": "true",
+                    "app.resource_policy_ref": str(
+                        task_operation_preview.get("resource_policy", {}).get("policy_id", "")
+                    ),
                 }
             )
         yield {
+            "type": "task_operation_preview",
+            "preview": task_operation_preview,
+        }
+        yield {
             "type": "orchestration_control",
-            "control": control_result.to_dict(),
+            "control": control_result,
             "unit_catalog": self.unit_catalog.to_list(),
+            "task_operation_preview_ref": _preview_ref_payload(task_operation_preview),
         }
         yield {
             "type": "error",
-            "error": control_result.reason,
+            "error": str(control_result.get("reason") or "preview_only"),
             "content": "旧编排执行链已清空；新的 ExecutionGraph/RuntimeDirective 接线完成前，本轮停止执行。",
             "answer_channel": "orchestration_fail_closed",
             "answer_source": "control_kernel",
         }
+
+    def _build_live_task_operation_preview(
+        self,
+        *,
+        session_id: str,
+        task_id: str,
+        message: str,
+        source: str,
+    ) -> dict[str, Any]:
+        return build_task_runtime_contract_preview(
+            session_id=session_id,
+            task_id=task_id,
+            user_goal=message,
+            source=source,
+        )
 
     async def _stream_bundle_execution(
         self,
@@ -2897,3 +2917,28 @@ class QueryRuntime:
 def _structured_dataset_path(value: str) -> bool:
     suffix = PurePosixPath(str(value or "").replace("\\", "/").split("#", 1)[0]).suffix.lower()
     return suffix in {".xlsx", ".xls", ".csv", ".json", ".parquet"}
+
+
+def _preview_ref_payload(preview: dict[str, Any]) -> dict[str, Any]:
+    task_contract = dict(preview.get("task_contract") or {})
+    operation_requirement = dict(preview.get("operation_requirement") or {})
+    resource_policy = dict(preview.get("resource_policy") or {})
+    task_prompt_contract = dict(preview.get("task_prompt_contract") or {})
+    prompt_manifest = dict(preview.get("prompt_manifest_preview") or {})
+    control_kernel_result = dict(preview.get("control_kernel_result") or {})
+    execution_graph = dict(control_kernel_result.get("execution_graph") or {})
+    return {
+        "status": str(preview.get("status") or "preview_only"),
+        "task_id": str(task_contract.get("task_id") or ""),
+        "operation_requirement_ref": str(operation_requirement.get("requirement_id") or ""),
+        "resource_policy_ref": str(resource_policy.get("policy_id") or ""),
+        "task_prompt_contract_ref": str(task_prompt_contract.get("contract_id") or ""),
+        "prompt_manifest_ref": str(prompt_manifest.get("manifest_id") or ""),
+        "control_status": str(control_kernel_result.get("status") or ""),
+        "control_reason": str(control_kernel_result.get("reason") or ""),
+        "execution_node_count": len(list(execution_graph.get("nodes") or [])),
+        "directive_count": len(list(control_kernel_result.get("directives") or [])),
+        "preview_only": bool(preview.get("status") == "preview_only"),
+        "runtime_directive_enabled": False,
+        "runtime_executable": False,
+    }

@@ -22,7 +22,6 @@ import type { SoulKey } from "@/lib/souls";
 import { useAppStore } from "@/lib/store";
 
 type SoulPanelMode = "contract" | "projection" | "core" | "profile";
-type ProjectionRailPage = "souls" | "cards";
 type ProjectionDetailPage = "projection" | "soul";
 
 type ProjectionDraft = {
@@ -109,11 +108,10 @@ const SOUL_LORE: Record<string, { title: string; summary: string }> = {
   }
 };
 
-function formatTime(value: number | string | null) {
-  if (!value) return "暂无记录";
-  const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
-  if (Number.isNaN(date.getTime())) return "时间未知";
-  return date.toLocaleString("zh-CN", { hour12: false });
+function projectionBadgeLabel(card: SoulProjectionCard, selectedProjectionId: string) {
+  if (card.is_primary) return "原始投影";
+  if (card.projection_id === selectedProjectionId) return "当前选用";
+  return "任务投影";
 }
 
 function fileKind(file: SoulSystemFile | SoulSystemSeed) {
@@ -259,7 +257,6 @@ export function PlaygroundView() {
   const [projectionDraft, setProjectionDraft] = useState<ProjectionDraft | null>(null);
   const [projectionEditorMap, setProjectionEditorMap] = useState<Record<string, ProjectionDraft>>({});
   const [selectedProjectionId, setSelectedProjectionId] = useState("");
-  const [projectionRailPage, setProjectionRailPage] = useState<ProjectionRailPage>("souls");
   const [projectionDetailPage, setProjectionDetailPage] = useState<ProjectionDetailPage>("projection");
   const [selectedManagedSectionId, setSelectedManagedSectionId] = useState("section-0");
   const [newRuleTitle, setNewRuleTitle] = useState("");
@@ -473,7 +470,6 @@ export function PlaygroundView() {
     if (!chooseFile(seed)) return;
     setSelectedProjectionId("");
     setProjectionDraft((current) => (current && current.soul_id === seed.key ? current : null));
-    setProjectionRailPage("cards");
     setProjectionDetailPage("projection");
   }
 
@@ -481,17 +477,9 @@ export function PlaygroundView() {
     if (!chooseFile(seed)) return;
     setSelectedProjectionId("");
     setProjectionDraft(buildProjectionDraftForSeed(seed));
-    setProjectionRailPage("cards");
     setProjectionDetailPage("projection");
     setNotice("");
     setError("");
-  }
-
-  function returnToProjectionSouls() {
-    setProjectionRailPage("souls");
-    setProjectionDraft(null);
-    setSelectedProjectionId("");
-    setProjectionDetailPage("projection");
   }
 
   function jumpToMode(nextMode: SoulPanelMode, file: SoulSystemFile | null) {
@@ -506,7 +494,9 @@ export function PlaygroundView() {
     }
     if (nextMode === "projection") {
       setMode(nextMode);
-      setProjectionRailPage("souls");
+      if (selectedSeed) {
+        enterProjectionSoul(selectedSeed);
+      }
       return;
     }
     if (nextMode === "core") {
@@ -849,83 +839,26 @@ export function PlaygroundView() {
 
           {mode === "projection" ? (
             <>
-              {projectionRailPage === "souls" ? (
-                <>
-                  <div className="soul-projection-group">
-                    <span>灵魂</span>
-                    <div className="soul-seed-grid soul-seed-grid--compact">
-                      {catalog?.seeds.map((seed) => {
-                        const count = (projectionCatalog?.cards ?? []).filter((card) => card.soul_id === seed.key || card.soul_name === seed.name).length;
-                        return (
-                          <article
-                            className={`soul-seed-card ${selectedSeed?.key === seed.key ? "soul-seed-card--active" : ""}`}
-                            key={seed.key}
-                          >
-                            <button className="soul-seed-card__main" onClick={() => enterProjectionSoul(seed)} type="button">
-                              <span>{seed.active ? "正在使用" : "可选灵魂"}</span>
-                              <strong>{displayFileLabel(seed)}</strong>
-                              <em>{count ? `${count} 个任务投影` : "暂无任务投影"}</em>
-                            </button>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="soul-projection-group">
-                    <span>说明</span>
-                    <div className="soul-empty-panel">先选灵魂，再新建或编辑投影。</div>
-                  </div>
-                </>
-              ) : selectedSeed ? (
-                <>
-                  <div className="soul-projection-rail-head">
-                    <button className="action-button" onClick={returnToProjectionSouls} type="button">
-                      <ChevronLeft size={16} />
-                      返回灵魂
-                    </button>
-                    <div>
-                      <span>{selectedSeed.name}</span>
-                      <strong>任务投影页</strong>
-                    </div>
-                  </div>
-
-                  <div className="soul-projection-card-list">
-                    {projectionCardsForSelectedSoul.length ? projectionCardsForSelectedSoul.map((card) => (
-                      <button
-                        className={card.projection_id === selectedProjectionCard?.projection_id ? "soul-projection-card soul-projection-card--selected" : "soul-projection-card"}
-                        key={card.projection_id}
-                        onClick={() => {
-                          setProjectionDraft(null);
-                          setSelectedProjectionId(card.projection_id);
-                          setProjectionDetailPage("projection");
-                        }}
-                        type="button"
+              <div className="soul-projection-group">
+                <span>灵魂</span>
+                <div className="soul-seed-grid soul-seed-grid--compact">
+                  {catalog?.seeds.map((seed) => {
+                    const count = (projectionCatalog?.cards ?? []).filter((card) => card.soul_id === seed.key || card.soul_name === seed.name).length;
+                    return (
+                      <article
+                        className={`soul-seed-card ${selectedSeed?.key === seed.key ? "soul-seed-card--active" : ""}`}
+                        key={seed.key}
                       >
-                        <span>
-                          {card.is_primary
-                            ? "原始投影"
-                            : card.projection_id === projectionCatalog?.selected_projection_id
-                              ? "当前选用"
-                              : card.soul_name}
-                        </span>
-                        <strong>{card.title}</strong>
-                        <em>{card.role_type} / {card.task_mode}</em>
-                      </button>
-                    )) : null}
-
-                    <button
-                      className={projectionDraft && projectionDraft.soul_id === selectedSeed.key ? "soul-projection-card soul-projection-card--selected soul-projection-card--create" : "soul-projection-card soul-projection-card--create"}
-                      onClick={() => newProjectionDraft(selectedSeed)}
-                      type="button"
-                    >
-                      <span>新建任务投影</span>
-                      <strong><Plus size={18} /> 新建</strong>
-                      <em>右侧直接编辑</em>
-                    </button>
-                  </div>
-                </>
-              ) : null}
+                        <button className="soul-seed-card__main" onClick={() => enterProjectionSoul(seed)} type="button">
+                          <span>{seed.active ? "正在使用" : "可选灵魂"}</span>
+                          <strong>{displayFileLabel(seed)}</strong>
+                          <em>{count ? `${count} 个任务投影` : "暂无任务投影"}</em>
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
             </>
           ) : null}
 
@@ -1013,22 +946,82 @@ export function PlaygroundView() {
             <div className="soul-projection-panel">
               {selectedSeed ? (
                 <div className="soul-projection-editor-list">
-                  <div className="soul-submodule-switcher">
-                    <button
-                      className={projectionDetailPage === "projection" ? "active" : ""}
-                      onClick={() => setProjectionDetailPage("projection")}
-                      type="button"
-                    >
-                      投影管理
-                    </button>
-                    <button
-                      className={projectionDetailPage === "soul" ? "active" : ""}
-                      onClick={() => setProjectionDetailPage("soul")}
-                      type="button"
-                    >
-                      灵魂设定
-                    </button>
-                  </div>
+                  {!projectionDraft && !selectedProjectionCard ? (
+                    <div className="soul-projection-card-board">
+                      <div className="soul-projection-card-board__head">
+                        <div>
+                          <span>{selectedSeed.active ? "当前灵魂" : "所选灵魂"}</span>
+                          <strong>{selectedSeed.name}的任务投影</strong>
+                          <em>选择一张投影卡进入管理，或新建一张投影。</em>
+                        </div>
+                        <button className="action-button action-button--primary" onClick={() => newProjectionDraft(selectedSeed)} type="button">
+                          <Plus size={16} />
+                          新建投影
+                        </button>
+                      </div>
+
+                      <div className="soul-projection-card-grid">
+                        {projectionCardsForSelectedSoul.map((card) => (
+                          <button
+                            className={`soul-projection-tile ${card.projection_id === projectionCatalog?.selected_projection_id ? "soul-projection-tile--active" : ""}`}
+                            key={card.projection_id}
+                            onClick={() => {
+                              setProjectionDraft(null);
+                              setSelectedProjectionId(card.projection_id);
+                              setProjectionDetailPage("projection");
+                            }}
+                            type="button"
+                          >
+                            <span>{projectionBadgeLabel(card, projectionCatalog?.selected_projection_id ?? "")}</span>
+                            <strong>{card.title}</strong>
+                            <em>{card.role_type} / {card.task_mode}</em>
+                            <p>{card.task_contract_summary || "当前投影没有绑定具体任务契约。"}</p>
+                          </button>
+                        ))}
+
+                        <button className="soul-projection-tile soul-projection-tile--create" onClick={() => newProjectionDraft(selectedSeed)} type="button">
+                          <span>新建任务投影</span>
+                          <strong><Plus size={18} /> 新建</strong>
+                          <em>从当前灵魂继承设定</em>
+                          <p>为这个灵魂新增一张可在任务系统中选用的投影卡。</p>
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {projectionDraft || selectedProjectionCard ? (
+                    <div className="soul-projection-switcher-row">
+                      <div className="soul-submodule-switcher">
+                        <button
+                          className={projectionDetailPage === "projection" ? "active" : ""}
+                          onClick={() => setProjectionDetailPage("projection")}
+                          type="button"
+                        >
+                          投影管理
+                        </button>
+                        <button
+                          className={projectionDetailPage === "soul" ? "active" : ""}
+                          onClick={() => setProjectionDetailPage("soul")}
+                          type="button"
+                        >
+                          灵魂设定
+                        </button>
+                      </div>
+                      <button
+                        aria-label="返回投影卡片"
+                        className="action-button soul-projection-back soul-projection-back--compact"
+                        onClick={() => {
+                          setProjectionDraft(null);
+                          setSelectedProjectionId("");
+                          setProjectionDetailPage("projection");
+                        }}
+                        title="返回投影卡片"
+                        type="button"
+                      >
+                        <ChevronLeft size={15} />
+                      </button>
+                    </div>
+                  ) : null}
 
                   {projectionDetailPage === "projection" && projectionDraft && projectionDraft.soul_id === selectedSeed.key ? (
                     <div className="soul-projection-editor-card soul-projection-editor-card--draft">
@@ -1100,12 +1093,9 @@ export function PlaygroundView() {
                     const editor = projectionEditorForCard(selectedProjectionCard);
                     return (
                       <div className="soul-projection-editor-card" key={selectedProjectionCard.projection_id}>
-                        <div className="soul-projection-editor-card__head">
-                          <div>
-                            <span>{selectedProjectionCard.is_primary ? "原始投影" : selectedProjectionCard.soul_name}</span>
-                            <strong>{selectedProjectionCard.title}</strong>
-                            <em>{selectedProjectionCard.role_type} / {selectedProjectionCard.task_mode}</em>
-                          </div>
+                        <div className="soul-projection-meta-strip">
+                          <span>{projectionBadgeLabel(selectedProjectionCard, projectionCatalog?.selected_projection_id ?? "")}</span>
+                          <em>{selectedProjectionCard.role_type} / {selectedProjectionCard.task_mode}</em>
                           <small>{selectedProjectionCard.projection_id === projectionCatalog?.selected_projection_id ? "当前选用" : "未选用"}</small>
                         </div>
 
@@ -1157,17 +1147,6 @@ export function PlaygroundView() {
                               rows={7}
                           />
                         </label>
-
-                        <div className="soul-projection-static-card">
-                          <article>
-                            <span>管理信息</span>
-                            <strong>{selectedProjectionCard.projection_id}</strong>
-                            <p>
-                              {selectedProjectionCard.is_primary ? "这是系统自动保底的通用原始投影，不要求人工任务契约，并且固定作为基础模板。 " : ""}
-                              创建：{formatTime(selectedProjectionCard.created_at)}；更新：{formatTime(selectedProjectionCard.updated_at)}。skills: {selectedProjectionCard.skill_views.length}；tools: {selectedProjectionCard.tool_views.length}。
-                            </p>
-                          </article>
-                        </div>
 
                         <div className="soul-projection-actions">
                           {!selectedProjectionCard.is_primary ? (
@@ -1308,12 +1287,12 @@ export function PlaygroundView() {
                       );
                     })() : (
                       <div className="soul-reader">
-                        <pre>{projectionRailPage === "souls" ? "先在左侧选择一个灵魂。" : "先从左侧投影列表里选一张卡，或者点击左侧加号新建卡。"}</pre>
+                        <pre>先从上方投影卡片中选一张卡，或者直接新建一张投影。</pre>
                       </div>
                     )
                   ) : (
                     <div className="soul-reader">
-                      <pre>{projectionRailPage === "souls" ? "先在左侧选择一个灵魂。" : "先从左侧投影列表里选一张卡，或者点击左侧加号新建卡。"}</pre>
+                      <pre>先从上方投影卡片中选一张卡，或者直接新建一张投影。</pre>
                     </div>
                   )}
                 </div>

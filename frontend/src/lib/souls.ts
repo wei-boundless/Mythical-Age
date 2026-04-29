@@ -50,8 +50,8 @@ const SOUL_COLORS: Record<SoulKey, { color: string; glow: string; intro: string 
     intro: "祝融更偏直接、果断，语气会更有激情和行动感。"
   },
   xuannv: {
-    color: "#f8fbf7",
-    glow: "rgba(248, 251, 247, 0.42)",
+    color: "#f3f7ff",
+    glow: "rgba(243, 247, 255, 0.52)",
     intro: "玄女更偏细致、敏锐，表达会更注重辨析和层次。"
   }
 };

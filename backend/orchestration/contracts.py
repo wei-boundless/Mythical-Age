@@ -68,3 +68,46 @@ class PolicyHint:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(slots=True, frozen=True)
+class ControlKernelPreviewContext:
+    """Preview-only references submitted to the control kernel.
+
+    This object is intentionally diagnostic. It can point at the task/resource
+    preview chain, but it cannot carry runtime execution authority.
+    """
+
+    task_prompt_contract_ref: str = ""
+    resource_policy_ref: str = ""
+    prompt_manifest_ref: str = ""
+    operation_requirement_ref: str = ""
+    resource_policy_state: str = "preview"
+    resource_policy_adopted: bool = False
+    preview_only: bool = True
+    runtime_directive_enabled: bool = False
+    runtime_executable: bool = False
+    operation_gate_required_before_execution: bool = True
+    blocked_reason: str = "preview_only"
+    denied_operations: tuple[str, ...] = ()
+    requires_approval_operations: tuple[str, ...] = ()
+    refs: dict[str, Any] = field(default_factory=dict)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.resource_policy_state != "preview":
+            raise ValueError("ControlKernelPreviewContext only accepts preview resource policy state")
+        if self.resource_policy_adopted:
+            raise ValueError("ControlKernelPreviewContext cannot carry adopted policy")
+        if not self.preview_only:
+            raise ValueError("ControlKernelPreviewContext must remain preview_only")
+        if self.runtime_directive_enabled:
+            raise ValueError("ControlKernelPreviewContext cannot enable runtime directives")
+        if self.runtime_executable:
+            raise ValueError("ControlKernelPreviewContext cannot be runtime executable")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["denied_operations"] = list(self.denied_operations)
+        payload["requires_approval_operations"] = list(self.requires_approval_operations)
+        return payload

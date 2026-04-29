@@ -74,16 +74,21 @@ html[data-soul="hebo"] {
     radial-gradient(ellipse at 82% 12%, rgba(139, 226, 255, 0.14), transparent 28%),
     linear-gradient(90deg, rgba(35, 145, 205, 0.08), transparent 28%, rgba(116, 218, 255, 0.08) 76%, transparent);
   --backdrop-detail:
-    repeating-linear-gradient(176deg, rgba(158, 228, 255, 0.07) 0 1px, transparent 1px 19px),
-    repeating-linear-gradient(184deg, transparent 0 18px, rgba(124, 214, 255, 0.04) 18px 19px, transparent 19px 38px);
+    radial-gradient(ellipse 44px 12px at 12% 18%, rgba(158, 228, 255, 0.12) 0 20%, transparent 72%),
+    radial-gradient(ellipse 58px 14px at 72% 34%, rgba(124, 214, 255, 0.09) 0 18%, transparent 74%),
+    repeating-linear-gradient(176deg, rgba(158, 228, 255, 0.06) 0 1px, transparent 1px 19px),
+    repeating-linear-gradient(184deg, transparent 0 18px, rgba(124, 214, 255, 0.045) 18px 19px, transparent 19px 38px);
   --shell-atmosphere:
     linear-gradient(102deg, transparent 0 18%, rgba(92, 202, 255, 0.08) 42%, transparent 68%),
     repeating-linear-gradient(178deg, rgba(135, 224, 255, 0.04) 0 1px, transparent 1px 32px);
   --shell-detail:
+    radial-gradient(ellipse 140px 18px at 34% 24%, rgba(183, 239, 255, 0.1) 0 18%, transparent 68%),
+    radial-gradient(ellipse 120px 16px at 72% 68%, rgba(92, 202, 255, 0.08) 0 16%, transparent 70%),
     linear-gradient(90deg, transparent 0 38%, rgba(183, 239, 255, 0.09) 50%, transparent 62%);
   --soul-texture:
-    repeating-linear-gradient(172deg, rgba(150, 225, 255, 0.08) 0 1px, transparent 1px 18px),
-    linear-gradient(90deg, transparent, rgba(68, 185, 244, 0.08), transparent);
+    radial-gradient(ellipse 72px 14px at 22% 32%, rgba(150, 225, 255, 0.12) 0 18%, transparent 72%),
+    radial-gradient(ellipse 96px 18px at 78% 64%, rgba(68, 185, 244, 0.1) 0 16%, transparent 72%),
+    repeating-linear-gradient(172deg, rgba(150, 225, 255, 0.075) 0 1px, transparent 1px 18px);
   --panel-veil:
     linear-gradient(180deg, rgba(141, 226, 255, 0.075), transparent 46%);
   --panel-aura:
@@ -123,16 +128,21 @@ html[data-soul="goumang"] {
     radial-gradient(ellipse at 20% 14%, rgba(111, 214, 201, 0.24), transparent 32%),
     radial-gradient(ellipse at 82% 8%, rgba(255, 227, 154, 0.12), transparent 26%);
   --backdrop-detail:
-    repeating-linear-gradient(90deg, rgba(173, 244, 234, 0.05) 0 1px, transparent 1px 28px),
-    repeating-linear-gradient(0deg, rgba(255, 227, 154, 0.035) 0 1px, transparent 1px 32px);
+    radial-gradient(ellipse 42px 76px at 18% 28%, rgba(154, 238, 226, 0.08) 0 38%, transparent 64%),
+    radial-gradient(ellipse 36px 68px at 78% 62%, rgba(255, 227, 154, 0.055) 0 34%, transparent 66%),
+    repeating-linear-gradient(116deg, transparent 0 26px, rgba(173, 244, 234, 0.055) 26px 27px, transparent 27px 54px),
+    repeating-linear-gradient(64deg, transparent 0 34px, rgba(255, 227, 154, 0.035) 34px 35px, transparent 35px 70px);
   --shell-atmosphere:
     linear-gradient(110deg, transparent 0 20%, rgba(111, 214, 201, 0.1) 44%, transparent 70%),
     linear-gradient(180deg, rgba(255, 227, 154, 0.035), transparent 42%);
   --shell-detail:
-    linear-gradient(90deg, transparent 0 34%, rgba(206, 255, 248, 0.08) 50%, transparent 66%);
+    radial-gradient(ellipse 54px 112px at 24% 18%, rgba(206, 255, 248, 0.08) 0 34%, transparent 68%),
+    linear-gradient(64deg, transparent 0 42%, rgba(206, 255, 248, 0.08) 50%, transparent 58%),
+    linear-gradient(116deg, transparent 0 38%, rgba(255, 227, 154, 0.045) 50%, transparent 62%);
   --soul-texture:
-    repeating-linear-gradient(90deg, rgba(154, 238, 226, 0.06) 0 1px, transparent 1px 20px),
-    linear-gradient(90deg, transparent, rgba(255, 227, 154, 0.06), transparent);
+    radial-gradient(ellipse 34px 62px at 18% 40%, rgba(154, 238, 226, 0.09) 0 34%, transparent 68%),
+    radial-gradient(ellipse 26px 52px at 68% 22%, rgba(255, 227, 154, 0.06) 0 32%, transparent 68%),
+    repeating-linear-gradient(108deg, transparent 0 22px, rgba(154, 238, 226, 0.055) 22px 23px, transparent 23px 44px);
   --panel-veil:
     linear-gradient(180deg, rgba(154, 238, 226, 0.08), transparent 44%);
   --panel-aura:
@@ -179,16 +189,19 @@ html[data-soul="siyue"] {
     linear-gradient(152deg, transparent 0 34%, rgba(216, 183, 101, 0.11) 48%, transparent 64%),
     linear-gradient(0deg, rgba(90, 54, 12, 0.18), transparent 42%);
   --backdrop-detail:
-    linear-gradient(145deg, rgba(255, 245, 204, 0.088) 0 1px, transparent 1px 40px),
-    repeating-linear-gradient(9deg, transparent 0 38px, rgba(255, 213, 96, 0.052) 38px 39px, transparent 39px 76px);
+    linear-gradient(154deg, transparent 0 41%, rgba(255, 245, 204, 0.09) 41% 42%, transparent 42%),
+    linear-gradient(26deg, transparent 0 46%, rgba(255, 213, 96, 0.06) 46% 47%, transparent 47%),
+    repeating-linear-gradient(9deg, transparent 0 38px, rgba(255, 213, 96, 0.045) 38px 39px, transparent 39px 76px);
   --shell-atmosphere:
     linear-gradient(165deg, transparent 0 24%, rgba(255, 239, 181, 0.14) 38%, rgba(255, 211, 93, 0.09) 52%, transparent 72%),
     linear-gradient(18deg, transparent 0 52%, rgba(154, 99, 22, 0.06) 64%, transparent 78%);
   --shell-detail:
-    repeating-linear-gradient(165deg, transparent 0 52px, rgba(255, 231, 166, 0.06) 52px 53px, transparent 53px 104px);
+    linear-gradient(150deg, transparent 0 38%, rgba(255, 231, 166, 0.08) 38% 40%, transparent 40%),
+    linear-gradient(32deg, transparent 0 54%, rgba(154, 99, 22, 0.09) 54% 56%, transparent 56%),
+    repeating-linear-gradient(165deg, transparent 0 52px, rgba(255, 231, 166, 0.052) 52px 53px, transparent 53px 104px);
   --soul-texture:
-    linear-gradient(90deg, rgba(255, 245, 204, 0.08) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(255, 213, 96, 0.05) 1px, transparent 1px);
+    linear-gradient(150deg, transparent 0 46%, rgba(255, 245, 204, 0.08) 46% 47%, transparent 47%),
+    linear-gradient(30deg, transparent 0 52%, rgba(255, 213, 96, 0.055) 52% 53%, transparent 53%);
   --panel-veil:
     linear-gradient(180deg, rgba(255, 231, 166, 0.13), transparent 44%);
   --panel-aura:
@@ -230,16 +243,21 @@ html[data-soul="zhurong"] {
     radial-gradient(ellipse at 72% 18%, rgba(232, 177, 122, 0.08), transparent 30%),
     linear-gradient(180deg, rgba(46, 17, 11, 0.2), transparent 42%);
   --backdrop-detail:
-    repeating-linear-gradient(122deg, rgba(232, 177, 122, 0.045) 0 1px, transparent 1px 18px),
-    repeating-linear-gradient(38deg, transparent 0 34px, rgba(229, 138, 98, 0.028) 34px 36px, transparent 36px 68px);
+    radial-gradient(ellipse 26px 90px at 18% 92%, rgba(232, 177, 122, 0.13) 0 22%, transparent 70%),
+    radial-gradient(ellipse 38px 118px at 66% 100%, rgba(229, 138, 98, 0.11) 0 20%, transparent 68%),
+    repeating-linear-gradient(122deg, rgba(232, 177, 122, 0.05) 0 1px, transparent 1px 18px),
+    repeating-linear-gradient(38deg, transparent 0 34px, rgba(229, 138, 98, 0.035) 34px 36px, transparent 36px 68px);
   --shell-atmosphere:
     linear-gradient(124deg, transparent 0 22%, rgba(229, 138, 98, 0.08) 42%, rgba(232, 177, 122, 0.045) 56%, transparent 76%),
     linear-gradient(38deg, rgba(25, 8, 5, 0.18), transparent 36%);
   --shell-detail:
-    repeating-linear-gradient(124deg, transparent 0 30px, rgba(232, 177, 122, 0.04) 30px 31px, transparent 31px 62px);
+    radial-gradient(ellipse 28px 96px at 28% 100%, rgba(232, 177, 122, 0.1) 0 20%, transparent 70%),
+    radial-gradient(ellipse 18px 72px at 78% 96%, rgba(229, 138, 98, 0.1) 0 22%, transparent 72%),
+    repeating-linear-gradient(124deg, transparent 0 30px, rgba(232, 177, 122, 0.045) 30px 31px, transparent 31px 62px);
   --soul-texture:
-    repeating-linear-gradient(116deg, rgba(232, 177, 122, 0.055) 0 1px, transparent 1px 15px),
-    linear-gradient(128deg, rgba(229, 138, 98, 0.07), transparent 46%);
+    radial-gradient(ellipse 22px 78px at 34% 94%, rgba(232, 177, 122, 0.11) 0 20%, transparent 70%),
+    radial-gradient(ellipse 34px 102px at 72% 100%, rgba(229, 138, 98, 0.1) 0 18%, transparent 70%),
+    repeating-linear-gradient(116deg, rgba(232, 177, 122, 0.055) 0 1px, transparent 1px 15px);
   --panel-veil:
     linear-gradient(145deg, rgba(232, 177, 122, 0.045), transparent 48%);
   --panel-aura:
@@ -260,47 +278,51 @@ html[data-soul="zhurong"] {
 }
 
 html[data-soul="xuannv"] {
-  --color-soul: #c9dbea;
-  --color-soul-soft: rgba(201, 219, 234, 0.22);
-  --color-accent: #a8d7d1;
+  --color-soul: #edf4ff;
+  --color-soul-soft: rgba(237, 244, 255, 0.28);
+  --color-accent: #d7f1ff;
   --color-panel: rgba(18, 25, 31, 0.82);
   --color-panel-soft: rgba(29, 38, 45, 0.68);
   --color-panel-strong: rgba(38, 49, 57, 0.9);
-  --color-border: rgba(201, 219, 234, 0.16);
-  --color-border-strong: rgba(201, 219, 234, 0.32);
-  --glow-soul: 0 0 0 1px rgba(201, 219, 234, 0.22), 0 24px 110px rgba(25, 39, 48, 0.48);
-  --bg-radial-a: rgba(201, 219, 234, 0.18);
-  --bg-radial-b: rgba(168, 215, 209, 0.14);
+  --color-border: rgba(237, 244, 255, 0.2);
+  --color-border-strong: rgba(237, 244, 255, 0.38);
+  --glow-soul: 0 0 0 1px rgba(237, 244, 255, 0.26), 0 24px 118px rgba(142, 179, 213, 0.22);
+  --bg-radial-a: rgba(237, 244, 255, 0.24);
+  --bg-radial-b: rgba(215, 241, 255, 0.17);
   --bg-gradient-top: #111a22;
   --bg-gradient-mid: #2d3a44;
   --bg-gradient-bottom: #10171d;
   --backdrop-atmosphere:
-    linear-gradient(180deg, rgba(201, 219, 234, 0.08), transparent 34%),
-    radial-gradient(ellipse at 50% 4%, rgba(201, 219, 234, 0.13), transparent 34%),
-    linear-gradient(115deg, transparent 0 34%, rgba(168, 215, 209, 0.07) 48%, transparent 62%),
+    linear-gradient(180deg, rgba(237, 244, 255, 0.1), transparent 34%),
+    radial-gradient(ellipse at 50% 4%, rgba(237, 244, 255, 0.18), transparent 34%),
+    linear-gradient(115deg, transparent 0 34%, rgba(215, 241, 255, 0.08) 48%, transparent 62%),
     linear-gradient(0deg, rgba(9, 13, 16, 0.2), transparent 45%);
   --backdrop-detail:
-    linear-gradient(60deg, rgba(201, 219, 234, 0.06) 1px, transparent 1px),
-    linear-gradient(120deg, rgba(168, 215, 209, 0.045) 1px, transparent 1px),
-    repeating-linear-gradient(90deg, transparent 0 38px, rgba(201, 219, 234, 0.028) 38px 39px, transparent 39px 78px);
+    radial-gradient(circle at 12% 22%, rgba(237, 244, 255, 0.36) 0 1px, transparent 2px),
+    radial-gradient(circle at 48% 16%, rgba(215, 241, 255, 0.28) 0 1px, transparent 2px),
+    radial-gradient(circle at 78% 34%, rgba(237, 244, 255, 0.24) 0 1px, transparent 2px),
+    radial-gradient(ellipse at 50% 4%, rgba(237, 244, 255, 0.11), transparent 36%);
   --shell-atmosphere:
-    linear-gradient(90deg, transparent 0 28%, rgba(201, 219, 234, 0.07) 48%, transparent 68%),
-    linear-gradient(145deg, transparent 0 38%, rgba(168, 215, 209, 0.055) 50%, transparent 66%);
+    linear-gradient(90deg, transparent 0 28%, rgba(237, 244, 255, 0.09) 48%, transparent 68%),
+    linear-gradient(145deg, transparent 0 38%, rgba(215, 241, 255, 0.062) 50%, transparent 66%);
   --shell-detail:
-    repeating-linear-gradient(120deg, transparent 0 36px, rgba(201, 219, 234, 0.035) 36px 37px, transparent 37px 72px);
+    radial-gradient(circle at 18% 36%, rgba(237, 244, 255, 0.22) 0 1px, transparent 2px),
+    radial-gradient(circle at 68% 18%, rgba(215, 241, 255, 0.18) 0 1px, transparent 2px),
+    linear-gradient(115deg, transparent 0 42%, rgba(237, 244, 255, 0.055) 50%, transparent 58%);
   --soul-texture:
-    linear-gradient(60deg, rgba(201, 219, 234, 0.075) 1px, transparent 1px),
-    linear-gradient(120deg, rgba(168, 215, 209, 0.058) 1px, transparent 1px);
+    radial-gradient(circle at 22% 24%, rgba(237, 244, 255, 0.26) 0 1px, transparent 2px),
+    radial-gradient(circle at 72% 58%, rgba(215, 241, 255, 0.18) 0 1px, transparent 2px),
+    radial-gradient(circle at 42% 76%, rgba(237, 244, 255, 0.16) 0 1px, transparent 2px);
   --panel-veil:
-    linear-gradient(180deg, rgba(201, 219, 234, 0.075), transparent 46%);
+    linear-gradient(180deg, rgba(237, 244, 255, 0.09), transparent 46%);
   --panel-aura:
-    linear-gradient(90deg, transparent, rgba(201, 219, 234, 0.09), transparent);
+    linear-gradient(90deg, transparent, rgba(237, 244, 255, 0.12), transparent);
   --portrait-aura:
-    radial-gradient(ellipse at 50% 0%, rgba(201, 219, 234, 0.28), transparent 48%),
-    radial-gradient(ellipse at 50% 28%, rgba(168, 215, 209, 0.11), transparent 58%),
-    linear-gradient(120deg, rgba(168, 215, 209, 0.075) 1px, transparent 1px);
+    radial-gradient(ellipse at 50% 0%, rgba(237, 244, 255, 0.36), transparent 48%),
+    radial-gradient(ellipse at 50% 28%, rgba(215, 241, 255, 0.14), transparent 58%),
+    linear-gradient(120deg, rgba(215, 241, 255, 0.085) 1px, transparent 1px);
   --message-user-bg:
-    linear-gradient(180deg, rgba(201, 219, 234, 0.1), transparent 36%),
+    linear-gradient(180deg, rgba(237, 244, 255, 0.12), transparent 36%),
     linear-gradient(135deg, rgba(48, 58, 64, 0.94), rgba(20, 26, 31, 0.92));
   --radius-panel: 32px;
   --radius-block: 1.65rem;
@@ -8876,14 +8898,14 @@ html[data-soul="xuannv"] .archive-block,
 html[data-soul="xuannv"] .chat-empty-state,
 html[data-soul="xuannv"] .chat-input-panel__textarea {
   background:
-    linear-gradient(180deg, rgba(201, 219, 234, 0.08), transparent 44%),
-    linear-gradient(120deg, rgba(168, 215, 209, 0.06), transparent 58%),
+    linear-gradient(180deg, rgba(237, 244, 255, 0.1), transparent 44%),
+    linear-gradient(120deg, rgba(215, 241, 255, 0.07), transparent 58%),
     var(--color-panel-soft);
 }
 
 html[data-soul="xuannv"] .soul-portrait__label {
-  border: 1px solid rgba(201, 219, 234, 0.16);
-  box-shadow: 0 8px 24px rgba(201, 219, 234, 0.06);
+  border: 1px solid rgba(237, 244, 255, 0.22);
+  box-shadow: 0 8px 28px rgba(237, 244, 255, 0.1);
 }
 
 @media (max-width: 1279px) {
@@ -9776,8 +9798,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
   padding: 1rem;
 }
 
-.soul-profile-card > span,
-.soul-projection-static-card article > span {
+.soul-profile-card > span {
   color: var(--color-soul);
   font-size: 0.72rem;
   font-weight: 700;
@@ -9908,7 +9929,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .soul-submodule-switcher {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.45rem;
   border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
   border-radius: var(--radius-inner);
@@ -10065,6 +10086,167 @@ html[data-soul="xuannv"] .soul-portrait__label {
   min-height: 0;
 }
 
+.soul-projection-card-board {
+  display: grid;
+  gap: 1rem;
+}
+
+.soul-projection-card-board__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 64%),
+    rgba(255, 255, 255, 0.03);
+  padding: 1rem;
+}
+
+.soul-projection-card-board__head > div {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.soul-projection-card-board__head span,
+.soul-projection-tile span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.soul-projection-card-board__head strong {
+  color: var(--color-text);
+  font-size: 1.15rem;
+}
+
+.soul-projection-card-board__head em {
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.soul-projection-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.soul-projection-tile {
+  display: grid;
+  gap: 0.45rem;
+  min-height: 170px;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.035);
+  color: inherit;
+  cursor: pointer;
+  padding: 1rem;
+  text-align: left;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.soul-projection-tile:hover {
+  border-color: color-mix(in srgb, var(--color-soul) 52%, var(--color-border));
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.2);
+  transform: translateY(-1px);
+}
+
+.soul-projection-tile--active {
+  border-color: color-mix(in srgb, var(--color-soul) 58%, white);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 66%),
+    rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-soul) 18%, transparent);
+}
+
+.soul-projection-tile strong {
+  color: var(--color-text);
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.soul-projection-tile em,
+.soul-projection-tile p {
+  color: var(--color-text-soft);
+  font-size: 0.8rem;
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.soul-projection-tile p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.soul-projection-tile--create {
+  border-style: dashed;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 12%, transparent), transparent 66%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.soul-projection-tile--create strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.soul-projection-switcher-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.soul-projection-switcher-row .soul-submodule-switcher {
+  flex: 1;
+}
+
+.soul-projection-back {
+  justify-self: start;
+}
+
+.soul-projection-back--compact {
+  min-width: 40px;
+  width: 40px;
+  height: 40px;
+  justify-content: center;
+  border-color: color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  padding: 0;
+}
+
+.soul-projection-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  padding-bottom: 0.85rem;
+}
+
+.soul-projection-meta-strip span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.soul-projection-meta-strip em,
+.soul-projection-meta-strip small {
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  font-style: normal;
+}
+
+.soul-projection-meta-strip small {
+  margin-left: auto;
+}
+
 .soul-projection-toolbar {
   display: flex;
   align-items: center;
@@ -10133,7 +10315,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .soul-projection-editor-card {
   display: grid;
-  gap: 1rem;
+  gap: 1.1rem;
   border: 1px solid color-mix(in srgb, var(--color-soul) 24%, var(--color-border));
   border-radius: var(--radius-card);
   background:
@@ -10229,42 +10411,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
-}
-
-.soul-projection-static-card {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.soul-projection-static-card article {
-  border: 1px solid color-mix(in srgb, var(--color-soul) 24%, var(--color-border));
-  border-radius: var(--radius-inner);
-  background:
-    linear-gradient(120deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 48%),
-    rgba(255, 255, 255, 0.025);
-  padding: 0.9rem;
-}
-
-.soul-projection-static-card article strong {
-  display: block;
-  margin-top: 0.25rem;
-  color: var(--color-text);
-}
-
-.soul-projection-static-card article em {
-  display: block;
-  margin-top: 0.25rem;
-  color: var(--color-text-soft);
-  font-size: 0.76rem;
-  font-style: normal;
-}
-
-.soul-projection-static-card article p {
-  margin: 0.7rem 0 0;
-  white-space: pre-wrap;
-  color: var(--color-text-soft);
-  font-size: 0.82rem;
-  line-height: 1.6;
 }
 
 .soul-managed-sections {
@@ -10428,8 +10574,21 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .agent-system-hero__stats,
   .agent-node-grid,
   .agent-detail__matrix,
+  .soul-projection-card-grid,
   .soul-projection-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .soul-projection-card-board__head {
+    flex-direction: column;
+  }
+
+  .soul-projection-switcher-row {
+    align-items: stretch;
+  }
+
+  .soul-projection-meta-strip small {
+    margin-left: 0;
   }
 
   .agent-card,

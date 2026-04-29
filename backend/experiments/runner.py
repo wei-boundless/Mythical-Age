@@ -14,6 +14,7 @@ from experiments.catalog import get_profile, list_profiles
 from experiments.memory_trace import get_turn_memory_trace
 from experiments.orchestration_trace import build_turn_orchestration_snapshot
 from experiments.prompt_manifest import get_turn_prompt_manifest
+from experiments.task_operation_preview_trace import build_task_operation_preview_snapshots
 from experiments.trace_graph import build_run_overlay, build_turn_overlay, list_turns
 
 
@@ -147,6 +148,9 @@ class ExperimentRunner:
     def get_turn_orchestration_snapshot(self, run_id: str, turn_id: str, *, artifact_path: str = "") -> dict[str, Any]:
         output_dir = self._safe_output_dir(run_id)
         return build_turn_orchestration_snapshot(output_dir, turn_id, artifact_path=artifact_path)
+
+    def get_task_operation_preview_snapshots(self) -> dict[str, Any]:
+        return build_task_operation_preview_snapshots()
 
     def cancel(self, run_id: str) -> dict[str, Any]:
         state = self.get_run(run_id)

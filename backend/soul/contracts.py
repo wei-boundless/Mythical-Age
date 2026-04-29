@@ -75,6 +75,11 @@ class SoulToolView:
     risk_summary: str = ""
     authorized: bool = False
     authorization_owner: str = "ResourcePolicy"
+    requires_approval: bool = False
+    preview_available: bool = False
+    runtime_executable: bool = False
+    denied_reason: str = ""
+    policy_decision: str = "unknown"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

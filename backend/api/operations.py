@@ -14,6 +14,13 @@ from capabilities import TOOL_TYPE_OPTIONS
 from capabilities import build_operation_catalog as build_capability_operation_catalog
 from capabilities import set_skill_allowed_tools
 from config import runtime_config
+from operations import (
+    RuntimeApprovalContext,
+    build_default_operation_registry,
+    build_operation_requirement,
+    build_resource_policy_preview,
+    build_resource_runtime_views,
+)
 
 router = APIRouter()
 
@@ -38,6 +45,26 @@ class SkillToolBindingRequest(BaseModel):
 class ToolMetadataRequest(BaseModel):
     tool_type: str = Field(default="通用能力", max_length=40)
     note: str = Field(default="", max_length=240)
+
+
+class ApprovalContextRequest(BaseModel):
+    interactive_ui_available: bool = True
+    approval_hook_available: bool = False
+    bubble_to_parent_allowed: bool = False
+    headless_mode: bool = False
+
+
+class ResourcePolicyPreviewRequest(BaseModel):
+    task_id: str = Field(default="task-preview")
+    source: str = Field(default="task_binding_preview")
+    operation_scope: list[str] = Field(default_factory=list)
+    denied_operations: list[str] = Field(default_factory=list)
+    default_operation_requirements: list[str] = Field(default_factory=list)
+    skill_required_operations: list[str] = Field(default_factory=list)
+    approval_policy: str = Field(default="default")
+    review_policy: str = Field(default="optional")
+    reason: str = ""
+    approval_context: ApprovalContextRequest = Field(default_factory=ApprovalContextRequest)
 
 
 def _operation_config() -> dict[str, Any]:
@@ -132,6 +159,44 @@ def build_operation_catalog() -> dict[str, Any]:
 @router.get("/operations/catalog")
 async def operation_catalog() -> dict[str, Any]:
     return build_operation_catalog()
+
+
+@router.post("/operations/resource-policy/preview")
+async def resource_policy_preview(payload: ResourcePolicyPreviewRequest) -> dict[str, Any]:
+    registry = build_default_operation_registry()
+    requirement = build_operation_requirement(
+        task_id=payload.task_id,
+        source=payload.source,
+        operation_scope=payload.operation_scope,
+        denied_operations=payload.denied_operations,
+        default_operation_requirements=payload.default_operation_requirements,
+        skill_required_operations=payload.skill_required_operations,
+        approval_policy=payload.approval_policy,
+        review_policy=payload.review_policy,
+        reason=payload.reason,
+    )
+    policy = build_resource_policy_preview(
+        requirement,
+        registry,
+        approval_context=RuntimeApprovalContext(
+            interactive_ui_available=payload.approval_context.interactive_ui_available,
+            approval_hook_available=payload.approval_context.approval_hook_available,
+            bubble_to_parent_allowed=payload.approval_context.bubble_to_parent_allowed,
+            headless_mode=payload.approval_context.headless_mode,
+        ),
+    )
+    views = build_resource_runtime_views(policy, registry)
+    return {
+        "operation_requirement": requirement.to_dict(),
+        "resource_policy": policy.to_dict(),
+        "decisions": [decision.to_dict() for decision in policy.decisions],
+        "resource_runtime_views": [view.to_dict() for view in views],
+        "diagnostics": {
+            **policy.diagnostics,
+            "preview_only": True,
+            "fail_closed": True,
+        },
+    }
 
 
 @router.post("/operations/catalog/refresh")
