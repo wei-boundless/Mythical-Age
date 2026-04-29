@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from pdf_agent import PDFCanonicalResult
-from query.output_models import OutputCandidate, OutputDecision
+from output_boundary.models import OutputCandidate, OutputDecision
 
 
 _PROCEDURAL_PREFIX_RE = re.compile(

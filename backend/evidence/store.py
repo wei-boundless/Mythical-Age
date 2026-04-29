@@ -4,8 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from query.evidence_graph import EvidenceArtifactGraph
-from query.evidence_models import BindingCandidate
+from evidence.graph import EvidenceArtifactGraph
+from evidence.models import BindingCandidate
 
 
 AFFIRMATIVE_SELECTION_RE = re.compile(

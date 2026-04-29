@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 
-from query.answer_models import AnswerAssemblyPlan, AnswerDroppedSegment, AnswerSegment, StyleConstraints
-from query.context_models import MainContextState
+from output_boundary.answer_models import AnswerAssemblyPlan, AnswerDroppedSegment, AnswerSegment, StyleConstraints
+from context_policy.runtime_models import MainContextState
 
 
 class AnswerAssembler:

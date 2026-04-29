@@ -5,7 +5,7 @@ from .memory_manager import MemoryManager
 from .models import Message
 from .session_memory import SessionMemoryManager
 from .team_memory import TeamMemoryManager
-from query.long_term_context import build_long_term_context_bundle
+from prompting import build_long_term_context_bundle
 
 
 class PromptBuilder:

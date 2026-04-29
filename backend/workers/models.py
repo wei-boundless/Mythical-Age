@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from query.evidence_models import BindingCandidate, EvidenceArtifact, EvidenceEnvelope
+from evidence.models import BindingCandidate, EvidenceArtifact, EvidenceEnvelope
 
 
 WorkerRoute = Literal["none", "retrieval", "pdf", "structured_data", "evidence_orchestrator"]

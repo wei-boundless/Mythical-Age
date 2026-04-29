@@ -4,8 +4,8 @@ import asyncio
 import hashlib
 from typing import Any
 
-from query.evidence_models import EvidenceArtifact, EvidenceEnvelope, EvidenceItem, SourceObjectRef
-from query.worker_models import CanonicalResult, WorkerRequest, WorkerResult
+from evidence.models import EvidenceArtifact, EvidenceEnvelope, EvidenceItem, SourceObjectRef
+from workers.models import CanonicalResult, WorkerRequest, WorkerResult
 from structured_data.subset_selection import extract_structured_subset_selection
 
 

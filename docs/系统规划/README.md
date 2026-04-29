@@ -22,6 +22,10 @@
 当前文档：
 
 - `00-洪荒时代AgentRuntime总框架-20260429.md`
+- `01-AgentRuntime当前框架对照与缺口分析-20260430.md`
+- `02-Claude-Code源码细节借鉴与AgentRuntime补强建议-20260430.md`
+- `03-AgentRuntime先进框架范式汇总-20260430.md`
+- `04-AgentRuntime任务导向持久化工作流设计-20260430.md`
 - `操作系统与任务系统/00-设计原则继承与重构约束.md`
 - `操作系统与任务系统/01-任务系统重构实施计划-20260429.md`
 - `操作系统与任务系统/02-操作系统重构实施计划-20260429.md`
@@ -49,7 +53,8 @@
 灵魂系统：已完成主要重构。
 任务系统：preview contract 已接入。
 操作系统：ResourcePolicyPreview 已接入。
-编排系统：single_agent preview 控制面已收口，真实执行面暂停。
-记忆系统：已完成重构准备与上下文管理架构设计，下一步进入合同层施工。
-query 旧层：已完成目录级追踪，下一步先收缩 QueryRuntime 初始化面，再迁出 output / prompt / evidence 等保留能力。
+编排系统：single_agent preview 控制面已收口，RuntimeDirective / OperationGate 前置合同已落地，当前真实执行只开放 model-only lane。
+记忆系统：三层记忆、MemoryRuntimeView、ContextPolicyPreview、MemoryGate blocked 与治理记录已落地，真实写回仍等待 CommitGate。
+query 旧层：生产源码层面已完成激进清理；`backend/query` 只剩入口 adapter 三件套，旧 planner / direct tool / follow-up / runtime context 已删除，output / prompt / evidence / worker 能力已迁出到独立系统包，model-only 执行 lane 已迁入 `backend/execution`，runtime chain 装配已迁入 `backend/runtime/agent_chain.py`。
+当前主要缺口：OperationGatePipeline、正式 Adoption 管线、CommitGate / OutputCommitPlan / CommitApplier、TaskCoordinator 合同化、只读 ToolExecutor / WorkerExecutor、ContextBoundaryValidator、新测试体系。
 ```

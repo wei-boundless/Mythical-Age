@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from agents.a2a_runtime import task_envelope_from_request, task_envelope_from_result
-from query.answer_finalizer import build_rag_evidence_pack
-from query.evidence_graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
-from query.pdf_worker import PDFWorker
-from query.retrieval_worker import RetrievalWorker
-from query.structured_data_worker import StructuredDataWorker
-from query.worker_models import (
+from output_boundary import build_rag_evidence_pack
+from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
+from workers.pdf import PDFWorker
+from workers.retrieval import RetrievalWorker
+from workers.structured_data import StructuredDataWorker
+from workers.models import (
     A2A_COMPATIBLE_PROTOCOL_VERSION,
     CanonicalResult,
     WorkerExecutionPlan,
@@ -18,7 +18,7 @@ from query.worker_models import (
     stream_event_type_from_worker_status,
     task_status_from_worker_status,
 )
-from query.worker_projection import WorkerProjectionAdapter
+from workers.projection import WorkerProjectionAdapter
 
 
 class EvidenceOrchestrator:

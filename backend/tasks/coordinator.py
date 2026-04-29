@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from agents import EXPLORER_AGENT, WORKER_AGENT
-from query.binding_models import StructuredDatasetBinding
+from tasks.binding_models import StructuredDatasetBinding
 from structured_data.subset_selection import extract_structured_subset_selection
 from tasks.context_models import TaskBindings, TaskConstraints, TaskContextRef, TaskResultRef, TaskSummary
 from tasks.models import TaskRecord

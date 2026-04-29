@@ -4,8 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from query.context_models import MainContextState, TaskSummaryRef
-from query.worker_models import CanonicalResult, WorkerResult
+from context_policy.runtime_models import MainContextState, TaskSummaryRef
+from workers.models import CanonicalResult, WorkerResult
 
 
 @dataclass(frozen=True, slots=True)

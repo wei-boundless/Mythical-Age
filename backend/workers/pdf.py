@@ -7,14 +7,14 @@ from typing import Any
 
 from pdf_agent import PDFCanonicalResult, PDFReadAgentRuntime, PDFReadRequest
 from pdf_analysis import PdfAnalysisCatalog
-from query.evidence_models import (
+from evidence.models import (
     DocumentCandidate,
     EvidenceArtifact,
     EvidenceEnvelope,
     EvidenceItem,
     SourceObjectRef,
 )
-from query.worker_models import CanonicalResult, WorkerRequest, WorkerResult
+from workers.models import CanonicalResult, WorkerRequest, WorkerResult
 
 
 class PDFWorker:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from query.output_boundary import sanitize_visible_assistant_content
+from output_boundary import sanitize_visible_assistant_content
 from structured_memory import Message
 
 

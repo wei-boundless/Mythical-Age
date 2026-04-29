@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from query.evidence_models import EvidenceArtifact, EvidenceEnvelope, ResultHandle, SourceObjectRef, SubsetHandle
+from evidence.models import EvidenceArtifact, EvidenceEnvelope, ResultHandle, SourceObjectRef, SubsetHandle
 
 
 @dataclass(frozen=True, slots=True)

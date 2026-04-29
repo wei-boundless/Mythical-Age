@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 import hashlib
 import re
 
-from query.output_classifier import build_output_decision, classify_output_candidate
-from query.output_models import (
+from output_boundary.classifier import build_output_decision, classify_output_candidate
+from output_boundary.models import (
     CanonicalState,
     FinalizationPolicy,
     OutputCandidate,

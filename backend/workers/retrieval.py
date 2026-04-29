@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from query.evidence_adapter import build_evidence_envelope_from_retrieval
-from query.evidence_models import BindingCandidate, EvidenceEnvelope
-from query.worker_models import WorkerRequest, WorkerResult
+from evidence.adapter import build_evidence_envelope_from_retrieval
+from evidence.models import BindingCandidate, EvidenceEnvelope
+from workers.models import WorkerRequest, WorkerResult
 
 
 class RetrievalWorker:

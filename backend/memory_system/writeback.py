@@ -121,6 +121,6 @@ def normalize_memory_write_statement(message: str) -> str:
 
 
 def _sanitize_visible_text(text: str) -> str:
-    # Keep MemorySystem independent from query.output_boundary while preserving
+    # Keep MemorySystem independent from OutputBoundary while preserving
     # the local need: strip empty/control-only text before candidate rendering.
     return "".join(char for char in str(text or "") if char == "\n" or char == "\t" or ord(char) >= 32).strip()

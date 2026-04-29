@@ -5,7 +5,7 @@ import os
 import re
 from typing import Any
 
-from query.output_boundary import sanitize_visible_assistant_content
+from output_boundary.boundary import sanitize_visible_assistant_content
 
 
 _NOISY_WHITESPACE_RE = re.compile(r"\s+")

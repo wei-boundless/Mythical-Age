@@ -89,8 +89,8 @@ PromptManifest 记录模型可见上下文来源。
 backend/soul/projection.py
   能从 TaskPromptContract / ResourceRuntimeView / SkillRuntimeView 生成 soul runtime preview。
 
-backend/query/prompt_manifest.py
-  旧 prompt manifest 能力仍在 query 层，需要后续迁移或统一。
+backend/prompting/manifest.py
+  PromptManifest 已从 query 迁出，作为独立 Prompting 边界继续记录模型可见上下文来源。
 ```
 
 成熟度：
@@ -370,7 +370,7 @@ MemoryGovernance / MemoryCommitRecord 尚未落地。
 旧 query 中仍残留 memory trace、prefetch、compaction 的 adapter 逻辑，需继续迁出。
 ```
 
-### 1.7 旧 query 层仍承担过多职责
+### 1.7 旧 query 层已收缩为入口 adapter
 
 当前目录：
 
@@ -378,30 +378,31 @@ MemoryGovernance / MemoryCommitRecord 尚未落地。
 backend/query/
 ```
 
-它现在仍混合：
+当前只保留：
 
 ```text
-runtime
-planner
-prompt manifest
-retrieval worker
-pdf worker
-structured data worker
-answer assembler
-answer finalizer
-followup resolver
-memory context state
-runtime tools
-runtime persistence
-output policy
+__init__.py
+models.py
+runtime.py
 ```
 
-它的当前定位应改为：
+已迁出或删除：
 
 ```text
-旧主运行层。
-过渡 adapter。
-需要被逐步拆解。
+planner / follow-up / direct tool / runtime context state 已删除。
+output / answer / tool output 迁入 backend/output_boundary。
+prompt builder / prompt manifest / long-term prompt context 迁入 backend/prompting。
+evidence graph / evidence store / materializer 迁入 backend/evidence。
+retrieval / pdf / structured workers 迁入 backend/workers。
+context runtime models 迁入 backend/context_policy。
+```
+
+它的当前定位是：
+
+```text
+API 请求入口 adapter。
+事件流 adapter。
+新主链 RuntimeDirective model lane 的临时装配点。
 ```
 
 迁移目标：
@@ -864,9 +865,9 @@ OrchestrationPlanPreview
 ### 5.1 query 当前是什么
 
 ```text
-backend/query 是旧查询运行层。
+backend/query 已不再是系统大脑。
 它不是新架构里的正式系统。
-它目前承担过多职责。
+它只保留入口 adapter 职责。
 ```
 
 ### 5.2 query 未来保留什么
@@ -877,8 +878,11 @@ QueryRuntime:
   事件流 adapter。
   新系统 preview / execution events 的组装处。
 
-旧 planner / workers / tools:
-  逐步降级为 candidate producer 或 executor adapter。
+旧 planner / direct tools / follow-up:
+  已从 query 生产链路删除。
+
+workers / evidence:
+  已迁入 backend/workers 与 backend/evidence，未来只能通过 RuntimeDirective + OperationGate 接入。
 ```
 
 ### 5.3 query 需要迁出的职责

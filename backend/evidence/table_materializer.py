@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from query.evidence_models import EvidenceArtifact
+from evidence.models import EvidenceArtifact
 
 
 @dataclass(frozen=True, slots=True)

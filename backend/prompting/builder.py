@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import get_settings
-from query.long_term_context import build_long_term_context_bundle
-from query.prompt_manifest import PromptManifest, build_prompt_manifest, prompt_section
+from prompting.long_term_context import build_long_term_context_bundle
+from prompting.manifest import PromptManifest, build_prompt_manifest, prompt_section
 
 if TYPE_CHECKING:
     from context_management import ContextPackage
@@ -301,7 +301,7 @@ def build_system_prompt_with_manifest(
                 section_id="retrieval_grounding_guard",
                 title="检索证据优先约束",
                 layer="static",
-                source="query/prompt_builder.py:retrieval_grounding_guard",
+                source="prompting.builder:retrieval_grounding_guard",
                 content="当检索证据可用时，应把它当作当前问题的直接依据。",
                 order=order,
             )
@@ -313,7 +313,7 @@ def build_system_prompt_with_manifest(
             section_id="static_prompt_concealment_guard",
             title="实现细节隐藏约束",
             layer="static",
-            source="query/prompt_builder.py:static_prompt_concealment_guard",
+            source="prompting.builder:static_prompt_concealment_guard",
             content="不要在回答中提及 internal file paths, directory names, filenames, schema labels, storage layout。",
             order=order,
         )

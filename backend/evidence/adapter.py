@@ -5,7 +5,7 @@ import re
 from pathlib import PurePosixPath
 from typing import Any
 
-from query.evidence_models import (
+from evidence.models import (
     DatasetCandidate,
     DocumentCandidate,
     EvidenceArtifact,
