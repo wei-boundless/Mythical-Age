@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from soul.projection_store import delete_projection_card, list_projection_cards, reconcile_projection_store, select_projection_card, upsert_projection_card
+from soul.projection_instances import ProjectionInstanceRegistry
+from soul.projection_templates import ProjectionTemplateRegistry
 from soul.registry import (
     ACTIVE_SEED_PATH,
     AGENT_PROFILE_PATH,
@@ -90,6 +92,16 @@ class SoulProjectionCardRequest(BaseModel):
     output_contract_summary: str = "预览当前灵魂如何收束 prompt sections。"
     style_content: str = ""
     select_after_create: bool = True
+
+
+class ProjectionInstancePreviewRequest(BaseModel):
+    template_id: str = Field(..., min_length=1)
+    task_id: str = Field(default="task-preview")
+    task_run_id: str = ""
+    agent_id: str = Field(default="agent:health:maintainer")
+    runtime_lane: str = Field(default="health_issue_read")
+    resource_policy_ref: str = ""
+    context_snapshot_ref: str = ""
 
 
 class CustomSoulSaveRequest(BaseModel):
@@ -184,6 +196,39 @@ async def soul_projection_cards() -> dict[str, Any]:
         active_soul_id=registry.active_soul_id(),
         soul_style_map=_projection_style_map(registry),
     )
+
+
+@router.get("/soul/projection-templates")
+async def soul_projection_templates() -> dict[str, Any]:
+    runtime = require_runtime()
+    return ProjectionTemplateRegistry(runtime.base_dir).build_catalog()
+
+
+@router.get("/soul/projection-templates/{template_id}")
+async def soul_projection_template_detail(template_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    template = ProjectionTemplateRegistry(runtime.base_dir).get_template(template_id)
+    if template is None:
+        raise HTTPException(status_code=404, detail="Unknown projection template")
+    return template.to_dict()
+
+
+@router.post("/soul/projection-instances/preview")
+async def soul_projection_instance_preview(payload: ProjectionInstancePreviewRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        instance = ProjectionInstanceRegistry(runtime.base_dir).preview_instance(
+            template_id=payload.template_id,
+            task_id=payload.task_id,
+            task_run_id=payload.task_run_id,
+            agent_id=payload.agent_id,
+            runtime_lane=payload.runtime_lane,
+            resource_policy_ref=payload.resource_policy_ref,
+            context_snapshot_ref=payload.context_snapshot_ref,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown projection template") from exc
+    return instance.to_dict()
 
 
 @router.post("/soul/projections")

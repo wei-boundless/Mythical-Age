@@ -10,7 +10,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Unified test harness entrypoint.")
     parser.add_argument(
         "--profile",
-        choices=("smoke", "stable", "full", "deep", "benchmark", "regression", "long"),
+        choices=(
+            "smoke",
+            "stable",
+            "full",
+            "deep",
+            "benchmark",
+            "regression",
+            "chain",
+            "functional",
+            "system",
+            "scenario",
+            "long",
+        ),
         required=True,
     )
     return parser
@@ -24,6 +36,9 @@ def main() -> int:
     if args.profile == "regression":
         target = backend_dir / "tests" / "run_regression_gate.py"
         cmd = [sys.executable, str(target), "--profile", "full"]
+    elif args.profile in {"chain", "functional", "system", "scenario"}:
+        target = backend_dir / "tests" / "run_regression_gate.py"
+        cmd = [sys.executable, str(target), "--profile", args.profile]
     elif args.profile == "long":
         target = backend_dir / "tests" / "system_eval" / "long_runner.py"
         cmd = [sys.executable, str(target)]

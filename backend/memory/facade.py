@@ -78,12 +78,8 @@ class MemoryFacade:
         self.durable_memory.set_message_invoker(callback)
 
     def refresh_session_memory(self, session_id: str, messages: list[dict[str, Any]]) -> str:
-        self.governance.record_blocked_legacy_call(
-            target_refs=(session_id,),
-            reason="refresh_session_memory_is_legacy_write_path",
-            metadata={"message_count": len(messages or [])},
-        )
-        return ""
+        py_messages = self.adapter.to_messages(messages, session_id=session_id)
+        return self.session_memory.refresh(session_id, py_messages)
 
     def refresh_session_memory_from_context_state(
         self,
@@ -93,15 +89,12 @@ class MemoryFacade:
         task_summaries: list[Any] | None = None,
         corrections: list[str] | None = None,
     ) -> str:
-        self.governance.record_blocked_legacy_call(
-            target_refs=(session_id,),
-            reason="refresh_session_memory_from_context_state_is_legacy_write_path",
-            metadata={
-                "task_summary_count": len(list(task_summaries or [])),
-                "correction_count": len(list(corrections or [])),
-            },
+        return self.session_memory.refresh_from_context_state(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
         )
-        return ""
 
     def delete_session_memory(self, session_id: str) -> bool:
         return self.session_memory.delete_session(session_id)
@@ -523,12 +516,8 @@ class MemoryFacade:
         session_id: str,
         messages: list[dict[str, Any]],
     ) -> int:
-        self.governance.record_blocked_legacy_call(
-            target_refs=(session_id,),
-            reason="commit_durable_memory_extraction_is_legacy_write_path",
-            metadata={"message_count": len(messages or [])},
-        )
-        return 0
+        py_messages = self.adapter.to_messages(messages, session_id=session_id)
+        return self.durable_memory.commit_extraction(py_messages)
 
     def commit_durable_memory_extraction_from_context_state(
         self,
@@ -538,27 +527,20 @@ class MemoryFacade:
         task_summaries: list[Any] | None = None,
         corrections: list[str] | None = None,
     ) -> int:
-        self.governance.record_blocked_legacy_call(
-            target_refs=(session_id,),
-            reason="commit_durable_memory_extraction_from_context_state_is_legacy_write_path",
-            metadata={
-                "task_summary_count": len(list(task_summaries or [])),
-                "correction_count": len(list(corrections or [])),
-            },
+        return self.durable_memory.commit_extraction_from_context_state(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
         )
-        return 0
 
     def submit_durable_memory_extraction(
         self,
         session_id: str,
         messages: list[dict[str, Any]],
     ) -> int:
-        self.governance.record_blocked_legacy_call(
-            target_refs=(session_id,),
-            reason="submit_durable_memory_extraction_is_legacy_write_path",
-            metadata={"message_count": len(messages or [])},
-        )
-        return 0
+        py_messages = self.adapter.to_messages(messages, session_id=session_id)
+        return self.durable_memory.schedule_extraction(py_messages)
 
     def submit_durable_memory_extraction_from_context_state(
         self,
@@ -568,15 +550,12 @@ class MemoryFacade:
         task_summaries: list[Any] | None = None,
         corrections: list[str] | None = None,
     ) -> int:
-        self.governance.record_blocked_legacy_call(
-            target_refs=(session_id,),
-            reason="submit_durable_memory_extraction_from_context_state_is_legacy_write_path",
-            metadata={
-                "task_summary_count": len(list(task_summaries or [])),
-                "correction_count": len(list(corrections or [])),
-            },
+        return self.durable_memory.schedule_extraction_from_context_state(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
         )
-        return 0
 
     def describe_durable_extraction_runtime(self) -> dict[str, object]:
         return self.durable_memory.describe_extraction_runtime()

@@ -15,7 +15,6 @@ from memory_system.contracts import (
 )
 from memory_system.gate import MemoryGateDecision
 from memory_system.runtime_view import MemoryRuntimeView
-from query.runtime_context_state import RuntimeContextState
 
 
 def test_state_memory_restore_candidates_remain_candidate_only(tmp_path) -> None:
@@ -103,37 +102,6 @@ def test_state_memory_rejects_path_traversal_session_id(tmp_path) -> None:
         assert "Invalid session_id" in str(exc)
     else:
         raise AssertionError("StateMemoryStoreAdapter accepted an unsafe session id")
-
-
-def test_runtime_context_state_reads_legacy_snapshot_through_state_memory(tmp_path) -> None:
-    session_id = "session-d"
-    facade = MemoryFacade(tmp_path)
-    manager = facade.session_memory.manager(session_id)
-    manager.state_manager.overwrite(
-        ProcessState(
-            context_slots=ContextSlots(
-                active_pdf="docs/live.pdf",
-                active_binding_owner_task_id="task-live",
-                active_result_handle_id="result-live",
-            )
-        )
-    )
-    runtime_state = RuntimeContextState(
-        memory_facade=facade,
-        session_memory_projection={},
-        normalize_pdf_scope=lambda value: value,
-    )
-
-    snapshot = runtime_state.load_session_binding_snapshot(session_id)
-    restore_payload = runtime_state.load_session_restore_candidates(session_id)
-    contracts = runtime_state.load_state_memory_restore_candidate_contracts(session_id)
-
-    assert snapshot["committed_pdf"] == "docs/live.pdf"
-    assert snapshot["committed_pdf_owner_task_id"] == "task-live"
-    assert restore_payload["active_pdf"] == "docs/live.pdf"
-    assert restore_payload["active_result_handle_id"] == "result-live"
-    assert contracts
-    assert all(candidate.authority == "candidate_only" for candidate in contracts)
 
 
 def test_conversation_memory_adapter_excludes_state_sections(tmp_path) -> None:

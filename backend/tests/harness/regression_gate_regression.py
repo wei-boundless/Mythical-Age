@@ -10,12 +10,13 @@ if str(BACKEND_DIR) not in sys.path:
 from harness.regression_gate import build_profile, detect_runner
 
 
-def test_regression_gate_core_profile_covers_runtime_basics() -> None:
-    profile = build_profile("core")
+def test_regression_gate_chain_profile_covers_runtime_loop_basics() -> None:
+    profile = build_profile("chain")
     paths = {target.path for target in profile}
-    assert "tests/app_smoke_regression.py" in paths
-    assert "tests/model_runtime_regression.py" in paths
-    assert "tests/conversation_scenario_catalog_regression.py" in paths
+    assert "tests/test_system_runtime_loop_regression.py" in paths
+    assert "tests/test_system_case_registry_regression.py" in paths
+    assert "tests/test_system_agent_regression.py" in paths
+    assert "tests/query_runtime_task_operation_preview_regression.py" in paths
 
 
 def test_regression_gate_detects_pytest_and_script_styles(tmp_path: Path) -> None:

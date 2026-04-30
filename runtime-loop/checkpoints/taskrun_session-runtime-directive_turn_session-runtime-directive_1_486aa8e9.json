@@ -1,0 +1,49 @@
+{
+  "checkpoint_id": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:486aa8e9:14",
+  "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:486aa8e9",
+  "event_offset": 14,
+  "loop_state": {
+    "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:486aa8e9",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:session-runtime-directive:1:edd17b3b656b",
+    "memory_state_ref": "",
+    "projection_ref": "987276492cdfb078",
+    "prompt_manifest_ref": "manifest-987276492cdfb078",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {},
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [],
+    "commit_state": {},
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "chain_preview_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "final_content_chars": 35
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:session-runtime-directive:1:edd17b3b656b",
+  "prompt_manifest_ref": "manifest-987276492cdfb078",
+  "approval_state": {},
+  "commit_state": {},
+  "created_at": 1777498447.7410486,
+  "checksum": "92b6440ad12c9be1b6d8720ef848931b2985e47ce11a17ed9db061c107e50787",
+  "authority": "orchestration.runtime_checkpoint"
+}

@@ -1,31 +1,28 @@
 # System Eval
 
-这层不是替代模块回归，而是把回归门禁、真实 SSE smoke、前端 reducer 和产物报告串成统一 baseline。
+`system_eval` 只承担场景实测和长链评估，不再混作普通模块回归。
 
-## Profiles
+## Position
 
-- `smoke`
-  - 一条 in-process `/api/chat` SSE smoke
-  - 前端 `events.test.ts`
-- `stable`
-  - `smoke`
-  - `core` regression gate
-- `full`
-  - `stable`
-  - `full` regression gate
-  - 前端 `build`
-- `deep`
-  - `full`
-  - memory / context 实验
-- `long`
-  - 可执行长对话场景
-  - 覆盖工作台全链路、跨会话 durable memory、多 session 隔离、复合任务拆分
-- `benchmark`
-  - 当前先复用 `full`，保留后续扩展 timing benchmark 的入口
+- 快速链路验证走 `chain` profile。
+- 单系统合同验证走 `functional` profile。
+- 跨系统装配验证走 `system` profile。
+- 长链、真实任务、人工可读报告走 `scenario` profile 或 `long` runner。
+
+## Entrypoints
+
+- 场景登记合同：
+  - `python backend/tests/run_regression_gate.py --profile scenario`
+- 长场景 runner：
+  - `python -m harness.run --profile long`
+- 旧兼容 runner：
+  - `python backend/tests/system_eval/runner.py --profile smoke`
+  - `python backend/tests/system_eval/runner.py --profile stable`
+  - `python backend/tests/system_eval/runner.py --profile full`
 
 ## Outputs
 
-每次运行默认会落到 `output/test_runs/<run_id>/`：
+每次运行默认落到 `output/test_runs/<run_id>/`：
 
 - `report.md`
 - `run_result.json`
@@ -33,4 +30,4 @@
 - `trace.jsonl`
 - `artifacts/`
 
-如果 LangSmith 开启，失败项和 smoke 结果里会包含 `trace_id` / `trace_url`。
+后续前端测试视图应优先读取 `/api/test-system/*`，并把 RuntimeLoop 监控事实交给编排系统提供。

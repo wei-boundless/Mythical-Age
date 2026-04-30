@@ -65,8 +65,8 @@ def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry)
         preview_available=preview_available,
         runtime_executable=False,
         policy_decision=decision.decision,
-        input_contract_ref=str(descriptor.input_contract.get("contract_ref") or ""),
-        output_contract_ref=str(descriptor.output_contract.get("contract_ref") or ""),
+        input_contract_ref=descriptor.input_contract_ref or str(descriptor.input_contract.get("contract_ref") or ""),
+        output_contract_ref=descriptor.output_contract_ref or str(descriptor.output_contract.get("contract_ref") or ""),
         read_only=descriptor.read_only,
         concurrency_safe=descriptor.concurrency_safe,
         destructive=descriptor.destructive,
@@ -76,6 +76,11 @@ def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry)
             "authorization_owner": "ResourcePolicy",
             "execution_time_revalidation_required": True,
             "operation_descriptor_source": descriptor.provider,
+            "requires_user_interaction": descriptor.requires_user_interaction,
+            "interrupt_behavior": descriptor.interrupt_behavior,
+            "max_result_size_chars": descriptor.max_result_size_chars,
+            "deferred_loading": descriptor.deferred_loading,
+            "always_load": descriptor.always_load,
+            "safety_validator_ref": descriptor.safety_validator_ref,
         },
     )
-

@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+import time
+import uuid
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
+
+
+RuntimeActionRequestType = Literal[
+    "model_response",
+    "tool_call",
+    "worker_call",
+    "agent_call",
+]
+
+RuntimeObservationType = Literal[
+    "model_response",
+    "tool_result",
+    "worker_result",
+    "agent_result",
+    "executor_error",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeActionRequest:
+    """A request produced inside the loop before any executor dispatch."""
+
+    request_id: str
+    task_run_id: str
+    request_type: RuntimeActionRequestType
+    directive_ref: str = ""
+    operation_id: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)
+    created_at: float = 0.0
+    authority: str = "orchestration.runtime_action_request"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.runtime_action_request":
+            raise ValueError("RuntimeActionRequest authority must be orchestration.runtime_action_request")
+        if not self.request_id:
+            raise ValueError("RuntimeActionRequest requires request_id")
+        if not self.task_run_id:
+            raise ValueError("RuntimeActionRequest requires task_run_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeObservation:
+    """Executor output normalized for loop continuation."""
+
+    observation_id: str
+    task_run_id: str
+    observation_type: RuntimeObservationType
+    source: str
+    request_ref: str = ""
+    directive_ref: str = ""
+    content_chars: int = 0
+    payload: dict[str, Any] = field(default_factory=dict)
+    needs_model_followup: bool = False
+    created_at: float = 0.0
+    authority: str = "orchestration.runtime_observation"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.runtime_observation":
+            raise ValueError("RuntimeObservation authority must be orchestration.runtime_observation")
+        if not self.observation_id:
+            raise ValueError("RuntimeObservation requires observation_id")
+        if not self.task_run_id:
+            raise ValueError("RuntimeObservation requires task_run_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def build_model_response_observation(task_run_id: str, event: dict[str, Any]) -> RuntimeObservation:
+    content = str(event.get("content") or "")
+    directive_ref = str(event.get("directive_ref") or "")
+    return RuntimeObservation(
+        observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        task_run_id=task_run_id,
+        observation_type="model_response",
+        source=str(event.get("source") or "runtime_directive:model_response"),
+        directive_ref=directive_ref,
+        content_chars=len(content),
+        payload={
+            "content_chars": len(content),
+            "answer_channel": str(event.get("answer_channel") or ""),
+            "answer_source": str(event.get("answer_source") or ""),
+        },
+        needs_model_followup=False,
+        created_at=time.time(),
+    )
+
+
+def build_executor_error_observation(task_run_id: str, event: dict[str, Any]) -> RuntimeObservation:
+    return RuntimeObservation(
+        observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        task_run_id=task_run_id,
+        observation_type="executor_error",
+        source=str(event.get("answer_source") or "runtime_executor"),
+        content_chars=len(str(event.get("error") or "")),
+        payload={
+            "error": str(event.get("error") or ""),
+            "answer_source": str(event.get("answer_source") or ""),
+        },
+        needs_model_followup=False,
+        created_at=time.time(),
+    )
+
+
+def build_tool_result_observation(
+    *,
+    task_run_id: str,
+    request_ref: str,
+    directive_ref: str,
+    tool_name: str,
+    result: Any,
+    tool_call_id: str = "",
+    truncated: bool = False,
+) -> RuntimeObservation:
+    content = str(result or "")
+    return RuntimeObservation(
+        observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        task_run_id=task_run_id,
+        observation_type="tool_result",
+        source=f"tool:{tool_name}",
+        request_ref=request_ref,
+        directive_ref=directive_ref,
+        content_chars=len(content),
+        payload={
+            "tool_name": str(tool_name or ""),
+            "tool_call_id": str(tool_call_id or ""),
+            "result": content,
+            "result_chars": len(content),
+            "truncated": truncated,
+        },
+        needs_model_followup=True,
+        created_at=time.time(),
+    )
+
+
+def build_tool_action_request(task_run_id: str, event: dict[str, Any]) -> RuntimeActionRequest:
+    payload = dict(event.get("tool_call") or event.get("payload") or {})
+    tool_name = str(payload.get("tool_name") or payload.get("name") or event.get("tool_name") or "")
+    return RuntimeActionRequest(
+        request_id=f"rtact:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        task_run_id=task_run_id,
+        request_type="tool_call",
+        directive_ref=str(event.get("directive_ref") or ""),
+        operation_id=str(event.get("operation_id") or ""),
+        payload={
+            "tool_name": tool_name,
+            "tool_call": payload,
+            "execution_state": "requested_not_dispatched",
+        },
+        created_at=time.time(),
+    )

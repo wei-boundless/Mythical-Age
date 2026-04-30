@@ -91,7 +91,7 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
         ),
         related_regressions=(
             "backend/tests/app_smoke_regression.py",
-            "backend/tests/pdf_followup_history_regression.py",
+            "backend/tests/state_memory_context_policy_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(
@@ -124,8 +124,8 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "sessions/<session>.json",
         ),
         related_regressions=(
-            "backend/tests/structured_followup_history_regression.py",
-            "backend/tests/structured_query_plan_regression.py",
+            "backend/tests/task_understanding_regression.py",
+            "backend/tests/task_operation_preview_trace_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(
@@ -159,8 +159,8 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "session-memory/<session>/process_state.json",
         ),
         related_regressions=(
-            "backend/tests/memory_partition_regression.py",
-            "backend/tests/memory_facade_regression.py",
+            "backend/tests/memory_system_contracts_regression.py",
+            "backend/tests/state_memory_context_policy_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(
@@ -191,8 +191,8 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
         ),
         expected_artifacts=("tasks in TaskCoordinator",),
         related_regressions=(
-            "backend/tests/task_coordinator_regression.py",
-            "backend/tests/query_planner_regression.py",
+            "backend/tests/task_understanding_regression.py",
+            "backend/tests/task_operation_preview_trace_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(
@@ -254,8 +254,8 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "session-memory/<session>/process_state.json",
         ),
         related_regressions=(
-            "backend/tests/session_memory_regression.py",
-            "backend/tests/session_memory_long_regression.py",
+            "backend/tests/memory_system_contracts_regression.py",
+            "backend/tests/state_memory_context_policy_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(
@@ -315,8 +315,8 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "durable_memory/notes/*.md",
         ),
         related_regressions=(
-            "backend/tests/context_management_regression.py",
-            "backend/tests/memory_observability_regression.py",
+            "backend/tests/state_memory_context_policy_regression.py",
+            "backend/tests/test_system_runtime_loop_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(

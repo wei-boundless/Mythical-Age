@@ -6,10 +6,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from execution import ModelResponseRuntimeExecutor
+from execution import ModelResponseRuntimeExecutor, ToolRuntimeExecutor
 from observability import build_debug_trace_event, start_turn_trace
-from orchestration import build_base_unit_catalog, build_user_message_commit_decision
-from prompting import build_system_prompt
+from orchestration import (
+    RuntimeContextManager,
+    TaskRunLoop,
+    build_base_unit_catalog,
+    build_user_message_commit_decision,
+)
+from prompting import build_static_prompt, build_system_prompt
 from query.models import QueryRequest
 from runtime.agent_chain import AgentRuntimeChainAssembler
 from runtime.model_runtime import ModelRuntimeError
@@ -46,15 +51,18 @@ class QueryRuntime:
         self.session_manager = session_manager
         self.memory_facade = memory_facade
         self.model_runtime = model_runtime
+        self.tool_runtime = tool_runtime
         self.unit_catalog = build_base_unit_catalog()
         self.tool_contract_gate = SimpleNamespace(
             mode=str(os.getenv("TOOL_CONTRACT_MODE", "shadow") or "shadow").strip().lower()
         )
         self.model_response_executor = ModelResponseRuntimeExecutor(
             model_runtime=model_runtime,
-            system_prompt_builder=self.build_system_prompt_for_session,
         )
+        self.tool_runtime_executor = ToolRuntimeExecutor(tool_runtime=tool_runtime) if tool_runtime is not None else None
         self.agent_runtime_chain = AgentRuntimeChainAssembler(memory_facade=memory_facade)
+        self.runtime_context_manager = RuntimeContextManager(self.build_static_system_prompt_for_session)
+        self.task_run_loop = TaskRunLoop(base_dir / "runtime-loop")
 
         self.legacy_query_chain_removed = True
         self.legacy_runtime_components = {
@@ -94,6 +102,12 @@ class QueryRuntime:
     async def abuild_system_prompt_for_session(self, *args, **kwargs) -> str:
         return self.build_system_prompt_for_session(*args, **kwargs)
 
+    def build_static_system_prompt_for_session(self, *args, **kwargs) -> str:
+        return build_static_prompt(
+            self.base_dir,
+            self.settings_service.get_rag_mode(),
+        )
+
     async def astream(self, request: QueryRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
         history = request.history or self.session_manager.load_session_for_agent(
@@ -123,24 +137,28 @@ class QueryRuntime:
                     "commit_gate": input_commit_gate.to_dict(),
                 }
 
-                chain_preview = self.agent_runtime_chain.build_live_preview(
+                memory_intent = analyze_memory_intent(request.message)
+                async for event in self.task_run_loop.run_model_only_stream(
                     session_id=request.session_id,
                     task_id=task_id,
-                    message=request.message,
-                    source="query_runtime.adapter",
-                )
-                for event in self._agent_runtime_chain_preview_events(
-                    chain_preview,
-                    fail_closed_message="旧 query 编排链已移除；当前只允许 RuntimeDirective + OperationGate 的模型回答通道。",
-                    include_fail_closed=False,
-                ):
-                    yield event
-                async for event in self.model_response_executor.stream(
-                    session_id=request.session_id,
                     user_message=request.message,
                     history=history,
-                    task_operation_preview=dict(chain_preview.get("task_operation_preview") or {}),
-                    memory_intent=analyze_memory_intent(request.message),
+                    source="query_runtime.adapter",
+                    agent_runtime_chain=self.agent_runtime_chain,
+                    model_response_executor=self.model_response_executor,
+                    runtime_context_manager=self.runtime_context_manager,
+                    memory_intent=memory_intent,
+                    preview_event_builder=lambda chain_preview: self._agent_runtime_chain_preview_events(
+                        chain_preview,
+                        fail_closed_message="旧 query 编排链已移除；当前只允许 RuntimeDirective + OperationGate 的模型回答通道。",
+                        include_fail_closed=False,
+                    ),
+                    assistant_message_committer=lambda payload: self._apply_assistant_message_commit(
+                        request.session_id,
+                        payload,
+                    ),
+                    tool_runtime_executor=self.tool_runtime_executor,
+                    tool_instances=self._all_tool_instances(),
                 ):
                     yield event
         except Exception as exc:
@@ -182,8 +200,8 @@ class QueryRuntime:
             yield event
 
     def refresh_session_memory(self, session_id: str) -> str:
-        logger.info("legacy refresh_session_memory blocked for session %s", session_id)
-        return ""
+        history = self.session_manager.load_session(session_id)
+        return self.memory_facade.refresh_session_memory(session_id, history)
 
     def preview_session_memory_refresh(self, session_id: str):
         builder = getattr(self.memory_facade, "build_memory_compaction_preview", None)
@@ -193,12 +211,12 @@ class QueryRuntime:
         return {"status": "blocked", "reason": "legacy_session_memory_refresh_removed"}
 
     def commit_durable_memory_extraction(self, session_id: str) -> int:
-        logger.info("legacy commit_durable_memory_extraction blocked for session %s", session_id)
-        return 0
+        history = self.session_manager.load_session(session_id)
+        return self.memory_facade.commit_durable_memory_extraction(session_id, history)
 
     def schedule_durable_memory_extraction(self, session_id: str) -> int:
-        logger.info("legacy schedule_durable_memory_extraction blocked for session %s", session_id)
-        return 0
+        history = self.session_manager.load_session(session_id)
+        return self.memory_facade.submit_durable_memory_extraction(session_id, history)
 
     def preview_durable_memory_extraction(self, session_id: str):
         history = self.session_manager.load_session_for_agent(session_id, include_compressed_context=False)
@@ -243,6 +261,44 @@ class QueryRuntime:
                 ],
             )
         return decision
+
+    def _apply_assistant_message_commit(self, session_id: str, payload: dict[str, Any]):
+        appended = self.session_manager.append_messages(
+            session_id,
+            [
+                {
+                    "role": payload.get("role"),
+                    "content": payload.get("content"),
+                    "answer_channel": payload.get("answer_channel"),
+                    "answer_source": payload.get("answer_source"),
+                    "answer_canonical_state": payload.get("answer_canonical_state"),
+                    "answer_persist_policy": payload.get("answer_persist_policy"),
+                    "answer_finalization_policy": payload.get("answer_finalization_policy"),
+                    "answer_fallback_reason": payload.get("answer_fallback_reason"),
+                }
+            ],
+        )
+        history = self.session_manager.load_session(session_id)
+        session_memory_chars = 0
+        durable_saved_count = 0
+        try:
+            session_memory_chars = len(self.memory_facade.refresh_session_memory(session_id, history) or "")
+        except Exception:
+            logger.warning("session memory refresh failed after assistant commit", exc_info=True)
+        try:
+            durable_saved_count = int(self.memory_facade.commit_durable_memory_extraction(session_id, history) or 0)
+        except Exception:
+            logger.warning("durable memory extraction failed after assistant commit", exc_info=True)
+        return {
+            "appended_messages": appended,
+            "session_memory_chars": session_memory_chars,
+            "durable_saved_count": durable_saved_count,
+        }
+
+    def _all_tool_instances(self) -> list[Any]:
+        if self.tool_runtime is None:
+            return []
+        return list(self.tool_runtime.instances)
 
     def _agent_runtime_chain_preview_events(
         self,

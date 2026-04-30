@@ -1,0 +1,238 @@
+{
+  "checkpoint_id": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:25",
+  "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+  "event_offset": 25,
+  "loop_state": {
+    "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+    "status": "completed",
+    "turn_count": 2,
+    "step_count": 1,
+    "current_step_id": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:162c6a0d3d854b05ab45d36172d67b4d:31:c78bfcfbbe55",
+    "memory_state_ref": "memory-runtime:162c6a0d3d854b05ab45d36172d67b4d",
+    "projection_ref": "455b859b65782632",
+    "prompt_manifest_ref": "manifest-455b859b65782632",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 6000,
+        "reserved_output": 1200,
+        "candidate_tokens_included": 215,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 5785
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:37406f03",
+      "rtobs:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:aebdef4c",
+      "output_boundary:rtevt:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:21:0dbe6ed3",
+      "commit_gate:commit-gate:turn:162c6a0d3d854b05ab45d36172d67b4d:31:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+            "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+            "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:31",
+            "role": "assistant",
+            "content": "查到了，给你最新的：\n\n现货黄金（XAU/USD）当前价格：约 4,546.68 美元/盎司\n\n数据来源是彭博社的贵金属行情，时效性没问题。\n\n如果你还想知道人民币计价的金价、或者想对比一下历史走势，直接说，我继续查。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+          "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+            "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:31",
+            "terminal_reason": "completed",
+            "final_content_chars": 109
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2148,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 120.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:31",
+      "chain_preview_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 109,
+      "result_ref_count": 6
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:162c6a0d3d854b05ab45d36172d67b4d:31:c78bfcfbbe55",
+  "prompt_manifest_ref": "manifest-455b859b65782632",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+          "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+          "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:31",
+          "role": "assistant",
+          "content": "查到了，给你最新的：\n\n现货黄金（XAU/USD）当前价格：约 4,546.68 美元/盎司\n\n数据来源是彭博社的贵金属行情，时效性没问题。\n\n如果你还想知道人民币计价的金价、或者想对比一下历史走势，直接说，我继续查。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+        "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+          "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:31",
+          "terminal_reason": "completed",
+          "final_content_chars": 109
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2148,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777502197.5182362,
+  "checksum": "941844b24deb4b1d3b152cb0eca9a380ee04a73707798a33c56e886558a6720b",
+  "authority": "orchestration.runtime_checkpoint"
+}

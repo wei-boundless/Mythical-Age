@@ -1,45 +1,53 @@
-# Test Layout
+# Backend Test System
 
-当前仓库的测试体系已经切成三层：
+后端测试体系现在以 `test_system.case_registry` 为登记权威，按四层组织：
 
-- `backend/tests/run_regression_gate.py`
-  负责后端 curated regression gate，适合改完代码后做快速门禁。
-- `backend/tests/system_eval/runner.py`
-  负责 profile 化 system eval，统一落 `report.md`、`run_result.json`、`issues.json`、`trace.jsonl`。
-- `backend/observability/langsmith_tracing.py`
-  负责可选 LangSmith trace 适配。测试本身不依赖 LangSmith 才能运行，但开启后会把 trace id/url 挂回评测结果。
+- `chain`：验证真实主链的关键接线，例如 RuntimeLoop 事件、测试登记表、QueryRuntime adapter、任务-操作 preview。
+- `functional`：验证单个系统合同，例如操作系统、记忆系统、灵魂系统、工具注册、权限服务。
+- `system`：验证跨系统装配、应用 smoke、测试产物持久化和门禁运行。
+- `scenario`：验证长场景与真实实测报告，不作为快速开发门禁。
 
-## Execution Model
+## Entry Points
 
-- `core` regression gate：关键运行时、路由、SSE smoke、场景目录合同。
-- `full` regression gate：在 `core` 之上补 memory / retrieval / pdf / structured / task 回归。
-- `smoke` system eval：一条真实 in-process SSE 聊天 smoke，加前端流式 reducer 测试。
-- `stable` system eval：`smoke` + `core` regression gate。
-- `full` system eval：`stable` + `full` regression gate + 前端 production build。
-- `deep` system eval：`full` + 长链/记忆实验。
+- 链路级门禁：
+  - `python backend/tests/run_regression_gate.py --profile chain`
+- 功能级门禁：
+  - `python backend/tests/run_regression_gate.py --profile functional`
+- 系统级门禁：
+  - `python backend/tests/run_regression_gate.py --profile system`
+- 场景实测：
+  - `python backend/tests/run_regression_gate.py --profile scenario`
 
-## Recommended Entrypoints
+统一 harness 入口也支持同样的 profile：
 
-- 后端快速回归：
-  - `python backend/tests/run_regression_gate.py --profile core`
-- 后端完整回归：
-  - `python backend/tests/run_regression_gate.py --profile full`
-- 统一 smoke：
-  - `python -m harness.run --profile smoke`
-- 统一 stable：
-  - `python -m harness.run --profile stable`
-- 统一 full：
-  - `python -m harness.run --profile full`
-- 长情景：
-  - `python -m harness.run --profile long`
+- `python -m harness.run --profile chain`
+- `python -m harness.run --profile functional`
+- `python -m harness.run --profile system`
+- `python -m harness.run --profile scenario`
 
-## LangSmith
+## Case Governance
 
-启用 LangSmith 需要这些环境变量之一：
+- 活跃用例必须登记在 `backend/test_system/case_registry.py` 的 `ACTIVE_CASES`。
+- 旧链路参考用例放在 `backend/tests/legacy/`，登记为 `legacy`，不进入 curated gate。
+- 未确认是否保留的历史用例由登记表自动暴露为 `candidate`，不进入 curated gate。
+- 新增测试文件时，先决定它属于 `chain / functional / system / scenario` 哪一层，再登记 owner、profile、tags 和断言边界。
 
-- `LANGSMITH_API_KEY` 或 `LANGCHAIN_API_KEY`
-- `LANGSMITH_TRACING=true` 或 `LANGCHAIN_TRACING_V2=true`
-- 可选：`LANGSMITH_PROJECT`
-- 可选：`LANGSMITH_DEV_TRACE_LINKS=true`
+测试 agent 的治理报告入口：
 
-启用后，query runtime 会在开发环境的 SSE `debug` 事件里带出 `trace_id` / `trace_url`，system eval 会把它们写进结果和失败报告。
+- API：`GET /api/test-system/agent/report`
+- Python：`from test_system.agent import TestAgentAdvisor`
+
+## RuntimeLoop Assertions
+
+当前测试系统优先判断 RuntimeLoop 事实：
+
+- `loop.event=<event_type>`
+- `loop.tool=<tool_name>`
+- `loop.completed`
+- `loop.terminal_reason=<reason>`
+- `tool.pairing_ok`
+- `commit.assistant_session=true`
+- `memory.session_refresh=true`
+- `memory.durable_commit=true`
+
+旧 `plan.* / followup.* / main.*` 断言不再作为新测试核心事实源。需要恢复时，应先接入任务系统、状态记忆或上下文管理的专用 adapter。

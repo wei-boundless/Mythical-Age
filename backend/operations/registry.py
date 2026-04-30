@@ -14,13 +14,21 @@ class OperationDescriptor:
     aliases: tuple[str, ...] = ()
     input_contract: dict[str, Any] = field(default_factory=dict)
     output_contract: dict[str, Any] = field(default_factory=dict)
+    input_contract_ref: str = ""
+    output_contract_ref: str = ""
     risk_tags: tuple[str, ...] = ()
     read_only: bool = False
     destructive: bool = False
     idempotent: bool = False
     open_world: bool = False
     concurrency_safe: bool = False
+    requires_user_interaction: bool = False
     requires_approval_by_default: bool = False
+    max_result_size_chars: int = 0
+    interrupt_behavior: str = "defer"
+    deferred_loading: bool = False
+    always_load: bool = False
+    safety_validator_ref: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,24 +79,40 @@ def _descriptor(
     idempotent: bool = False,
     open_world: bool = False,
     concurrency_safe: bool = False,
+    requires_user_interaction: bool = False,
     requires_approval_by_default: bool = False,
+    max_result_size_chars: int = 0,
+    interrupt_behavior: str = "defer",
+    deferred_loading: bool = False,
+    always_load: bool = False,
+    safety_validator_ref: str = "",
     metadata: dict[str, Any] | None = None,
 ) -> OperationDescriptor:
+    input_contract_ref = f"{operation_id}.input"
+    output_contract_ref = f"{operation_id}.output"
     return OperationDescriptor(
         operation_id=operation_id,
         operation_type=operation_type,
         title=title,
         capability_summary=capability_summary,
         aliases=aliases,
-        input_contract={"contract_ref": f"{operation_id}.input"},
-        output_contract={"contract_ref": f"{operation_id}.output"},
+        input_contract={"contract_ref": input_contract_ref},
+        output_contract={"contract_ref": output_contract_ref},
+        input_contract_ref=input_contract_ref,
+        output_contract_ref=output_contract_ref,
         risk_tags=risk_tags,
         read_only=read_only,
         destructive=destructive,
         idempotent=idempotent,
         open_world=open_world,
         concurrency_safe=concurrency_safe,
+        requires_user_interaction=requires_user_interaction,
         requires_approval_by_default=requires_approval_by_default,
+        max_result_size_chars=max_result_size_chars,
+        interrupt_behavior=interrupt_behavior,
+        deferred_loading=deferred_loading,
+        always_load=always_load,
+        safety_validator_ref=safety_validator_ref,
         metadata=dict(metadata or {}),
     )
 
@@ -105,6 +129,9 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             read_only=True,
             idempotent=False,
             concurrency_safe=True,
+            max_result_size_chars=80_000,
+            interrupt_behavior="abort_safe",
+            always_load=True,
         ),
         _descriptor(
             "op.read_file",
@@ -116,6 +143,8 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             read_only=True,
             idempotent=True,
             concurrency_safe=True,
+            max_result_size_chars=120_000,
+            safety_validator_ref="filesystem_path",
         ),
         _descriptor(
             "op.search_files",
@@ -127,6 +156,8 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             read_only=True,
             idempotent=True,
             concurrency_safe=True,
+            max_result_size_chars=80_000,
+            safety_validator_ref="filesystem_path",
         ),
         _descriptor(
             "op.search_text",
@@ -138,6 +169,8 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             read_only=True,
             idempotent=True,
             concurrency_safe=True,
+            max_result_size_chars=120_000,
+            safety_validator_ref="filesystem_path",
         ),
         _descriptor(
             "op.web_search",
@@ -150,6 +183,8 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             idempotent=True,
             open_world=True,
             concurrency_safe=True,
+            max_result_size_chars=80_000,
+            deferred_loading=True,
         ),
         _descriptor(
             "op.fetch_url",
@@ -162,6 +197,87 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             idempotent=True,
             open_world=True,
             concurrency_safe=True,
+            max_result_size_chars=120_000,
+            deferred_loading=True,
+        ),
+        _descriptor(
+            "op.get_weather",
+            "network",
+            "Get weather",
+            "Read current weather information for a location.",
+            aliases=("get_weather",),
+            risk_tags=("read_only", "network_open_world"),
+            read_only=True,
+            idempotent=True,
+            open_world=True,
+            concurrency_safe=True,
+            max_result_size_chars=40_000,
+            deferred_loading=True,
+        ),
+        _descriptor(
+            "op.get_gold_price",
+            "network",
+            "Get gold price",
+            "Read current gold price information.",
+            aliases=("get_gold_price",),
+            risk_tags=("read_only", "network_open_world", "finance"),
+            read_only=True,
+            idempotent=True,
+            open_world=True,
+            concurrency_safe=True,
+            max_result_size_chars=40_000,
+            deferred_loading=True,
+        ),
+        _descriptor(
+            "op.search_knowledge",
+            "memory",
+            "Search knowledge",
+            "Read local knowledge retrieval results.",
+            aliases=("search_knowledge",),
+            risk_tags=("read_only", "memory_read", "retrieval"),
+            read_only=True,
+            idempotent=True,
+            concurrency_safe=True,
+            max_result_size_chars=80_000,
+        ),
+        _descriptor(
+            "op.pdf_analysis",
+            "filesystem",
+            "PDF analysis",
+            "Read and analyze a local PDF file.",
+            aliases=("pdf_analysis",),
+            risk_tags=("read_only", "local_read", "document_analysis"),
+            read_only=True,
+            idempotent=True,
+            concurrency_safe=True,
+            max_result_size_chars=120_000,
+            safety_validator_ref="filesystem_path",
+        ),
+        _descriptor(
+            "op.structured_data_analysis",
+            "filesystem",
+            "Structured data analysis",
+            "Read and analyze a local structured data file.",
+            aliases=("structured_data_analysis",),
+            risk_tags=("read_only", "local_read", "structured_data"),
+            read_only=True,
+            idempotent=True,
+            concurrency_safe=True,
+            max_result_size_chars=120_000,
+            safety_validator_ref="filesystem_path",
+        ),
+        _descriptor(
+            "op.analyze_multimodal_file",
+            "filesystem",
+            "Analyze multimodal file",
+            "Read and inspect a local multimodal file.",
+            aliases=("analyze_multimodal_file",),
+            risk_tags=("read_only", "local_read", "multimodal"),
+            read_only=True,
+            idempotent=True,
+            concurrency_safe=True,
+            max_result_size_chars=120_000,
+            safety_validator_ref="filesystem_path",
         ),
         _descriptor(
             "op.write_file",
@@ -171,7 +287,9 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             aliases=("write_file",),
             risk_tags=("local_write",),
             destructive=False,
+            requires_user_interaction=True,
             requires_approval_by_default=True,
+            safety_validator_ref="filesystem_path",
         ),
         _descriptor(
             "op.edit_file",
@@ -181,7 +299,9 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             aliases=("edit_file",),
             risk_tags=("local_write",),
             destructive=False,
+            requires_user_interaction=True,
             requires_approval_by_default=True,
+            safety_validator_ref="filesystem_path",
         ),
         _descriptor(
             "op.shell",
@@ -191,7 +311,10 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             aliases=("shell", "terminal", "op.terminal"),
             risk_tags=("shell_execution",),
             destructive=True,
+            requires_user_interaction=True,
             requires_approval_by_default=True,
+            interrupt_behavior="terminate_process",
+            safety_validator_ref="shell_read_only",
         ),
         _descriptor(
             "op.python_repl",
@@ -201,7 +324,9 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             aliases=("python_repl",),
             risk_tags=("python_execution",),
             destructive=True,
+            requires_user_interaction=True,
             requires_approval_by_default=True,
+            interrupt_behavior="terminate_process",
         ),
         _descriptor(
             "op.memory_read",
@@ -213,6 +338,7 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             read_only=True,
             idempotent=True,
             concurrency_safe=True,
+            max_result_size_chars=40_000,
         ),
         _descriptor(
             "op.memory_write_candidate",
@@ -222,6 +348,7 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             aliases=("memory_write_candidate",),
             risk_tags=("memory_write_candidate",),
             requires_approval_by_default=True,
+            requires_user_interaction=True,
         ),
         _descriptor(
             "op.worker_retrieval",
@@ -230,6 +357,8 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             "Run a bounded retrieval worker.",
             aliases=("worker_retrieval",),
             risk_tags=("worker_execution",),
+            max_result_size_chars=120_000,
+            deferred_loading=True,
         ),
         _descriptor(
             "op.worker_pdf",
@@ -238,6 +367,8 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             "Run a bounded PDF analysis worker.",
             aliases=("worker_pdf", "pdf_analysis"),
             risk_tags=("worker_execution",),
+            max_result_size_chars=120_000,
+            deferred_loading=True,
         ),
         _descriptor(
             "op.worker_structured_data",
@@ -246,6 +377,8 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             "Run a bounded structured-data worker.",
             aliases=("worker_structured_data", "structured_data_analysis"),
             risk_tags=("worker_execution",),
+            max_result_size_chars=120_000,
+            deferred_loading=True,
         ),
         _descriptor(
             "op.agent_bounded",
@@ -254,6 +387,9 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             "Run an isolated bounded specialist agent.",
             aliases=("agent_bounded",),
             risk_tags=("agent_execution",),
+            requires_user_interaction=True,
+            interrupt_behavior="checkpoint_then_abort",
+            deferred_loading=True,
         ),
         _descriptor(
             "op.session_message_candidate",

@@ -30,9 +30,9 @@ const railGroups = [
     items: [
       {
         icon: Workflow,
-        label: "系统框架",
-        description: "总览模块架构、依赖关系与工作流程",
-        view: "system-framework"
+        label: "任务系统",
+        description: "管理主 Agent 调度、子 Agent 实例、任务流与链路权限",
+        view: "task-system"
       },
       {
         icon: Network,

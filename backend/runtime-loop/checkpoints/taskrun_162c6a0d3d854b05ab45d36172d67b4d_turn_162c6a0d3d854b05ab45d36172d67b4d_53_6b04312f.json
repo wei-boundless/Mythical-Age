@@ -1,0 +1,237 @@
+{
+  "checkpoint_id": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:18",
+  "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:162c6a0d3d854b05ab45d36172d67b4d:53:ed4bca56589f",
+    "memory_state_ref": "memory-runtime:162c6a0d3d854b05ab45d36172d67b4d",
+    "projection_ref": "0fe6d30e554f1785",
+    "prompt_manifest_ref": "manifest-0fe6d30e554f1785",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 6000,
+        "reserved_output": 1200,
+        "candidate_tokens_included": 285,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 5715
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:4b0aca9a",
+      "output_boundary:rtevt:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:14:d0d140fe",
+      "commit_gate:commit-gate:turn:162c6a0d3d854b05ab45d36172d67b4d:53:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+            "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+            "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:53",
+            "role": "assistant",
+            "content": "哈哈，收下你这句！\n\n一口气三件事全搞定，这就是我喜欢的工作方式——不拖泥带水，来了就干，干完就是干完了。你痛快，我也痛快。\n\n以后想查什么，批量来，我一口气全给你端上来。火候够，效率就够。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+          "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+            "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:53",
+            "terminal_reason": "completed",
+            "final_content_chars": 95
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1368,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 120.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:53",
+      "chain_preview_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 95,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:162c6a0d3d854b05ab45d36172d67b4d:53:ed4bca56589f",
+  "prompt_manifest_ref": "manifest-0fe6d30e554f1785",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+          "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+          "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:53",
+          "role": "assistant",
+          "content": "哈哈，收下你这句！\n\n一口气三件事全搞定，这就是我喜欢的工作方式——不拖泥带水，来了就干，干完就是干完了。你痛快，我也痛快。\n\n以后想查什么，批量来，我一口气全给你端上来。火候够，效率就够。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+        "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+          "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:53",
+          "terminal_reason": "completed",
+          "final_content_chars": 95
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1368,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777502831.0522032,
+  "checksum": "e3637f1d893534c48ca420b0f4338f2f12b5a15d0f533b3d98c897762bdb85e9",
+  "authority": "orchestration.runtime_checkpoint"
+}

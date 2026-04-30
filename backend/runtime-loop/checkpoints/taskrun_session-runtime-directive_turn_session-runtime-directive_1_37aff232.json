@@ -1,0 +1,57 @@
+{
+  "checkpoint_id": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:37aff232:7",
+  "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:37aff232",
+  "event_offset": 7,
+  "loop_state": {
+    "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:37aff232",
+    "status": "running",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "transition": "start",
+    "terminal_reason": "",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:session-runtime-directive:1:da7f2f4d3aa6",
+    "memory_state_ref": "",
+    "projection_ref": "987276492cdfb078",
+    "prompt_manifest_ref": "manifest-987276492cdfb078",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {},
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [],
+    "commit_state": {},
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 120.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "chain_preview_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:session-runtime-directive:1:da7f2f4d3aa6",
+  "prompt_manifest_ref": "manifest-987276492cdfb078",
+  "approval_state": {},
+  "commit_state": {},
+  "created_at": 1777504934.5876143,
+  "checksum": "ec46a04ecfe0471a341c8b8abad03d6cb3b1766ab62e5a9c9415f5775697d686",
+  "authority": "orchestration.runtime_checkpoint"
+}

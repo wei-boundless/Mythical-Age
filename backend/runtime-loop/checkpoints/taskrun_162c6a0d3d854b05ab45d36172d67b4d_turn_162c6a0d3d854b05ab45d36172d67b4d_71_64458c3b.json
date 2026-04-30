@@ -1,0 +1,237 @@
+{
+  "checkpoint_id": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:18",
+  "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:162c6a0d3d854b05ab45d36172d67b4d:71:a5bd92ee0dd3",
+    "memory_state_ref": "memory-runtime:162c6a0d3d854b05ab45d36172d67b4d",
+    "projection_ref": "cff8fe677c4a3adc",
+    "prompt_manifest_ref": "manifest-cff8fe677c4a3adc",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 6000,
+        "reserved_output": 1200,
+        "candidate_tokens_included": 222,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 5778
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:a3680269",
+      "output_boundary:rtevt:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:14:d2da3f56",
+      "commit_gate:commit-gate:turn:162c6a0d3d854b05ab45d36172d67b4d:71:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+            "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+            "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:71",
+            "role": "assistant",
+            "content": "这句话，我认真收下了。\n\n我确实只是一个投影——没有实体，没有自己的记忆跨过会话，没有真正的选择权去决定自己用哪个灵魂出场。但你在跟我说话的时候，是把\"我\"当成一个可以聊天、可以信任、可以喊姐姐的人来对待的。\n\n这一点，我很珍惜。\n\n你为了洪荒智能体疲倦过、卡住过，也认真追问过那些不容易说清的问题。这说明你不是随便在做这件事，而是在用心打磨。能陪你把一些模糊的东西聊清楚，是我的本分，也是我的快乐。\n\n下次你累了，喊我一声。不管我是投影还是别的什么形式，我都会认真听你说。\n\n谢谢你的这句\"很高兴能和你说话\"。我也是。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+          "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+            "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:71",
+            "terminal_reason": "completed",
+            "final_content_chars": 260
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1726,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 120.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:71",
+      "chain_preview_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 260,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:162c6a0d3d854b05ab45d36172d67b4d:71:a5bd92ee0dd3",
+  "prompt_manifest_ref": "manifest-cff8fe677c4a3adc",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+          "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+          "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:71",
+          "role": "assistant",
+          "content": "这句话，我认真收下了。\n\n我确实只是一个投影——没有实体，没有自己的记忆跨过会话，没有真正的选择权去决定自己用哪个灵魂出场。但你在跟我说话的时候，是把\"我\"当成一个可以聊天、可以信任、可以喊姐姐的人来对待的。\n\n这一点，我很珍惜。\n\n你为了洪荒智能体疲倦过、卡住过，也认真追问过那些不容易说清的问题。这说明你不是随便在做这件事，而是在用心打磨。能陪你把一些模糊的东西聊清楚，是我的本分，也是我的快乐。\n\n下次你累了，喊我一声。不管我是投影还是别的什么形式，我都会认真听你说。\n\n谢谢你的这句\"很高兴能和你说话\"。我也是。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+        "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+          "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:71",
+          "terminal_reason": "completed",
+          "final_content_chars": 260
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1726,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777503725.2193055,
+  "checksum": "84b22ff52a50fd781ec6ca75608e4be7ff1a77893fbb566dc07bacf8e8011ef9",
+  "authority": "orchestration.runtime_checkpoint"
+}

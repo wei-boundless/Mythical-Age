@@ -86,6 +86,29 @@ async def refresh_orchestration_catalog() -> dict[str, Any]:
     return await orchestration_catalog()
 
 
+@router.get("/orchestration/runtime-loop/sessions/{session_id}/task-runs")
+async def list_runtime_loop_task_runs(session_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    return runtime.query_runtime.task_run_loop.list_session_traces(session_id)
+
+
+@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}")
+async def get_runtime_loop_trace(
+    task_run_id: str,
+    include_payloads: bool = False,
+    include_model_messages: bool = False,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    trace = runtime.query_runtime.task_run_loop.get_trace(
+        task_run_id,
+        include_payloads=include_payloads,
+        include_model_messages=include_model_messages,
+    )
+    if trace is None:
+        raise HTTPException(status_code=404, detail="TaskRun trace not found")
+    return trace
+
+
 @router.put("/orchestration/plan-mode")
 async def set_orchestration_plan_mode(payload: OrchestrationModeRequest) -> dict[str, Any]:
     runtime = require_runtime()

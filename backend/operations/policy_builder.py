@@ -14,6 +14,12 @@ APPROVAL_RISK_TAGS = {
     "python_execution",
     "requires_human_approval",
 }
+DANGEROUS_AUTO_RISK_TAGS = {
+    "local_write",
+    "destructive",
+    "shell_execution",
+    "python_execution",
+}
 DENY_BY_DEFAULT_RISK_TAGS = {
     "memory_write_candidate",
     "session_write_candidate",
@@ -55,6 +61,7 @@ def build_resource_policy_preview(
             descriptor=descriptor,
             explicitly_denied=requested_id in denied_input or normalized_id in normalized_denied_input,
             context=context,
+            approval_policy=str(requirement.metadata.get("approval_policy") or "default"),
         )
         decisions.append(decision)
         if decision.decision == "allow":
@@ -122,6 +129,7 @@ def _decide_operation(
     descriptor: OperationDescriptor | None,
     explicitly_denied: bool,
     context: RuntimeApprovalContext,
+    approval_policy: str,
 ) -> ResourceDecision:
     if descriptor is None:
         return ResourceDecision(
@@ -143,6 +151,14 @@ def _decide_operation(
             decision="deny",
             reason="operation is denied by default in preview phase",
             risk_tags=descriptor.risk_tags,
+        )
+    if approval_policy == "auto" and (descriptor.destructive or set(descriptor.risk_tags) & DANGEROUS_AUTO_RISK_TAGS):
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="deny",
+            reason="dangerous allow rule stripped in auto approval policy",
+            risk_tags=descriptor.risk_tags,
+            diagnostics={"approval_policy": approval_policy},
         )
     if descriptor.operation_type in PREVIEW_ONLY_TYPES:
         return ResourceDecision(

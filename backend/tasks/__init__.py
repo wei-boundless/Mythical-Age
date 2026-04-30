@@ -20,6 +20,9 @@ __all__ = [
     "TaskContract",
     "TaskCoordinator",
     "TaskDefinition",
+    "TaskFlowDefinition",
+    "TaskAgentBinding",
+    "TaskFlowRegistry",
     "TaskEvent",
     "TaskPromptContract",
     "TaskRecord",
@@ -42,6 +45,14 @@ def __getattr__(name: str) -> Any:
         from tasks.definitions import TaskDefinition
 
         return TaskDefinition
+    if name in {"TaskFlowDefinition", "TaskAgentBinding"}:
+        from tasks.flow_models import TaskAgentBinding, TaskFlowDefinition
+
+        return {"TaskFlowDefinition": TaskFlowDefinition, "TaskAgentBinding": TaskAgentBinding}[name]
+    if name == "TaskFlowRegistry":
+        from tasks.flow_registry import TaskFlowRegistry
+
+        return TaskFlowRegistry
     if name in {"TaskBindingRecord"}:
         from tasks.bindings import TaskBindingRecord
 
@@ -75,4 +86,3 @@ def __getattr__(name: str) -> Any:
 
         return build_task_runtime_contract_preview
     raise AttributeError(name)
-

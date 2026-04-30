@@ -30,8 +30,8 @@ TaskRun
 ```text
 Agent 层级决定工作流如何触发。
 TaskSystem 决定任务是什么。
-OrchestrationSystem 决定任务如何推进。
-RuntimeWorkflow 负责持久推进和恢复。
+OrchestrationSystem 决定任务如何推进，并拥有唯一 TaskRunLoop。
+TaskRunLoop 是编排系统内部的统一 agent loop，负责持久推进和恢复。
 OperationSystem 控制资源和权限。
 MemorySystem 提供上下文和隔离记忆。
 CommitGate 控制阶段成果、最终交付和记忆写回。
@@ -41,7 +41,15 @@ CommitGate 控制阶段成果、最终交付和记忆写回。
 
 ```text
 Agent 是任务执行席位，不是系统主权者。
-Workflow 是任务运行真相，不是 query loop。
+TaskRunLoop 是任务运行真相，不是旧 query loop。
+```
+
+重要修正：
+
+```text
+Codex / Claude Code 的先进范式不是“多个系统平行协作”，而是“统一 loop 调用多个专业系统”。
+洪荒时代也必须采用统一 loop。
+区别在于：统一 loop 归 OrchestrationSystem 所有，而不是归 backend/query 所有。
 ```
 
 ---
@@ -67,7 +75,7 @@ UserRequest / SystemEvent
   -> TaskAgentRequirement 选择 agent 层级
   -> AgentSeatPlan 生成执行席位
   -> OrchestrationSystem 生成 WorkflowPlan
-  -> RuntimeWorkflow 开始或恢复 TaskRun
+  -> OrchestrationSystem.TaskRunLoop 开始或恢复 TaskRun
 ```
 
 这样可以保证：
@@ -174,7 +182,7 @@ Memory restore 不能触发工作流，只能提供候选。
 
 ---
 
-## 3. RuntimeWorkflow 的核心对象
+## 3. TaskRunLoop 的核心对象
 
 ### 3.1 TaskRun
 
@@ -320,7 +328,7 @@ commit applier
 
 ### 3.5 RuntimeCheckpoint
 
-`RuntimeCheckpoint` 是持久化恢复真相。
+`RuntimeCheckpoint` 是 TaskRunLoop 的持久化恢复真相。
 
 建议字段：
 
@@ -378,6 +386,51 @@ ResultArtifact 只能通过 ref 进入上下文。
 CommitGate 决定结果是否写回 session / memory / artifact store。
 ```
 
+### 3.7 RuntimeEventLog
+
+`RuntimeEventLog` 是 TaskRunLoop 的可 replay 事实轨迹。
+
+建议字段：
+
+```text
+RuntimeEvent:
+  event_id
+  task_run_id
+  turn_id
+  step_id
+  event_type
+  payload
+  created_at
+```
+
+第一阶段事件：
+
+```text
+task_run_started
+turn_context_captured
+workflow_plan_adopted
+runtime_step_started
+stage_projection_built
+context_package_built
+runtime_directive_issued
+operation_gate_checked
+executor_started
+executor_finished
+result_candidate_created
+output_boundary_applied
+commit_gate_checked
+checkpoint_written
+```
+
+原则：
+
+```text
+EventLog 是事实轨迹。
+Checkpoint 是恢复快照。
+StateIndex 是查询入口。
+三者不能互相替代。
+```
+
 ---
 
 ## 4. 工作流触发路径
@@ -390,11 +443,16 @@ UserRequest
   -> TaskSystem.create(TaskContract)
   -> MainAgentSeat candidate
   -> OrchestrationSystem.plan(single_agent)
-  -> RuntimeWorkflow.start(TaskRun)
-  -> RuntimeStep(model_response)
-  -> OutputBoundary
-  -> CommitGate(blocked / allowed)
-  -> Checkpoint
+  -> OrchestrationSystem.TaskRunLoop.start(TaskRun)
+     -> RuntimeStep(model_response)
+     -> StageProjectionCycle
+     -> ContextPackage / RuntimeContextManager
+     -> RuntimeDirective
+     -> OperationGate
+     -> Executor
+     -> OutputBoundary
+     -> CommitGate(blocked / allowed)
+     -> RuntimeEventLog / Checkpoint
 ```
 
 当前阶段落地目标：
@@ -472,9 +530,10 @@ BusinessWorkflowTask
 
 ```text
 backend/runtime-workflows/
-  task_runs/
+  events/
   checkpoints/
-  traces/
+  task_runs/
+  indexes/
   artifacts/
 ```
 
@@ -515,8 +574,9 @@ Temporal:
 但无论接谁：
 
 ```text
-RuntimeWorkflow 合同不变。
+TaskRunLoop 合同不变。
 TaskSystem / OperationSystem / MemorySystem / CommitGate 主权不变。
+编排系统唯一调度权不变。
 ```
 
 ---
@@ -638,9 +698,12 @@ CommitGate step 必须读取 commit_state。
 
 ```text
 拥有 WorkflowPlan。
-拥有 RuntimeWorkflow 状态推进。
+拥有 TaskRunLoop。
+拥有当前 TaskRun 的唯一推进权。
+拥有 RuntimeStep 状态迁移权。
 把 TaskAgentRequirement 变成 AgentSeatPlan。
 把 AgentSeatPlan 变成 ExecutionGraph。
+统一调用 Task / Memory / Soul / Operation / Executor / Output / Commit。
 ```
 
 不新增职责：
@@ -649,6 +712,7 @@ CommitGate step 必须读取 commit_state。
 不直接执行工具。
 不直接写 memory。
 不直接生成最终答案文本。
+不替代 OperationGate / CommitGate 的专业判断。
 ```
 
 ### 7.6 QueryAdapter
@@ -686,7 +750,7 @@ API 输入。
 输出：
 
 ```text
-backend/orchestration/runtime_workflow_models.py
+backend/orchestration/runtime_loop_models.py
 docs/系统规划/04-AgentRuntime任务导向持久化工作流设计-20260430.md 定稿
 ```
 
@@ -696,6 +760,7 @@ docs/系统规划/04-AgentRuntime任务导向持久化工作流设计-20260430.m
 合同能表达 single_agent。
 合同能预留 sequential / parallel_fanout / loop_review。
 合同明确 idempotency / checkpoint / approval。
+合同明确 TaskRunLoop 属于 OrchestrationSystem。
 ```
 
 ### Phase 1：接管 model-only lane
@@ -703,7 +768,7 @@ docs/系统规划/04-AgentRuntime任务导向持久化工作流设计-20260430.m
 目标：
 
 ```text
-把当前 model-only 真实链路包进 TaskRun + RuntimeCheckpoint。
+把当前 model-only 真实链路包进 OrchestrationSystem.TaskRunLoop + RuntimeEventLog + RuntimeCheckpoint。
 ```
 
 涉及：
@@ -721,6 +786,7 @@ backend/query/runtime.py
 ```text
 每次用户请求生成 TaskRun。
 model_response step 有 RuntimeStepState。
+每个关键阶段写 RuntimeEvent。
 模型输出后写 checkpoint。
 CommitGate blocked 状态写 checkpoint。
 query 仍只做 adapter。
@@ -910,11 +976,12 @@ CommitGate step 不自动重放。
 新增：
 
 ```text
-backend/orchestration/runtime_workflow_models.py
-backend/orchestration/runtime_workflow.py
+backend/orchestration/runtime_loop_models.py
+backend/orchestration/task_run_loop.py
 backend/orchestration/checkpoints.py
 backend/orchestration/task_runs.py
 backend/orchestration/agent_seats.py
+backend/orchestration/event_log.py
 ```
 
 暂缓：
@@ -942,11 +1009,13 @@ backend/orchestration/temporal_adapter.py
 ```text
 1. 每次真实请求都有 TaskRun。
 2. model-only lane 被 RuntimeStep 包住。
-3. 每次 step 结束都有 checkpoint。
-4. CommitGate blocked / allowed 状态可追踪。
-5. query 仍保持 adapter。
-6. 所有副作用仍 fail-closed。
-7. 多 agent 只作为 AgentSeatPlan preview 存在。
+3. TaskRunLoop 统一推进 step。
+4. 每个关键阶段有 RuntimeEvent。
+5. 每次 step 结束都有 checkpoint。
+6. CommitGate blocked / allowed 状态可追踪。
+7. query 仍保持 adapter。
+8. 所有副作用仍 fail-closed。
+9. 多 agent 只作为 AgentSeatPlan preview 存在。
 ```
 
 成熟完成标准：
@@ -974,9 +1043,8 @@ backend/orchestration/temporal_adapter.py
 我们的核心是：
   由 Agent 层级触发，
   由 TaskSystem 定义任务，
-  由 OrchestrationSystem 规划流程，
-  由 RuntimeWorkflow 持久推进，
+  由 OrchestrationSystem 规划流程并拥有唯一 TaskRunLoop，
+  由 TaskRunLoop 持久推进统一 agent loop，
   由 OperationGate 控制副作用，
   由 CommitGate 统一写回。
 ```
-

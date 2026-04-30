@@ -5,7 +5,7 @@ import { ExperimentsView } from "@/components/workspace/views/ExperimentsView";
 import { MemoryView } from "@/components/workspace/views/MemoryView";
 import { OperationsView } from "@/components/workspace/views/OperationsView";
 import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
-import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
+import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
 import { TestSystemView } from "@/components/workspace/views/TestSystemView";
 import { useAppStore } from "@/lib/store";
 
@@ -21,11 +21,12 @@ export function WorkspacePanel() {
     "test-system": <TestSystemView />,
     operations: <OperationsView />,
     evidence: <OperationsView initialPanel="agents" />,
-    "system-framework": <SystemFrameworkView />,
+    "task-system": <TaskSystemView />,
+    "system-framework": <TaskSystemView />,
     experiments: <ExperimentsView />,
     playground: <PlaygroundView />
   } as const;
-  const isSystemFramework = activeWorkspaceView === "system-framework";
+  const isSystemFramework = false;
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">

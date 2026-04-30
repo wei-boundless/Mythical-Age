@@ -10514,6 +10514,603 @@ html[data-soul="xuannv"] .soul-portrait__label {
     rgba(255, 255, 255, 0.035);
 }
 
+.test-system-view .test-system-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.test-running-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 34%, var(--color-border));
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 13%, transparent), transparent 64%),
+    rgba(255, 255, 255, 0.035);
+  padding: 0.85rem 1rem;
+}
+
+.test-running-banner > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.test-running-banner strong,
+.test-layer-card strong,
+.test-run-summary-panel strong,
+.test-issue-strip strong,
+.test-case-table strong,
+.test-agent-findings strong,
+.test-clean-state strong {
+  color: var(--color-text);
+}
+
+.test-running-banner span,
+.test-clean-state span {
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+}
+
+.test-health-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+  gap: 1rem;
+  align-items: stretch;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 24%, var(--color-border));
+  border-radius: var(--radius-block);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 13%, transparent), transparent 58%),
+    var(--color-panel-strong);
+  padding: 1rem;
+}
+
+.test-health-hero__main {
+  display: grid;
+  align-content: center;
+  gap: 0.45rem;
+}
+
+.test-health-hero__main span,
+.test-layer-card span,
+.test-governance-grid span,
+.test-run-summary-panel span,
+.test-issue-strip span,
+.test-case-status span,
+.test-case-table span,
+.test-agent-findings span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.test-health-hero__main strong {
+  color: var(--color-text);
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  line-height: 1.08;
+}
+
+.test-health-hero__main p,
+.test-layer-card p,
+.test-governance-grid p,
+.test-run-summary-panel p,
+.test-issue-strip p,
+.test-case-table p,
+.test-agent-findings p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.test-health-hero__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.test-health-hero__stats article,
+.test-governance-grid article,
+.test-layer-card,
+.test-run-summary-panel,
+.test-issue-strip article,
+.test-case-status,
+.test-case-table article,
+.test-agent-findings article,
+.test-clean-state {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 7%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.028);
+  padding: 0.9rem;
+}
+
+.test-health-hero__stats article {
+  display: grid;
+  align-content: center;
+  gap: 0.2rem;
+}
+
+.test-health-hero__stats span {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+}
+
+.test-health-hero__stats strong {
+  color: var(--color-text);
+  font-size: 1.65rem;
+}
+
+.test-layer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.test-layer-card {
+  display: grid;
+  gap: 0.85rem;
+  align-content: space-between;
+}
+
+.test-layer-card--active,
+.test-case-status--active {
+  border-color: color-mix(in srgb, var(--color-soul) 54%, white);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-soul) 16%, transparent);
+}
+
+.test-layer-card strong {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 1.04rem;
+}
+
+.test-layer-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.test-layer-card dl div,
+.test-run-summary-panel__stats em {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 0.85rem;
+  background: rgba(0, 0, 0, 0.12);
+  padding: 0.55rem;
+}
+
+.test-layer-card dt {
+  color: var(--color-text-soft);
+  font-size: 0.68rem;
+}
+
+.test-layer-card dd {
+  margin: 0.12rem 0 0;
+  color: var(--color-text);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.test-card-actions,
+.test-case-tags,
+.test-owner-chips,
+.test-run-summary-panel__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.test-card-actions {
+  justify-content: space-between;
+}
+
+.test-governance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 0.8rem;
+}
+
+.test-owner-chips em,
+.test-case-tags em {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+  padding: 0.25rem 0.55rem;
+}
+
+.test-report-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.34fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.test-report-runs,
+.test-report-main,
+.test-case-table,
+.test-agent-findings {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.test-report-main {
+  min-width: 0;
+}
+
+.test-run-summary-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.test-run-summary-panel > div:first-child {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.test-run-summary-panel strong {
+  font-size: 1.3rem;
+}
+
+.test-run-summary-panel__stats {
+  flex: 0 0 auto;
+}
+
+.test-run-summary-panel__stats em {
+  color: var(--color-text);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.test-issue-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.test-issue-strip strong,
+.test-case-table strong,
+.test-agent-findings strong,
+.test-clean-state strong {
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.test-turn-compact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.test-turn-dot {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.test-turn-dot--passed {
+  border-color: rgba(103, 220, 154, 0.34);
+  color: #baf7cf;
+}
+
+.test-turn-dot--warning {
+  border-color: rgba(255, 215, 107, 0.42);
+  color: #ffe29b;
+}
+
+.test-turn-dot--failed {
+  border-color: rgba(255, 140, 125, 0.5);
+  color: #ffd0c8;
+}
+
+.test-turn-dot--active {
+  border-color: color-mix(in srgb, var(--color-soul) 64%, white);
+  background: color-mix(in srgb, var(--color-soul) 13%, transparent);
+}
+
+.test-case-governance {
+  display: grid;
+  gap: 1rem;
+}
+
+.test-case-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.test-case-status {
+  display: grid;
+  gap: 0.2rem;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.test-case-status strong {
+  color: var(--color-text);
+  font-size: 1.45rem;
+}
+
+.test-case-table article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.36fr);
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.test-case-table small {
+  grid-column: 1 / -1;
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.test-clean-state {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--color-text-soft);
+}
+
+.test-run-selector {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+  margin-top: 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(0, 0, 0, 0.14);
+  padding: 0.72rem;
+}
+
+.test-run-selector label,
+.test-run-selector > div {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.test-run-selector select {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 24%, var(--color-border));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--color-panel-strong) 92%, black);
+  color: var(--color-text);
+  outline: none;
+  padding: 0.58rem 0.65rem;
+}
+
+.test-run-selector strong {
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.test-run-selector div span {
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+}
+
+.test-run-map {
+  position: relative;
+  min-height: 520px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-block);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    radial-gradient(circle at 32% 52%, color-mix(in srgb, var(--color-soul) 12%, transparent), transparent 32%),
+    rgba(0, 0, 0, 0.1);
+  background-size: 36px 36px, 36px 36px, auto, auto;
+}
+
+.test-run-map__edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.test-run-map__edges line {
+  stroke: color-mix(in srgb, var(--color-soul) 52%, rgba(255, 255, 255, 0.2));
+  stroke-dasharray: 1 1;
+  stroke-linecap: round;
+  stroke-width: 0.36;
+}
+
+.test-run-map__edges text {
+  fill: color-mix(in srgb, var(--color-text) 80%, var(--color-soul));
+  font-size: 1.45px;
+  font-weight: 900;
+  paint-order: stroke;
+  stroke: color-mix(in srgb, var(--color-panel-strong) 96%, #000);
+  stroke-width: 0.5px;
+  text-anchor: middle;
+}
+
+.test-run-map-node {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  z-index: 2;
+  display: grid;
+  gap: 0.24rem;
+  width: 156px;
+  min-height: 112px;
+  transform: translate(-50%, -50%);
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-card);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 52%),
+    color-mix(in srgb, var(--color-panel-strong) 94%, transparent);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.18);
+  color: inherit;
+  cursor: pointer;
+  padding: 0.78rem;
+  text-align: left;
+}
+
+.test-run-map-node:hover,
+.test-run-map-node--active {
+  border-color: color-mix(in srgb, var(--color-soul) 60%, white);
+  box-shadow: 0 18px 44px color-mix(in srgb, var(--color-soul) 18%, rgba(0, 0, 0, 0.2));
+}
+
+.test-run-map-node--deep {
+  border-color: rgba(255, 215, 107, 0.34);
+}
+
+.test-run-map-node span {
+  color: var(--color-soul);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.test-run-map-node strong {
+  color: var(--color-text);
+  font-size: 0.94rem;
+}
+
+.test-run-map-node em,
+.test-run-map-node small {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+  line-height: 1.38;
+}
+
+.test-run-map__legend {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  z-index: 3;
+}
+
+.test-run-map__legend span {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  padding: 0.28rem 0.55rem;
+}
+
+.test-report-score {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  width: 92px;
+  height: 92px;
+  place-items: center;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, var(--color-panel-strong) 0 54%, transparent 55%),
+    conic-gradient(color-mix(in srgb, var(--color-soul) 74%, white) var(--score), rgba(255, 255, 255, 0.12) 0);
+}
+
+.test-report-score strong {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.test-report-score span {
+  margin-top: -1.2rem;
+  color: var(--color-text-soft);
+  font-size: 0.66rem;
+}
+
+.test-report-visuals {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.test-report-visuals article {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.028);
+  padding: 0.85rem;
+}
+
+.test-report-visuals span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.test-result-bars {
+  display: flex;
+  height: 14px;
+  overflow: hidden;
+  margin: 0.65rem 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.test-result-bars i {
+  background: #8df0b8;
+}
+
+.test-result-bars b {
+  background: #ff9c8f;
+}
+
+.test-signal-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+}
+
+.test-signal-row em {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+  padding: 0.28rem 0.55rem;
+}
+
+.test-case-status em,
+.test-case-status small,
+.test-case-status b {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.test-case-status b {
+  color: var(--color-soul);
+  font-weight: 900;
+}
+
+.test-case-status small {
+  color: var(--color-text);
+  font-weight: 800;
+}
+
 
 @media (max-width: 980px) {
   .agent-system-hero,
@@ -10532,7 +11129,11 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .operation-binding-agents,
   .operation-binding-layout,
   .operation-binding-tools,
-  .operation-binding-matrix {
+  .operation-binding-matrix,
+  .test-health-hero,
+  .test-layer-grid,
+  .test-governance-grid,
+  .test-report-layout {
     grid-template-columns: 1fr;
   }
 
@@ -10575,8 +11176,19 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .agent-node-grid,
   .agent-detail__matrix,
   .soul-projection-card-grid,
-  .soul-projection-form-grid {
+  .soul-projection-form-grid,
+  .test-system-view .test-system-tabs,
+  .test-health-hero__stats,
+  .test-case-status-grid,
+  .test-issue-strip,
+  .test-case-table article {
     grid-template-columns: 1fr;
+  }
+
+  .test-running-banner,
+  .test-run-summary-panel {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .soul-projection-card-board__head {

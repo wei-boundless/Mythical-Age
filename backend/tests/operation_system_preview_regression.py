@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from operations import (
+    ApprovalState,
+    ApprovalToken,
+    DenialTrackingState,
     OperationGate,
+    OperationGatePipelineContext,
+    ResourceDecision,
+    ResourcePolicy,
     RuntimeApprovalContext,
     build_default_operation_registry,
     build_operation_requirement,
     build_resource_policy_preview,
     build_resource_runtime_views,
 )
+from operations.validators import validate_filesystem_path, validate_shell_read_only
 
 
 def test_operation_requirement_is_candidate_only_and_preserves_denied_operations() -> None:
@@ -160,6 +167,206 @@ def test_operation_gate_rejects_preview_policy_even_for_allowed_preview_operatio
 
     assert missing_directive.allowed is False
     assert missing_directive.reason == "missing directive_ref"
+    assert missing_directive.pipeline_stage == "runtime_directive_exists"
     assert preview_policy.allowed is False
     assert preview_policy.reason == "resource policy is preview-only and not executable"
 
+
+def test_operation_descriptor_exports_thick_contract_fields() -> None:
+    registry = build_default_operation_registry()
+    descriptor = registry.get_operation("op.read_file")
+
+    assert descriptor is not None
+    assert descriptor.input_contract_ref == "op.read_file.input"
+    assert descriptor.output_contract_ref == "op.read_file.output"
+    assert descriptor.read_only is True
+    assert descriptor.concurrency_safe is True
+    assert descriptor.max_result_size_chars > 0
+    assert descriptor.safety_validator_ref == "filesystem_path"
+
+
+def test_operation_gate_pipeline_strips_dangerous_auto_allow() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(
+        allowed=("op.shell",),
+        task_id="task-auto",
+    )
+    gate = OperationGate(registry)
+
+    result = gate.check(
+        "op.shell",
+        resource_policy=policy,
+        directive_ref="directive-auto",
+        context=OperationGatePipelineContext(permission_mode="auto"),
+    )
+
+    assert result.allowed is False
+    assert result.reason == "dangerous allow rule stripped in auto/bypass permission mode"
+    assert result.pipeline_stage == "dangerous_allow_rule_stripper"
+
+
+def test_operation_gate_headless_approval_requires_matching_token() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(
+        requires_approval=("op.edit_file",),
+        task_id="task-approval",
+    )
+    gate = OperationGate(registry)
+
+    blocked = gate.check(
+        "op.edit_file",
+        resource_policy=policy,
+        directive_ref="directive-edit",
+        context=OperationGatePipelineContext(permission_mode="headless", headless_mode=True),
+    )
+    allowed_after_token = gate.check(
+        "op.edit_file",
+        resource_policy=policy,
+        directive_ref="directive-edit",
+        context=OperationGatePipelineContext(
+            permission_mode="headless",
+            headless_mode=True,
+            approval_token=ApprovalToken(
+                token_id="approval-1",
+                operation_id="op.edit_file",
+                directive_ref="directive-edit",
+                granted=True,
+                source="test",
+            ),
+        ),
+    )
+
+    assert blocked.allowed is False
+    assert blocked.decision == "deny"
+    assert blocked.pipeline_stage == "headless_policy"
+    assert allowed_after_token.allowed is True
+    assert allowed_after_token.decision == "allow"
+    assert allowed_after_token.pipeline_stage == "allow_rule"
+
+
+def test_operation_gate_approval_state_can_satisfy_headless_approval() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(
+        requires_approval=("op.edit_file",),
+        task_id="task-approval-state",
+    )
+    gate = OperationGate(registry)
+
+    result = gate.check(
+        "op.edit_file",
+        resource_policy=policy,
+        directive_ref="directive-edit-state",
+        context=OperationGatePipelineContext(
+            permission_mode="headless",
+            headless_mode=True,
+            approval_state=ApprovalState(
+                tokens=(
+                    ApprovalToken(
+                        token_id="approval-state-1",
+                        operation_id="op.edit_file",
+                        directive_ref="directive-edit-state",
+                        granted=True,
+                        source="checkpoint",
+                    ),
+                )
+            ),
+        ),
+    )
+
+    assert result.allowed is True
+    assert result.decision == "allow"
+    assert result.pipeline_stage == "allow_rule"
+
+
+def test_operation_gate_denial_tracking_circuit_breaker() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(allowed=("op.read_file",), task_id="task-denial")
+    tracker = DenialTrackingState(max_consecutive_denials=1, max_total_denials=20)
+    gate = OperationGate(registry)
+
+    first = gate.check(
+        "op.write_file",
+        resource_policy=policy,
+        directive_ref="directive-denied",
+        context=OperationGatePipelineContext(denial_tracking=tracker),
+    )
+    second = gate.check(
+        "op.read_file",
+        resource_policy=policy,
+        directive_ref="directive-read",
+        context=OperationGatePipelineContext(denial_tracking=tracker),
+    )
+
+    assert first.allowed is False
+    assert tracker.tripped is True
+    assert second.allowed is False
+    assert second.reason == "denial tracking circuit is open"
+    assert second.pipeline_stage == "denial_tracking"
+
+
+def test_operation_gate_invokes_operation_specific_safety_validator() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(allowed=("op.shell",), task_id="task-shell-validator")
+    gate = OperationGate(registry)
+
+    result = gate.check(
+        "op.shell",
+        resource_policy=policy,
+        directive_ref="directive-shell",
+        context=OperationGatePipelineContext(
+            operation_input={"command": "rg TODO | cat"},
+            validators={"shell_read_only": validate_shell_read_only},
+        ),
+    )
+
+    assert result.allowed is False
+    assert result.reason == "shell command uses control operators"
+    assert result.pipeline_stage == "operation_specific_safety_validator"
+
+
+def test_shell_read_only_validator_blocks_control_operators_and_git_config() -> None:
+    assert validate_shell_read_only({"command": "git status"})[0] is True
+    assert validate_shell_read_only({"command": "git -c core.pager=cat status"}) == (
+        False,
+        "git command uses dangerous configuration flag",
+    )
+    assert validate_shell_read_only({"command": "rg TODO | cat"}) == (
+        False,
+        "shell command uses control operators",
+    )
+
+
+def test_filesystem_path_validator_blocks_workspace_escape_and_expansion() -> None:
+    assert validate_filesystem_path({"path": "backend/operations/gate.py"})[0] is True
+    assert validate_filesystem_path({"path": "../outside.txt"}) == (
+        False,
+        "filesystem path escapes through parent traversal",
+    )
+    assert validate_filesystem_path({"path": "$HOME/secret.txt"}) == (
+        False,
+        "filesystem path uses expansion syntax",
+    )
+
+
+def _runtime_policy(
+    *,
+    task_id: str,
+    allowed: tuple[str, ...] = (),
+    denied: tuple[str, ...] = (),
+    requires_approval: tuple[str, ...] = (),
+) -> ResourcePolicy:
+    decisions = tuple(
+        ResourceDecision(operation_id=operation_id, decision="allow", reason="test")
+        for operation_id in allowed
+    )
+    return ResourcePolicy(
+        policy_id=f"respol:{task_id}:runtime",
+        task_id=task_id,
+        allowed_operations=allowed,
+        denied_operations=denied,
+        requires_approval_operations=requires_approval,
+        preview_only=False,
+        adopted=True,
+        runtime_executable=True,
+        decisions=decisions,
+    )

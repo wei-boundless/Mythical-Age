@@ -39,6 +39,7 @@ export type WorkspaceView =
   | "test-system"
   | "operations"
   | "evidence"
+  | "task-system"
   | "system-framework"
   | "experiments"
   | "playground";

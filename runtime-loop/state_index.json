@@ -1,0 +1,670 @@
+{
+  "task_runs": {
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:e87888a0": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:e87888a0",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777497356.6030767,
+      "updated_at": 1777497356.704429,
+      "latest_event_offset": 14,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:e87888a0:13",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:734fc73e": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:734fc73e",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777497612.8896341,
+      "updated_at": 1777497612.998444,
+      "latest_event_offset": 14,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:734fc73e:13",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:6e2a2e22": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:6e2a2e22",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777497890.2546453,
+      "updated_at": 1777497890.3832848,
+      "latest_event_offset": 15,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:6e2a2e22:14",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:5c71a83f": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:5c71a83f",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777498101.9450114,
+      "updated_at": 1777498102.0617492,
+      "latest_event_offset": 15,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:5c71a83f:14",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:7fd72e3c": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:7fd72e3c",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777498338.3538957,
+      "updated_at": 1777498338.4776883,
+      "latest_event_offset": 15,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:7fd72e3c:14",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:486aa8e9": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:486aa8e9",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777498447.6310544,
+      "updated_at": 1777498447.7518218,
+      "latest_event_offset": 15,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:486aa8e9:14",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:208be366": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:208be366",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777498521.4919467,
+      "updated_at": 1777498521.6076171,
+      "latest_event_offset": 15,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:208be366:14",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:4872b609": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:4872b609",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777498675.83351,
+      "updated_at": 1777498675.9405487,
+      "latest_event_offset": 16,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:4872b609:15",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:845b537d": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:845b537d",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777498916.7755704,
+      "updated_at": 1777498916.887788,
+      "latest_event_offset": 16,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:845b537d:15",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:e7840521": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:e7840521",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777499071.553345,
+      "updated_at": 1777499071.704355,
+      "latest_event_offset": 17,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:e7840521:16",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:59914e70": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:59914e70",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777499180.6951108,
+      "updated_at": 1777499180.9323485,
+      "latest_event_offset": 17,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:59914e70:16",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:34c3c15e": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:34c3c15e",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777499323.2478344,
+      "updated_at": 1777499323.4016576,
+      "latest_event_offset": 17,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:34c3c15e:16",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:fa454464": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:fa454464",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777499425.9200943,
+      "updated_at": 1777499426.0826027,
+      "latest_event_offset": 17,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:fa454464:16",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:37a8d71a": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:37a8d71a",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777499522.1331916,
+      "updated_at": 1777499522.284454,
+      "latest_event_offset": 18,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:37a8d71a:17",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:1a060464": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:1a060464",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777499589.9946756,
+      "updated_at": 1777499590.1597648,
+      "latest_event_offset": 18,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:1a060464:17",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:1c7d1203": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:1c7d1203",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777499640.8576932,
+      "updated_at": 1777499641.0344932,
+      "latest_event_offset": 18,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:1c7d1203:17",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:b6fc6012": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:b6fc6012",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777499857.4531226,
+      "updated_at": 1777499857.4729626,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:b6fc6012:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:6136e025": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:6136e025",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777499911.9494793,
+      "updated_at": 1777499912.3180299,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:6136e025:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:cae93b2d": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:cae93b2d",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777499971.0523417,
+      "updated_at": 1777499971.1880276,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:cae93b2d:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:a0b4adb4": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:a0b4adb4",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777500411.9057236,
+      "updated_at": 1777500412.0957153,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:a0b4adb4:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:5afe617e": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:5afe617e",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777500482.3726766,
+      "updated_at": 1777500482.5099003,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:5afe617e:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 1,
+          "max_model_calls": 1,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:383091f8": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:383091f8",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777500571.1101427,
+      "updated_at": 1777500571.2624593,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:383091f8:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 2,
+          "max_model_calls": 2,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:f7f1cfea": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:f7f1cfea",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777500856.6612694,
+      "updated_at": 1777500856.8683195,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:f7f1cfea:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 35
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:43776a26": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:43776a26",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777501029.338472,
+      "updated_at": 1777501029.3514931,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:43776a26:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:167924c9": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:167924c9",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777501209.1824703,
+      "updated_at": 1777501209.19311,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:167924c9:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:555a12e1": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:555a12e1",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777502255.4519813,
+      "updated_at": 1777502255.468762,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:555a12e1:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    }
+  },
+  "sessions": {
+    "session-runtime-directive": [
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:e87888a0",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:734fc73e",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:6e2a2e22",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:5c71a83f",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:7fd72e3c",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:486aa8e9",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:208be366",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:4872b609",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:845b537d",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:e7840521",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:59914e70",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:34c3c15e",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:fa454464",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:37a8d71a",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:1a060464",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:1c7d1203",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:b6fc6012",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:6136e025",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:cae93b2d",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:a0b4adb4",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:5afe617e",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:383091f8",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:f7f1cfea",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:43776a26",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:167924c9",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:555a12e1"
+    ]
+  },
+  "updated_at": 1777502255.476351
+}

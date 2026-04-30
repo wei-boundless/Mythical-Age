@@ -196,6 +196,48 @@ class ModelRuntime:
             raise last_error
         raise RuntimeError("No model candidates available")
 
+    async def invoke_messages_with_tools(self, messages: list[Any], tools: list[Any]) -> Any:
+        last_error: ModelRuntimeError | None = None
+        candidates = self._candidate_specs()
+        for spec_index, spec in enumerate(candidates):
+            for attempt in range(1, self.max_retries + 2):
+                model = self._build_chat_model_for_spec(spec)
+                try:
+                    bound_model = model.bind_tools(tools) if tools else model
+                    return await asyncio.wait_for(
+                        bound_model.ainvoke(messages),
+                        timeout=self.request_timeout_seconds,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    last_error = self._map_error(exc, spec)
+                    if attempt <= self.max_retries and last_error.retryable:
+                        logger.warning(
+                            "Retrying tool-enabled model invoke after %s (%s/%s): %s",
+                            last_error.code,
+                            attempt,
+                            self.max_retries,
+                            last_error.detail,
+                        )
+                        await asyncio.sleep(min(0.5, 0.1 * attempt))
+                        continue
+                    break
+                finally:
+                    await self._aclose_chat_model(model)
+            if last_error is None:
+                continue
+            if spec_index < len(candidates) - 1:
+                logger.warning(
+                    "Switching tool-enabled model candidate after %s on %s/%s",
+                    last_error.code,
+                    spec.provider,
+                    spec.model,
+                )
+                continue
+            raise last_error
+        raise RuntimeError("No model candidates available")
+
     async def astream_conversation(
         self,
         *,

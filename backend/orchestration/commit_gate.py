@@ -265,3 +265,104 @@ def build_user_message_commit_decision(
             "task_result_write_allowed": False,
         },
     )
+
+
+def build_task_run_final_commit_decision(
+    *,
+    task_run_id: str,
+    task_id: str,
+    terminal_reason: str,
+    final_content_chars: int = 0,
+    source: str = "orchestration.task_run_loop",
+) -> RuntimeCommitGateDecision:
+    candidate = CommitCandidate(
+        candidate_id=f"commit-candidate:{task_run_id}:task_result:final",
+        commit_type="task_result",
+        payload={
+            "task_run_id": str(task_run_id or ""),
+            "task_id": str(task_id or ""),
+            "terminal_reason": str(terminal_reason or ""),
+            "final_content_chars": int(final_content_chars or 0),
+        },
+        producer="orchestration.runtime_commit_gate",
+        allowed=True,
+        reason="task_run_final_record_allowed",
+        refs={
+            "source": source,
+            "commit_scope": "task_run_status_and_final_record_only",
+        },
+    )
+    return RuntimeCommitGateDecision(
+        gate_id=f"commit-gate:{task_run_id}:task-result-final",
+        commit_type="task_result",
+        commit_candidate=candidate,
+        status="allowed",
+        reason=candidate.reason,
+        commit_allowed=True,
+        diagnostics={
+            "task_run_status_write_allowed": True,
+            "final_answer_record_allowed": True,
+            "assistant_session_write_allowed": False,
+            "memory_write_allowed": False,
+            "artifact_write_allowed": False,
+            "filesystem_write_allowed": False,
+        },
+    )
+
+
+def build_assistant_session_message_commit_decision(
+    *,
+    session_id: str,
+    task_run_id: str,
+    task_id: str,
+    content: str,
+    answer_channel: str = "",
+    answer_source: str = "",
+    answer_canonical_state: str = "",
+    answer_persist_policy: str = "",
+    answer_finalization_policy: str = "",
+    answer_fallback_reason: str = "",
+    source: str = "orchestration.task_run_loop",
+) -> RuntimeCommitGateDecision:
+    normalized = str(content or "").strip()
+    candidate = CommitCandidate(
+        candidate_id=f"commit-candidate:{task_run_id}:session_message:assistant-final",
+        commit_type="session_message",
+        payload={
+            "session_id": str(session_id or ""),
+            "task_run_id": str(task_run_id or ""),
+            "task_id": str(task_id or ""),
+            "role": "assistant",
+            "content": normalized,
+            "answer_channel": str(answer_channel or ""),
+            "answer_source": str(answer_source or ""),
+            "answer_canonical_state": str(answer_canonical_state or ""),
+            "answer_persist_policy": str(answer_persist_policy or ""),
+            "answer_finalization_policy": str(answer_finalization_policy or ""),
+            "answer_fallback_reason": str(answer_fallback_reason or ""),
+        },
+        producer="orchestration.runtime_commit_gate",
+        allowed=bool(normalized),
+        reason="assistant_session_message_allowed" if normalized else "empty_assistant_message_blocked",
+        refs={
+            "source": source,
+            "commit_scope": "assistant_final_message_only",
+        },
+    )
+    return RuntimeCommitGateDecision(
+        gate_id=f"commit-gate:{task_run_id}:assistant-session-message",
+        commit_type="session_message",
+        commit_candidate=candidate,
+        status="allowed" if normalized else "blocked",
+        reason=candidate.reason,
+        commit_allowed=bool(normalized),
+        diagnostics={
+            "session_id": str(session_id or ""),
+            "task_run_id": str(task_run_id or ""),
+            "assistant_session_write_allowed": bool(normalized),
+            "task_run_status_write_allowed": False,
+            "memory_write_allowed": False,
+            "artifact_write_allowed": False,
+            "filesystem_write_allowed": False,
+        },
+    )

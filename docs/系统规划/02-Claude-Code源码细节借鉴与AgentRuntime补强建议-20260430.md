@@ -119,6 +119,23 @@ OperationDescriptor 增加：
 ResourcePolicyBuilder 只能从这些 typed fields 生成 allowed / denied / requires_approval。
 ```
 
+当前落地状态（2026-04-30）：
+
+```text
+已落地：
+  OperationDescriptor 增加 input_contract_ref / output_contract_ref。
+  OperationDescriptor 增加 requires_user_interaction。
+  OperationDescriptor 增加 max_result_size_chars。
+  OperationDescriptor 增加 interrupt_behavior。
+  OperationDescriptor 增加 deferred_loading / always_load。
+  OperationDescriptor 增加 safety_validator_ref。
+  ResourceRuntimeView 已暴露这些执行前合同字段的摘要。
+
+仍待后续：
+  WorkerContract / AgentProfileContract 继续对齐同一套字段。
+  max_result_size_chars 需要在 ToolExecutor / WorkerExecutor 输出回填前强制执行。
+```
+
 不要照搬：
 
 ```text
@@ -199,6 +216,25 @@ OperationGatePipeline:
   DangerousAllowRuleStripper
 ```
 
+当前落地状态（2026-04-30）：
+
+```text
+已落地：
+  OperationGate 内部升级为 deterministic pipeline。
+  OperationGatePipelineContext 表达 permission_mode / headless_mode / approval_token / validators。
+  DenialTrackingState 支持 consecutive / total denial 熔断。
+  ApprovalToken 支持非交互场景下的匹配式审批，匹配成功后会继续进入后续安全校验并允许执行。
+  ApprovalState 已作为可序列化审批快照进入 operations 层，为未来 RuntimeCheckpoint 接线预留。
+  dangerous allow rule stripper 会在 auto / bypass 模式下剥离危险 allow。
+  operation-specific safety validator 已由 OperationGatePipeline 调用，不再只是描述字段。
+  OperationGateResult 增加 pipeline_stage，便于 trace 和测试定位。
+
+仍待后续：
+  ApprovalState 需要由 RuntimeWorkflow 写入 RuntimeCheckpoint。
+  Headless hook / bubble-to-parent 需要和未来 RuntimeWorkflow 事件系统接线。
+  AI classifier 仍不引入，保持 deterministic policy pipeline。
+```
+
 不该现在做：
 
 ```text
@@ -256,6 +292,29 @@ Phase 1 只支持显式 allowlisted read-only commands。
 
 ```text
 这属于 OperationGate 的执行前复核，不属于 TaskSystem，也不属于 Prompt。
+```
+
+当前落地状态（2026-04-30）：
+
+```text
+已落地：
+  backend/operations/validators/shell_read_only.py
+  backend/operations/validators/filesystem_path.py
+  validate_shell_read_only() 采用保守 allowlist。
+  拒绝 shell control operators。
+  拒绝变量展开。
+  拒绝 glob 展开。
+  拒绝 UNC / network path。
+  拒绝 git -c / --exec-path / --config-env / --git-dir / --work-tree。
+  只允许少量 git read-only subcommands。
+  validate_filesystem_path() 采用 workspace path validator。
+  拒绝 UNC / URL / 控制字符 / 变量展开 / glob。
+  没有 workspace_root 时拒绝绝对路径和 parent traversal。
+  有 workspace_root 时要求 resolved path 留在 workspace_root 内。
+
+仍待后续：
+  Shell Executor 尚未恢复。
+  validator 需要在真实 shell RuntimeDirective 接入时由 OperationGatePipeline 强制调用。
 ```
 
 ---

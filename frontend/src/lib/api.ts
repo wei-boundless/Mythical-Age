@@ -69,7 +69,9 @@ export type ExperimentArtifacts = {
   issues: Array<Record<string, unknown>>;
   report: string;
   trace_tail: string;
+  log_tail?: string;
   summary: ExperimentRun["summary"];
+  runtime_loop?: Record<string, unknown>;
 };
 
 export type ExperimentTurn = {
@@ -86,6 +88,176 @@ export type ExperimentTurn = {
   has_trace: boolean;
   has_prompt_manifest: boolean;
   has_memory_trace: boolean;
+  runtime_loop?: Record<string, unknown>;
+  assertions?: Array<Record<string, unknown>>;
+};
+
+export type TestProfile = ExperimentProfile & {
+  monitor_owner?: string;
+};
+
+export type TestRun = ExperimentRun;
+
+export type TestArtifacts = ExperimentArtifacts;
+
+export type TestTurn = ExperimentTurn;
+
+export type TestCaseDefinition = {
+  case_id: string;
+  title: string;
+  layer: "chain" | "functional" | "system" | "scenario" | string;
+  path: string;
+  owner_system: string;
+  runner: "pytest" | "python" | "harness" | string;
+  status: "active" | "legacy" | "quarantined" | "candidate" | string;
+  profiles: string[];
+  description: string;
+  assertions: string[];
+  tags: string[];
+  replaces: string[];
+  reason: string;
+};
+
+export type TestCaseRegistry = {
+  profiles: Record<string, {
+    layers: string[];
+    case_count: number;
+  }>;
+  layers: string[];
+  active_cases: TestCaseDefinition[];
+  legacy_cases: TestCaseDefinition[];
+  candidate_cases: TestCaseDefinition[];
+  case_count: number;
+  authority: string;
+};
+
+export type TestAgentFinding = {
+  severity: string;
+  code: string;
+  message: string;
+  path: string;
+  case_id: string;
+  recommendation: string;
+};
+
+export type TestAgentReport = {
+  authority: string;
+  summary: {
+    active_case_count?: number;
+    legacy_case_count?: number;
+    candidate_case_count?: number;
+    registered_file_count?: number;
+    discovered_test_file_count?: number;
+    unregistered_file_count?: number;
+    finding_count?: number;
+  };
+  findings: TestAgentFinding[];
+  profile_targets: Record<string, string[]>;
+  registered_paths: string[];
+  unregistered_paths: string[];
+  legacy_paths: string[];
+};
+
+export type TestHarnessIssue = {
+  issue_id: string;
+  title: string;
+  origin: string;
+  owner_system: string;
+  severity: string;
+  status: string;
+  observed: string;
+  expected: string;
+  reproduce: string;
+  related_run_id: string;
+  related_turn_id: string;
+  related_task_id: string;
+  related_session_id: string;
+  related_skill: string;
+  problem_node_id: string;
+  problem_node_label: string;
+  tags: string[];
+  created_at: number;
+  updated_at: number;
+};
+
+export type TestCaseDraft = {
+  draft_id: string;
+  title: string;
+  layer: string;
+  owner_system: string;
+  source_issue_id: string;
+  source_run_id: string;
+  source_turn_id: string;
+  trigger: string;
+  expected: string;
+  assertions: string[];
+  profile: string;
+  status: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type TestHarnessRecords = {
+  issues: TestHarnessIssue[];
+  case_drafts: TestCaseDraft[];
+  summary: {
+    issue_count: number;
+    open_issue_count: number;
+    case_draft_count: number;
+  };
+  authority: string;
+};
+
+export type TaskSystemOverview = {
+  authority: string;
+  summary: Record<string, number>;
+  agents: Array<Record<string, unknown>>;
+  flows: Array<Record<string, unknown>>;
+  bindings: Array<Record<string, unknown>>;
+  coordination_tasks: Array<Record<string, unknown>>;
+  topology_templates: Array<Record<string, unknown>>;
+  link_permission_matrix: {
+    authority: string;
+    rows: Array<Record<string, unknown>>;
+  };
+};
+
+export type OperationAgentCatalog = {
+  authority: string;
+  agents: Array<Record<string, unknown>>;
+  capabilities: Array<Record<string, unknown>>;
+  summary: Record<string, number>;
+};
+
+export type SkillWorkflowCatalog = {
+  authority: string;
+  workflows: Array<Record<string, unknown>>;
+  summary: Record<string, number>;
+};
+
+export type ProjectionTemplateCatalog = {
+  authority: string;
+  templates: Array<Record<string, unknown>>;
+  summary: Record<string, number>;
+};
+
+export type HealthSystemOverview = {
+  authority: string;
+  summary: Record<string, number>;
+  issues: Array<Record<string, unknown>>;
+  agent_runs: Array<Record<string, unknown>>;
+  problem_nodes: Array<Record<string, unknown>>;
+};
+
+export type HealthAgentRunPreview = {
+  authority: string;
+  status: string;
+  issue: Record<string, unknown>;
+  flow: Record<string, unknown>;
+  binding: Record<string, unknown>;
+  projection_instance?: Record<string, unknown>;
+  runtime_directive_lane?: Record<string, unknown>;
+  reason?: string;
 };
 
 export type SystemGraphOverlayItem = {
@@ -1112,6 +1284,36 @@ export async function deleteSoulProjectionCard(projectionId: string) {
   });
 }
 
+export async function getProjectionTemplates() {
+  return request<ProjectionTemplateCatalog>("/soul/projection-templates");
+}
+
+export async function getOperationAgents() {
+  return request<OperationAgentCatalog>("/operations/agents");
+}
+
+export async function getSkillWorkflows() {
+  return request<SkillWorkflowCatalog>("/skills/workflows");
+}
+
+export async function getTaskSystemOverview() {
+  return request<TaskSystemOverview>("/tasks/overview");
+}
+
+export async function getHealthSystemOverview() {
+  return request<HealthSystemOverview>("/health-system/overview");
+}
+
+export async function previewHealthAgentRun(issueId: string, taskMode = "issue_triage") {
+  return request<HealthAgentRunPreview>(
+    `/health-system/issues/${encodeURIComponent(issueId)}/agent-runs/preview`,
+    {
+      method: "POST",
+      body: JSON.stringify({ task_mode: taskMode })
+    }
+  );
+}
+
 export async function uploadSoulPortrait(key: string, file: File) {
   const formData = new FormData();
   formData.append("file", file);
@@ -1125,6 +1327,53 @@ export async function cancelExperimentRun(runId: string) {
   return request<ExperimentRun>(`/experiments/runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST"
   });
+}
+
+export async function listTestProfiles() {
+  return request<TestProfile[]>("/test-system/profiles");
+}
+
+export async function getTestCases(includeLegacy = true) {
+  return request<TestCaseRegistry>(`/test-system/cases?include_legacy=${includeLegacy ? "true" : "false"}`);
+}
+
+export async function getTestAgentReport() {
+  return request<TestAgentReport>("/test-system/agent/report");
+}
+
+export async function listTestRuns(limit = 20) {
+  return request<TestRun[]>(`/test-system/runs?limit=${limit}`);
+}
+
+export async function startTestRun(profile: string) {
+  return request<TestRun>("/test-system/runs", {
+    method: "POST",
+    body: JSON.stringify({ profile })
+  });
+}
+
+export async function getTestRun(runId: string) {
+  return request<TestRun>(`/test-system/runs/${encodeURIComponent(runId)}`);
+}
+
+export async function cancelTestRun(runId: string) {
+  return request<TestRun>(`/test-system/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST"
+  });
+}
+
+export async function getTestArtifacts(runId: string) {
+  return request<TestArtifacts>(`/test-system/runs/${encodeURIComponent(runId)}/artifacts`);
+}
+
+export async function listTestTurns(runId: string) {
+  return request<TestTurn[]>(`/test-system/runs/${encodeURIComponent(runId)}/turns`);
+}
+
+export async function getTestTurnRuntimeLoop(runId: string, turnId: string) {
+  return request<Record<string, unknown>>(
+    `/test-system/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/runtime-loop`
+  );
 }
 
 export async function streamChat(

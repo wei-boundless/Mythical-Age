@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from .gate import OperationGate, OperationGateResult
+from .agent_models import AgentCapabilityProfile, AgentDescriptor, AgentLifecycleRecord
+from .agent_registry import AgentRegistry, default_agent_capabilities, default_agent_descriptors
+from .gate import (
+    ApprovalState,
+    ApprovalToken,
+    DenialTrackingState,
+    OperationGate,
+    OperationGatePipelineContext,
+    OperationGateResult,
+)
 from .policies import ResourceDecision, ResourcePolicy
 from .policy_builder import RuntimeApprovalContext, build_resource_policy_preview
 from .registry import OperationDescriptor, OperationRegistry, build_default_operation_registry
@@ -9,7 +18,15 @@ from .runtime_view import ResourceRuntimeView, build_resource_runtime_views
 
 __all__ = [
     "OperationDescriptor",
+    "AgentCapabilityProfile",
+    "AgentDescriptor",
+    "AgentLifecycleRecord",
+    "AgentRegistry",
+    "ApprovalState",
+    "ApprovalToken",
+    "DenialTrackingState",
     "OperationGate",
+    "OperationGatePipelineContext",
     "OperationGateResult",
     "OperationRegistry",
     "OperationRequirement",
@@ -18,8 +35,9 @@ __all__ = [
     "ResourceRuntimeView",
     "RuntimeApprovalContext",
     "build_default_operation_registry",
+    "default_agent_capabilities",
+    "default_agent_descriptors",
     "build_operation_requirement",
     "build_resource_policy_preview",
     "build_resource_runtime_views",
 ]
-

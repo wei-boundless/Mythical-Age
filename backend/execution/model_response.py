@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
-from operations import OperationGate, ResourceDecision, ResourcePolicy, build_default_operation_registry
 from orchestration import RuntimeDirective, build_blocked_runtime_commit_gate
 from output_boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
 from runtime.model_runtime import stringify_content
-
-
-SystemPromptBuilder = Callable[..., str]
-
 
 class ModelResponseRuntimeExecutor:
     """Directive-only executor for the current model-only runtime lane."""
@@ -19,44 +13,24 @@ class ModelResponseRuntimeExecutor:
         self,
         *,
         model_runtime,
-        system_prompt_builder: SystemPromptBuilder,
-        operation_gate: OperationGate | None = None,
     ) -> None:
         self.model_runtime = model_runtime
-        self.system_prompt_builder = system_prompt_builder
-        self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
 
     async def stream(
         self,
         *,
-        session_id: str,
         user_message: str,
-        history: list[dict[str, Any]],
-        task_operation_preview: dict[str, Any],
-        memory_intent: Any | None = None,
+        model_messages: list[Any],
+        directive: RuntimeDirective,
+        tool_instances: list[Any] | None = None,
     ):
-        directive, resource_policy = self.build_runtime_directive(task_operation_preview)
-        gate_result = self.operation_gate.check(
-            "op.model_response",
-            resource_policy=resource_policy,
-            directive_ref=directive.directive_id,
-        )
-        yield {
-            "type": "runtime_directive",
-            "directive": directive.to_dict(),
-            "resource_policy": resource_policy.to_dict(),
-        }
-        yield {
-            "type": "operation_gate",
-            "gate": gate_result.to_dict(),
-        }
-        if not gate_result.allowed:
+        if directive.executor_type != "model":
             yield {
                 "type": "error",
-                "error": gate_result.reason,
-                "content": "OperationGate 未放行模型回答，本轮停止执行。",
+                "error": "invalid_directive_executor_type",
+                "content": "模型执行器只接受 executor_type=model 的 RuntimeDirective。",
                 "answer_channel": "orchestration_fail_closed",
-                "answer_source": "operation_gate",
+                "answer_source": "runtime_directive_executor",
             }
             return
 
@@ -71,25 +45,25 @@ class ModelResponseRuntimeExecutor:
             }
             return
 
-        system_prompt = self.system_prompt_builder(
-            session_id=session_id,
-            pending_user_message=user_message,
-            memory_intent=memory_intent,
-        )
-        model_messages = [
-            {"role": "system", "content": system_prompt},
-            *[
-                {
-                    "role": str(item.get("role") or "user"),
-                    "content": str(item.get("content") or ""),
-                }
-                for item in list(history or [])
-                if str(item.get("content") or "").strip()
-            ],
-            {"role": "user", "content": user_message},
-        ]
-        response = await invoker(model_messages)
+        tools = list(tool_instances or [])
+        tool_invoker = getattr(self.model_runtime, "invoke_messages_with_tools", None)
+        if tools and callable(tool_invoker):
+            response = await tool_invoker(model_messages, tools)
+        else:
+            response = await invoker(model_messages)
         raw_content = stringify_content(getattr(response, "content", response))
+        tool_calls = _normalize_tool_calls(getattr(response, "tool_calls", None))
+        if tool_calls:
+            for tool_call in tool_calls:
+                yield {
+                    "type": "tool_call_requested",
+                    "tool_call": tool_call,
+                    "tool_name": str(tool_call.get("name") or ""),
+                    "operation_id": str(tool_call.get("name") or ""),
+                    "directive_ref": directive.directive_id,
+                    "assistant_content": raw_content,
+                }
+            return
         output_boundary = AssistantOutputBoundary()
         output_boundary.ingest_ai_update(raw_content, has_tool_calls=False)
         output_boundary.finalize_segment(fallback_content=raw_content)
@@ -152,73 +126,25 @@ class ModelResponseRuntimeExecutor:
             "legacy_query_chain_removed": True,
         }
 
-    def build_runtime_directive(
-        self,
-        task_operation_preview: dict[str, Any],
-    ) -> tuple[RuntimeDirective, ResourcePolicy]:
-        task_contract = dict(task_operation_preview.get("task_contract") or {})
-        task_id = str(task_contract.get("task_id") or "task-runtime")
-        plan_preview = dict(task_operation_preview.get("orchestration_plan_preview") or {})
-        stages = list(plan_preview.get("stages") or [])
-        stage_preview = dict(stages[0] if stages else {})
-        policy_ref = f"respol:{task_id}:model-response:runtime"
-        decision = ResourceDecision(
-            operation_id="op.model_response",
-            decision="allow",
-            reason="model-only response is the phase-1 executable lane",
-            risk_tags=("model_only", "read_only"),
+
+def _normalize_tool_calls(raw_tool_calls: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(list(raw_tool_calls or []), start=1):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "")
+        args = item.get("args")
+        if not isinstance(args, dict):
+            args = {}
+        call_id = str(item.get("id") or f"tool-call-{index}")
+        if not name:
+            continue
+        normalized.append(
+            {
+                "id": call_id,
+                "name": name,
+                "args": dict(args),
+                "type": str(item.get("type") or "tool_call"),
+            }
         )
-        resource_policy = ResourcePolicy(
-            policy_id=policy_ref,
-            task_id=task_id,
-            allowed_operations=("op.model_response",),
-            denied_operations=(),
-            requires_approval_operations=(),
-            preview_only_operations=(),
-            allowed_tools=(),
-            denied_tools=(),
-            allowed_workers=(),
-            denied_workers=(),
-            allowed_agents=(),
-            denied_agents=(),
-            memory_read_scope="context_package_preview",
-            memory_write_scope="none",
-            approval_policy="model_only",
-            preview_only=False,
-            adopted=True,
-            runtime_executable=True,
-            decisions=(decision,),
-            diagnostics={
-                "runtime_executable": True,
-                "adopted": True,
-                "model_only": True,
-                "tools_allowed": False,
-                "workers_allowed": False,
-                "memory_write_allowed": False,
-                "filesystem_write_allowed": False,
-                "legacy_query_chain_removed": True,
-            },
-        )
-        directive = RuntimeDirective(
-            directive_id=f"runtime-directive:{task_id}:model-response",
-            task_id=task_id,
-            plan_ref=str(plan_preview.get("plan_id") or f"orchplan:{task_id}").replace(":preview", ":runtime"),
-            stage_ref=str(stage_preview.get("stage_id") or f"orchstage:{task_id}:model").replace(":preview", ":runtime"),
-            executor_type="model",
-            adopted_resource_policy_ref=policy_ref,
-            operation_refs=("op.model_response",),
-            input_contract_ref=str(task_operation_preview.get("task_prompt_contract", {}).get("contract_id") or ""),
-            output_contract_ref=str(task_operation_preview.get("task_prompt_contract", {}).get("contract_id") or ""),
-            execution_graph_ref=str(
-                task_operation_preview.get("execution_graph_preview", {}).get("graph_preview_id") or ""
-            ).replace(":preview", ":runtime"),
-            runtime_executable=True,
-            diagnostics={
-                "source_preview_plan_ref": str(plan_preview.get("plan_id") or ""),
-                "source_preview_stage_ref": str(stage_preview.get("stage_id") or ""),
-                "directive_only_executor": True,
-                "model_only": True,
-                "legacy_query_chain_removed": True,
-            },
-        )
-        return directive, resource_policy
+    return normalized

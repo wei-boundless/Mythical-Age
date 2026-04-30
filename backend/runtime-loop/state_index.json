@@ -1,0 +1,1677 @@
+{
+  "task_runs": {
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:1:9dd43bb3": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:1:9dd43bb3",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:1",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:1",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501106.7395835,
+      "updated_at": 1777501112.3102026,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:1:9dd43bb3:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 17
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:3:024f9567": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:3:024f9567",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:3",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:3",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501124.451517,
+      "updated_at": 1777501137.7814214,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:3:024f9567:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 285
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:5:749a5989": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:5:749a5989",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:5",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:5",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501279.839555,
+      "updated_at": 1777501297.58605,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:5:749a5989:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 320
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:7:bf19f8ff": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:7:bf19f8ff",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:7",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:7",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501361.237309,
+      "updated_at": 1777501384.6836388,
+      "latest_event_offset": 26,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:7:bf19f8ff:25",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 258
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:9:5525e069": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:9:5525e069",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:9",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:9",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501428.804126,
+      "updated_at": 1777501452.2644074,
+      "latest_event_offset": 33,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:9:5525e069:32",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 781
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:11:e95670bb": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:11:e95670bb",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:11",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:11",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501503.2683637,
+      "updated_at": 1777501517.9093337,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:11:e95670bb:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 212
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:13:12cd9720": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:13:12cd9720",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:13",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:13",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501547.3931682,
+      "updated_at": 1777501556.5154579,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:13:12cd9720:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 121
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:15:aa3d2265": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:15:aa3d2265",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:15",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:15",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501586.369938,
+      "updated_at": 1777501602.907399,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:15:aa3d2265:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 298
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:17:c6faba33": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:17:c6faba33",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:17",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:17",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501939.9919202,
+      "updated_at": 1777501945.5814946,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:17:c6faba33:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 96
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:19:9a107fba": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:19:9a107fba",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:19",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:19",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501974.8493133,
+      "updated_at": 1777501977.7248268,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:19:9a107fba:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 10
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:21:d074935e": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:21:d074935e",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:21",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:21",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777501989.053463,
+      "updated_at": 1777502002.7373164,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:21:d074935e:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 103
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:23:2e9568bc": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:23:2e9568bc",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:23",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:23",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502034.5305483,
+      "updated_at": 1777502040.673672,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:23:2e9568bc:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 79
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:25:64ec3494": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:25:64ec3494",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:25",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:25",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502053.0903711,
+      "updated_at": 1777502059.9861267,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:25:64ec3494:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 67
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:27:8774d577": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:27:8774d577",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:27",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:27",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502080.7472,
+      "updated_at": 1777502090.729807,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:27:8774d577:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 56
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:29:602bd2f1": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:29:602bd2f1",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:29",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:29",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502150.6483996,
+      "updated_at": 1777502159.2899086,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:29:602bd2f1:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 96
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:31",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:31",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502184.751453,
+      "updated_at": 1777502197.5319855,
+      "latest_event_offset": 26,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c:25",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 109
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:33:3d13264c": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:33:3d13264c",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:33",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:33",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502239.4287245,
+      "updated_at": 1777502254.0567687,
+      "latest_event_offset": 26,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:33:3d13264c:25",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 359
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:35:24129a15": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:35:24129a15",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:35",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:35",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502296.479529,
+      "updated_at": 1777502312.9133146,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:35:24129a15:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 519
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:37:349a18e4": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:37:349a18e4",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:37",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:37",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502340.111176,
+      "updated_at": 1777502361.1749036,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:37:349a18e4:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 630
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:39:c7f10917": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:39:c7f10917",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:39",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:39",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502387.4094968,
+      "updated_at": 1777502397.9692204,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:39:c7f10917:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 172
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:41:241dbd2e": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:41:241dbd2e",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:41",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:41",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502417.2049305,
+      "updated_at": 1777502425.6284792,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:41:241dbd2e:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 90
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:43:973dff99": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:43:973dff99",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:43",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:43",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502451.2298365,
+      "updated_at": 1777502468.5300581,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:43:973dff99:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 250
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:45:de9f621e": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:45:de9f621e",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:45",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:45",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502504.842513,
+      "updated_at": 1777502516.701092,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:45:de9f621e:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 204
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:47:c13f8571": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:47:c13f8571",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:47",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:47",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502574.5697765,
+      "updated_at": 1777502586.4142761,
+      "latest_event_offset": 26,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:47:c13f8571:25",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 273
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:49:0d4c59d9": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:49:0d4c59d9",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:49",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:49",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502607.824417,
+      "updated_at": 1777502635.567551,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:49:0d4c59d9:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 976
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:51:a613312d": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:51:a613312d",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:51",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:51",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502779.5155401,
+      "updated_at": 1777502800.3704424,
+      "latest_event_offset": 43,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:51:a613312d:42",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 398
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:53",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:53",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502824.9554138,
+      "updated_at": 1777502831.0660286,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 95
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:55:64dc1bac": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:55:64dc1bac",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:55",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:55",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502859.387156,
+      "updated_at": 1777502871.4204166,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:55:64dc1bac:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 230
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:57:fb49b418": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:57:fb49b418",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:57",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:57",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777502979.5589743,
+      "updated_at": 1777503008.0967782,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:57:fb49b418:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 1226
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:59:28ac5091": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:59:28ac5091",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:59",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:59",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503187.1207235,
+      "updated_at": 1777503197.1633732,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:59:28ac5091:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 152
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:61:9d69b29c": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:61:9d69b29c",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:61",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:61",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503298.8060193,
+      "updated_at": 1777503309.2902262,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:61:9d69b29c:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 18
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:63:51937ad1": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:63:51937ad1",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:63",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:63",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503344.1193454,
+      "updated_at": 1777503357.8396335,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:63:51937ad1:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 190
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:97a5caad": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:97a5caad",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777503354.624549,
+      "updated_at": 1777503354.6482894,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:97a5caad:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:65:6bdc47af": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:65:6bdc47af",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:65",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:65",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503386.7730207,
+      "updated_at": 1777503409.8107445,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:65:6bdc47af:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 244
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:67:2af075b4": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:67:2af075b4",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:67",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:67",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503458.2806904,
+      "updated_at": 1777503545.4711225,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:67:2af075b4:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 1194
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:d254c481": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:d254c481",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777503461.8179858,
+      "updated_at": 1777503462.6630833,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:d254c481:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:69:7ece73a7": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:69:7ece73a7",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:69",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:69",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503614.174297,
+      "updated_at": 1777503655.43685,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:69:7ece73a7:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 417
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:71",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:71",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503708.6070464,
+      "updated_at": 1777503725.230017,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 260
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:73:c86cc090": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:73:c86cc090",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:73",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:73",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503802.7898357,
+      "updated_at": 1777503830.902957,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:73:c86cc090:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 451
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:75:30bded65": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:75:30bded65",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:75",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:75",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503870.1729648,
+      "updated_at": 1777503881.8912332,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:75:30bded65:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 74
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:fb2ca9f7": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:fb2ca9f7",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777503901.4392915,
+      "updated_at": 1777503901.4530501,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:fb2ca9f7:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:6286daad": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:6286daad",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777503948.926923,
+      "updated_at": 1777503948.9391322,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:6286daad:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:77:b88c8250": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:77:b88c8250",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:77",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:77",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777503994.6698916,
+      "updated_at": 1777504009.9894428,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:77:b88c8250:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 378
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:58c52d71": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:58c52d71",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504038.1715903,
+      "updated_at": 1777504038.1837738,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:58c52d71:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:79:ab56be39": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:79:ab56be39",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:79",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:79",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777504051.1962502,
+      "updated_at": 1777504071.7152338,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:79:ab56be39:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 494
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:81:d58f8bf3": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:81:d58f8bf3",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:81",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504112.9251864,
+      "updated_at": 1777504112.9449344,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:81:d58f8bf3:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:45c1110a": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:45c1110a",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504124.5802119,
+      "updated_at": 1777504124.6025434,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:45c1110a:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:82:76ca1b3b": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:82:76ca1b3b",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:82",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:82",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777504232.5914803,
+      "updated_at": 1777504249.0222588,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:82:76ca1b3b:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 506
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:ad4bb180": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:ad4bb180",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504256.2934768,
+      "updated_at": 1777504256.308806,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:ad4bb180:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:84:3f1e8584": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:84:3f1e8584",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:84",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:84",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777504280.878329,
+      "updated_at": 1777504296.3817885,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:84:3f1e8584:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 171
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:1850aae5": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:1850aae5",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504284.365083,
+      "updated_at": 1777504284.3804247,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:1850aae5:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:86:3da21b7d": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:86:3da21b7d",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:86",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:86",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777504365.2923295,
+      "updated_at": 1777504495.0255046,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:86:3da21b7d:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 1054
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:88:8fd42842": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:88:8fd42842",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:88",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:88",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777504535.9243686,
+      "updated_at": 1777504543.1758246,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:88:8fd42842:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 97
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:96ed48df": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:96ed48df",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504637.3524492,
+      "updated_at": 1777504637.37076,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:96ed48df:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:90:082a1fe3": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:90:082a1fe3",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:90",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:90",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777504646.8402386,
+      "updated_at": 1777504680.0789025,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:90:082a1fe3:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 630
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:f6f200c9": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:f6f200c9",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504664.816452,
+      "updated_at": 1777504664.8301754,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:f6f200c9:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:e416b8ce": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:e416b8ce",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504664.828608,
+      "updated_at": 1777504664.8455086,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:e416b8ce:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:17e29c6b": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:17e29c6b",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504761.279905,
+      "updated_at": 1777504761.3074937,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:17e29c6b:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:92:203f420e": {
+      "task_run_id": "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:92:203f420e",
+      "session_id": "162c6a0d3d854b05ab45d36172d67b4d",
+      "task_id": "turn:162c6a0d3d854b05ab45d36172d67b4d:92",
+      "task_contract_ref": "turn:162c6a0d3d854b05ab45d36172d67b4d:92",
+      "owner_agent_seat_id": "main",
+      "status": "completed",
+      "created_at": 1777504769.893379,
+      "updated_at": 1777504780.8900335,
+      "latest_event_offset": 19,
+      "latest_checkpoint_ref": "rtchk:taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:92:203f420e:18",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "final_content_chars": 125
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:37aff232": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:37aff232",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "",
+      "owner_agent_seat_id": "main",
+      "status": "running",
+      "created_at": 1777504934.5027764,
+      "updated_at": 1777504934.5225844,
+      "latest_event_offset": 2,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:37aff232:1",
+      "terminal_reason": "",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 120.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        }
+      },
+      "authority": "orchestration.task_run"
+    }
+  },
+  "sessions": {
+    "162c6a0d3d854b05ab45d36172d67b4d": [
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:1:9dd43bb3",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:3:024f9567",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:5:749a5989",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:7:bf19f8ff",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:9:5525e069",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:11:e95670bb",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:13:12cd9720",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:15:aa3d2265",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:17:c6faba33",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:19:9a107fba",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:21:d074935e",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:23:2e9568bc",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:25:64ec3494",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:27:8774d577",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:29:602bd2f1",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:31:2b61b53c",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:33:3d13264c",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:35:24129a15",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:37:349a18e4",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:39:c7f10917",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:41:241dbd2e",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:43:973dff99",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:45:de9f621e",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:47:c13f8571",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:49:0d4c59d9",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:51:a613312d",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:53:6b04312f",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:55:64dc1bac",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:57:fb49b418",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:59:28ac5091",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:61:9d69b29c",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:63:51937ad1",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:65:6bdc47af",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:67:2af075b4",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:69:7ece73a7",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:71:64458c3b",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:73:c86cc090",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:75:30bded65",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:77:b88c8250",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:79:ab56be39",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:81:d58f8bf3",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:82:76ca1b3b",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:84:3f1e8584",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:86:3da21b7d",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:88:8fd42842",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:90:082a1fe3",
+      "taskrun:162c6a0d3d854b05ab45d36172d67b4d:turn:162c6a0d3d854b05ab45d36172d67b4d:92:203f420e"
+    ],
+    "session-runtime-directive": [
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:97a5caad",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:d254c481",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:fb2ca9f7",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:6286daad",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:58c52d71",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:45c1110a",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:ad4bb180",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:1850aae5",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:96ed48df",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:f6f200c9",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:e416b8ce",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:17e29c6b",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:37aff232"
+    ]
+  },
+  "updated_at": 1777504934.5317261
+}
