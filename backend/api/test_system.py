@@ -13,6 +13,7 @@ router = APIRouter()
 
 class StartTestRunRequest(BaseModel):
     profile: str
+    scenario_ids: list[str] = []
 
 
 class CreateTestIssueRequest(BaseModel):
@@ -48,6 +49,24 @@ class CreateTestCaseDraftRequest(BaseModel):
     status: str = "draft"
 
 
+class CreateManagedTestCaseRequest(BaseModel):
+    case_id: str = ""
+    title: str
+    layer: str = "functional"
+    path: str = ""
+    owner_system: str = "test_system"
+    runner: str = "pytest"
+    status: str = "candidate"
+    profiles: list[str] | str = []
+    description: str = ""
+    problem_statement: str = ""
+    pass_criteria: list[str] | str = []
+    scenario_turns: list[dict[str, Any]] = []
+    assertions: list[str] | str = []
+    tags: list[str] | str = []
+    source_template_id: str = ""
+
+
 @router.get("/test-system/profiles")
 async def list_test_profiles() -> list[dict[str, Any]]:
     return test_system_service.profiles()
@@ -68,6 +87,21 @@ async def get_test_harness_records() -> dict[str, Any]:
     return test_system_service.harness_records()
 
 
+@router.get("/test-system/harness-map")
+async def get_test_harness_map() -> dict[str, Any]:
+    return test_system_service.harness_map()
+
+
+@router.get("/test-system/case-templates")
+async def get_test_case_templates() -> dict[str, Any]:
+    return test_system_service.case_templates()
+
+
+@router.get("/test-system/long-scenarios")
+async def list_long_scenarios() -> dict[str, Any]:
+    return test_system_service.long_scenarios()
+
+
 @router.post("/test-system/issues")
 async def create_test_issue(payload: CreateTestIssueRequest) -> dict[str, Any]:
     return test_system_service.create_issue(payload.model_dump())
@@ -78,6 +112,19 @@ async def create_test_case_draft(payload: CreateTestCaseDraftRequest) -> dict[st
     return test_system_service.create_case_draft(payload.model_dump())
 
 
+@router.post("/test-system/managed-cases")
+async def create_managed_test_case(payload: CreateManagedTestCaseRequest) -> dict[str, Any]:
+    return test_system_service.create_managed_case(payload.model_dump())
+
+
+@router.delete("/test-system/managed-cases/{case_id}")
+async def delete_managed_test_case(case_id: str) -> dict[str, Any]:
+    try:
+        return test_system_service.delete_managed_case(case_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/test-system/runs")
 async def list_test_runs(limit: int = 20) -> list[dict[str, Any]]:
     return test_system_service.list_runs(limit=max(1, min(int(limit or 20), 100)))
@@ -86,7 +133,7 @@ async def list_test_runs(limit: int = 20) -> list[dict[str, Any]]:
 @router.post("/test-system/runs")
 async def start_test_run(payload: StartTestRunRequest) -> dict[str, Any]:
     try:
-        return test_system_service.start(payload.profile)
+        return test_system_service.start(payload.profile, scenario_ids=payload.scenario_ids)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:

@@ -1,0 +1,148 @@
+The user aborted a request.
+
+Retrying 1/3...
+The user aborted a request.
+
+Retrying 1/3...
+The user aborted a request.
+
+Retrying 1/3...
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\client-development\3.pack.gz_' -> 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\client-development\3.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: invalid block type
+ ⨯ TypeError: Cannot read properties of undefined (reading 'call')
+    at Object.__webpack_require__ [as require] (D:\AI应用\langchain-agent\frontend\.next\server\webpack-runtime.js:33:43)
+digest: "1307511134"
+TypeError: Cannot read properties of undefined (reading 'call')
+    at Object.__webpack_require__ [as require] (D:\AI应用\langchain-agent\frontend\.next\server\webpack-runtime.js:33:43)
+    at require (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:39:20088)
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108280
+    at eo (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108465)
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:110694
+    at Object._fromJSON (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:111250)
+    at JSON.parse (<anonymous>)
+    at eu (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108959)
+    at en (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108027)
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115169
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115186
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115219
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115236
+    at t (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115459)
+ ⨯ TypeError: Cannot read properties of undefined (reading 'call')
+    at Object.__webpack_require__ [as require] (D:\AI应用\langchain-agent\frontend\.next\server\webpack-runtime.js:33:43)
+    at require (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:39:20088)
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108280
+    at eo (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108465)
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:110694
+    at Object._fromJSON (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:111250)
+    at JSON.parse (<anonymous>)
+    at eu (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108959)
+    at en (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:108027)
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115169
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115186
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115219
+    at D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115236
+    at t (D:\AI应用\langchain-agent\frontend\node_modules\next\dist\compiled\next-server\app-page.runtime.dev.js:35:115459) {
+  page: '/'
+}
+ ⨯ ./src/components/health/HealthTraceTimeline.tsx
+Error: 
+  [31mx[0m Expression expected
+     ,-[[36;1;4mD:\AI应用\langchain-agent\frontend\src\components\health\HealthTraceTimeline.tsx[0m:237:1]
+ [2m237[0m |     </div>
+ [2m238[0m |   );
+ [2m239[0m | }
+ [2m240[0m |             </div>
+     : [31;1m             ^[0m
+ [2m241[0m |           </article>
+ [2m242[0m |         );
+ [2m243[0m |       })}
+     `----
+
+  [31mx[0m Expression expected
+     ,-[[36;1;4mD:\AI应用\langchain-agent\frontend\src\components\health\HealthTraceTimeline.tsx[0m:237:1]
+ [2m237[0m |     </div>
+ [2m238[0m |   );
+ [2m239[0m | }
+ [2m240[0m |             </div>
+     : [31;1m              ^^^[0m
+ [2m241[0m |           </article>
+ [2m242[0m |         );
+ [2m243[0m |       })}
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/health/HealthTraceTimeline.tsx
+./src/components/workspace/views/HealthSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/health/HealthTraceTimeline.tsx
+Error: 
+  [31mx[0m Expression expected
+     ,-[[36;1;4mD:\AI应用\langchain-agent\frontend\src\components\health\HealthTraceTimeline.tsx[0m:237:1]
+ [2m237[0m |     </div>
+ [2m238[0m |   );
+ [2m239[0m | }
+ [2m240[0m |             </div>
+     : [31;1m             ^[0m
+ [2m241[0m |           </article>
+ [2m242[0m |         );
+ [2m243[0m |       })}
+     `----
+
+  [31mx[0m Expression expected
+     ,-[[36;1;4mD:\AI应用\langchain-agent\frontend\src\components\health\HealthTraceTimeline.tsx[0m:237:1]
+ [2m237[0m |     </div>
+ [2m238[0m |   );
+ [2m239[0m | }
+ [2m240[0m |             </div>
+     : [31;1m              ^^^[0m
+ [2m241[0m |           </article>
+ [2m242[0m |         );
+ [2m243[0m |       })}
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/health/HealthTraceTimeline.tsx
+./src/components/workspace/views/HealthSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/health/HealthTraceTimeline.tsx
+Error: 
+  [31mx[0m Expression expected
+     ,-[[36;1;4mD:\AI应用\langchain-agent\frontend\src\components\health\HealthTraceTimeline.tsx[0m:237:1]
+ [2m237[0m |     </div>
+ [2m238[0m |   );
+ [2m239[0m | }
+ [2m240[0m |             </div>
+     : [31;1m             ^[0m
+ [2m241[0m |           </article>
+ [2m242[0m |         );
+ [2m243[0m |       })}
+     `----
+
+  [31mx[0m Expression expected
+     ,-[[36;1;4mD:\AI应用\langchain-agent\frontend\src\components\health\HealthTraceTimeline.tsx[0m:237:1]
+ [2m237[0m |     </div>
+ [2m238[0m |   );
+ [2m239[0m | }
+ [2m240[0m |             </div>
+     : [31;1m              ^^^[0m
+ [2m241[0m |           </article>
+ [2m242[0m |         );
+ [2m243[0m |       })}
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/components/health/HealthTraceTimeline.tsx
+./src/components/workspace/views/HealthSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx

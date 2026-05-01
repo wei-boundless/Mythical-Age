@@ -16,6 +16,10 @@ class PermissionModeRequest(BaseModel):
     mode: str
 
 
+class ContextBudgetPresetRequest(BaseModel):
+    preset_id: str
+
+
 @router.get("/config/rag-mode")
 async def get_rag_mode() -> dict[str, bool]:
     runtime = require_runtime()
@@ -46,3 +50,16 @@ async def set_permission_mode(payload: PermissionModeRequest) -> dict[str, objec
         "mode": str(config["permission_mode"]),
         "supported_modes": runtime.permission_service.supported_modes(),
     }
+
+
+@router.get("/config/context-budget")
+async def get_context_budget() -> dict[str, object]:
+    runtime = require_runtime()
+    return runtime.settings.context_budget_payload()
+
+
+@router.put("/config/context-budget")
+async def set_context_budget(payload: ContextBudgetPresetRequest) -> dict[str, object]:
+    runtime = require_runtime()
+    runtime.settings.set_context_budget_preset(payload.preset_id)
+    return runtime.settings.context_budget_payload()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from .assertions import evaluate_turn_assertions
 from .agent import test_agent_advisor
 from .case_registry import case_registry_payload
 from .contracts import TestArtifactBundle, TestRunState, TestRunSummary, TestTurn
+from .harness_map import build_harness_map
 from .harness_records import harness_record_store
 from .profiles import list_profiles
 from .runtime_loop_probe import runtime_loop_summary_from_turn_payload
@@ -37,11 +39,76 @@ class TestSystemService:
     def harness_records(self) -> dict[str, Any]:
         return harness_record_store.load().to_dict()
 
+    def case_templates(self) -> dict[str, Any]:
+        return {
+            "authority": "test_system.case_templates",
+            "templates": [item.to_dict() for item in harness_record_store.templates()],
+        }
+
+    def long_scenarios(self) -> dict[str, Any]:
+        try:
+            from tests.conversation_scenario_catalog import SCENARIOS as catalog_scenarios
+            from tests.system_eval.long_scenarios import SCENARIO_SETS, scenario_map
+        except ImportError:
+            return {"authority": "test_system.long_scenarios", "scenarios": [], "scenario_sets": {}}
+
+        runner_scenarios = scenario_map()
+        scenario_sets = {key: list(value) for key, value in SCENARIO_SETS.items()}
+        set_index: dict[str, list[str]] = {}
+        for set_name, scenario_ids in scenario_sets.items():
+            for scenario_id in scenario_ids:
+                set_index.setdefault(scenario_id, []).append(set_name)
+
+        rows: list[dict[str, Any]] = []
+        for scenario in catalog_scenarios:
+            runner = runner_scenarios.get(scenario.id)
+            turns = runner.turns if runner is not None else scenario.turns
+            profile_refs = _profiles_for_scenario_sets(set_index.get(scenario.id, []))
+            rows.append(
+                {
+                    "scenario_id": scenario.id,
+                    "title": scenario.title,
+                    "category": scenario.category,
+                    "execution_mode": scenario.execution_mode,
+                    "goal": scenario.goal,
+                    "coverage": list(scenario.coverage),
+                    "assertions": list(scenario.assertions),
+                    "failure_modes": list(scenario.failure_modes),
+                    "expected_artifacts": list(scenario.expected_artifacts),
+                    "related_regressions": list(scenario.related_regressions),
+                    "scenario_sets": set_index.get(scenario.id, []),
+                    "profile_refs": profile_refs,
+                    "turns": [_long_scenario_turn(index, turn) for index, turn in enumerate(turns, start=1)],
+                    "stress_profile": _dataclass_payload(scenario.stress_profile),
+                    "runner_source": "tests.system_eval.long_scenarios" if runner is not None else "tests.conversation_scenario_catalog",
+                }
+            )
+        return {
+            "authority": "test_system.long_scenarios",
+            "scenario_sets": scenario_sets,
+            "scenarios": rows,
+        }
+
+    def harness_map(self) -> dict[str, Any]:
+        return build_harness_map(
+            records=harness_record_store.load(),
+            agent_report=self.agent_report(),
+        )
+
     def create_issue(self, payload: dict[str, Any]) -> dict[str, Any]:
         return harness_record_store.create_issue(payload).to_dict()
 
     def create_case_draft(self, payload: dict[str, Any]) -> dict[str, Any]:
         return harness_record_store.create_case_draft(payload).to_dict()
+
+    def create_managed_case(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return harness_record_store.create_managed_case(payload).to_dict()
+
+    def delete_managed_case(self, case_id: str) -> dict[str, Any]:
+        deleted = harness_record_store.delete_managed_case(case_id)
+        if not deleted:
+            raise ValueError("Managed test case not found")
+        return {"ok": True, "case_id": case_id, "authority": "test_system.managed_cases"}
 
     def list_runs(self, *, limit: int = 20) -> list[dict[str, Any]]:
         return [
@@ -49,8 +116,10 @@ class TestSystemService:
             for state in experiment_runner.list_runs(limit=limit)
         ]
 
-    def start(self, profile_id: str) -> dict[str, Any]:
-        return self._state_from_experiment_state(experiment_runner.start(profile_id)).to_dict()
+    def start(self, profile_id: str, *, scenario_ids: list[str] | None = None) -> dict[str, Any]:
+        return self._state_from_experiment_state(
+            experiment_runner.start(profile_id, scenario_ids=scenario_ids)
+        ).to_dict()
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return self._state_from_experiment_state(experiment_runner.get_run(run_id)).to_dict()
@@ -220,6 +289,44 @@ def _find_turn_path(output_dir: Path, turn_id: str) -> Path | None:
         if path.stem == normalized:
             return path
     return None
+
+
+def _profiles_for_scenario_sets(scenario_sets: list[str]) -> list[str]:
+    profiles: list[str] = []
+    if "core" in scenario_sets:
+        profiles.append("long_core")
+    if "batches" in scenario_sets or "extended" in scenario_sets:
+        profiles.append("long_batches")
+    if "mega" in scenario_sets:
+        profiles.append("marathon")
+    return profiles or ["long_core"]
+
+
+def _long_scenario_turn(index: int, turn: Any) -> dict[str, Any]:
+    speaker = str(getattr(turn, "speaker", "user") or "user")
+    session = str(getattr(turn, "session", "") or "")
+    action = getattr(turn, "action", None)
+    content = str(getattr(turn, "content", "") or "")
+    checks = [str(item) for item in list(getattr(turn, "checks", None) or getattr(turn, "checkpoints", None) or [])]
+    params = getattr(turn, "params", None)
+    return {
+        "turn_id": f"turn-{index}",
+        "index": index,
+        "session": session,
+        "speaker": speaker,
+        "content": content or (str(action) if action else ""),
+        "action": str(action or ""),
+        "params": dict(params or {}) if isinstance(params, dict) else {},
+        "checks": checks,
+    }
+
+
+def _dataclass_payload(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if is_dataclass(value):
+        return dict(asdict(value))
+    return dict(value) if isinstance(value, dict) else None
 
 
 test_system_service = TestSystemService()

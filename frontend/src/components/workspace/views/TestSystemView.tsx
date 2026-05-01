@@ -844,7 +844,7 @@ export function TestSystemView() {
                     <article key={issue.id}>
                       <span>{issue.origin} · {issue.severity}</span>
                       <strong>{issue.title}</strong>
-                      <p>{issue.summary}</p>
+                      <p>{String(issue.summary || "")}</p>
                     </article>
                   ))}
                 </div>
@@ -992,7 +992,7 @@ export function TestSystemView() {
                   <div className="test-normalized-item" key={issue.id}>
                     <span>{issue.origin} · {issue.system} · {issue.severity}</span>
                     <strong>{issue.title}</strong>
-                    <p>{issue.summary}</p>
+                    <p>{String(issue.summary || "")}</p>
                     {issue.expected ? <em>期望：{issue.expected}</em> : null}
                   </div>
                 )) : (

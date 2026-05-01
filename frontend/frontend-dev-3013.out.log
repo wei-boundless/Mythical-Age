@@ -1,0 +1,9 @@
+
+> mini-openclaw-frontend@0.1.0 dev
+> next dev -p 3000 -p 3013
+
+  ▲ Next.js 14.2.32
+  - Local:        http://localhost:3013
+
+ ✓ Starting...
+ ✓ Ready in 2.6s

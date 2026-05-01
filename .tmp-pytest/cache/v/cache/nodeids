@@ -1,0 +1,9 @@
+[
+  "backend/tests/test_system_agent_regression.py::test_test_agent_exposes_profile_targets_from_case_registry",
+  "backend/tests/test_system_agent_regression.py::test_test_agent_reports_registry_and_orphan_files",
+  "backend/tests/test_system_case_registry_regression.py::test_active_registered_test_files_exist",
+  "backend/tests/test_system_case_registry_regression.py::test_case_registry_has_required_layers_and_profiles",
+  "backend/tests/test_system_case_registry_regression.py::test_harness_map_includes_front_managed_cases",
+  "backend/tests/test_system_case_registry_regression.py::test_harness_map_makes_cases_traceable_to_features_and_pass_criteria",
+  "backend/tests/test_system_case_registry_regression.py::test_legacy_cases_have_been_removed_from_curated_registry"
+]

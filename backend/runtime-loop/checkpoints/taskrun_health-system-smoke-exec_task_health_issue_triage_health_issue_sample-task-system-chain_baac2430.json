@@ -1,0 +1,141 @@
+{
+  "checkpoint_id": "rtchk:taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430:15",
+  "task_run_id": "taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430",
+  "event_offset": 15,
+  "loop_state": {
+    "task_run_id": "taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 1,
+    "current_step_id": "",
+    "agent_id": "agent:health:maintainer",
+    "agent_profile_id": "health_maintainer_agent",
+    "runtime_lane": "health_issue_read",
+    "task_agent_binding_ref": "binding:flow.health.issue_triage:agent:health:maintainer",
+    "skill_workflow_ref": "workflow.health.issue_triage",
+    "health_issue_ref": "health:issue:sample-task-system-chain",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctx:taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430",
+    "memory_state_ref": "health-memory-view:health:issue:sample-task-system-chain:issue_triage",
+    "projection_ref": "projection:xuannv__health_maintainer:7bc45be48155",
+    "prompt_manifest_ref": "prompt-manifest:projection:xuannv__health_maintainer:7bc45be48155",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {},
+    "compaction_state": {},
+    "result_refs": [
+      "health_issue:health:issue:sample-task-system-chain",
+      "projection:projection:xuannv__health_maintainer:7bc45be48155",
+      "prompt_manifest:prompt-manifest:projection:xuannv__health_maintainer:7bc45be48155",
+      "health-result:taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430"
+    ],
+    "commit_state": {
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430",
+            "task_id": "task.health.issue_triage:health:issue:sample-task-system-chain",
+            "terminal_reason": "completed",
+            "final_content_chars": 97
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "health_result_recorded": true
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 120.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "health_system_agent_run": true,
+      "health_issue_title": "任务系统链路权限样例问题",
+      "health_issue_source": "system_bootstrap",
+      "health_run_source": "codex_fake_executor_smoke",
+      "task_mode": "issue_triage",
+      "flow_id": "flow.health.issue_triage",
+      "projection_template_id": "xuannv__health_maintainer",
+      "output_contract_id": "HealthTriageResult",
+      "memory_scope": "issue_local_readonly",
+      "projection_instance_built": true,
+      "projection_preview_only": false,
+      "prompt_manifest_id": "prompt-manifest:projection:xuannv__health_maintainer:7bc45be48155",
+      "health_agent_model_executed": true,
+      "final_content_chars": 97
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctx:taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430",
+  "prompt_manifest_ref": "prompt-manifest:projection:xuannv__health_maintainer:7bc45be48155",
+  "approval_state": {},
+  "commit_state": {
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:health-system-smoke-exec:task.health.issue_triage:health:issue:sample-task-system-chain:baac2430",
+          "task_id": "task.health.issue_triage:health:issue:sample-task-system-chain",
+          "terminal_reason": "completed",
+          "final_content_chars": 97
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "health_result_recorded": true
+  },
+  "created_at": 1777515519.8473961,
+  "checksum": "aeab8e05685b7c85abcc93b402f2ae75897970a611896d24342fd6ef0a404380",
+  "authority": "orchestration.runtime_checkpoint"
+}

@@ -2,7 +2,7 @@
 
 import {
   BrainCircuit,
-  FlaskConical,
+  HeartPulse,
   MessageSquare,
   Network,
   Sparkles,
@@ -47,10 +47,10 @@ const railGroups = [
         view: "memory"
       },
       {
-        icon: FlaskConical,
-        label: "测试系统",
-        description: "运行回归、长场景与可视化 debug 实验",
-        view: "test-system"
+        icon: HeartPulse,
+        label: "健康系统",
+        description: "验证运行、问题处理、链路证据和技术报告",
+        view: "health-system"
       },
       {
         icon: Wrench,

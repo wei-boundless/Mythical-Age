@@ -174,8 +174,12 @@ class TaskRunLoop:
                 "agent_id": agent_id,
                 "agent_profile_id": agent_profile_id,
                 "runtime_lane": runtime_lane,
+                "task_agent_binding_ref": task_agent_binding_ref,
+                "skill_workflow_ref": skill_workflow_ref,
+                "health_issue_ref": health_issue_ref,
                 "multi_agent_enabled": False,
                 "loop_limits": self.limits.to_dict(),
+                **dict(diagnostics or {}),
             },
         )
         self.state_index.upsert_task_run(task_run)

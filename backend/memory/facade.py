@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from context_policy import build_context_package_preview
 from context_management import ContextPackage
+from context_management.budget_presets import get_context_budget_preset
 from memory.durable import DurableMemoryLayer
 from memory.messages import MemoryMessageAdapter
 from memory.session import SessionMemoryLayer
@@ -57,10 +58,11 @@ def _render_context_package_for_legacy_block(
 
 
 class MemoryFacade:
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, base_dir: Path, context_budget_provider: Callable[[], dict[str, Any]] | None = None) -> None:
         self.base_dir = base_dir
+        self._context_budget_provider = context_budget_provider
         self.adapter = MemoryMessageAdapter()
-        self.session_memory = SessionMemoryLayer(base_dir)
+        self.session_memory = SessionMemoryLayer(base_dir, context_budget_provider=context_budget_provider)
         self.durable_memory = DurableMemoryLayer(base_dir)
         self.memory_manager = self.durable_memory.memory_manager
         self.extractor = self.durable_memory.extractor
@@ -219,10 +221,11 @@ class MemoryFacade:
         relevant_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
-        available_context_tokens: int = 6_000,
-        reserved_output_tokens: int = 1_200,
-        long_term_token_cap: int = 1_000,
+        available_context_tokens: int | None = None,
+        reserved_output_tokens: int | None = None,
+        long_term_token_cap: int | None = None,
     ):
+        budget = self._context_budget()
         memory_view = self.build_memory_runtime_view(
             session_id=session_id,
             query=query,
@@ -234,9 +237,9 @@ class MemoryFacade:
             memory_view,
             rebuild_reason="memory_facade_context_package_preview",
             retrieval_results=retrieval_results,
-            available_context_tokens=available_context_tokens,
-            reserved_output_tokens=reserved_output_tokens,
-            long_term_token_cap=long_term_token_cap,
+            available_context_tokens=available_context_tokens if available_context_tokens is not None else int(budget["available_context_tokens"]),
+            reserved_output_tokens=reserved_output_tokens if reserved_output_tokens is not None else int(budget["reserved_output_tokens"]),
+            long_term_token_cap=long_term_token_cap if long_term_token_cap is not None else int(budget["long_term_token_cap"]),
         )
 
     def build_memory_compaction_preview(
@@ -493,6 +496,9 @@ class MemoryFacade:
             memory_view,
             rebuild_reason="legacy_inspect_query_context_preview",
             retrieval_results=retrieval_results,
+            available_context_tokens=int(self._context_budget()["available_context_tokens"]),
+            reserved_output_tokens=int(self._context_budget()["reserved_output_tokens"]),
+            long_term_token_cap=int(self._context_budget()["long_term_token_cap"]),
         )
         return {
             "memory_runtime_view": memory_view.to_dict(),
@@ -501,6 +507,16 @@ class MemoryFacade:
             "legacy_inspection": False,
             "preview_only": True,
         }
+
+    def _context_budget(self) -> dict[str, Any]:
+        if self._context_budget_provider is not None:
+            try:
+                payload = dict(self._context_budget_provider())
+                if payload:
+                    return payload
+            except Exception:
+                pass
+        return get_context_budget_preset("deepseek_1m").to_dict()
 
     def prefetch_relevant_notes(
         self,

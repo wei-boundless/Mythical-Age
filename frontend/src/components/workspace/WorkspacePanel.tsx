@@ -2,11 +2,11 @@
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ExperimentsView } from "@/components/workspace/views/ExperimentsView";
+import { HealthSystemView } from "@/components/workspace/views/HealthSystemView";
 import { MemoryView } from "@/components/workspace/views/MemoryView";
 import { OperationsView } from "@/components/workspace/views/OperationsView";
 import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
 import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
-import { TestSystemView } from "@/components/workspace/views/TestSystemView";
 import { useAppStore } from "@/lib/store";
 
 export function WorkspacePanel() {
@@ -18,7 +18,8 @@ export function WorkspacePanel() {
 
   const views = {
     memory: <MemoryView />,
-    "test-system": <TestSystemView />,
+    "test-system": <HealthSystemView />,
+    "health-system": <HealthSystemView />,
     operations: <OperationsView />,
     evidence: <OperationsView initialPanel="agents" />,
     "task-system": <TaskSystemView />,

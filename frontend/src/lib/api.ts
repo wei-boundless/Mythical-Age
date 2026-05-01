@@ -197,15 +197,123 @@ export type TestCaseDraft = {
   updated_at: number;
 };
 
+export type TestCaseTemplate = {
+  template_id: string;
+  title: string;
+  layer: string;
+  owner_system: string;
+  runner: string;
+  profiles: string[];
+  assertions: string[];
+  tags: string[];
+  description: string;
+  pass_criteria: string[];
+};
+
+export type ScenarioTurnDefinition = {
+  turn_id: string;
+  user: string;
+  expected: string;
+  assistant_hint?: string;
+  speaker?: string;
+  session?: string;
+  checks?: string[];
+};
+
+export type LongScenarioTurn = {
+  turn_id: string;
+  index: number;
+  session: string;
+  speaker: string;
+  content: string;
+  action: string;
+  params: Record<string, unknown>;
+  checks: string[];
+};
+
+export type LongScenarioDefinition = {
+  scenario_id: string;
+  title: string;
+  category: string;
+  execution_mode: string;
+  goal: string;
+  coverage: string[];
+  assertions: string[];
+  failure_modes: string[];
+  expected_artifacts: string[];
+  related_regressions: string[];
+  scenario_sets: string[];
+  profile_refs: string[];
+  turns: LongScenarioTurn[];
+  stress_profile?: Record<string, unknown> | null;
+  runner_source: string;
+};
+
+export type LongScenarioCatalog = {
+  authority: string;
+  scenario_sets: Record<string, string[]>;
+  scenarios: LongScenarioDefinition[];
+};
+
 export type TestHarnessRecords = {
   issues: TestHarnessIssue[];
   case_drafts: TestCaseDraft[];
+  managed_cases: HarnessMapCase[];
   summary: {
     issue_count: number;
     open_issue_count: number;
     case_draft_count: number;
+    managed_case_count?: number;
   };
   authority: string;
+};
+
+export type HarnessMapFeature = {
+  feature_id: string;
+  title: string;
+  owner_system: string;
+  boundary: string;
+  case_count: number;
+  active_case_count: number;
+  candidate_case_count: number;
+  legacy_case_count: number;
+  open_issue_count: number;
+  governance_finding_count: number;
+  case_ids: string[];
+  case_paths: string[];
+  issue_refs: Array<Record<string, unknown>>;
+  risk_status: string;
+};
+
+export type HarnessMapCase = TestCaseDefinition & {
+  feature_id: string;
+  feature_title: string;
+  feature_boundary: string;
+  behavior_under_test: string;
+  problem_statement: string;
+  pass_criteria: string[];
+  scenario_turns?: ScenarioTurnDefinition[];
+  issue_refs: Array<Record<string, unknown>>;
+  case_draft_refs: Array<Record<string, unknown>>;
+  governance_findings: Array<Record<string, unknown>>;
+  traceability: Record<string, unknown>;
+};
+
+export type HarnessMap = {
+  authority: string;
+  summary: Record<string, number>;
+  features: HarnessMapFeature[];
+  cases: HarnessMapCase[];
+  issues: TestHarnessIssue[];
+  case_drafts: TestCaseDraft[];
+  governance_findings: Array<Record<string, unknown>>;
+  managed_cases: HarnessMapCase[];
+  profile_matrix: Array<{
+    profile: string;
+    case_count: number;
+    case_ids: string[];
+  }>;
+  link_contract: Record<string, string>;
 };
 
 export type TaskSystemOverview = {
@@ -244,9 +352,123 @@ export type ProjectionTemplateCatalog = {
 export type HealthSystemOverview = {
   authority: string;
   summary: Record<string, number>;
-  issues: Array<Record<string, unknown>>;
-  agent_runs: Array<Record<string, unknown>>;
-  problem_nodes: Array<Record<string, unknown>>;
+  issues: HealthIssue[];
+  agent_runs: HealthAgentRun[];
+  problem_nodes: HealthProblemNode[];
+};
+
+export type HealthWorkbenchInboxItem = {
+  item_id: string;
+  item_type: string;
+  title: string;
+  subject_type: "health_issue" | "verification_run" | string;
+  subject_id: string;
+  subject_title: string;
+  severity: string;
+  reason: string;
+  primary_action: string;
+  secondary_actions: string[];
+  evidence_state: "linked" | "missing" | string;
+  created_at?: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type HealthWorkbenchOverview = {
+  authority: string;
+  summary: Record<string, number>;
+  inbox_items: HealthWorkbenchInboxItem[];
+  selected_context: HealthWorkbenchInboxItem | Record<string, never>;
+  features: HarnessMapFeature[];
+  verification_resources: HarnessMapCase[];
+  recent_runs: TestRun[];
+  evidence_gaps: Array<Record<string, unknown>>;
+  efficiency: {
+    authority: string;
+    latency: Record<string, number>;
+    tokens: Record<string, unknown>;
+    signals: Array<Record<string, unknown>>;
+  };
+  context_budget?: ContextBudgetConfig;
+  recommended_actions: Array<Record<string, unknown>>;
+  source_refs: Record<string, string>;
+};
+
+export type ContextBudgetPreset = {
+  preset_id: string;
+  title: string;
+  model_hint: string;
+  context_window_tokens: number;
+  available_context_tokens: number;
+  reserved_output_tokens: number;
+  long_term_token_cap: number;
+  description: string;
+};
+
+export type ContextBudgetConfig = {
+  active_preset: ContextBudgetPreset;
+  preset_id: string;
+  presets: ContextBudgetPreset[];
+  authority: string;
+};
+
+export type HealthIssue = {
+  issue_id: string;
+  title: string;
+  owner_system: string;
+  severity: string;
+  status: string;
+  source: string;
+  conversation_ref?: string;
+  runtime_trace_refs?: string[];
+  prompt_manifest_refs?: string[];
+  memory_refs?: string[];
+  assertion_refs?: string[];
+  duplicate_of?: string;
+  created_at?: number;
+  updated_at?: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type HealthAgentRun = {
+  run_id: string;
+  issue_id: string;
+  task_run_id: string;
+  agent_id: string;
+  agent_profile_id: string;
+  runtime_lane: string;
+  task_mode: string;
+  workflow_id: string;
+  projection_id: string;
+  prompt_manifest_id: string;
+  status: string;
+  terminal_reason: string;
+  result_ref?: string;
+  created_at?: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type HealthProblemNode = {
+  node_id: string;
+  issue_id: string;
+  system: string;
+  stage: string;
+  evidence_refs: string[];
+  diagnosis: string;
+  confidence: number;
+  suggested_action: string;
+};
+
+export type HealthTraceReport = {
+  authority: string;
+  run: HealthAgentRun;
+  issue: HealthIssue | null;
+  result: Record<string, unknown> | null;
+  event_count: number;
+  event_type_counts: Record<string, number>;
+  problem_events: Array<Record<string, unknown>>;
+  prompt_manifest_ref: string;
+  projection_ref: string;
+  task_run_trace: Record<string, unknown>;
 };
 
 export type HealthAgentRunPreview = {
@@ -258,6 +480,15 @@ export type HealthAgentRunPreview = {
   projection_instance?: Record<string, unknown>;
   runtime_directive_lane?: Record<string, unknown>;
   reason?: string;
+};
+
+export type HealthAgentRunStart = HealthAgentRunPreview & {
+  health_agent_run?: Record<string, unknown>;
+  task_run?: Record<string, unknown>;
+  loop_state?: Record<string, unknown>;
+  checkpoint?: Record<string, unknown>;
+  events?: Array<Record<string, unknown>>;
+  trace?: Record<string, unknown> | null;
 };
 
 export type SystemGraphOverlayItem = {
@@ -999,6 +1230,17 @@ export async function setPermissionMode(mode: string) {
   });
 }
 
+export async function getContextBudgetConfig() {
+  return request<ContextBudgetConfig>("/config/context-budget");
+}
+
+export async function setContextBudgetPreset(presetId: string) {
+  return request<ContextBudgetConfig>("/config/context-budget", {
+    method: "PUT",
+    body: JSON.stringify({ preset_id: presetId })
+  });
+}
+
 export async function getMemoryOverview(sessionId?: string, query = "") {
   const params = new URLSearchParams();
   if (sessionId) {
@@ -1304,12 +1546,57 @@ export async function getHealthSystemOverview() {
   return request<HealthSystemOverview>("/health-system/overview");
 }
 
+export async function getHealthWorkbenchOverview() {
+  return request<HealthWorkbenchOverview>("/health-workbench/overview");
+}
+
+export async function createHealthIssue(payload: {
+  title: string;
+  owner_system?: string;
+  severity?: string;
+  status?: string;
+  source?: string;
+  conversation_ref?: string;
+  runtime_trace_refs?: string[];
+  prompt_manifest_refs?: string[];
+  memory_refs?: string[];
+  assertion_refs?: string[];
+  metadata?: Record<string, unknown>;
+}) {
+  return request<HealthIssue>("/health-system/issues", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getHealthAgentRunResult(runId: string) {
+  return request<Record<string, unknown>>(`/health-system/agent-runs/${encodeURIComponent(runId)}/result`);
+}
+
+export async function getHealthAgentRunTraceReport(runId: string) {
+  return request<HealthTraceReport>(`/health-system/agent-runs/${encodeURIComponent(runId)}/trace-report`);
+}
+
 export async function previewHealthAgentRun(issueId: string, taskMode = "issue_triage") {
   return request<HealthAgentRunPreview>(
     `/health-system/issues/${encodeURIComponent(issueId)}/agent-runs/preview`,
     {
       method: "POST",
       body: JSON.stringify({ task_mode: taskMode })
+    }
+  );
+}
+
+export async function startHealthAgentRun(issueId: string, taskMode = "issue_triage", sessionId = "health-system") {
+  return request<HealthAgentRunStart>(
+    `/health-system/issues/${encodeURIComponent(issueId)}/agent-runs`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        task_mode: taskMode,
+        session_id: sessionId,
+        source: "health_system_workspace"
+      })
     }
   );
 }
@@ -1341,14 +1628,60 @@ export async function getTestAgentReport() {
   return request<TestAgentReport>("/test-system/agent/report");
 }
 
+export async function getHarnessMap() {
+  return request<HarnessMap>("/test-system/harness-map");
+}
+
+export async function getTestCaseTemplates() {
+  return request<{ authority: string; templates: TestCaseTemplate[] }>("/test-system/case-templates");
+}
+
+export async function listLongScenarios() {
+  return request<LongScenarioCatalog>("/test-system/long-scenarios");
+}
+
+export async function createManagedTestCase(payload: {
+  case_id?: string;
+  title: string;
+  layer?: string;
+  path?: string;
+  owner_system?: string;
+  runner?: string;
+  status?: string;
+  profiles?: string[] | string;
+  description?: string;
+  problem_statement?: string;
+  pass_criteria?: string[] | string;
+  scenario_turns?: Array<{
+    turn_id?: string;
+    user?: string;
+    expected?: string;
+    assistant_hint?: string;
+  }>;
+  assertions?: string[] | string;
+  tags?: string[] | string;
+  source_template_id?: string;
+}) {
+  return request<HarnessMapCase>("/test-system/managed-cases", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteManagedTestCase(caseId: string) {
+  return request<{ ok: boolean; case_id: string }>(`/test-system/managed-cases/${encodeURIComponent(caseId)}`, {
+    method: "DELETE"
+  });
+}
+
 export async function listTestRuns(limit = 20) {
   return request<TestRun[]>(`/test-system/runs?limit=${limit}`);
 }
 
-export async function startTestRun(profile: string) {
+export async function startTestRun(profile: string, scenarioIds: string[] = []) {
   return request<TestRun>("/test-system/runs", {
     method: "POST",
-    body: JSON.stringify({ profile })
+    body: JSON.stringify({ profile, scenario_ids: scenarioIds })
   });
 }
 

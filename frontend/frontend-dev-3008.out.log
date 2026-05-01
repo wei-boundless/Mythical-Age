@@ -1,0 +1,16 @@
+  ▲ Next.js 14.2.32
+  - Local:        http://localhost:3008
+
+ ✓ Starting...
+ ✓ Ready in 2.6s
+ ○ Compiling / ...
+ ✓ Compiled / in 1943ms (1269 modules)
+ GET / 200 in 2192ms
+ GET / 200 in 81ms
+ GET / 200 in 38ms
+ ✓ Compiled in 3.2s (1269 modules)
+ ✓ Compiled in 1189ms (1269 modules)
+ ✓ Compiled in 1175ms (1267 modules)
+ ✓ Compiled in 835ms (1267 modules)
+ ✓ Compiled in 584ms (1267 modules)
+ ✓ Compiled in 1093ms (1267 modules)

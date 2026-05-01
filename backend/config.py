@@ -536,6 +536,7 @@ class RuntimeConfigManager:
             "retrieval_shadow_compare": False,
             "retrieval_cutover_mode": "v2_primary",
             "orchestration_plan_mode": "primary",
+            "context_budget_preset": "deepseek_1m",
         }
 
     def load(self) -> dict[str, Any]:
@@ -601,6 +602,16 @@ class RuntimeConfigManager:
 
     def set_orchestration_plan_mode(self, mode: str) -> dict[str, Any]:
         return self.save({"orchestration_plan_mode": "primary"})
+
+    def get_context_budget_preset(self) -> str:
+        from context_management.budget_presets import normalize_context_budget_preset_id
+
+        return normalize_context_budget_preset_id(str(self.load().get("context_budget_preset") or ""))
+
+    def set_context_budget_preset(self, preset_id: str) -> dict[str, Any]:
+        from context_management.budget_presets import normalize_context_budget_preset_id
+
+        return self.save({"context_budget_preset": normalize_context_budget_preset_id(preset_id)})
 
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")

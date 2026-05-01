@@ -1,0 +1,12 @@
+{
+  "issues": [],
+  "case_drafts": [],
+  "managed_cases": [],
+  "summary": {
+    "issue_count": 0,
+    "open_issue_count": 0,
+    "case_draft_count": 0,
+    "managed_case_count": 0
+  },
+  "authority": "test_system.harness_records"
+}

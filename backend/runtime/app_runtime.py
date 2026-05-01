@@ -40,7 +40,7 @@ class AppRuntime:
         self.session_manager = SessionManager(base_dir)
         self.skill_registry = SkillRegistry(base_dir)
         self.tool_runtime = ToolRuntime(base_dir)
-        self.memory_facade = MemoryFacade(base_dir)
+        self.memory_facade = MemoryFacade(base_dir, context_budget_provider=self.settings.context_budget_settings)
         self.retrieval_service = RetrievalService(base_dir)
         self.permission_service = PermissionService(self.settings, self.tool_runtime)
         self.model_runtime = ModelRuntime(self.settings)

@@ -28,7 +28,7 @@
 ## Case Governance
 
 - 活跃用例必须登记在 `backend/test_system/case_registry.py` 的 `ACTIVE_CASES`。
-- 旧链路参考用例放在 `backend/tests/legacy/`，登记为 `legacy`，不进入 curated gate。
+- 旧链路参考用例已退出用例库；需要保留的行为必须重写为 `ACTIVE_CASES` 或前端管理的候选用例。
 - 未确认是否保留的历史用例由登记表自动暴露为 `candidate`，不进入 curated gate。
 - 新增测试文件时，先决定它属于 `chain / functional / system / scenario` 哪一层，再登记 owner、profile、tags 和断言边界。
 

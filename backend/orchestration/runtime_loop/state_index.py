@@ -61,6 +61,9 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
         task_id=str(payload.get("task_id") or ""),
         task_contract_ref=str(payload.get("task_contract_ref") or ""),
         owner_agent_seat_id=str(payload.get("owner_agent_seat_id") or "main"),
+        agent_id=str(payload.get("agent_id") or "agent:main"),
+        agent_profile_id=str(payload.get("agent_profile_id") or "main_interactive_agent"),
+        runtime_lane=str(payload.get("runtime_lane") or "full_interactive"),
         status=payload.get("status", "created"),
         created_at=float(payload.get("created_at") or 0.0),
         updated_at=float(payload.get("updated_at") or 0.0),
@@ -69,4 +72,3 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
         terminal_reason=payload.get("terminal_reason", ""),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )
-

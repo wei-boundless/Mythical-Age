@@ -1,0 +1,50 @@
+  ▲ Next.js 14.2.32
+  - Local:        http://localhost:3005
+
+ ✓ Starting...
+ ✓ Ready in 2.2s
+ ○ Compiling / ...
+ ✓ Compiled / in 10.9s (1298 modules)
+ GET / 200 in 54ms
+ ✓ Compiled in 866ms (639 modules)
+ ✓ Compiled in 330ms (639 modules)
+ ✓ Compiled in 838ms (639 modules)
+ ✓ Compiled in 556ms (639 modules)
+ ✓ Compiled in 595ms (639 modules)
+ ✓ Compiled in 615ms (639 modules)
+ ✓ Compiled / in 460ms (630 modules)
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1201ms (1485 modules)
+ GET / 500 in 2182ms
+ ✓ Compiled in 1955ms (875 modules)
+ ✓ Compiled in 1012ms (824 modules)
+ ✓ Compiled in 461ms (824 modules)
+ ✓ Compiled in 1715ms (824 modules)
+ ✓ Compiled in 849ms (824 modules)
+ ✓ Compiled in 722ms (823 modules)
+ ✓ Compiled in 556ms (823 modules)
+ ✓ Compiled in 426ms (823 modules)
+ ✓ Compiled in 528ms (823 modules)
+ ✓ Compiled in 546ms (823 modules)
+ ✓ Compiled in 506ms (823 modules)
+ ✓ Compiled in 643ms (823 modules)
+ ✓ Compiled in 494ms (823 modules)
+ ✓ Compiled in 818ms (823 modules)
+ ✓ Compiled in 675ms (823 modules)
+ ✓ Compiled in 582ms (823 modules)
+ ✓ Compiled in 593ms (823 modules)
+ ✓ Compiled in 736ms (823 modules)
+ ✓ Compiled in 550ms (823 modules)
+ ✓ Compiled in 577ms (823 modules)
+ ✓ Compiled in 628ms (823 modules)
+ ✓ Compiled in 708ms (823 modules)
+ ✓ Compiled in 1075ms (823 modules)
+ ✓ Compiled in 394ms (823 modules)
+ ✓ Compiled in 650ms (823 modules)
+ ✓ Compiled in 822ms (823 modules)
+ ✓ Compiled in 484ms (823 modules)
+ ✓ Compiled in 1036ms (823 modules)
+ ✓ Compiled in 1009ms (822 modules)
+ ✓ Compiled in 731ms (822 modules)
+ ✓ Compiled in 933ms (822 modules)
+ ✓ Compiled in 601ms (822 modules)

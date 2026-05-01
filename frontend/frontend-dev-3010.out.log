@@ -1,0 +1,60 @@
+  ▲ Next.js 14.2.32
+  - Local:        http://localhost:3010
+
+ ✓ Starting...
+ ✓ Ready in 1820ms
+ ○ Compiling / ...
+ ✓ Compiled / in 5.5s (1283 modules)
+ GET / 200 in 5775ms
+ GET / 200 in 40ms
+ GET / 200 in 57ms
+ ✓ Compiled in 1437ms (1267 modules)
+ ✓ Compiled in 699ms (1267 modules)
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1208ms (1483 modules)
+ GET / 500 in 1605ms
+ ✓ Compiled in 796ms (1497 modules)
+ GET / 200 in 102ms
+ GET / 200 in 54ms
+ ✓ Compiled in 1088ms (1497 modules)
+ ✓ Compiled /_not-found in 371ms (1486 modules)
+ GET /_next/static/webpack/d3fa3a05dbd0d98a.webpack.hot-update.json 404 in 485ms
+ GET / 200 in 103ms
+ ✓ Compiled in 949ms (1500 modules)
+ ✓ Compiled in 823ms (1500 modules)
+ ✓ Compiled in 1724ms (1497 modules)
+ ✓ Compiled in 639ms (1497 modules)
+ ✓ Compiled in 1086ms (1497 modules)
+ ✓ Compiled in 828ms (1497 modules)
+ GET / 200 in 186ms
+ ✓ Compiled in 763ms (1497 modules)
+ ✓ Compiled /_not-found in 260ms (1486 modules)
+ GET /_next/static/webpack/db3ff15471ae9584.webpack.hot-update.json 404 in 335ms
+ GET / 200 in 136ms
+ ✓ Compiled in 1729ms (1500 modules)
+ ✓ Compiled in 1169ms (1500 modules)
+ ✓ Compiled in 1063ms (1500 modules)
+ ✓ Compiled in 1002ms (1497 modules)
+ ✓ Compiled in 847ms (1497 modules)
+ ✓ Compiled in 777ms (1497 modules)
+ ✓ Compiled in 1119ms (1497 modules)
+ GET / 500 in 444ms
+ ✓ Compiled in 558ms (1497 modules)
+ GET / 200 in 122ms
+ ✓ Compiled /_not-found in 233ms (1486 modules)
+ ✓ Compiled in 822ms (1500 modules)
+ GET /_next/static/webpack/09c58ba453927942.webpack.hot-update.json 404 in 26ms
+ GET / 200 in 124ms
+ ✓ Compiled in 1136ms (1500 modules)
+ GET / 200 in 88ms
+ ✓ Compiled in 1191ms (1500 modules)
+ GET / 500 in 438ms
+ ✓ Compiled in 1445ms (1497 modules)
+ GET / 200 in 166ms
+ ✓ Compiled /_not-found in 385ms (1486 modules)
+ ✓ Compiled in 1178ms (1498 modules)
+ ✓ Compiled in 1096ms (1498 modules)
+ ✓ Compiled in 1339ms (1498 modules)
+ ✓ Compiled in 991ms (1498 modules)
+ ✓ Compiled in 681ms (1495 modules)
+ ✓ Compiled in 642ms (1495 modules)

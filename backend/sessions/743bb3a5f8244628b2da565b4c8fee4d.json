@@ -1,0 +1,48 @@
+{
+  "id": "743bb3a5f8244628b2da565b4c8fee4d",
+  "title": "New Session",
+  "created_at": 1777549885.2922356,
+  "updated_at": 1777562986.3578413,
+  "compressed_context": "",
+  "messages": [
+    {
+      "role": "user",
+      "content": "你好"
+    },
+    {
+      "role": "assistant",
+      "content": "你好！我是句芒，很高兴见到你。\n\n有什么我可以帮你的吗？",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    },
+    {
+      "role": "user",
+      "content": "我好难受啊"
+    },
+    {
+      "role": "assistant",
+      "content": "听到你这么说，我很难过。\n\n能跟我说说吗——是身体上不舒服，还是心里有事压着？或者两样都有？\n\n不用急，慢慢说。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    },
+    {
+      "role": "user",
+      "content": "im tired"
+    },
+    {
+      "role": "assistant",
+      "content": "嗯，我听到了。\n\n你现在是哪种累——身体上的疲，还是心里觉得撑不住了？如果方便的话，告诉我大概是什么情况，我至少能帮你理一理。\n\n不想说也没关系，先休息一下，不急。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    }
+  ]
+}

@@ -23,6 +23,20 @@ BACKEND_DIR = REPO_ROOT / "backend"
 OUTPUT_ROOT = REPO_ROOT / "output" / "test_runs"
 
 
+def _without_scenario_set(args: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--scenario-set":
+            skip_next = True
+            continue
+        cleaned.append(arg)
+    return cleaned
+
+
 @dataclass(slots=True)
 class ExperimentRun:
     run_id: str
@@ -55,7 +69,7 @@ class ExperimentRunner:
     def profiles(self) -> list[dict[str, object]]:
         return [profile.to_dict() for profile in list_profiles()]
 
-    def start(self, profile_id: str) -> dict[str, Any]:
+    def start(self, profile_id: str, *, scenario_ids: list[str] | None = None) -> dict[str, Any]:
         profile = get_profile(profile_id)
         if profile is None:
             raise ValueError(f"Unsupported experiment profile: {profile_id}")
@@ -67,13 +81,23 @@ class ExperimentRunner:
         output_dir = OUTPUT_ROOT / run_id
         output_dir.mkdir(parents=True, exist_ok=True)
         log_path = output_dir / "runner.log"
+        extra_args = list(profile.extra_args)
+        selected_scenarios = [
+            str(scenario_id).strip()
+            for scenario_id in (scenario_ids or [])
+            if str(scenario_id).strip()
+        ]
+        if selected_scenarios and (profile.harness_profile or profile.id) == "long":
+            extra_args = _without_scenario_set(extra_args)
+            for scenario_id in selected_scenarios:
+                extra_args.extend(["--scenario", scenario_id])
         command = [
             sys.executable,
             "-m",
             "harness.run",
             "--profile",
             profile.harness_profile or profile.id,
-            *list(profile.extra_args),
+            *extra_args,
             "--output-dir",
             str(output_dir),
         ]

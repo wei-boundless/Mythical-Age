@@ -1,0 +1,16 @@
+
+> mini-openclaw-frontend@0.1.0 dev
+> next dev -p 3000 -p 3011
+
+  ▲ Next.js 14.2.32
+  - Local:        http://localhost:3011
+
+ ✓ Starting...
+ ✓ Ready in 3.2s
+ ○ Compiling / ...
+ ✓ Compiled / in 8s (1282 modules)
+ ✓ Compiled in 1342ms (632 modules)
+ ✓ Compiled in 571ms (632 modules)
+ ✓ Compiled in 2.2s (632 modules)
+ ✓ Compiled in 1596ms (632 modules)
+ ✓ Compiled in 872ms (632 modules)

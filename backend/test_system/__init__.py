@@ -8,7 +8,15 @@ from .case_registry import (
     cases_for_profile,
     legacy_cases,
 )
-from .harness_records import HarnessRecordStore, TestCaseDraft, TestHarnessIssue, harness_record_store
+from .harness_map import build_harness_map
+from .harness_records import (
+    HarnessRecordStore,
+    ManagedTestCase,
+    TestCaseDraft,
+    TestCaseTemplate,
+    TestHarnessIssue,
+    harness_record_store,
+)
 from .runtime_loop_probe import (
     runtime_events_from_sse_events,
     runtime_events_from_turn_payload,
@@ -21,10 +29,13 @@ __all__ = [
     "TestSystemService",
     "TestAgentAdvisor",
     "HarnessRecordStore",
+    "ManagedTestCase",
     "TestCaseDraft",
+    "TestCaseTemplate",
     "TestHarnessIssue",
     "active_cases",
     "all_cases",
+    "build_harness_map",
     "case_registry_payload",
     "candidate_cases",
     "cases_for_profile",

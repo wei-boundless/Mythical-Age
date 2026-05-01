@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:18",
+  "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:743bb3a5f8244628b2da565b4c8fee4d:5:66611dc8283d",
+    "memory_state_ref": "memory-runtime:743bb3a5f8244628b2da565b4c8fee4d",
+    "projection_ref": "44f4aee8d47685f8",
+    "prompt_manifest_ref": "manifest-44f4aee8d47685f8",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 800000,
+        "reserved_output": 32000,
+        "candidate_tokens_included": 19,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 799981
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:42dda88e",
+      "output_boundary:rtevt:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:14:9c0f4e77",
+      "commit_gate:commit-gate:turn:743bb3a5f8244628b2da565b4c8fee4d:5:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+            "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674",
+            "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:5",
+            "role": "assistant",
+            "content": "嗯，我听到了。\n\n你现在是哪种累——身体上的疲，还是心里觉得撑不住了？如果方便的话，告诉我大概是什么情况，我至少能帮你理一理。\n\n不想说也没关系，先休息一下，不急。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+          "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674",
+            "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:5",
+            "terminal_reason": "completed",
+            "final_content_chars": 82
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 551,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 120.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:743bb3a5f8244628b2da565b4c8fee4d:5",
+      "chain_preview_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 82,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:743bb3a5f8244628b2da565b4c8fee4d:5:66611dc8283d",
+  "prompt_manifest_ref": "manifest-44f4aee8d47685f8",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+          "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674",
+          "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:5",
+          "role": "assistant",
+          "content": "嗯，我听到了。\n\n你现在是哪种累——身体上的疲，还是心里觉得撑不住了？如果方便的话，告诉我大概是什么情况，我至少能帮你理一理。\n\n不想说也没关系，先休息一下，不急。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+        "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:5:40256674",
+          "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:5",
+          "terminal_reason": "completed",
+          "final_content_chars": 82
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 551,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777562986.4080095,
+  "checksum": "e994a615ee76998f220a0684b3612f0acc3273e5099a266f774382c329cce88c",
+  "authority": "orchestration.runtime_checkpoint"
+}

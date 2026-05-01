@@ -1,0 +1,46 @@
+
+> mini-openclaw-frontend@0.1.0 dev
+> next dev -p 3000 -p 3012
+
+  ▲ Next.js 14.2.32
+  - Local:        http://localhost:3012
+
+ ✓ Starting...
+ ✓ Ready in 3.8s
+ ○ Compiling / ...
+ ✓ Compiled / in 5.8s (1241 modules)
+ GET / 200 in 6712ms
+ GET / 200 in 32ms
+ GET / 200 in 35ms
+ GET / 200 in 75ms
+ ✓ Compiled in 1658ms (632 modules)
+ ✓ Compiled in 496ms (632 modules)
+ ✓ Compiled / in 311ms (623 modules)
+ ✓ Compiled /_not-found in 275ms (1244 modules)
+ GET / 404 in 879ms
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 2.6s (1474 modules)
+ GET / 404 in 3098ms
+ ✓ Compiled in 3.1s (868 modules)
+ ✓ Compiled in 1627ms (817 modules)
+ ✓ Compiled in 1278ms (817 modules)
+ ✓ Compiled in 1085ms (817 modules)
+ ✓ Compiled in 733ms (817 modules)
+ ✓ Compiled in 624ms (817 modules)
+ ✓ Compiled in 535ms (817 modules)
+ ✓ Compiled in 700ms (817 modules)
+ ✓ Compiled in 574ms (817 modules)
+ ✓ Compiled in 506ms (817 modules)
+ ✓ Compiled in 645ms (817 modules)
+ ✓ Compiled in 545ms (817 modules)
+ ✓ Compiled in 895ms (817 modules)
+ ✓ Compiled in 533ms (817 modules)
+ ✓ Compiled in 463ms (817 modules)
+ ✓ Compiled in 597ms (817 modules)
+ ✓ Compiled in 618ms (817 modules)
+ ✓ Compiled in 345ms (817 modules)
+ ✓ Compiled in 539ms (817 modules)
+ ✓ Compiled in 458ms (817 modules)
+ ✓ Compiled in 539ms (817 modules)
+ ✓ Compiled in 175ms (803 modules)
+ ✓ Compiled in 492ms (817 modules)

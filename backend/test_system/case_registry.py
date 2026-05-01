@@ -301,48 +301,7 @@ ACTIVE_CASES: tuple[TestCaseDefinition, ...] = (
 )
 
 
-LEGACY_CASES: tuple[TestCaseDefinition, ...] = (
-    TestCaseDefinition(
-        case_id="legacy.query_planner",
-        title="旧 QueryPlanner 行为回归",
-        layer="functional",
-        path="tests/legacy/query_planner_legacy.py",
-        owner_system="legacy_query",
-        status="legacy",
-        tags=("legacy_query", "planner"),
-        reason="旧 query planner 不再是统一 RuntimeLoop 主链事实源；保留文件但不进入 curated gate。",
-    ),
-    TestCaseDefinition(
-        case_id="legacy.query_route_guard",
-        title="旧 QueryRuntime route guard 长回归",
-        layer="system",
-        path="tests/legacy/query_runtime_route_guard_legacy.py",
-        owner_system="legacy_query",
-        status="legacy",
-        tags=("legacy_query", "route_guard"),
-        reason="覆盖旧 query 直连执行路径，已被 RuntimeLoop gate 替代。",
-    ),
-    TestCaseDefinition(
-        case_id="legacy.worker_direct_execution",
-        title="旧 worker 直连执行回归",
-        layer="functional",
-        path="tests/legacy/evidence_worker_runtime_legacy.py",
-        owner_system="legacy_worker",
-        status="legacy",
-        tags=("legacy_worker", "direct_execution"),
-        reason="独立 worker lane 后续会重建；当前单 agent 通过 tool loop 进入能力调用。",
-    ),
-    TestCaseDefinition(
-        case_id="legacy.followup_resolution",
-        title="旧 follow-up 解析回归",
-        layer="functional",
-        path="tests/legacy/followup_resolution_legacy.py",
-        owner_system="legacy_query",
-        status="legacy",
-        tags=("legacy_query", "followup"),
-        reason="follow-up 应迁入任务/状态记忆 adapter 后再重新登记。",
-    ),
-)
+LEGACY_CASES: tuple[TestCaseDefinition, ...] = ()
 
 
 PROFILE_ORDER: dict[str, tuple[str, ...]] = {

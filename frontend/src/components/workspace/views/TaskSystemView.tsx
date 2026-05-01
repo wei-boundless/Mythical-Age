@@ -10,8 +10,8 @@ import {
   getProjectionTemplates,
   getSkillWorkflows,
   getTaskSystemOverview,
-  previewHealthAgentRun,
-  type HealthAgentRunPreview,
+  startHealthAgentRun,
+  type HealthAgentRunStart,
   type HealthSystemOverview,
   type OperationAgentCatalog,
   type ProjectionTemplateCatalog,
@@ -143,7 +143,7 @@ export function TaskSystemView() {
   const [projections, setProjections] = useState<ProjectionTemplateCatalog | null>(null);
   const [health, setHealth] = useState<HealthSystemOverview | null>(null);
   const [detail, setDetail] = useState<{ title: string; payload: Record<string, unknown> } | null>(null);
-  const [preview, setPreview] = useState<HealthAgentRunPreview | null>(null);
+  const [preview, setPreview] = useState<HealthAgentRunStart | null>(null);
   const [previewingIssueId, setPreviewingIssueId] = useState<string>("");
   const [error, setError] = useState<string>("");
 
@@ -194,12 +194,14 @@ export function TaskSystemView() {
     setPreviewingIssueId(issueId);
     setError("");
     try {
-      const payload = await previewHealthAgentRun(issueId);
+      const payload = await startHealthAgentRun(issueId);
       setPreview(payload);
-      setDetail({ title: "健康子 Agent 实例化预览", payload: payload as unknown as Record<string, unknown> });
+      setDetail({ title: "健康子 Agent 真实运行", payload: payload as unknown as Record<string, unknown> });
       setActivePanel("runs");
+      const healthPayload = await getHealthSystemOverview();
+      setHealth(healthPayload);
     } catch (previewError) {
-      setError(previewError instanceof Error ? previewError.message : "健康子 Agent 实例化预览失败");
+      setError(previewError instanceof Error ? previewError.message : "健康子 Agent 运行启动失败");
     } finally {
       setPreviewingIssueId("");
     }
@@ -277,7 +279,7 @@ export function TaskSystemView() {
                           }}
                           type="button"
                         >
-                          {previewingIssueId === issueId ? "装配中" : "预览"}
+                          {previewingIssueId === issueId ? "启动中" : "启动"}
                         </button>
                       );
                     }
@@ -429,7 +431,7 @@ export function TaskSystemView() {
 
           {activePanel === "runs" ? (
             <div className="grid gap-4">
-              <SectionTitle title="运行记录" subtitle="当前展示健康子 Agent 的样例运行索引，后续接 RuntimeLoop trace reader。" />
+              <SectionTitle title="运行记录" subtitle="健康子 Agent Run 会指向真实 RuntimeLoop task_run_id、event log 和 checkpoint。" />
               <DataTable
                 rows={runRows}
                 onRowSelect={(row) => setDetail({ title: "健康 Agent Run", payload: row })}
@@ -497,7 +499,7 @@ function DetailPanel({
   preview
 }: {
   detail: { title: string; payload: Record<string, unknown> } | null;
-  preview: HealthAgentRunPreview | null;
+  preview: HealthAgentRunStart | null;
 }) {
   const payload = detail?.payload;
   return (
@@ -505,12 +507,13 @@ function DetailPanel({
       <SectionTitle title={detail?.title ?? "详情"} subtitle={detail ? "点击表格行可切换详情。" : "请选择一条任务系统对象。"} />
       {preview ? (
         <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
-          <div className="font-semibold">最近实例化预览：{preview.status}</div>
+          <div className="font-semibold">最近健康运行：{preview.status}</div>
           <div className="mt-2 grid gap-1">
             <span>Agent: {text(preview.binding?.agent_id)}</span>
             <span>Lane: {text(preview.runtime_directive_lane?.lane_type)}</span>
             <span>Projection: {text(preview.projection_instance?.template_id)}</span>
             <span>PromptManifest: {text(preview.projection_instance?.prompt_manifest_id)}</span>
+            <span>TaskRun: {text(preview.task_run?.task_run_id)}</span>
           </div>
         </div>
       ) : null}

@@ -746,6 +746,134 @@ frontend/src/lib/api.ts
 子 Agent 管理入口在操作系统，不散落在健康系统。
 ```
 
+### Phase 7A：Harness 体系具象化
+
+本阶段新增硬口径：
+
+```text
+健康系统前端不是测试运行按钮集合。
+健康系统前端必须把 harness 体系可视化。
+```
+
+它至少要让开发者一眼看到：
+
+```text
+功能域 Feature
+  -> 测试文件 TestFile
+  -> 用例定义 TestCaseDefinition
+  -> 这个测试提出/覆盖的问题 ProblemStatement
+  -> 什么回答/行为算通过 PassCriteria
+  -> 哪个 profile 会运行它 TestProfile
+  -> 最近运行与失败证据 RunEvidence
+  -> 关联 HealthIssue / ProblemNode / CaseDraft
+```
+
+新增后端视图：
+
+```text
+GET /api/test-system/harness-map
+```
+
+该视图不是新事实源，而是把现有事实合成一张治理图：
+
+```text
+test_system.case_registry
+  active_cases / candidate_cases / legacy_cases
+
+test_system.harness_records
+  issues / case_drafts
+
+test_system.test_agent
+  governance findings / unregistered paths
+
+experiments / harness artifacts
+  runs / turns / issues / trace refs
+```
+
+首版字段：
+
+```text
+HarnessMap
+  features:
+    feature_id
+    title
+    owner_system
+    boundary
+    case_count
+    active_case_count
+    candidate_case_count
+    legacy_case_count
+    open_issue_count
+    governance_finding_count
+    risk_status
+
+  cases:
+    case_id
+    title
+    layer
+    path
+    runner
+    status
+    profiles
+    owner_system
+    feature_id
+    feature_title
+    behavior_under_test
+    problem_statement
+    pass_criteria
+    assertions
+    issue_refs
+    case_draft_refs
+    governance_findings
+```
+
+前端验收标准：
+
+```text
+用例库页不再只列测试文件。
+每个测试文件必须展示它指向哪个功能。
+每个测试文件必须展示它覆盖/提出的问题。
+每个测试文件必须展示通过标准，而不仅是文件名。
+候选测试必须显示为什么还不能进入正式门禁。
+治理发现必须能反向定位到测试文件或功能域。
+健康问题必须能推动用例草案，而不是停留在报告文本。
+```
+
+新增用例管理口径：
+
+```text
+用例不是散落在 Python 列表里的临时对象。
+用例必须先进入规范化模板，再进入候选用例池。
+前端可以新增 / 移除候选用例。
+候选用例必须声明：
+  title
+  owner_system
+  layer
+  path
+  profiles
+  problem_statement
+  pass_criteria
+  assertions
+  source_template_id
+
+正式进入 curated gate 前必须满足：
+  测试文件存在。
+  runner 可执行。
+  pass_criteria 明确。
+  owner_system 与功能域一致。
+  由人工或后续测试治理 Agent 采纳。
+```
+
+新增 API：
+
+```text
+GET    /api/test-system/case-templates
+POST   /api/test-system/managed-cases
+DELETE /api/test-system/managed-cases/{case_id}
+```
+
+如果做不到这些，说明 harness 不是健康系统的一等事实源，而只是一个命令集合；这种状态视为健康系统设计不合格。
+
 ---
 
 ## 6. 固定执行链路

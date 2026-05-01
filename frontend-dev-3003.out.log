@@ -1,0 +1,116 @@
+
+> mini-openclaw-frontend@0.1.0 dev
+> next dev -p 3000 -p 3003
+
+  ▲ Next.js 14.2.32
+  - Local:        http://localhost:3003
+
+ ✓ Starting...
+ ✓ Ready in 2.4s
+ ○ Compiling / ...
+ ✓ Compiled / in 6.4s (1304 modules)
+ GET / 200 in 6583ms
+ ✓ Compiled in 361ms (635 modules)
+ ✓ Compiled in 319ms (639 modules)
+ ✓ Compiled in 272ms (639 modules)
+ ✓ Compiled in 309ms (640 modules)
+ ✓ Compiled in 269ms (640 modules)
+ ✓ Compiled in 451ms (640 modules)
+ ✓ Compiled in 522ms (640 modules)
+ ✓ Compiled / in 458ms (631 modules)
+ GET / 200 in 720ms
+ ✓ Compiled in 584ms (640 modules)
+ ✓ Compiled in 418ms (640 modules)
+ ✓ Compiled in 387ms (640 modules)
+ ✓ Compiled in 418ms (640 modules)
+ ✓ Compiled in 210ms (640 modules)
+ ✓ Compiled in 596ms (640 modules)
+ ✓ Compiled in 370ms (640 modules)
+ ✓ Compiled in 267ms (640 modules)
+ ✓ Compiled / in 303ms (631 modules)
+ GET / 200 in 536ms
+ GET / 200 in 64ms
+ GET / 200 in 61ms
+ ✓ Compiled /_not-found in 1140ms (1260 modules)
+ GET /_next/static/webpack/d3d06a6366ba297b.webpack.hot-update.json 404 in 546ms
+ GET / 200 in 96ms
+ ✓ Compiled in 809ms (1274 modules)
+ GET / 200 in 138ms
+ ✓ Compiled /_not-found in 610ms (1260 modules)
+ GET /_next/static/webpack/1f14258828e3452a.webpack.hot-update.json 404 in 316ms
+ GET / 200 in 45ms
+ GET / 200 in 73ms
+ ✓ Compiled in 517ms (1271 modules)
+ GET / 200 in 90ms
+ GET / 200 in 69ms
+ ✓ Compiled in 487ms (1271 modules)
+ ✓ Compiled /_not-found in 106ms (1260 modules)
+ GET /_next/static/webpack/8c6bf73a1fca884d.webpack.hot-update.json 404 in 234ms
+ GET / 200 in 102ms
+ GET / 200 in 55ms
+ ✓ Compiled /_not-found in 680ms (1260 modules)
+ GET /_next/static/webpack/9f1b2c3a68bffeab.webpack.hot-update.json 404 in 311ms
+ GET / 200 in 403ms
+ GET / 200 in 78ms
+ ✓ Compiled in 452ms (1271 modules)
+ ✓ Compiled in 341ms (1271 modules)
+ ✓ Compiled in 386ms (1271 modules)
+ ✓ Compiled in 428ms (1271 modules)
+ ✓ Compiled in 853ms (1271 modules)
+ ✓ Compiled in 384ms (1271 modules)
+ ✓ Compiled in 539ms (1271 modules)
+ ✓ Compiled in 368ms (1271 modules)
+ ✓ Compiled in 395ms (1271 modules)
+ ✓ Compiled in 408ms (1271 modules)
+ GET / 200 in 129ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1217ms (1274 modules)
+ GET /_next/static/webpack/29de65bb889218db.webpack.hot-update.json 404 in 839ms
+ GET / 200 in 99ms
+ ✓ Compiled in 420ms (1260 modules)
+ ✓ Compiled in 672ms (1274 modules)
+ ✓ Compiled in 724ms (1274 modules)
+ ✓ Compiled in 701ms (1274 modules)
+ ✓ Compiled in 577ms (1271 modules)
+ ✓ Compiled in 566ms (1271 modules)
+ ✓ Compiled in 969ms (1271 modules)
+ ✓ Compiled in 547ms (1271 modules)
+ ✓ Compiled in 572ms (1271 modules)
+ ✓ Compiled in 1221ms (1271 modules)
+ ✓ Compiled in 754ms (1271 modules)
+ ✓ Compiled in 523ms (1271 modules)
+ ✓ Compiled in 664ms (1271 modules)
+ ✓ Compiled in 1551ms (1271 modules)
+ ✓ Compiled in 818ms (1271 modules)
+ ✓ Compiled in 748ms (1271 modules)
+ ✓ Compiled in 783ms (1271 modules)
+ ✓ Compiled in 696ms (1271 modules)
+ ✓ Compiled in 721ms (1271 modules)
+ ✓ Compiled in 1141ms (1271 modules)
+ ✓ Compiled in 717ms (1271 modules)
+ ✓ Compiled in 789ms (1271 modules)
+ ✓ Compiled in 932ms (1271 modules)
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1151ms (1487 modules)
+ GET / 200 in 147ms
+ ✓ Compiled in 830ms (1501 modules)
+ ✓ Compiled in 1797ms (1499 modules)
+ ✓ Compiled in 931ms (1499 modules)
+ ✓ Compiled in 659ms (1499 modules)
+ ✓ Compiled in 751ms (1499 modules)
+ ✓ Compiled in 782ms (1499 modules)
+ ✓ Compiled in 955ms (1499 modules)
+ ✓ Compiled in 817ms (1499 modules)
+ ✓ Compiled in 706ms (1499 modules)
+ ✓ Compiled in 1456ms (1499 modules)
+ ✓ Compiled in 796ms (1499 modules)
+ ✓ Compiled in 772ms (1499 modules)
+ ✓ Compiled in 572ms (1485 modules)
+ ✓ Compiled in 1590ms (1497 modules)
+ ✓ Compiled in 685ms (1497 modules)
+ ✓ Compiled in 911ms (1497 modules)
+ ✓ Compiled in 898ms (1497 modules)
+ ✓ Compiled in 876ms (1497 modules)
+ ✓ Compiled in 831ms (1497 modules)
+ ✓ Compiled in 1623ms (1497 modules)
+ ✓ Compiled in 1683ms (1497 modules)

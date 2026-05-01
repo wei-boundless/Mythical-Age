@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from config import Settings, get_settings, runtime_config
+from context_management.budget_presets import (
+    get_context_budget_preset,
+    list_context_budget_presets,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,3 +140,30 @@ class AppSettingsService:
         current = runtime_config.load()
         current["orchestration_plan_mode"] = "primary"
         return runtime_config.save(current)
+
+    def get_context_budget_preset(self) -> str:
+        getter = getattr(runtime_config, "get_context_budget_preset", None)
+        if callable(getter):
+            return str(getter() or "deepseek_1m")
+        return "deepseek_1m"
+
+    def set_context_budget_preset(self, preset_id: str) -> dict[str, Any]:
+        setter = getattr(runtime_config, "set_context_budget_preset", None)
+        if callable(setter):
+            return setter(preset_id)
+        current = runtime_config.load()
+        current["context_budget_preset"] = str(preset_id or "deepseek_1m")
+        return runtime_config.save(current)
+
+    def context_budget_settings(self) -> dict[str, Any]:
+        preset = get_context_budget_preset(self.get_context_budget_preset())
+        return preset.to_dict()
+
+    def context_budget_payload(self) -> dict[str, Any]:
+        active = self.context_budget_settings()
+        return {
+            "active_preset": active,
+            "preset_id": active["preset_id"],
+            "presets": list_context_budget_presets(),
+            "authority": "runtime.context_budget_presets",
+        }

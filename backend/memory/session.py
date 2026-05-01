@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from context_management import ContextController
+from context_management.budget_presets import get_context_budget_preset
 from structured_memory import Message, SessionMemoryManager
 
 
 class SessionMemoryLayer:
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, base_dir: Path, context_budget_provider: Callable[[], dict[str, Any]] | None = None) -> None:
         self.base_dir = base_dir
+        self._context_budget_provider = context_budget_provider
         self.session_root = base_dir / "session-memory"
         self.session_root.mkdir(parents=True, exist_ok=True)
 
@@ -39,12 +41,19 @@ class SessionMemoryLayer:
     def compactor(self, session_id: str):
         from context_management import ContextCompactor
 
-        return ContextCompactor(self.manager(session_id))
+        budget = self._context_budget()
+        return ContextCompactor(
+            self.manager(session_id),
+            effective_history_token_budget=int(budget["available_context_tokens"]),
+        )
 
     def context_controller(self, session_id: str) -> ContextController:
-        controller = ContextController(self.manager(session_id))
-        controller.compactor = self.compactor(session_id)
-        return controller
+        budget = self._context_budget()
+        return ContextController(
+            self.manager(session_id),
+            reserved_output_tokens=int(budget["reserved_output_tokens"]),
+            effective_history_token_budget=int(budget["available_context_tokens"]),
+        )
 
     def refresh(self, session_id: str, messages: list[Message]) -> str:
         return self.manager(session_id).update_from_messages(messages)
@@ -62,3 +71,13 @@ class SessionMemoryLayer:
             task_summaries=task_summaries,
             corrections=corrections,
         )
+
+    def _context_budget(self) -> dict[str, Any]:
+        if self._context_budget_provider is not None:
+            try:
+                payload = dict(self._context_budget_provider())
+                if payload:
+                    return payload
+            except Exception:
+                pass
+        return get_context_budget_preset("deepseek_1m").to_dict()
