@@ -51,6 +51,89 @@ const ORCHESTRATION_EDGES: Array<{ id: string; from: string; to: string; label: 
   { id: "output-persistence", from: "output", to: "persistence", label: "落盘写回" }
 ];
 
+function stageStatusForEvent(event: string, data: Record<string, unknown>) {
+  if (event === "debug") {
+    return "";
+  }
+  if (event === "input_commit_gate") {
+    return "接收请求";
+  }
+  if (
+    event === "runtime_loop_event"
+    || event === "runtime_directive"
+    || event === "operation_gate"
+    || event === "runtime_commit_gate"
+  ) {
+    const eventType = String(data.event_type ?? ((data.event as Record<string, unknown> | undefined)?.event_type) ?? "");
+    return stageStatusForRuntimeEvent(eventType);
+  }
+  if (event === "context_management") {
+    return "整理上下文";
+  }
+  if (event === "memory_context") {
+    return "读取记忆";
+  }
+  if (event === "prompt_manifest") {
+    return "装配提示词";
+  }
+  if (event === "retrieval" || event.startsWith("worker")) {
+    return "检索证据";
+  }
+  if (event === "tool_start") {
+    return `调用 ${String(data.tool ?? "工具")}`;
+  }
+  if (event === "tool_end") {
+    return "整理工具结果";
+  }
+  if (event === "token" || event === "answer_candidate") {
+    return "生成回答";
+  }
+  if (event === "output_boundary") {
+    return "整理输出";
+  }
+  if (event === "done") {
+    return "完成";
+  }
+  if (event === "error") {
+    return "出错";
+  }
+  return "";
+}
+
+function stageStatusForRuntimeEvent(eventType: string) {
+  if (!eventType) {
+    return "";
+  }
+  if (eventType === "task_contract_built") {
+    return "理解任务";
+  }
+  if (eventType === "memory_runtime_view_built") {
+    return "读取记忆";
+  }
+  if (eventType === "stage_projection_built") {
+    return "选择投影";
+  }
+  if (eventType === "context_snapshot_built" || eventType === "context_invariant_checked") {
+    return "整理上下文";
+  }
+  if (eventType === "runtime_directive_issued" || eventType === "operation_gate_checked") {
+    return "检查权限";
+  }
+  if (eventType === "executor_started" || eventType === "executor_observation_received") {
+    return "生成回答";
+  }
+  if (eventType === "output_boundary_applied") {
+    return "整理输出";
+  }
+  if (eventType === "commit_gate_checked" || eventType === "checkpoint_written") {
+    return "写入状态";
+  }
+  if (eventType === "loop_terminal") {
+    return "完成";
+  }
+  return "";
+}
+
 function makeOrchestrationSnapshot(state: StoreState, userContent: string): OrchestrationSnapshot {
   const nodes = ORCHESTRATION_NODES.map((node, index): OrchestrationNode => ({
     ...node,
@@ -326,6 +409,20 @@ function patchAssistant(
   };
 }
 
+function patchAssistantStage(
+  state: StoreState,
+  assistantId: string,
+  stageStatus: string
+): StoreState {
+  if (!stageStatus) {
+    return state;
+  }
+  return patchAssistant(state, assistantId, (message) => ({
+    ...message,
+    stageStatus
+  }));
+}
+
 export function startStreamingTurn(state: StoreState, userContent: string): StreamTransition {
   const userMessage: Message = {
     id: makeId(),
@@ -339,7 +436,8 @@ export function startStreamingTurn(state: StoreState, userContent: string): Stre
     role: "assistant",
     content: "",
     toolCalls: [],
-    retrievals: []
+    retrievals: [],
+    stageStatus: "接收请求"
   };
 
   return {
@@ -363,9 +461,14 @@ export function reduceStreamEvent(
   data: Record<string, unknown>
 ): StreamTransition {
   const withOrchestration = updateOrchestrationSnapshot(state.orchestrationSnapshot, event, data);
-  const stateWithOrchestration = withOrchestration === state.orchestrationSnapshot
+  const stateWithOrchestrationBase = withOrchestration === state.orchestrationSnapshot
     ? state
     : { ...state, orchestrationSnapshot: withOrchestration };
+  const stateWithOrchestration = patchAssistantStage(
+    stateWithOrchestrationBase,
+    session.assistantId,
+    stageStatusForEvent(event, data)
+  );
 
   if (event === "retrieval") {
     return {
@@ -445,10 +548,11 @@ export function reduceStreamEvent(
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) =>
         message.content
-          ? message
+          ? { ...message, stageStatus: "完成" }
           : {
               ...message,
-              content: String(data.content ?? "")
+              content: String(data.content ?? ""),
+              stageStatus: "完成"
             }
       ),
       session
@@ -459,7 +563,8 @@ export function reduceStreamEvent(
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
         ...message,
-        content: message.content || `Request failed: ${String(data.error ?? "unknown error")}`
+        content: message.content || `Request failed: ${String(data.error ?? "unknown error")}`,
+        stageStatus: "出错"
       })),
       session
     };

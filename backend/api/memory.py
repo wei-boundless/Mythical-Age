@@ -260,12 +260,12 @@ async def recall_memory_preview(payload: RecallPreviewRequest) -> dict[str, Any]
     query = payload.query.strip()
     intent = analyze_memory_intent(query)
     session_summary = ""
-    context_preview = None
+    context_result = None
 
     if payload.session_id:
         history_payload = runtime.session_manager.get_history(payload.session_id)
         session_summary = str(history_payload.get("compressed_context", "") or "")
-        context_preview = _inspect_session_memory(runtime, payload.session_id, query=query, limit=payload.limit)
+        context_result = _inspect_session_memory(runtime, payload.session_id, query=query, limit=payload.limit)
 
     result = runtime.memory_facade.recall_durable_memories(
         query=query,
@@ -290,7 +290,7 @@ async def recall_memory_preview(payload: RecallPreviewRequest) -> dict[str, Any]
         "selected_headers": [_clean_header_dict(item) for item in result.selected_headers],
         "selected_notes": [_clean_note_dict(item) for item in result.selected_notes],
         "rendered_summary": _compact_text(result.rendered_summary, 1200),
-        "context_preview": context_preview,
+        "context_result": context_result,
     }
 
 
@@ -384,13 +384,13 @@ def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", l
     assert runtime.memory_facade is not None
     messages = runtime.session_manager.load_session(session_id)
     intent = analyze_memory_intent(query) if query.strip() else None
-    preview = runtime.memory_facade.build_memory_context_package_preview(
+    result = runtime.memory_facade.build_memory_context_package_result(
         session_id=session_id,
         query=query.strip() or None,
         memory_intent=intent,
         note_limit=limit,
     )
-    payload = preview.to_dict()
+    payload = result.to_dict()
     package = dict(payload.get("package") or {})
     sections = dict(package.get("model_visible_sections") or {})
     memory_view = runtime.memory_facade.build_memory_runtime_view(

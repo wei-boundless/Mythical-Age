@@ -3,11 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .adoption import AdoptionCandidate
-from .directives import RuntimeDirectiveCandidate
 from .execution_graph import CommitCandidate, CommitType
-from .graph_preview import ExecutionGraphPreview
-from .plan import OrchestrationPlanPreview
 
 
 DEFAULT_COMMIT_TYPES: tuple[CommitType, ...] = (
@@ -18,52 +14,6 @@ DEFAULT_COMMIT_TYPES: tuple[CommitType, ...] = (
     "artifact_graph",
     "title",
 )
-
-
-@dataclass(slots=True, frozen=True)
-class CommitGatePreview:
-    """Preview-only writeback gate.
-
-    This is the final fail-closed boundary before any future session, memory,
-    task, artifact, or title writeback. It records denied writeback lanes but
-    never grants commit authority.
-    """
-
-    gate_id: str
-    task_id: str
-    plan_ref: str
-    execution_graph_preview_ref: str
-    adoption_candidate_ref: str
-    directive_candidate_refs: tuple[str, ...] = ()
-    commit_candidates: tuple[CommitCandidate, ...] = ()
-    status: str = "blocked"
-    reason: str = "preview_only"
-    commit_allowed: bool = False
-    preview_only: bool = True
-    runtime_executable: bool = False
-    authority: str = "commit_gate_preview"
-    diagnostics: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.authority != "commit_gate_preview":
-            raise ValueError("CommitGatePreview cannot carry commit authority")
-        if self.status != "blocked":
-            raise ValueError("CommitGatePreview must stay blocked")
-        if self.commit_allowed:
-            raise ValueError("CommitGatePreview cannot allow commits")
-        if not self.preview_only:
-            raise ValueError("CommitGatePreview must remain preview_only")
-        if self.runtime_executable:
-            raise ValueError("CommitGatePreview cannot be runtime executable")
-        for candidate in self.commit_candidates:
-            if candidate.allowed:
-                raise ValueError("CommitGatePreview only accepts denied commit candidates")
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["directive_candidate_refs"] = list(self.directive_candidate_refs)
-        payload["commit_candidates"] = [candidate.to_dict() for candidate in self.commit_candidates]
-        return payload
 
 
 @dataclass(slots=True, frozen=True)
@@ -88,64 +38,10 @@ class RuntimeCommitGateDecision:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["commit_candidate"] = self.commit_candidate.to_dict()
+        diagnostic_candidates = dict(self.diagnostics).get("commit_candidates")
+        if isinstance(diagnostic_candidates, list):
+            payload["commit_candidates"] = diagnostic_candidates
         return payload
-
-
-def build_blocked_commit_gate_preview(
-    *,
-    plan: OrchestrationPlanPreview,
-    graph_preview: ExecutionGraphPreview,
-    adoption_candidate: AdoptionCandidate,
-    directive_candidates: tuple[RuntimeDirectiveCandidate, ...],
-    commit_types: tuple[CommitType, ...] = DEFAULT_COMMIT_TYPES,
-) -> CommitGatePreview:
-    directive_refs = tuple(candidate.directive_candidate_id for candidate in directive_candidates)
-    commit_candidates = tuple(
-        CommitCandidate(
-            candidate_id=f"commit-candidate:{plan.task_id}:{commit_type}:blocked",
-            commit_type=commit_type,
-            payload={},
-            producer="orchestration.commit_gate_preview",
-            allowed=False,
-            reason="preview_only",
-            refs={
-                "plan_ref": plan.plan_id,
-                "execution_graph_preview_ref": graph_preview.graph_preview_id,
-                "adoption_candidate_ref": adoption_candidate.candidate_id,
-                "runtime_directive_enabled": False,
-                "runtime_executable": False,
-            },
-        )
-        for commit_type in commit_types
-    )
-    return CommitGatePreview(
-        gate_id=f"commit-gate:{plan.task_id}:preview",
-        task_id=plan.task_id,
-        plan_ref=plan.plan_id,
-        execution_graph_preview_ref=graph_preview.graph_preview_id,
-        adoption_candidate_ref=adoption_candidate.candidate_id,
-        directive_candidate_refs=directive_refs,
-        commit_candidates=commit_candidates,
-        status="blocked",
-        reason="preview_only",
-        commit_allowed=False,
-        preview_only=True,
-        runtime_executable=False,
-        diagnostics={
-            "preview_only": True,
-            "fail_closed": True,
-            "commit_candidate_count": len(commit_candidates),
-            "commit_allowed": False,
-            "writeback_allowed": False,
-            "session_write_allowed": False,
-            "memory_write_allowed": False,
-            "artifact_write_allowed": False,
-            "task_result_write_allowed": False,
-            "title_write_allowed": False,
-            "runtime_directive_enabled": False,
-            "runtime_executable": False,
-        },
-    )
 
 
 def build_blocked_runtime_commit_gate(
@@ -155,7 +51,7 @@ def build_blocked_runtime_commit_gate(
     execution_graph_ref: str = "",
     directive_ref: str = "",
     output_response: Any | None = None,
-) -> CommitGatePreview:
+) -> RuntimeCommitGateDecision:
     canonical_answer = str(getattr(output_response, "canonical_answer", "") or "").strip()
     selected_channel = str(getattr(output_response, "selected_channel", "") or "")
     selected_source = str(getattr(output_response, "selected_source", "") or "")
@@ -196,25 +92,21 @@ def build_blocked_runtime_commit_gate(
             },
         ),
     )
-    return CommitGatePreview(
+    return RuntimeCommitGateDecision(
         gate_id=f"commit-gate:{task_id}:runtime-blocked",
-        task_id=task_id,
-        plan_ref=plan_ref,
-        execution_graph_preview_ref=execution_graph_ref,
-        adoption_candidate_ref="runtime-directive-adopted:model-only",
-        directive_candidate_refs=(directive_ref,) if directive_ref else (),
-        commit_candidates=commit_candidates,
+        commit_type="session_message",
+        commit_candidate=commit_candidates[0],
         status="blocked",
         reason="commit_gate_blocked",
         commit_allowed=False,
-        preview_only=True,
-        runtime_executable=False,
         diagnostics={
-            "preview_only": True,
             "fail_closed": True,
             "runtime_directive_ref": directive_ref,
+            "plan_ref": plan_ref,
+            "execution_graph_ref": execution_graph_ref,
             "output_boundary_applied": True,
             "commit_candidate_count": len(commit_candidates),
+            "commit_candidates": [candidate.to_dict() for candidate in commit_candidates],
             "commit_allowed": False,
             "session_write_allowed": False,
             "memory_write_allowed": False,
@@ -325,6 +217,25 @@ def build_assistant_session_message_commit_decision(
     source: str = "orchestration.task_run_loop",
 ) -> RuntimeCommitGateDecision:
     normalized = str(content or "").strip()
+    normalized_channel = str(answer_channel or "").strip()
+    normalized_state = str(answer_canonical_state or "").strip()
+    normalized_persist_policy = str(answer_persist_policy or "").strip()
+    is_missing_fallback = (
+        normalized_channel == "fallback_answer"
+        or normalized_state == "missing_answer"
+        or normalized_persist_policy == "do_not_persist"
+    )
+    is_visible_progress = (
+        normalized_channel == "answer_candidate"
+        and normalized_state == "progress_only"
+        and normalized_persist_policy == "persist_debug_only"
+    )
+    allowed = bool(normalized) and (not is_missing_fallback or is_visible_progress)
+    reason = "assistant_session_message_allowed"
+    if not normalized:
+        reason = "empty_assistant_message_blocked"
+    elif is_missing_fallback:
+        reason = "missing_answer_not_committable"
     candidate = CommitCandidate(
         candidate_id=f"commit-candidate:{task_run_id}:session_message:assistant-final",
         commit_type="session_message",
@@ -334,16 +245,16 @@ def build_assistant_session_message_commit_decision(
             "task_id": str(task_id or ""),
             "role": "assistant",
             "content": normalized,
-            "answer_channel": str(answer_channel or ""),
+            "answer_channel": normalized_channel,
             "answer_source": str(answer_source or ""),
-            "answer_canonical_state": str(answer_canonical_state or ""),
-            "answer_persist_policy": str(answer_persist_policy or ""),
+            "answer_canonical_state": normalized_state,
+            "answer_persist_policy": normalized_persist_policy,
             "answer_finalization_policy": str(answer_finalization_policy or ""),
             "answer_fallback_reason": str(answer_fallback_reason or ""),
         },
         producer="orchestration.runtime_commit_gate",
-        allowed=bool(normalized),
-        reason="assistant_session_message_allowed" if normalized else "empty_assistant_message_blocked",
+        allowed=allowed,
+        reason=reason,
         refs={
             "source": source,
             "commit_scope": "assistant_final_message_only",
@@ -353,13 +264,13 @@ def build_assistant_session_message_commit_decision(
         gate_id=f"commit-gate:{task_run_id}:assistant-session-message",
         commit_type="session_message",
         commit_candidate=candidate,
-        status="allowed" if normalized else "blocked",
+        status="allowed" if allowed else "blocked",
         reason=candidate.reason,
-        commit_allowed=bool(normalized),
+        commit_allowed=allowed,
         diagnostics={
             "session_id": str(session_id or ""),
             "task_run_id": str(task_run_id or ""),
-            "assistant_session_write_allowed": bool(normalized),
+            "assistant_session_write_allowed": allowed,
             "task_run_status_write_allowed": False,
             "memory_write_allowed": False,
             "artifact_write_allowed": False,

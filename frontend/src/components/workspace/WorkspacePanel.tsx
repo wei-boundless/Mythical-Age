@@ -6,6 +6,7 @@ import { HealthSystemView } from "@/components/workspace/views/HealthSystemView"
 import { MemoryView } from "@/components/workspace/views/MemoryView";
 import { OperationsView } from "@/components/workspace/views/OperationsView";
 import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
+import { SystemConfigView } from "@/components/workspace/views/SystemConfigView";
 import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
 import { useAppStore } from "@/lib/store";
 
@@ -21,11 +22,12 @@ export function WorkspacePanel() {
     "test-system": <HealthSystemView />,
     "health-system": <HealthSystemView />,
     operations: <OperationsView />,
-    evidence: <OperationsView initialPanel="agents" />,
+    evidence: <OperationsView initialPanel="tools" />,
     "task-system": <TaskSystemView />,
     "system-framework": <TaskSystemView />,
     experiments: <ExperimentsView />,
-    playground: <PlaygroundView />
+    playground: <PlaygroundView />,
+    "system-config": <SystemConfigView />
   } as const;
   const isSystemFramework = false;
 

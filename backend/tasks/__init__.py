@@ -1,9 +1,4 @@
-"""Task system public exports.
-
-The coordinator depends on query modules that may import ``tasks`` again during
-package initialization. Keep these exports lazy so lightweight contract imports
-do not pull the legacy runtime graph into preview-only code paths.
-"""
+"""Task system public exports."""
 
 from __future__ import annotations
 
@@ -28,7 +23,7 @@ __all__ = [
     "TaskRecord",
     "TaskResultRef",
     "TaskSummary",
-    "build_task_runtime_contract_preview",
+    "build_task_runtime_contract",
 ]
 
 
@@ -81,8 +76,8 @@ def __getattr__(name: str) -> Any:
         from tasks.models import TaskEvent, TaskRecord
 
         return {"TaskEvent": TaskEvent, "TaskRecord": TaskRecord}[name]
-    if name == "build_task_runtime_contract_preview":
-        from tasks.contract_builder import build_task_runtime_contract_preview
+    if name == "build_task_runtime_contract":
+        from tasks.contract_builder import build_task_runtime_contract
 
-        return build_task_runtime_contract_preview
+        return build_task_runtime_contract
     raise AttributeError(name)

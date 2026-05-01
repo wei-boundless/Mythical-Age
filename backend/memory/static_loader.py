@@ -8,8 +8,8 @@ from memory.models import StaticContextBundle, StaticContextEntry, StaticContext
 STATIC_SOUL_COMPONENTS: tuple[StaticContextSection, ...] = (
     StaticContextSection(
         key="agent_core",
-        label="Agent Core",
-        prompt_heading="稳定原则",
+        label="Common Contract",
+        prompt_heading="共同契约",
         relative_paths=("soul/agent_core/CORE.md",),
         injection_order=20,
     ),
@@ -19,13 +19,6 @@ STATIC_SOUL_COMPONENTS: tuple[StaticContextSection, ...] = (
         prompt_heading="当前风格",
         relative_paths=("soul/agent_core/ACTIVE_SEED.md",),
         injection_order=10,
-    ),
-    StaticContextSection(
-        key="agent_profile",
-        label="Agent Profile",
-        prompt_heading="用户与项目偏好",
-        relative_paths=("soul/agent.md",),
-        injection_order=30,
     ),
 )
 

@@ -17,8 +17,7 @@ class ResourceRuntimeView:
     risk_summary: str = ""
     denied_reason: str = ""
     requires_approval: bool = False
-    preview_only: bool = True
-    preview_available: bool = False
+    available_to_model: bool = False
     runtime_executable: bool = False
     policy_decision: str = "unknown"
     input_contract_ref: str = ""
@@ -50,7 +49,7 @@ def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry)
         )
 
     authorized = decision.decision == "allow"
-    preview_available = decision.decision in {"allow", "preview_only"}
+    available_to_model = decision.decision == "allow"
     requires_approval = decision.decision == "requires_approval"
     denied_reason = "" if authorized else decision.reason
     return ResourceRuntimeView(
@@ -61,8 +60,7 @@ def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry)
         risk_summary=", ".join(decision.risk_tags),
         denied_reason=denied_reason,
         requires_approval=requires_approval,
-        preview_only=True,
-        preview_available=preview_available,
+        available_to_model=available_to_model,
         runtime_executable=False,
         policy_decision=decision.decision,
         input_contract_ref=descriptor.input_contract_ref or str(descriptor.input_contract.get("contract_ref") or ""),

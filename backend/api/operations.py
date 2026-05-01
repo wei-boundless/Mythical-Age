@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from capabilities import TOOL_TYPE_OPTIONS
 from capabilities import build_operation_catalog as build_capability_operation_catalog
-from capabilities import set_skill_allowed_tools
+from capabilities import set_skill_allowed_tools, set_skill_prompt_view
 from config import runtime_config
 from skill_system import SkillWorkflowRegistry
 from operations import (
@@ -20,7 +20,7 @@ from operations import (
     RuntimeApprovalContext,
     build_default_operation_registry,
     build_operation_requirement,
-    build_resource_policy_preview,
+    build_resource_policy_candidate,
     build_resource_runtime_views,
 )
 
@@ -40,6 +40,13 @@ class SaveSkillRequest(BaseModel):
     content: str = Field(..., min_length=1)
 
 
+class SkillPromptViewRequest(BaseModel):
+    title: str = Field(default="", max_length=120)
+    capability: str = Field(default="", max_length=800)
+    use_when: str = Field(default="", max_length=1200)
+    output_rule: str = Field(default="", max_length=1200)
+
+
 class SkillToolBindingRequest(BaseModel):
     allowed_tools: list[str] = Field(default_factory=list)
 
@@ -56,9 +63,9 @@ class ApprovalContextRequest(BaseModel):
     headless_mode: bool = False
 
 
-class ResourcePolicyPreviewRequest(BaseModel):
-    task_id: str = Field(default="task-preview")
-    source: str = Field(default="task_binding_preview")
+class ResourcePolicyCandidateRequest(BaseModel):
+    task_id: str = Field(default="task-candidate")
+    source: str = Field(default="task_binding_candidate")
     operation_scope: list[str] = Field(default_factory=list)
     denied_operations: list[str] = Field(default_factory=list)
     default_operation_requirements: list[str] = Field(default_factory=list)
@@ -223,8 +230,8 @@ async def update_operation_agent_enabled(agent_id: str, payload: AgentEnabledReq
     return registry.build_catalog()
 
 
-@router.post("/operations/resource-policy/preview")
-async def resource_policy_preview(payload: ResourcePolicyPreviewRequest) -> dict[str, Any]:
+@router.post("/operations/resource-policy/candidate")
+async def resource_policy_candidate(payload: ResourcePolicyCandidateRequest) -> dict[str, Any]:
     registry = build_default_operation_registry()
     requirement = build_operation_requirement(
         task_id=payload.task_id,
@@ -237,7 +244,7 @@ async def resource_policy_preview(payload: ResourcePolicyPreviewRequest) -> dict
         review_policy=payload.review_policy,
         reason=payload.reason,
     )
-    policy = build_resource_policy_preview(
+    policy = build_resource_policy_candidate(
         requirement,
         registry,
         approval_context=RuntimeApprovalContext(
@@ -255,7 +262,6 @@ async def resource_policy_preview(payload: ResourcePolicyPreviewRequest) -> dict
         "resource_runtime_views": [view.to_dict() for view in views],
         "diagnostics": {
             **policy.diagnostics,
-            "preview_only": True,
             "fail_closed": True,
         },
     }
@@ -292,6 +298,28 @@ async def save_operation_skill(skill_name: str, payload: SaveSkillRequest) -> di
     if root not in path.parents or path.name != "SKILL.md":
         raise HTTPException(status_code=400, detail="Invalid skill path")
     path.write_text(payload.content, encoding="utf-8")
+    runtime.refresh_catalogs()
+    return build_operation_catalog()
+
+
+@router.put("/operations/skills/{skill_name}/prompt-view")
+async def update_operation_skill_prompt_view(skill_name: str, payload: SkillPromptViewRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    path = _find_skill_path(runtime, skill_name)
+    root = (runtime.base_dir / "skills").resolve()
+    if root not in path.parents or path.name != "SKILL.md":
+        raise HTTPException(status_code=400, detail="Invalid skill path")
+    current_name = _safe_skill_name(skill_name)
+    set_skill_prompt_view(
+        path,
+        {
+            "name": current_name,
+            "title": payload.title,
+            "capability": payload.capability,
+            "use_when": payload.use_when,
+            "output_rule": payload.output_rule,
+        },
+    )
     runtime.refresh_catalogs()
     return build_operation_catalog()
 

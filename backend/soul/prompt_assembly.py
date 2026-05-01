@@ -17,6 +17,8 @@ def build_prompt_manifest(task_id: str, projection_id: str, runtime_view: SoulRu
             cache_scope=section.cache_scope,
             visible_to_model=section.visible_to_model,
             chars=len(section.content),
+            source_refs=section.source_refs,
+            candidate_refs=section.candidate_refs,
         )
         for section in runtime_view.sections
     )

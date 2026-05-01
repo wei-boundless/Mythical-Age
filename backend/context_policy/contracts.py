@@ -30,21 +30,21 @@ class ContextCandidateDecision:
 class ContextPolicyResult:
     package: ContextPackage
     decisions: tuple[ContextCandidateDecision, ...]
-    preview_only: bool = True
-    authority: str = "context_policy_preview"
+    read_only: bool = True
+    authority: str = "context_policy_result"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.preview_only:
-            raise ValueError("ContextPolicyResult must remain preview_only")
-        if self.authority != "context_policy_preview":
+        if not self.read_only:
+            raise ValueError("ContextPolicyResult must remain read_only")
+        if self.authority != "context_policy_result":
             raise ValueError("ContextPolicyResult cannot carry runtime authority")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "package": self.package.to_dict(),
             "decisions": [decision.to_dict() for decision in self.decisions],
-            "preview_only": self.preview_only,
+            "read_only": self.read_only,
             "authority": self.authority,
             "diagnostics": dict(self.diagnostics),
         }

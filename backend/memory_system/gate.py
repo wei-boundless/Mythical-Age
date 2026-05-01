@@ -8,7 +8,7 @@ from .contracts import MemoryWriteCandidate
 
 @dataclass(slots=True, frozen=True)
 class MemoryGateDecision:
-    """Preview-only memory writeback gate.
+    """Memory writeback gate.
 
     MemorySystem may produce write candidates, but it cannot commit them. This
     gate is intentionally fail-closed until orchestration/commit governance is
@@ -18,15 +18,15 @@ class MemoryGateDecision:
     gate_id: str
     write_candidates: tuple[MemoryWriteCandidate, ...] = ()
     status: str = "blocked"
-    reason: str = "preview_only"
+    reason: str = "memory_write_requires_commit_gate"
     memory_write_allowed: bool = False
     commit_allowed: bool = False
-    preview_only: bool = True
-    authority: str = "memory_gate_preview"
+    read_only: bool = True
+    authority: str = "memory_gate"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.authority != "memory_gate_preview":
+        if self.authority != "memory_gate":
             raise ValueError("MemoryGateDecision cannot carry commit authority")
         if self.status != "blocked":
             raise ValueError("MemoryGateDecision must stay blocked")
@@ -34,8 +34,8 @@ class MemoryGateDecision:
             raise ValueError("MemoryGateDecision cannot allow memory writes")
         if self.commit_allowed:
             raise ValueError("MemoryGateDecision cannot allow commits")
-        if not self.preview_only:
-            raise ValueError("MemoryGateDecision must remain preview_only")
+        if not self.read_only:
+            raise ValueError("MemoryGateDecision must remain read_only")
         for candidate in self.write_candidates:
             if candidate.authority != "candidate_only":
                 raise ValueError("MemoryGateDecision only accepts candidate-only write candidates")
@@ -48,10 +48,10 @@ class MemoryGateDecision:
         return payload
 
 
-def build_blocked_memory_gate_preview(
+def build_blocked_memory_gate(
     write_candidates: tuple[MemoryWriteCandidate, ...] | list[MemoryWriteCandidate],
     *,
-    gate_id: str = "memory-gate:preview",
+    gate_id: str = "memory-gate:writeback",
     reason: str = "memory_write_requires_commit_gate",
 ) -> MemoryGateDecision:
     candidates = tuple(write_candidates or ())
@@ -62,9 +62,8 @@ def build_blocked_memory_gate_preview(
         reason=reason,
         memory_write_allowed=False,
         commit_allowed=False,
-        preview_only=True,
+        read_only=True,
         diagnostics={
-            "preview_only": True,
             "fail_closed": True,
             "write_candidate_count": len(candidates),
             "memory_write_allowed": False,

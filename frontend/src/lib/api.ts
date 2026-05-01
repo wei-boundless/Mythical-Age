@@ -411,6 +411,51 @@ export type ContextBudgetConfig = {
   authority: string;
 };
 
+export type ModelProviderOption = {
+  provider: string;
+  default_model: string;
+  default_base_url: string;
+};
+
+export type ModelProviderConfig = {
+  provider: string;
+  model: string;
+  base_url: string;
+  api_key_configured: boolean;
+  fallback_provider: string;
+  fallback_model: string;
+  fallback_base_url: string;
+  fallback_api_key_configured: boolean;
+  supported_providers: Record<string, ModelProviderOption>;
+  authority: string;
+};
+
+export type RuntimeConfigField = {
+  key: string;
+  label: string;
+  type: "text" | "number" | "boolean" | "select" | "secret";
+  value?: string | number | boolean | null;
+  configured?: boolean;
+  options?: string[];
+  source: "runtime_override" | "env_or_default" | string;
+  description: string;
+  restart_required: boolean;
+};
+
+export type RuntimeConfigGroup = {
+  group_id: string;
+  title: string;
+  description: string;
+  status: string;
+  fields: RuntimeConfigField[];
+  metadata?: Record<string, unknown>;
+};
+
+export type RuntimeConfigConsole = {
+  authority: string;
+  groups: RuntimeConfigGroup[];
+};
+
 export type HealthIssue = {
   issue_id: string;
   title: string;
@@ -600,6 +645,7 @@ export type OrchestrationCatalogSkill = {
 
 export type OrchestrationCatalogTool = {
   name: string;
+  operation_id: string;
   module: string;
   contract: Record<string, unknown>;
   resolution_contract: Record<string, unknown>;
@@ -632,6 +678,22 @@ export type OperationSkill = OrchestrationCatalogSkill & {
   prompt_block: string;
   content: string;
   validation_errors: string[];
+  allowed_operations?: string[];
+};
+
+export type OperationDescriptor = {
+  operation_id: string;
+  operation_type: string;
+  title: string;
+  capability_summary: string;
+  provider: string;
+  aliases: string[];
+  risk_tags: string[];
+  read_only: boolean;
+  destructive: boolean;
+  concurrency_safe: boolean;
+  requires_user_interaction: boolean;
+  requires_approval_by_default: boolean;
 };
 
 export type OperationTool = OrchestrationCatalogTool & {
@@ -662,6 +724,56 @@ export type OperationTool = OrchestrationCatalogTool & {
   };
 };
 
+export type OperationWorker = {
+  worker_id: string;
+  route: string;
+  name: string;
+  description: string;
+  operation_id: string;
+  agent_id: string;
+  implementation_module: string;
+  endpoint_protocol: string;
+  a2a_protocol_version: string;
+  transport: string;
+  server_name: string;
+  runtime_lane: string;
+  model_visibility: string;
+  input_modes: string[];
+  output_modes: string[];
+  tags: string[];
+  mcp_profile: Record<string, unknown>;
+  operation: Record<string, unknown>;
+  diagnostics: Record<string, unknown>;
+};
+
+export type CapabilityEndpoint = {
+  endpoint_id: string;
+  kind: "local_worker" | "mcp_server" | string;
+  name: string;
+  title: string;
+  description: string;
+  operation_id: string;
+  protocol_family: string;
+  server_name: string;
+  transport: string;
+  runtime_lane: string;
+  invocation_mode: string;
+  model_visibility: string;
+  runtime_visibility: string;
+  prompt_exposure_policy: string;
+  resource_exposure_policy: string;
+  source_ref: string;
+  owner_agents: Array<{
+    agent_id: string;
+    name: string;
+  }>;
+  tags: string[];
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  annotations: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+};
+
 export type OperationBindingGraph = {
   agent_nodes: Array<{
     agent_id: string;
@@ -670,6 +782,17 @@ export type OperationBindingGraph = {
     description: string;
     bound_tools: string[];
     protocol_version: string;
+  }>;
+  worker_nodes?: Array<{
+    worker_id: string;
+    route: string;
+    name: string;
+    description: string;
+    operation_id: string;
+    agent_id: string;
+    transport: string;
+    model_visibility: string;
+    tags: string[];
   }>;
   skill_tool_edges: Array<{
     from: string;
@@ -685,22 +808,38 @@ export type OperationBindingGraph = {
     to_label: string;
     relation: string;
   }>;
+  worker_operation_edges?: Array<{
+    from: string;
+    from_label: string;
+    to: string;
+    to_label: string;
+    relation: string;
+  }>;
   recommendations: string[];
 };
 
 export type OperationCatalog = {
   skills: OperationSkill[];
   tools: OperationTool[];
+  workers?: OperationWorker[];
+  capability_endpoints?: CapabilityEndpoint[];
+  operations?: OperationDescriptor[];
   binding_graph: OperationBindingGraph;
   tool_type_options: string[];
   summary: {
     skill_count: number;
     tool_count: number;
+    worker_count?: number;
+    local_mcp_endpoint_count?: number;
+    capability_endpoint_count?: number;
     model_visible_skills: number;
     tool_types: string[];
     tool_boundaries: Record<string, number>;
     tool_sources: Record<string, number>;
     tool_risks: Record<string, number>;
+    operation_count?: number;
+    validation_issue_count?: number;
+    validation_error_count?: number;
   };
   validation_issues?: Array<{
     severity: string;
@@ -816,11 +955,18 @@ export type SoulProjectionCard = {
   role_type: string;
   task_mode: string;
   agent_profile_id: string;
+  posture_tags?: string[];
+  expression_density?: string;
+  attention_focus?: string[];
+  risk_notes?: string[];
   task_contract_summary: string;
   skill_views: Array<Record<string, unknown>>;
   tool_views: Array<Record<string, unknown>>;
   memory_policy_summary: string;
   output_contract_summary: string;
+  legacy_runtime_preview?: Record<string, unknown>;
+  runtime_only_payload?: boolean;
+  static_projection_card?: boolean;
   style_content: string;
   created_at: number;
   updated_at: number;
@@ -840,6 +986,10 @@ export type SoulProjectionCardCreatePayload = {
   task_mode?: string;
   agent_profile_id?: string;
   projection_name?: string;
+  posture_tags?: string[];
+  expression_density?: string;
+  attention_focus?: string[];
+  risk_notes?: string[];
   skill_views?: Array<{
     skill_id: string;
     title: string;
@@ -906,7 +1056,6 @@ export type PromptManifest = {
   total_chars: number;
   total_sections: number;
   sections: PromptManifestSection[];
-  debug_policy: string;
 };
 
 export type PromptManifestResponse = {
@@ -1088,7 +1237,7 @@ export type MemoryRecallPreview = {
     eligible_for_injection: boolean;
   }>;
   rendered_summary: string;
-  context_preview: MemorySessionInspect | null;
+  context_result: MemorySessionInspect | null;
 };
 
 export type MemoryGovernanceResponse = {
@@ -1238,6 +1387,33 @@ export async function setContextBudgetPreset(presetId: string) {
   return request<ContextBudgetConfig>("/config/context-budget", {
     method: "PUT",
     body: JSON.stringify({ preset_id: presetId })
+  });
+}
+
+export async function getModelProviderConfig() {
+  return request<ModelProviderConfig>("/config/model-provider");
+}
+
+export async function setModelProviderConfig(payload: {
+  provider: string;
+  model: string;
+  base_url: string;
+  api_key?: string;
+}) {
+  return request<ModelProviderConfig>("/config/model-provider", {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getRuntimeConfigConsole() {
+  return request<RuntimeConfigConsole>("/config/runtime-console");
+}
+
+export async function setRuntimeConfigGroup(groupId: string, values: Record<string, string | number | boolean>) {
+  return request<RuntimeConfigConsole>("/config/runtime-console", {
+    method: "PUT",
+    body: JSON.stringify({ group_id: groupId, values })
   });
 }
 
@@ -1441,6 +1617,21 @@ export async function saveOperationSkill(skillName: string, content: string) {
   return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}`, {
     method: "PUT",
     body: JSON.stringify({ content })
+  });
+}
+
+export async function updateOperationSkillPromptView(
+  skillName: string,
+  payload: {
+    title: string;
+    capability: string;
+    use_when: string;
+    output_rule: string;
+  }
+) {
+  return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}/prompt-view`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
   });
 }
 

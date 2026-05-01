@@ -3,7 +3,7 @@ from __future__ import annotations
 from memory.facade import MemoryFacade
 from memory_system import MemoryRuntimeView
 from memory_system.contracts import MemoryContextCandidate
-from context_policy import build_context_package_preview
+from context_policy import build_context_package_result
 from structured_memory import MemoryNote
 from structured_memory.process_state import ContextSlots, ProcessState
 
@@ -38,15 +38,15 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
         memory_class="work",
     )
 
-    result = facade.build_memory_context_package_preview(
+    result = facade.build_memory_context_package_result(
         session_id=session_id,
         query="记忆系统原则是什么？",
         relevant_notes=[note],
     )
     package = result.package
 
-    assert result.preview_only is True
-    assert result.authority == "context_policy_preview"
+    assert result.read_only is True
+    assert result.authority == "context_policy_result"
     assert package.model_visible_sections["active_process_context"]
     assert package.model_visible_sections["hot_truth_window"]
     assert package.model_visible_sections["relevant_durable_context"]
@@ -82,7 +82,7 @@ def test_context_policy_drops_long_term_before_state_when_budget_is_tight() -> N
         context_candidates=(state_candidate, long_term_candidate),
     )
 
-    result = build_context_package_preview(
+    result = build_context_package_result(
         view,
         available_context_tokens=60,
         reserved_output_tokens=20,

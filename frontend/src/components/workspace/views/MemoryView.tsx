@@ -922,7 +922,7 @@ export function MemoryView() {
                 <article className="memory-chain-node memory-chain-node--session">
                   <span>02</span>
                   <strong>状态记忆</strong>
-                  <p>{turnRecallPreview?.context_preview?.debug_preview || session?.debug_preview || "当前没有可展示的状态记忆。"}</p>
+                  <p>{turnRecallPreview?.context_result?.debug_preview || session?.debug_preview || "当前没有可展示的状态记忆。"}</p>
                 </article>
                 <article className="memory-chain-node memory-chain-node--durable">
                   <span>03</span>
@@ -993,7 +993,7 @@ export function MemoryView() {
                       : "展开当前会话某一轮并点击“查看这一轮记忆链路”，这里会形成模拟链路。"}
                   </p>
                   <div className="memory-compare-card__metrics">
-                    <b>{turnRecallPreview?.context_preview?.present ? "有状态上下文" : "状态待模拟"}</b>
+                    <b>{turnRecallPreview?.context_result?.present ? "有状态上下文" : "状态待模拟"}</b>
                     <b>{turnRecallPreview ? `${turnRecallPreview.selected_notes.length} 长期命中` : "未模拟"}</b>
                     <b>{turnRecallPreview?.rendered_summary ? "有注入摘要" : "无注入摘要"}</b>
                   </div>

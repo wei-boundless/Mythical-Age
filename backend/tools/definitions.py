@@ -28,6 +28,7 @@ from tools.search_knowledge_tool import SearchKnowledgeBaseTool
 from tools.structured_data_analysis_tool import StructuredDataAnalysisTool
 from tools.terminal_tool import TerminalTool
 from tools.web_search_tool import WebSearchTool
+from tools.write_file_tool import EditFileTool, WriteFileTool
 
 
 ToolFactory = Callable[[Path], BaseTool]
@@ -36,6 +37,7 @@ ToolFactory = Callable[[Path], BaseTool]
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
     name: str
+    operation_id: str
     module: str
     factory: ToolFactory
     contract: ToolExecutionContract = field(default_factory=ToolExecutionContract)
@@ -68,6 +70,7 @@ def _tool_definitions() -> list[ToolDefinition]:
     return [
         ToolDefinition(
             name="get_weather",
+            operation_id="op.get_weather",
             module="tools.get_weather_tool",
             factory=lambda _base_dir: GetWeatherTool(),
             contract=ToolExecutionContract(
@@ -90,6 +93,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="get_gold_price",
+            operation_id="op.get_gold_price",
             module="tools.get_gold_price_tool",
             factory=lambda base_dir: GetGoldPriceTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -112,6 +116,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="web_search",
+            operation_id="op.web_search",
             module="tools.web_search_tool",
             factory=lambda base_dir: WebSearchTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -134,6 +139,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="structured_data_analysis",
+            operation_id="op.structured_data_analysis",
             module="tools.structured_data_analysis_tool",
             factory=lambda base_dir: StructuredDataAnalysisTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -168,6 +174,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="pdf_analysis",
+            operation_id="op.pdf_analysis",
             module="tools.pdf_analysis_tool",
             factory=lambda base_dir: PdfAnalysisTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -206,6 +213,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="search_knowledge",
+            operation_id="op.search_knowledge",
             module="tools.search_knowledge_tool",
             factory=lambda base_dir: SearchKnowledgeBaseTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -231,6 +239,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="analyze_multimodal_file",
+            operation_id="op.analyze_multimodal_file",
             module="tools.analyze_multimodal_file_tool",
             factory=lambda base_dir: AnalyzeMultimodalFileTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -260,6 +269,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="index_multimodal_file",
+            operation_id="op.index_multimodal_file",
             module="tools.index_multimodal_file_tool",
             factory=lambda base_dir: IndexMultimodalFileTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -289,6 +299,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="search_files",
+            operation_id="op.search_files",
             module="tools.search_files_tool",
             factory=lambda base_dir: SearchFilesTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -313,6 +324,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="search_text",
+            operation_id="op.search_text",
             module="tools.search_files_tool",
             factory=lambda base_dir: SearchTextTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -337,6 +349,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="read_file",
+            operation_id="op.read_file",
             module="tools.read_file_tool",
             factory=lambda base_dir: ReadFileTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -365,6 +378,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="fetch_url",
+            operation_id="op.fetch_url",
             module="tools.fetch_url_tool",
             factory=lambda _base_dir: FetchURLTool(),
             contract=ToolExecutionContract(
@@ -386,7 +400,58 @@ def _tool_definitions() -> list[ToolDefinition]:
             is_concurrency_safe=True,
         ),
         ToolDefinition(
+            name="write_file",
+            operation_id="op.write_file",
+            module="tools.write_file_tool",
+            factory=lambda base_dir: WriteFileTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["path", "content"],
+                owner_scope="explicit_path",
+                missing_binding_behavior="deny",
+                context_policy="isolated",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="summary_text", persistence_policy="persist_if_canonical"),
+            capability_tags=["file", "write", "workspace"],
+            supported_modalities=["text", "code", "document"],
+            safety_tags=["write", "local_write"],
+            route_hints=["tool", "workspace_write"],
+            safe_for_auto_route=False,
+            schema_identity="local.tools/write_file",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="explicit_resource",
+            is_read_only=False,
+            is_destructive=False,
+            is_concurrency_safe=False,
+        ),
+        ToolDefinition(
+            name="edit_file",
+            operation_id="op.edit_file",
+            module="tools.write_file_tool",
+            factory=lambda base_dir: EditFileTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["path", "old_text", "new_text"],
+                owner_scope="explicit_path",
+                missing_binding_behavior="deny",
+                context_policy="isolated",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="summary_text", persistence_policy="persist_if_canonical"),
+            capability_tags=["file", "edit", "workspace"],
+            supported_modalities=["text", "code", "document"],
+            safety_tags=["write", "local_write"],
+            route_hints=["tool", "workspace_edit"],
+            safe_for_auto_route=False,
+            schema_identity="local.tools/edit_file",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="explicit_resource",
+            is_read_only=False,
+            is_destructive=False,
+            is_concurrency_safe=False,
+        ),
+        ToolDefinition(
             name="terminal",
+            operation_id="op.shell",
             module="tools.terminal_tool",
             factory=lambda base_dir: TerminalTool(root_dir=base_dir),
             contract=ToolExecutionContract(
@@ -412,6 +477,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="python_repl",
+            operation_id="op.python_repl",
             module="tools.python_repl_tool",
             factory=lambda base_dir: PythonReplTool(root_dir=base_dir),
             contract=ToolExecutionContract(

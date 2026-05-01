@@ -285,7 +285,7 @@ class HealthRegistry:
             agent_id=str(binding.get("agent_id") or ""),
             runtime_lane=str(binding.get("runtime_lane") or ""),
             resource_policy_ref=str(binding.get("resource_policy_ref") or ""),
-            preview_only=False,
+            candidate_only=False,
         )
         projection_event = task_run_loop.event_log.append(
             start.task_run.task_run_id,
@@ -309,7 +309,7 @@ class HealthRegistry:
             diagnostics={
                 **dict(start.loop_state.diagnostics),
                 "projection_instance_built": True,
-                "projection_preview_only": False,
+                "projection_candidate_only": False,
                 "prompt_manifest_id": projection.prompt_manifest_id,
             },
         )
@@ -473,7 +473,7 @@ class HealthRegistry:
                     "prompt_manifest_ref": str(projection.get("prompt_manifest_id") or ""),
                     "token_pressure": {"level": "unknown", "source": "health_system"},
                 },
-                "context_policy_preview": {
+                "context_policy_result": {
                     "memory_scope": str(binding.get("memory_scope") or ""),
                     "allowed_context_sections": ["health_issue", "runtime_trace", "prompt_manifest", "assertions"],
                 },
@@ -863,7 +863,7 @@ class HealthRegistry:
             memory_read_scope=str(binding.get("memory_scope") or "issue_local_readonly"),
             memory_write_scope="none",
             approval_policy="read_only_first",
-            preview_only=False,
+            runtime_view_only=False,
             adopted=True,
             runtime_executable=True,
             decisions=(decision,),

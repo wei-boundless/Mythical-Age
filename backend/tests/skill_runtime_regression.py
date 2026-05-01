@@ -52,7 +52,7 @@ def main() -> None:
     )
     assert weather.route == "tool"
     assert weather.skill_name is None
-    assert skill_resolver.resolve(task_frame=weather).name == "get-weather"
+    assert skill_resolver.resolve(task_frame=weather) is None
     assert weather.tool_name == "get_weather"
     assert weather.target_object is None
     assert weather.candidate_tools == ["get_weather"]
@@ -176,7 +176,7 @@ def main() -> None:
     )
     assert gold.route == "tool"
     assert gold.skill_name is None
-    assert skill_resolver.resolve(task_frame=gold).name == "gold-price"
+    assert skill_resolver.resolve(task_frame=gold) is None
     assert gold.tool_name == "get_gold_price"
     assert gold.target_object is None
     assert gold.candidate_tools == ["get_gold_price"]

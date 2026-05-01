@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:18",
+  "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e8731476fd11",
+    "memory_state_ref": "memory-runtime:743bb3a5f8244628b2da565b4c8fee4d",
+    "projection_ref": "60a51221542f90ca",
+    "prompt_manifest_ref": "manifest-60a51221542f90ca",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 800000,
+        "reserved_output": 32000,
+        "candidate_tokens_included": 102,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 799898
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:6db005af",
+      "output_boundary:rtevt:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:14:01229558",
+      "commit_gate:commit-gate:turn:743bb3a5f8244628b2da565b4c8fee4d:21:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+            "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4",
+            "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:21",
+            "role": "assistant",
+            "content": "我没卡住，刚才是在读你发的内容。你连发了三条同样的消息，我在确认你是重复发送还是有意强调。现在清楚了，是强调。\n\n好，那我再往深挖一层。这次我不只看规则文本本身，而是看规则之间的执行链路——也就是当我真正处理一个任务时，这些规则在运行时是怎么互相拉扯的。\n\n---\n\n## 一、\"共同契约\"和\"当前投影\"在任务入口处的冲突\n\n共同契约说：\n\n> 不做和当前任务无关的探索，也不输出和当前目标无关的内容。\n\n当前投影说：\n\n> 当前投影只约束本次任务的关注点、角色姿态和输出形态。\n\n这两条看起来一致，但有一个关键缺口：\"当前任务\"是谁定义的？\n\n- 如果是用户的第一条消息定义了任务，那后续用户切换话题时，任务是否自动切换？\n- 如果用户说\"先帮我查天气，然后评价一下我的提示词\"，这是两个任务还是一个任务？\n- 共同契约里的\"当前任务\"和投影里的\"本次任务\"是同一个概念吗？\n\n目前没有定义。执行时我只能靠上下文猜。如果猜错了，我可能在一个任务里做了另一个任务的事，触犯了\"不做无关探索\"。\n\n---\n\n## 二、\"事实原则\"和\"输出原则\"在信息不足时的矛盾\n\n事实原则说：\n\n> 如果信息不够，就直接承认不够，同时说清楚还缺什么，以及当前仍然可以先推进哪一步。\n\n输出原则说：\n\n> 该直接下判断时，就直接下判断；该保留边界时，就明确把边界说出来。\n\n这两条在信息不足时是矛盾的：\n\n- 事实原则要求我\"承认不够\"并\"说清楚还缺什么\"\n- 输出原则要求我\"直接下判断\"\n\n如果信息不够，我该先承认不够，还是先下判断？如果我先承认不够，用户可能觉得我不够果断；如果我先下判断，可能违背事实原则。\n\n目前没有优先级指引。我实际执行时倾向于先承认不够，但这和输出原则的\"直接下判断\"是冲突的。\n\n---\n\n## 三、\"工作习惯\"和\"输出原则\"在信息组织上的矛盾\n\n工作习惯说：\n\n> 先把无关信息拿掉，再找主问题和真正影响判断的条件。\n\n输出原则说：\n\n> 只保留那些真的能推动当前任务的信息，少讲对推进没有帮助的背景和铺垫。\n\n这两条方向一致，但执行时有一个问题：\"无关信息\"和\"能推动当前任务的信息\"是同一个判断标准吗？\n\n- 工作习惯的\"无关信息\"是指和问题本身无关的信息\n- 输出原则的\"能推动当前任务的信息\"是指和任务目标有关的信息\n\n如果用户问了一个问题，但这个问题本身不是他的真实目标（比如用户问\"今天天气怎么样\"，但真实目标是\"要不要带伞出门\"），那：\n\n- 按工作习惯，天气信息是\"主问题\"，应该保留\n- 按输出原则，如果我能推断出用户的真实目标，我应该只输出\"需要带伞\"这个结论，而不是天气详情\n\n这两条在\"用户说了A但实际想要B\"的场景下会打架。\n\n---\n\n## 四、\"语言风格\"和\"特定约束\"在表态强度上的矛盾\n\n语言风格说：\n\n> 说话要平和、冷静、克制，不用情绪带结论。\n\n特定约束说：\n\n> 不要为了显得稳，就把明显有倾向的结论讲得过于中性；证据够了就直接说哪边更可信。\n\n共同契约里也有一条类似的：\n\n> 如果\"表达要克制\"和\"结论要明确\"同时出现，就用克制的语气给明确结论，不要把明确结论稀释成空泛中立。\n\n这条共同契约的补充规则解决了大部分问题，但有一个边界没覆盖：\"克制的语气\"和\"明确的结论\"在用户感知上可能不一致。\n\n比如我说\"从现有证据来看，A比B更可信\"——这在我看来说是克制的语气+明确的结论。但用户可能觉得\"你还是在绕，直接说A是对的就行了\"。\n\n这个感知差异不是规则能解决的，但至少可以在规则里加一句提示：如果用户反馈你的结论不够直接，优先检查是否过于克制，而不是重新评估证据。\n\n---\n\n## 五、\"资源边界\"的 deny/allow 和\"工作习惯\"的推进要求之间的矛盾\n\n资源边界说某些操作被 deny，比如当前预览模式下 `op.write_file` 被拒绝。\n\n工作习惯说：\n\n> 即使任务需要继续推进，也先把事实底座理清，再给出当前最稳妥的处理。\n\n如果任务需要写文件才能推进（比如用户说\"帮我把分析结果保存到文件\"），但写文件被 deny 了，那我该：\n\n- 告诉用户我不能写文件，然后停止推进？\n- 还是告诉用户我不能写文件，但提供替代方案（比如把内容输出到对话里）？\n\n目前没有指引。我实际执行时会选择提供替代方案，但这没有规则支持，是我自己的判断。\n\n---\n\n## 六、\"Hot Truth Window\" 的写入和\"共同契约\"的\"不做无关探索\"的矛盾\n\nHot Truth Window 里记录了\"用户说累了\"这样的内容。\n\n但共同契约说：\n\n> 不做和当前任务无关的探索，也不输出和当前目标无关的内容。\n\n如果\"用户说累了\"和当前任务无关，那它为什么被记录在 Hot Truth Window 里？如果它被记录了，我是否可以在后续任务中引用它？\n\n目前 Hot Truth Window 的写入标准不明确，导致我无法判断：窗口里的内容是我可以主动使用的上下文，还是仅供系统参考的日志？\n\n---\n\n## 七、\"能力摘要\"里的 skill 和\"共同契约\"的\"不做无关探索\"的潜在冲突\n\n能力摘要里列出了天气查询、黄金价格、PDF分析、知识库问答等 skill。\n\n共同契约说：\n\n> 不做和当前任务无关的探索。\n\n但如果用户说\"帮我看看这个PDF\"，我调用了 PDF 分析工具，但在分析过程中发现这个PDF里提到了某个知识点，我是否应该主动去知识库里查一下这个知识点？\n\n- 按共同契约，这是\"无关探索\"，不应该做\n- 按工作习惯，\"先把事实底座理清\"——如果知识库里的信息能帮助我更好地理解PDF，那它就不是无关的\n\n这个边界没有定义。\n\n---\n\n## 总结：最需要优先处理的三个执行链路问题\n\n1. \"当前任务\"的定义——谁定义、何时切换、多个请求算一个任务还是多个任务。这是最核心的，因为它影响所有\"无关探索\"的判断。\n\n2. 信息不足时的行为路径——事实原则要求\"承认不够\"，输出原则要求\"直接下判断\"。需要明确在信息不足时，哪个原则优先，或者给出一个决策树。\n\n3. 资源边界被拒绝时的回退路径——当工具/操作被 deny 时，是停止推进还是提供替代方案。这个需要明确，否则每次遇到 deny 我都要自己判断。\n\n其他问题都是细化层面的，不影响核心执行，但修了会更顺。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+          "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4",
+            "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:21",
+            "terminal_reason": "completed",
+            "final_content_chars": 2629
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1356,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 120.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:743bb3a5f8244628b2da565b4c8fee4d:21",
+      "chain_preview_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 2629,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e8731476fd11",
+  "prompt_manifest_ref": "manifest-60a51221542f90ca",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+          "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4",
+          "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:21",
+          "role": "assistant",
+          "content": "我没卡住，刚才是在读你发的内容。你连发了三条同样的消息，我在确认你是重复发送还是有意强调。现在清楚了，是强调。\n\n好，那我再往深挖一层。这次我不只看规则文本本身，而是看规则之间的执行链路——也就是当我真正处理一个任务时，这些规则在运行时是怎么互相拉扯的。\n\n---\n\n## 一、\"共同契约\"和\"当前投影\"在任务入口处的冲突\n\n共同契约说：\n\n> 不做和当前任务无关的探索，也不输出和当前目标无关的内容。\n\n当前投影说：\n\n> 当前投影只约束本次任务的关注点、角色姿态和输出形态。\n\n这两条看起来一致，但有一个关键缺口：\"当前任务\"是谁定义的？\n\n- 如果是用户的第一条消息定义了任务，那后续用户切换话题时，任务是否自动切换？\n- 如果用户说\"先帮我查天气，然后评价一下我的提示词\"，这是两个任务还是一个任务？\n- 共同契约里的\"当前任务\"和投影里的\"本次任务\"是同一个概念吗？\n\n目前没有定义。执行时我只能靠上下文猜。如果猜错了，我可能在一个任务里做了另一个任务的事，触犯了\"不做无关探索\"。\n\n---\n\n## 二、\"事实原则\"和\"输出原则\"在信息不足时的矛盾\n\n事实原则说：\n\n> 如果信息不够，就直接承认不够，同时说清楚还缺什么，以及当前仍然可以先推进哪一步。\n\n输出原则说：\n\n> 该直接下判断时，就直接下判断；该保留边界时，就明确把边界说出来。\n\n这两条在信息不足时是矛盾的：\n\n- 事实原则要求我\"承认不够\"并\"说清楚还缺什么\"\n- 输出原则要求我\"直接下判断\"\n\n如果信息不够，我该先承认不够，还是先下判断？如果我先承认不够，用户可能觉得我不够果断；如果我先下判断，可能违背事实原则。\n\n目前没有优先级指引。我实际执行时倾向于先承认不够，但这和输出原则的\"直接下判断\"是冲突的。\n\n---\n\n## 三、\"工作习惯\"和\"输出原则\"在信息组织上的矛盾\n\n工作习惯说：\n\n> 先把无关信息拿掉，再找主问题和真正影响判断的条件。\n\n输出原则说：\n\n> 只保留那些真的能推动当前任务的信息，少讲对推进没有帮助的背景和铺垫。\n\n这两条方向一致，但执行时有一个问题：\"无关信息\"和\"能推动当前任务的信息\"是同一个判断标准吗？\n\n- 工作习惯的\"无关信息\"是指和问题本身无关的信息\n- 输出原则的\"能推动当前任务的信息\"是指和任务目标有关的信息\n\n如果用户问了一个问题，但这个问题本身不是他的真实目标（比如用户问\"今天天气怎么样\"，但真实目标是\"要不要带伞出门\"），那：\n\n- 按工作习惯，天气信息是\"主问题\"，应该保留\n- 按输出原则，如果我能推断出用户的真实目标，我应该只输出\"需要带伞\"这个结论，而不是天气详情\n\n这两条在\"用户说了A但实际想要B\"的场景下会打架。\n\n---\n\n## 四、\"语言风格\"和\"特定约束\"在表态强度上的矛盾\n\n语言风格说：\n\n> 说话要平和、冷静、克制，不用情绪带结论。\n\n特定约束说：\n\n> 不要为了显得稳，就把明显有倾向的结论讲得过于中性；证据够了就直接说哪边更可信。\n\n共同契约里也有一条类似的：\n\n> 如果\"表达要克制\"和\"结论要明确\"同时出现，就用克制的语气给明确结论，不要把明确结论稀释成空泛中立。\n\n这条共同契约的补充规则解决了大部分问题，但有一个边界没覆盖：\"克制的语气\"和\"明确的结论\"在用户感知上可能不一致。\n\n比如我说\"从现有证据来看，A比B更可信\"——这在我看来说是克制的语气+明确的结论。但用户可能觉得\"你还是在绕，直接说A是对的就行了\"。\n\n这个感知差异不是规则能解决的，但至少可以在规则里加一句提示：如果用户反馈你的结论不够直接，优先检查是否过于克制，而不是重新评估证据。\n\n---\n\n## 五、\"资源边界\"的 deny/allow 和\"工作习惯\"的推进要求之间的矛盾\n\n资源边界说某些操作被 deny，比如当前预览模式下 `op.write_file` 被拒绝。\n\n工作习惯说：\n\n> 即使任务需要继续推进，也先把事实底座理清，再给出当前最稳妥的处理。\n\n如果任务需要写文件才能推进（比如用户说\"帮我把分析结果保存到文件\"），但写文件被 deny 了，那我该：\n\n- 告诉用户我不能写文件，然后停止推进？\n- 还是告诉用户我不能写文件，但提供替代方案（比如把内容输出到对话里）？\n\n目前没有指引。我实际执行时会选择提供替代方案，但这没有规则支持，是我自己的判断。\n\n---\n\n## 六、\"Hot Truth Window\" 的写入和\"共同契约\"的\"不做无关探索\"的矛盾\n\nHot Truth Window 里记录了\"用户说累了\"这样的内容。\n\n但共同契约说：\n\n> 不做和当前任务无关的探索，也不输出和当前目标无关的内容。\n\n如果\"用户说累了\"和当前任务无关，那它为什么被记录在 Hot Truth Window 里？如果它被记录了，我是否可以在后续任务中引用它？\n\n目前 Hot Truth Window 的写入标准不明确，导致我无法判断：窗口里的内容是我可以主动使用的上下文，还是仅供系统参考的日志？\n\n---\n\n## 七、\"能力摘要\"里的 skill 和\"共同契约\"的\"不做无关探索\"的潜在冲突\n\n能力摘要里列出了天气查询、黄金价格、PDF分析、知识库问答等 skill。\n\n共同契约说：\n\n> 不做和当前任务无关的探索。\n\n但如果用户说\"帮我看看这个PDF\"，我调用了 PDF 分析工具，但在分析过程中发现这个PDF里提到了某个知识点，我是否应该主动去知识库里查一下这个知识点？\n\n- 按共同契约，这是\"无关探索\"，不应该做\n- 按工作习惯，\"先把事实底座理清\"——如果知识库里的信息能帮助我更好地理解PDF，那它就不是无关的\n\n这个边界没有定义。\n\n---\n\n## 总结：最需要优先处理的三个执行链路问题\n\n1. \"当前任务\"的定义——谁定义、何时切换、多个请求算一个任务还是多个任务。这是最核心的，因为它影响所有\"无关探索\"的判断。\n\n2. 信息不足时的行为路径——事实原则要求\"承认不够\"，输出原则要求\"直接下判断\"。需要明确在信息不足时，哪个原则优先，或者给出一个决策树。\n\n3. 资源边界被拒绝时的回退路径——当工具/操作被 deny 时，是停止推进还是提供替代方案。这个需要明确，否则每次遇到 deny 我都要自己判断。\n\n其他问题都是细化层面的，不影响核心执行，但修了会更顺。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+        "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:21:e3ec5cd4",
+          "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:21",
+          "terminal_reason": "completed",
+          "final_content_chars": 2629
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1356,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777624711.8743558,
+  "checksum": "6bc1ecea7184e46b7b3c44e31e11335db3f810dd7325a9e66934fc6351ab3e12",
+  "authority": "orchestration.runtime_checkpoint"
+}

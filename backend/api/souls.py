@@ -14,7 +14,6 @@ from soul.projection_instances import ProjectionInstanceRegistry
 from soul.projection_templates import ProjectionTemplateRegistry
 from soul.registry import (
     ACTIVE_SEED_PATH,
-    AGENT_PROFILE_PATH,
     BUILTIN_SEED_PATHS,
     BUILTIN_SOUL_NAMES,
     CORE_PATH,
@@ -33,7 +32,6 @@ SOUL_NAMES = BUILTIN_SOUL_NAMES
 EDITABLE_SOUL_PATHS = {
     ACTIVE_SEED_PATH,
     CORE_PATH,
-    AGENT_PROFILE_PATH,
     SEED_CATALOG_PATH,
     *SEED_PATHS.values(),
 }
@@ -72,7 +70,7 @@ class SoulToolViewPayload(BaseModel):
     authorized: bool = False
     authorization_owner: str = "ResourcePolicy"
     requires_approval: bool = False
-    preview_available: bool = False
+    available_to_model: bool = False
     runtime_executable: bool = False
     denied_reason: str = ""
     policy_decision: str = "unknown"
@@ -85,6 +83,10 @@ class SoulProjectionCardRequest(BaseModel):
     task_mode: str = "general_qa"
     agent_profile_id: str = "general_agent"
     projection_name: str = ""
+    posture_tags: list[str] = Field(default_factory=list)
+    expression_density: str = "normal"
+    attention_focus: list[str] = Field(default_factory=list)
+    risk_notes: list[str] = Field(default_factory=list)
     skill_views: list[SoulSkillViewPayload] = Field(default_factory=list)
     tool_views: list[SoulToolViewPayload] = Field(default_factory=list)
     task_contract_summary: str = "当前投影没有绑定具体任务契约。"

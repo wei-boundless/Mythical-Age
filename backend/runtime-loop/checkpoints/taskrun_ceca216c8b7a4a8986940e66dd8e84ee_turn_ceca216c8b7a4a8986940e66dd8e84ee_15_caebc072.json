@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:18",
+  "task_run_id": "taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:bb66d210085a",
+    "memory_state_ref": "memory-runtime:ceca216c8b7a4a8986940e66dd8e84ee",
+    "projection_ref": "8dfda3da78193595",
+    "prompt_manifest_ref": "manifest-8dfda3da78193595",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 103,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899897
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:6d2f32b4",
+      "output_boundary:rtevt:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:14:1d5879cf",
+      "commit_gate:commit-gate:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "ceca216c8b7a4a8986940e66dd8e84ee",
+            "task_run_id": "taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072",
+            "task_id": "turn:ceca216c8b7a4a8986940e66dd8e84ee:15",
+            "role": "assistant",
+            "content": "对，刚才就是调用工具实时查的。金价查了现货报价，天气查了当地实况，不是随口说的。如果你需要，我可以直接把信息来源或具体时段数据亮出来。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "ceca216c8b7a4a8986940e66dd8e84ee",
+          "task_run_id": "taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072",
+            "task_id": "turn:ceca216c8b7a4a8986940e66dd8e84ee:15",
+            "terminal_reason": "completed",
+            "final_content_chars": 67
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1267,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:ceca216c8b7a4a8986940e66dd8e84ee:15",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 67,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:bb66d210085a",
+  "prompt_manifest_ref": "manifest-8dfda3da78193595",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "ceca216c8b7a4a8986940e66dd8e84ee",
+          "task_run_id": "taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072",
+          "task_id": "turn:ceca216c8b7a4a8986940e66dd8e84ee:15",
+          "role": "assistant",
+          "content": "对，刚才就是调用工具实时查的。金价查了现货报价，天气查了当地实况，不是随口说的。如果你需要，我可以直接把信息来源或具体时段数据亮出来。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "ceca216c8b7a4a8986940e66dd8e84ee",
+        "task_run_id": "taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:ceca216c8b7a4a8986940e66dd8e84ee:turn:ceca216c8b7a4a8986940e66dd8e84ee:15:caebc072",
+          "task_id": "turn:ceca216c8b7a4a8986940e66dd8e84ee:15",
+          "terminal_reason": "completed",
+          "final_content_chars": 67
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1267,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777650056.608449,
+  "checksum": "fce16a9e7a43827528c058f29a9a4269c012234c360e9ba26197c033909ba53a",
+  "authority": "orchestration.runtime_checkpoint"
+}

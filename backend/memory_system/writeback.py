@@ -11,19 +11,19 @@ from .contracts import MemoryWriteCandidate
 SessionHistoryLoader = Callable[[str], list[dict[str, Any]]]
 
 
-class MemoryWritebackPreviewService:
-    """Adapter for preview-only memory writeback flows.
+class MemoryWritebackService:
+    """Adapter for memory writeback candidate flows.
 
     QueryRuntime should not decide how memory writes are built or committed. It
     may pass projections/messages into this service and receive blocked gate
-    previews or user-visible candidate acknowledgements.
+    results or user-visible candidate acknowledgements.
     """
 
     def __init__(self, memory_facade: Any, *, session_history_loader: SessionHistoryLoader | None = None) -> None:
         self.memory_facade = memory_facade
         self.session_history_loader = session_history_loader
 
-    def preview_session_projection(self, session_id: str, projection: dict[str, Any] | None):
+    def propose_session_projection(self, session_id: str, projection: dict[str, Any] | None):
         if not projection:
             return self._gate(session_id, ())
         builder = getattr(self.memory_facade, "build_session_memory_write_candidates_from_context_state", None)
@@ -37,14 +37,14 @@ class MemoryWritebackPreviewService:
         )
         return self._gate(session_id, tuple(candidates or ()))
 
-    def preview_durable_message(self, session_id: str, message: str):
+    def propose_durable_message(self, session_id: str, message: str):
         builder = getattr(self.memory_facade, "build_durable_memory_write_candidates", None)
         if not callable(builder):
             return self._gate(session_id, ())
         candidates = builder(session_id, [{"role": "user", "content": str(message or "")}])
         return self._gate(session_id, tuple(candidates or ()))
 
-    def preview_durable_projections(self, session_id: str, projections: list[dict[str, Any]]):
+    def propose_durable_projections(self, session_id: str, projections: list[dict[str, Any]]):
         candidates: list[MemoryWriteCandidate] = []
         builder = getattr(self.memory_facade, "build_durable_memory_write_candidates_from_context_state", None)
         if callable(builder):
@@ -59,7 +59,7 @@ class MemoryWritebackPreviewService:
                 )
         return self._gate(session_id, tuple(candidates))
 
-    def preview_durable_history(self, session_id: str):
+    def propose_durable_history(self, session_id: str):
         if self.session_history_loader is None:
             return self._gate(session_id, ())
         builder = getattr(self.memory_facade, "build_durable_memory_write_candidates", None)
@@ -97,13 +97,13 @@ class MemoryWritebackPreviewService:
         return "这条我不会写入长期记忆；它更适合作为当前会话约定或静态设定处理。"
 
     def _gate(self, session_id: str, candidates: tuple[MemoryWriteCandidate, ...]):
-        builder = getattr(self.memory_facade, "build_memory_gate_preview", None)
+        builder = getattr(self.memory_facade, "build_memory_gate", None)
         if not callable(builder):
             return None
         return builder(
             candidates,
-            gate_id=f"memory-gate:{session_id or 'session'}:writeback-preview",
-            reason="query_runtime_writeback_preview_only",
+            gate_id=f"memory-gate:{session_id or 'session'}:writeback",
+            reason="query_runtime_writeback_requires_commit_gate",
         )
 
 

@@ -71,40 +71,40 @@ class PolicyHint:
 
 
 @dataclass(slots=True, frozen=True)
-class ControlKernelPreviewContext:
-    """Preview-only references submitted to the control kernel.
+class ControlKernelCandidateContext:
+    """Candidate references submitted to the control kernel.
 
     This object is intentionally diagnostic. It can point at the task/resource
-    preview chain, but it cannot carry runtime execution authority.
+    candidate chain, but it cannot carry runtime execution authority.
     """
 
     task_prompt_contract_ref: str = ""
     resource_policy_ref: str = ""
     prompt_manifest_ref: str = ""
     operation_requirement_ref: str = ""
-    resource_policy_state: str = "preview"
+    resource_policy_state: str = "candidate"
     resource_policy_adopted: bool = False
-    preview_only: bool = True
+    runtime_view_only: bool = True
     runtime_directive_enabled: bool = False
     runtime_executable: bool = False
     operation_gate_required_before_execution: bool = True
-    blocked_reason: str = "preview_only"
+    blocked_reason: str = "not_adopted_for_execution"
     denied_operations: tuple[str, ...] = ()
     requires_approval_operations: tuple[str, ...] = ()
     refs: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.resource_policy_state != "preview":
-            raise ValueError("ControlKernelPreviewContext only accepts preview resource policy state")
+        if self.resource_policy_state != "candidate":
+            raise ValueError("ControlKernelCandidateContext only accepts candidate resource policy state")
         if self.resource_policy_adopted:
-            raise ValueError("ControlKernelPreviewContext cannot carry adopted policy")
-        if not self.preview_only:
-            raise ValueError("ControlKernelPreviewContext must remain preview_only")
+            raise ValueError("ControlKernelCandidateContext cannot carry adopted policy")
+        if not self.runtime_view_only:
+            raise ValueError("ControlKernelCandidateContext must remain runtime_view_only")
         if self.runtime_directive_enabled:
-            raise ValueError("ControlKernelPreviewContext cannot enable runtime directives")
+            raise ValueError("ControlKernelCandidateContext cannot enable runtime directives")
         if self.runtime_executable:
-            raise ValueError("ControlKernelPreviewContext cannot be runtime executable")
+            raise ValueError("ControlKernelCandidateContext cannot be runtime executable")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

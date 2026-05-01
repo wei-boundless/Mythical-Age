@@ -52,7 +52,7 @@ class ProjectionInstanceRegistry:
             task_run_id=task_run_id,
             resource_policy_ref=resource_policy_ref,
             context_snapshot_ref=context_snapshot_ref,
-            preview_only=True,
+            candidate_only=True,
         )
 
     def build_instance(
@@ -65,7 +65,7 @@ class ProjectionInstanceRegistry:
         task_run_id: str = "",
         resource_policy_ref: str = "",
         context_snapshot_ref: str = "",
-        preview_only: bool = False,
+        candidate_only: bool = False,
     ) -> ProjectionInstance:
         template = self.templates.get_template(template_id)
         if template is None:
@@ -85,5 +85,5 @@ class ProjectionInstanceRegistry:
             resource_policy_ref=resource_policy_ref,
             context_snapshot_ref=context_snapshot_ref,
             created_at=time.time(),
-            metadata={"preview_only": preview_only, "soul_id": template.soul_id, "role_type": template.role_type},
+            metadata={"candidate_only": candidate_only, "soul_id": template.soul_id, "role_type": template.role_type},
         )

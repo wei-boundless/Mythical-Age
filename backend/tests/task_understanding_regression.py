@@ -100,8 +100,9 @@ def main() -> None:
     assert weather.source_kind == "external_web"
     assert weather.task_kind == "realtime_lookup"
     assert weather.target_object is None
-    assert weather.preferred_skill == "get-weather"
+    assert weather.preferred_skill is None
     assert weather.capability_requests == ["weather"]
+    assert weather.candidate_tools == ["get_weather"]
     assert weather.direct_route_reason == "dedicated_weather_capability"
 
     explicit_web = analyze_task_understanding("帮我联网查 OpenAI API 最新更新")

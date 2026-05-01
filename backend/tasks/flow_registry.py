@@ -76,7 +76,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             topology_template_id="topology.health.repair_review",
             stop_conditions=("all_participants_reported", "coordinator_final_merge"),
             enabled=False,
-            metadata={"preview_only": True},
+            metadata={"candidate_only": True},
         ),
     )
 
@@ -152,7 +152,7 @@ class TaskFlowRegistry:
             skill_workflow_id=flow.default_workflow_id,
             memory_scope=flow.default_memory_scope,
             output_contract_id=flow.output_contract_id,
-            resource_policy_ref=f"resource-policy:{flow.flow_id}:preview",
+            resource_policy_ref=f"resource-policy:{flow.flow_id}:candidate",
             validation_state="valid" if not failures else "invalid",
             diagnostics={**diagnostics, "failures": failures},
         )

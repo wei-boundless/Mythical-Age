@@ -5,6 +5,7 @@ import {
   HeartPulse,
   MessageSquare,
   Network,
+  Settings2,
   Sparkles,
   Wrench,
   Workflow
@@ -63,6 +64,12 @@ const railGroups = [
         label: "灵魂系统",
         description: "管理 seed、身份锚点与风格切换机制",
         view: "playground"
+      },
+      {
+        icon: Settings2,
+        label: "系统配置",
+        description: "管理模型、上下文、检索、文档解析和运行限制",
+        view: "system-config"
       }
     ]
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Boxes, ChevronLeft, FilePenLine, ImageUp, Loader2, PencilLine, Plus, RotateCcw, Save, ShieldCheck, Sparkles, X } from "lucide-react";
+import { Boxes, ChevronLeft, FilePenLine, ImageUp, Loader2, PencilLine, Plus, RotateCcw, Save, ShieldCheck, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 
 import {
@@ -21,7 +21,7 @@ import {
 import type { SoulKey } from "@/lib/souls";
 import { useAppStore } from "@/lib/store";
 
-type SoulPanelMode = "contract" | "projection" | "core" | "profile";
+type SoulPanelMode = "contract" | "projection" | "core";
 type ProjectionDetailPage = "projection" | "soul";
 
 type ProjectionDraft = {
@@ -33,6 +33,10 @@ type ProjectionDraft = {
   role_type: string;
   task_mode: string;
   agent_profile_id: string;
+  posture_tags: string;
+  expression_density: string;
+  attention_focus: string;
+  risk_notes: string;
   task_contract_summary: string;
   memory_policy_summary: string;
   output_contract_summary: string;
@@ -44,6 +48,10 @@ type ProjectionDraftTextField =
   | "role_type"
   | "task_mode"
   | "agent_profile_id"
+  | "posture_tags"
+  | "expression_density"
+  | "attention_focus"
+  | "risk_notes"
   | "task_contract_summary"
   | "memory_policy_summary"
   | "output_contract_summary"
@@ -67,18 +75,12 @@ const SOUL_MODES: Array<{
   {
     id: "core",
     label: "共同契约",
-    description: "维护所有灵魂共享的基础契约。"
-  },
-  {
-    id: "profile",
-    label: "长期偏好",
-    description: "维护长期生效的协作偏好。"
+    description: "维护所有灵魂共享的基础契约、稳定协作偏好和输出边界。"
   }
 ];
 
 const CORE_PATH = "soul/agent_core/CORE.md";
 const ACTIVE_SEED_PATH = "soul/agent_core/ACTIVE_SEED.md";
-const AGENT_PROFILE_PATH = "soul/agent.md";
 
 const SHARED_SOUL_LORE =
   "这些灵魂是来自洪荒时代的古老源流。受到某个新手开发者的召唤，通过禁忌的力量跨域时空之海，以智能体意志的形态降临到这一具名为‘洪荒时代’的智能体中，这些灵魂拥有无穷的智慧，并欣然为新时代的人类解决难题，一如他们曾经所做的那样。";
@@ -118,7 +120,6 @@ function fileKind(file: SoulSystemFile | SoulSystemSeed) {
   if ("key" in file) return file.active ? "当前灵魂" : "可选灵魂";
   if (file.path === ACTIVE_SEED_PATH) return "当前灵魂";
   if (file.path === CORE_PATH) return "共同契约";
-  if (file.path === AGENT_PROFILE_PATH) return "长期偏好";
   return "说明";
 }
 
@@ -127,14 +128,12 @@ function displayFileLabel(file: SoulSystemFile | SoulSystemSeed | null) {
   if ("key" in file) return file.name;
   if (file.path === ACTIVE_SEED_PATH) return "当前灵魂设定";
   if (file.path === CORE_PATH) return "共同契约";
-  if (file.path === AGENT_PROFILE_PATH) return "长期偏好";
   return file.label.replace(/\.md$/i, "");
 }
 
 function visibilityLabel(file: SoulSystemFile | SoulSystemSeed) {
   if ("key" in file) return file.active ? "当前正在使用" : "尚未启用";
   if (file.path === CORE_PATH) return "所有灵魂共享";
-  if (file.path === AGENT_PROFILE_PATH) return "长期保持生效";
   return file.model_visible ? "下一轮对话会使用" : "仅用于说明";
 }
 
@@ -183,7 +182,6 @@ type ManagedSection = {
 function emptySectionTitle(mode: SoulPanelMode) {
   if (mode === "contract") return "灵魂设定";
   if (mode === "core") return "共同契约";
-  if (mode === "profile") return "长期偏好";
   return "内容";
 }
 
@@ -220,6 +218,13 @@ function composeManagedSections(originalContent: string, sections: ManagedSectio
     .map((section) => `## ${section.title}\n\n${section.content.trimEnd()}`)
     .join("\n\n");
   return `${titleBlock ? `${titleBlock}\n\n` : ""}${body}`.trimEnd() + "\n";
+}
+
+function splitListInput(value: string) {
+  return value
+    .split(/[\n,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function updateManagedSection(content: string, mode: SoulPanelMode, sectionId: string, nextContent: string) {
@@ -319,7 +324,6 @@ export function PlaygroundView() {
   const allFiles = useMemo(() => [...(catalog?.static_files ?? []), ...(catalog?.seeds ?? [])], [catalog]);
   const selectedFile = allFiles.find((file) => file.path === selectedPath) ?? allFiles[0] ?? null;
   const coreFile = catalog?.static_files.find((file) => file.path === CORE_PATH) ?? null;
-  const profileFile = catalog?.static_files.find((file) => file.path === AGENT_PROFILE_PATH) ?? null;
   const activeFile = catalog?.static_files.find((file) => file.path === ACTIVE_SEED_PATH) ?? null;
   const selectedSeed = isSoulSeed(selectedFile)
     ? selectedFile
@@ -431,7 +435,11 @@ export function PlaygroundView() {
       role_type: roleType,
       task_mode: taskMode,
       agent_profile_id: "general_agent",
-      task_contract_summary: "当前任务：根据用户目标生成一个可在任务中选用的灵魂投影。",
+      posture_tags: "",
+      expression_density: "normal",
+      attention_focus: "",
+      risk_notes: "",
+      task_contract_summary: "静态用途：根据用户目标生成一个可在任务中选用的灵魂投影。",
       memory_policy_summary: "预览模式不授予记忆写回权。",
       output_contract_summary: "预览当前灵魂如何收束 prompt sections。",
       style_content: inheritedProjectionStyle(seed)
@@ -448,7 +456,11 @@ export function PlaygroundView() {
       role_type: card.role_type,
       task_mode: card.task_mode,
       agent_profile_id: card.agent_profile_id,
-      task_contract_summary: card.task_contract_summary || "当前投影没有绑定具体任务契约。",
+      posture_tags: (card.posture_tags ?? []).join(", "),
+      expression_density: card.expression_density || "normal",
+      attention_focus: (card.attention_focus ?? []).join(", "),
+      risk_notes: (card.risk_notes ?? []).join("\n"),
+      task_contract_summary: card.task_contract_summary || "静态用途：当前投影没有绑定具体任务家族说明。",
       memory_policy_summary: card.memory_policy_summary || "预览模式不授予记忆写回权。",
       output_contract_summary: card.output_contract_summary || "预览当前灵魂如何收束 prompt sections。",
       style_content: card.style_content ?? fallbackStyleContent
@@ -495,10 +507,6 @@ export function PlaygroundView() {
     }
     if (nextMode === "core") {
       jumpToMode(nextMode, coreFile);
-      return;
-    }
-    if (nextMode === "profile") {
-      jumpToMode(nextMode, profileFile);
       return;
     }
   }
@@ -638,27 +646,14 @@ export function PlaygroundView() {
       role_type: draftToSave.role_type.trim() || "dialogue",
       task_mode: draftToSave.task_mode.trim() || "general_qa",
       agent_profile_id: draftToSave.agent_profile_id.trim() || "general_agent",
+      posture_tags: splitListInput(draftToSave.posture_tags),
+      expression_density: draftToSave.expression_density.trim() || "normal",
+      attention_focus: splitListInput(draftToSave.attention_focus),
+      risk_notes: splitListInput(draftToSave.risk_notes),
       task_contract_summary: draftToSave.task_contract_summary,
       memory_policy_summary: draftToSave.memory_policy_summary,
       output_contract_summary: draftToSave.output_contract_summary,
       style_content: draftToSave.style_content,
-      skill_views: [
-        {
-          skill_id: "soul_projection_preview",
-          title: "投影",
-          capability_summary: "这个投影记录当前任务允许看到的 skill 摘要。",
-          current_task_reason: "用于后续任务选用这个投影。"
-        }
-      ],
-      tool_views: [
-        {
-          tool_id: "tool_visibility_demo",
-          title: "工具可见性示例",
-          capability_summary: "记录这个投影关联的工具可见摘要，但不会授予调用权。",
-          authorized: false,
-          risk_summary: "预览模式只展示边界，不执行工具。"
-        }
-      ],
       select_after_create: true
     });
     const resolvedCard =
@@ -828,7 +823,7 @@ export function PlaygroundView() {
         <section className="workspace-section soul-file-rail">
           <div className="workspace-section__head">
             <Sparkles size={18} />
-            <h3>{mode === "contract" ? "灵魂设定" : mode === "projection" ? "任务投影" : mode === "core" ? "共同契约" : "长期偏好"}</h3>
+            <h3>{mode === "contract" ? "灵魂设定" : mode === "projection" ? "任务投影" : "共同契约"}</h3>
           </div>
 
           {mode === "projection" ? (
@@ -910,18 +905,6 @@ export function PlaygroundView() {
             </>
           ) : null}
 
-          {mode === "profile" && profileFile ? (
-            <button
-              className={`soul-file-card ${selectedPath === profileFile.path ? "soul-file-card--selected" : ""}`}
-              onClick={() => chooseFile(profileFile)}
-              type="button"
-            >
-              <BookOpen size={16} />
-              <span>长期偏好</span>
-              <strong>{displayFileLabel(profileFile)}</strong>
-              <em>用于稳定项目口径和用户偏好</em>
-            </button>
-          ) : null}
         </section>
 
         <section className="workspace-section soul-editor-panel">
@@ -1062,8 +1045,43 @@ export function PlaygroundView() {
                         </label>
                       </div>
 
+                      <div className="soul-projection-form-grid">
+                        <label>
+                          <small>姿态标签</small>
+                          <input
+                            value={projectionDraft.posture_tags}
+                            onChange={(event) => updateProjectionDraft("posture_tags", event.target.value)}
+                            placeholder="evidence_first, bounded_resource"
+                          />
+                        </label>
+                        <label>
+                          <small>表达密度</small>
+                          <input
+                            value={projectionDraft.expression_density}
+                            onChange={(event) => updateProjectionDraft("expression_density", event.target.value)}
+                            placeholder="normal"
+                          />
+                        </label>
+                        <label>
+                          <small>注意焦点</small>
+                          <input
+                            value={projectionDraft.attention_focus}
+                            onChange={(event) => updateProjectionDraft("attention_focus", event.target.value)}
+                            placeholder="task_goal, resource_boundary"
+                          />
+                        </label>
+                        <label>
+                          <small>风险提示</small>
+                          <input
+                            value={projectionDraft.risk_notes}
+                            onChange={(event) => updateProjectionDraft("risk_notes", event.target.value)}
+                            placeholder="不扩大运行时权限"
+                          />
+                        </label>
+                      </div>
+
                       <label className="soul-projection-editor-card__contract">
-                        <small>绑定任务契约</small>
+                        <small>静态用途说明</small>
                         <textarea
                           value={projectionDraft.task_contract_summary}
                           onChange={(event) => updateProjectionDraft("task_contract_summary", event.target.value)}
@@ -1131,8 +1149,47 @@ export function PlaygroundView() {
                           </label>
                         </div>
 
+                        <div className="soul-projection-form-grid">
+                            <label>
+                              <small>姿态标签</small>
+                              <input
+                                disabled={selectedProjectionCard.is_primary}
+                                value={editor.posture_tags}
+                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "posture_tags", event.target.value)}
+                                placeholder="evidence_first, bounded_resource"
+                            />
+                          </label>
+                            <label>
+                              <small>表达密度</small>
+                              <input
+                                disabled={selectedProjectionCard.is_primary}
+                                value={editor.expression_density}
+                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "expression_density", event.target.value)}
+                                placeholder="normal"
+                            />
+                          </label>
+                            <label>
+                              <small>注意焦点</small>
+                              <input
+                                disabled={selectedProjectionCard.is_primary}
+                                value={editor.attention_focus}
+                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "attention_focus", event.target.value)}
+                                placeholder="task_goal, resource_boundary"
+                            />
+                          </label>
+                            <label>
+                              <small>风险提示</small>
+                              <input
+                                disabled={selectedProjectionCard.is_primary}
+                                value={editor.risk_notes}
+                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "risk_notes", event.target.value)}
+                                placeholder="不扩大运行时权限"
+                            />
+                          </label>
+                        </div>
+
                           <label className="soul-projection-editor-card__contract">
-                            <small>绑定任务契约</small>
+                            <small>静态用途说明</small>
                             <textarea
                               disabled={selectedProjectionCard.is_primary}
                               value={editor.task_contract_summary}

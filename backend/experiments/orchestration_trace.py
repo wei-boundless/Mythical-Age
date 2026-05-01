@@ -541,7 +541,6 @@ def _apply_prompt_manifest_to_nodes(nodes: list[dict[str, Any]], prompt_manifest
         "assembly_order": list(prompt_manifest.get("assembly_order") or []),
         "total_sections": int(prompt_manifest.get("total_sections") or len(sections)),
         "total_chars": int(prompt_manifest.get("total_chars") or sum(item["chars"] for item in sections)),
-        "debug_policy": str(prompt_manifest.get("debug_policy") or ""),
         "sections": sections,
     }
     prompt_node["reasons"] = [

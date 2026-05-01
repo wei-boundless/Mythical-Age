@@ -9,7 +9,6 @@ from soul.contracts import SoulProfile
 
 ACTIVE_SEED_PATH = "soul/agent_core/ACTIVE_SEED.md"
 CORE_PATH = "soul/agent_core/CORE.md"
-AGENT_PROFILE_PATH = "soul/agent.md"
 SEED_CATALOG_PATH = "soul/agent_core/SEED_CATALOG.md"
 
 BUILTIN_SEED_PATHS: dict[str, str] = {
@@ -163,7 +162,7 @@ class SoulRegistry:
 
     @property
     def editable_paths(self) -> set[str]:
-        paths = {ACTIVE_SEED_PATH, CORE_PATH, AGENT_PROFILE_PATH, SEED_CATALOG_PATH}
+        paths = {ACTIVE_SEED_PATH, CORE_PATH, SEED_CATALOG_PATH}
         paths.update(BUILTIN_SEED_PATHS.values())
         for profile in self.custom_profiles(include_disabled=True):
             paths.add(profile.seed_path)
@@ -329,8 +328,7 @@ class SoulRegistry:
         active_seed = next((seed for seed in seeds if seed["key"] == active_soul_id), seeds[0] if seeds else None)
         static_files = [
             self.file_payload(ACTIVE_SEED_PATH, label="当前灵魂契约", role="当前真正进入模型的灵魂设定", model_visible=True, order=10).to_dict(),
-            self.file_payload(CORE_PATH, label="通用静态准则", role="所有灵魂共享的事实、执行和输出底线", model_visible=True, order=20).to_dict(),
-            self.file_payload(AGENT_PROFILE_PATH, label="长期项目偏好", role="用户或项目长期稳定生效的偏好与口径", model_visible=True, order=30).to_dict(),
+            self.file_payload(CORE_PATH, label="共同契约", role="所有灵魂共享的事实、执行、输出和协作底线", model_visible=True, order=20).to_dict(),
             self.file_payload(SEED_CATALOG_PATH, label="候选灵魂目录", role="只给人看的候选灵魂说明，不直接进入模型", model_visible=False, order=None).to_dict(),
         ]
         return {
@@ -339,8 +337,7 @@ class SoulRegistry:
             "active_soul_name": active_seed["name"] if active_seed else "",
             "injection_chain": [
                 {"order": 10, "label": "当前灵魂契约", "path": ACTIVE_SEED_PATH},
-                {"order": 20, "label": "通用静态准则", "path": CORE_PATH},
-                {"order": 30, "label": "长期项目偏好", "path": AGENT_PROFILE_PATH},
+                {"order": 20, "label": "共同契约", "path": CORE_PATH},
             ],
             "static_files": static_files,
             "seeds": seeds,

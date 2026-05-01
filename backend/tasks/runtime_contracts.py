@@ -108,7 +108,6 @@ def _skill_view(skill_ref: str) -> SkillRuntimeView:
             skill_id=skill_ref,
             title=skill_ref,
             task_reason="Selected by task binding.",
-            method_summary="No expanded skill prompt is exposed in preview.",
+            method_summary="No expanded skill prompt is exposed by this runtime view.",
         ),
     )
-

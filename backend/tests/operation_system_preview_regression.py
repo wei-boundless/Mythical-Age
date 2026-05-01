@@ -11,7 +11,7 @@ from operations import (
     RuntimeApprovalContext,
     build_default_operation_registry,
     build_operation_requirement,
-    build_resource_policy_preview,
+    build_resource_policy_candidate,
     build_resource_runtime_views,
 )
 from operations.validators import validate_filesystem_path, validate_shell_read_only
@@ -35,7 +35,7 @@ def test_operation_requirement_is_candidate_only_and_preserves_denied_operations
     assert requirement.metadata["review_policy"] == "required"
 
 
-def test_resource_policy_preview_denies_unknown_and_denied_aliases() -> None:
+def test_resource_policy_candidate_denies_unknown_and_denied_aliases() -> None:
     registry = build_default_operation_registry()
     requirement = build_operation_requirement(
         task_id="task-2",
@@ -44,11 +44,11 @@ def test_resource_policy_preview_denies_unknown_and_denied_aliases() -> None:
         denied_operations=("terminal",),
     )
 
-    policy = build_resource_policy_preview(requirement, registry)
+    policy = build_resource_policy_candidate(requirement, registry)
     decisions = {decision.operation_id: decision for decision in policy.decisions}
 
     assert policy.authority == "resource_policy"
-    assert policy.preview_only is True
+    assert policy.runtime_view_only is True
     assert policy.adopted is False
     assert policy.runtime_executable is False
     assert decisions["op.read_file"].decision == "allow"
@@ -67,14 +67,14 @@ def test_high_risk_operations_require_approval_but_do_not_become_executable() ->
         operation_scope=("op.read_file", "op.edit_file", "op.python_repl"),
     )
 
-    policy = build_resource_policy_preview(requirement, registry)
+    policy = build_resource_policy_candidate(requirement, registry)
     decisions = {decision.operation_id: decision for decision in policy.decisions}
     views = {view.resource_id: view for view in build_resource_runtime_views(policy, registry)}
 
     assert decisions["op.edit_file"].decision == "requires_approval"
     assert decisions["op.python_repl"].decision == "requires_approval"
     assert views["op.read_file"].authorized is True
-    assert views["op.read_file"].preview_available is True
+    assert views["op.read_file"].available_to_model is True
     assert views["op.read_file"].runtime_executable is False
     assert views["op.edit_file"].authorized is False
     assert views["op.edit_file"].requires_approval is True
@@ -91,7 +91,7 @@ def test_headless_requires_approval_fails_closed_without_approval_channel() -> N
         operation_scope=("op.edit_file",),
     )
 
-    policy = build_resource_policy_preview(
+    policy = build_resource_policy_candidate(
         requirement,
         registry,
         approval_context=RuntimeApprovalContext(
@@ -117,7 +117,7 @@ def test_headless_requires_approval_can_route_to_hook_without_allowing_execution
         operation_scope=("op.edit_file",),
     )
 
-    policy = build_resource_policy_preview(
+    policy = build_resource_policy_candidate(
         requirement,
         registry,
         approval_context=RuntimeApprovalContext(
@@ -133,7 +133,7 @@ def test_headless_requires_approval_can_route_to_hook_without_allowing_execution
     assert policy.runtime_executable is False
 
 
-def test_worker_and_memory_write_candidate_stay_preview_or_denied() -> None:
+def test_worker_and_memory_write_candidate_stay_hidden_or_denied() -> None:
     registry = build_default_operation_registry()
     requirement = build_operation_requirement(
         task_id="task-6",
@@ -141,13 +141,13 @@ def test_worker_and_memory_write_candidate_stay_preview_or_denied() -> None:
         operation_scope=("op.worker_pdf", "op.memory_write_candidate"),
     )
 
-    policy = build_resource_policy_preview(requirement, registry)
+    policy = build_resource_policy_candidate(requirement, registry)
     decisions = {decision.operation_id: decision for decision in policy.decisions}
     views = {view.resource_id: view for view in build_resource_runtime_views(policy, registry)}
 
-    assert decisions["op.worker_pdf"].decision == "preview_only"
+    assert decisions["op.worker_pdf"].decision == "not_executable"
     assert decisions["op.memory_write_candidate"].decision == "deny"
-    assert views["op.worker_pdf"].preview_available is True
+    assert views["op.worker_pdf"].available_to_model is False
     assert views["op.worker_pdf"].authorized is False
     assert views["op.worker_pdf"].runtime_executable is False
 
@@ -159,7 +159,7 @@ def test_operation_gate_rejects_preview_policy_even_for_allowed_preview_operatio
         source="task_binding_preview",
         operation_scope=("op.read_file",),
     )
-    policy = build_resource_policy_preview(requirement, registry)
+    policy = build_resource_policy_candidate(requirement, registry)
     gate = OperationGate(registry)
 
     missing_directive = gate.check("op.read_file", resource_policy=policy)
@@ -169,7 +169,7 @@ def test_operation_gate_rejects_preview_policy_even_for_allowed_preview_operatio
     assert missing_directive.reason == "missing directive_ref"
     assert missing_directive.pipeline_stage == "runtime_directive_exists"
     assert preview_policy.allowed is False
-    assert preview_policy.reason == "resource policy is preview-only and not executable"
+    assert preview_policy.reason == "resource policy is not adopted for execution"
 
 
 def test_operation_descriptor_exports_thick_contract_fields() -> None:
@@ -365,7 +365,7 @@ def _runtime_policy(
         allowed_operations=allowed,
         denied_operations=denied,
         requires_approval_operations=requires_approval,
-        preview_only=False,
+        runtime_view_only=False,
         adopted=True,
         runtime_executable=True,
         decisions=decisions,

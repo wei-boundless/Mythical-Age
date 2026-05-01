@@ -13,7 +13,7 @@ class RuntimeLoopLimits:
 
     max_turns: int = 8
     max_model_calls: int = 8
-    max_runtime_seconds: float = 120.0
+    max_runtime_seconds: float = 300.0
     max_events: int = 200
     authority: str = "orchestration.runtime_loop_limits"
 

@@ -8,18 +8,18 @@ from output_boundary.models import OutputCandidate, OutputDecision
 
 _PROCEDURAL_PREFIX_RE = re.compile(
     r"^(?:岩[，,\s]*)?(?:我(?:(?:来|将|会|准备|打算)(?:先)?|先(?:来)?|需要先)|让我(?:先)?|接下来(?:我)?(?:先)?)"
-    r"(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|核实|整理|改写|查询|执行).+",
+    r"(?:检索|搜索|查看|检查|使用|调用|尝试|读取|分析|确认|核实|整理|改写|查询|执行|创建|新建|写入|保存|落盘|启动|运行|验证).+",
     re.IGNORECASE,
 )
 _PROCEDURAL_PROMISE_RE = re.compile(
     r"^(?:岩[，,\s]*)?(?:我(?:(?:来|将|会|准备|打算)(?:先)?|先(?:来)?|需要先)|让我(?:先)?|接下来(?:我)?(?:先)?|稍等(?:我)?)(?:去)?"
-    r"(?:检索|搜索|查看|检查|读取|确认|核实|查询|执行)(?:一下|一遍|下)?(?:最新状态|最新情况)?[\s。.!！…]*$"
+    r"(?:检索|搜索|查看|检查|读取|确认|核实|查询|执行|创建|新建|写入|保存|落盘|启动|运行|验证)(?:一下|一遍|下)?(?:最新状态|最新情况)?[\s。.!！…]*$"
     r"|^(?:岩[，,\s]*)?(?:我(?:(?:来|将|会|准备|打算)(?:先)?|先(?:来)?|需要先)|让我(?:先)?|接下来(?:我)?(?:先)?|稍等(?:我)?)"
-    r".{0,24}(?:检索|搜索|查看|检查|读取|确认|核实|查询|执行)(?:一下|一遍|下)?(?:最新状态|最新情况)?.*$",
+    r".{0,80}(?:检索|搜索|查看|检查|读取|确认|核实|查询|执行|创建|新建|写入|保存|落盘|启动|运行|验证)(?:一下|一遍|下)?(?:最新状态|最新情况)?.*$",
     re.IGNORECASE,
 )
 _TOOL_CLAIM_WITHOUT_RECEIPT_RE = re.compile(
-    r"^(?:岩[，,\s]*)?(?:我(?:已经|刚刚|刚才)?(?:查到|查询了|检索了|搜索了|确认了|核实了)|我这边(?:已经)?(?:查到|确认到|核实到)).+",
+    r"^(?:岩[，,\s]*)?(?:我(?:已经|刚刚|刚才)?(?:查到|查询了|检索了|搜索了|确认了|核实了|创建了|新建了|写入了|保存了|落盘了|启动了|运行了|验证了)|我这边(?:已经)?(?:查到|确认到|核实到)).+",
     re.IGNORECASE,
 )
 _SUBTASK_STATUS_PROMISE_RE = re.compile(
@@ -45,6 +45,10 @@ _PROMISE_LINE_PREFIX_RE = re.compile(
 )
 _ANSWER_INTRO_RE = re.compile(
     r"(?:结论[:：]|答案[:：]|总结[:：]|可以概括为|主要有|分别是|核心是|先用业务语言给出结论)",
+    re.IGNORECASE,
+)
+_ACK_PREFIX_RE = re.compile(
+    r"^(?:收到|好的|好|可以|明白|了解|行)[，,。.!！\s]*(?:这次|现在|接下来)?[，,。.!！\s]*",
     re.IGNORECASE,
 )
 
@@ -78,8 +82,31 @@ def looks_like_procedural_promise_text(text: str) -> bool:
     lines = [line.strip() for line in normalized.splitlines() if line.strip()]
     if not lines:
         return False
-    action_tokens = ("查询", "检索", "搜索", "查看", "检查", "读取", "确认", "核实", "执行")
+    action_tokens = (
+        "查询",
+        "检索",
+        "搜索",
+        "查看",
+        "检查",
+        "读取",
+        "确认",
+        "核实",
+        "执行",
+        "创建",
+        "新建",
+        "写入",
+        "保存",
+        "落盘",
+        "启动",
+        "运行",
+        "验证",
+    )
+    if len(lines) == 1 and re.fullmatch(r"(?:开始|开干|开始执行|开始处理)[。.!！…]*", lines[0]):
+        return True
     for line in lines:
+        line = _ACK_PREFIX_RE.sub("", line).strip()
+        if not line:
+            continue
         if _PROCEDURAL_PROMISE_RE.match(line):
             continue
         if _SUBTASK_STATUS_PROMISE_RE.match(line):
@@ -90,7 +117,7 @@ def looks_like_procedural_promise_text(text: str) -> bool:
             return False
         compact = re.sub(r"\s+", "", line)
         compact = re.sub(r"^岩[，,]*", "", compact)
-        if len(compact) > 60:
+        if len(compact) > 120:
             return False
         if not any(token in compact for token in action_tokens):
             return False
@@ -122,6 +149,23 @@ def looks_like_tool_claim_without_receipt(text: str) -> bool:
             "我刚刚确认了",
             "我已经核实了",
             "我刚刚核实了",
+            "我已经创建了",
+            "我刚刚创建了",
+            "我刚才创建了",
+            "我已经新建了",
+            "我已经写入了",
+            "我刚刚写入了",
+            "我已经保存了",
+            "我已经落盘了",
+            "我已经启动了",
+            "我已经运行了",
+            "我已经验证了",
+            "写了",
+            "已写入",
+            "已保存",
+            "已落盘",
+            "已创建",
+            "已启动",
         )
     )
 

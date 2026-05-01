@@ -30,7 +30,7 @@ def build_task_contract(
     task_id: str,
     session_id: str,
     user_goal: str,
-    source: str = "manual_preview",
+    source: str = "runtime",
     task_family: str = "unknown",
     task_mode: str = "unknown",
 ) -> TaskContract:
@@ -42,4 +42,3 @@ def build_task_contract(
         task_family=task_family,
         task_mode=task_mode,
     )
-

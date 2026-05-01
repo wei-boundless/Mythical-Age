@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:18",
+  "task_run_id": "taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:b0c4b4d7458148d48e6ef21753141648:17:0639ffe6e755",
+    "memory_state_ref": "memory-runtime:b0c4b4d7458148d48e6ef21753141648",
+    "projection_ref": "d4e354f64e3e799d",
+    "prompt_manifest_ref": "manifest-d4e354f64e3e799d",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 88,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899912
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:a9bd6396",
+      "output_boundary:rtevt:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:14:7a030858",
+      "commit_gate:commit-gate:turn:b0c4b4d7458148d48e6ef21753141648:17:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "b0c4b4d7458148d48e6ef21753141648",
+            "task_run_id": "taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e",
+            "task_id": "turn:b0c4b4d7458148d48e6ef21753141648:17",
+            "role": "assistant",
+            "content": "搜了。现在休赛期，最新的湖人新闻集中在交易动向和现有合同上。\n\n直接给你几条要点：\n\n1.  詹姆斯交易动态：有消息称，如果有球队愿意接纳他儿子布朗尼作为交易的一部分，勒布朗·詹姆斯会考虑放弃交易否决权。布朗尼目前因伤缺阵 G 联赛，有声音认为他第一年就要被淘汰。\n2.  合同操作：湖人已经裁掉了中锋克里斯蒂安·科洛科。另外，前锋贾里德·范德比尔特执行了他下赛季价值约 1400 万美元的球员选项。\n3.  未来阵容：有呼声建议湖人考虑用里夫斯等人去换凯文·杜兰特，或者去交易得到公牛的科比·怀特。\n\n以上就是从近 24 小时内多条新闻里提炼的核心信息，数据来源于多个体育新闻源。如果你对哪条具体动态感兴趣，我可以帮你深挖后续细节。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "b0c4b4d7458148d48e6ef21753141648",
+          "task_run_id": "taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e",
+            "task_id": "turn:b0c4b4d7458148d48e6ef21753141648:17",
+            "terminal_reason": "completed",
+            "final_content_chars": 317
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1316,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:b0c4b4d7458148d48e6ef21753141648:17",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 317,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:b0c4b4d7458148d48e6ef21753141648:17:0639ffe6e755",
+  "prompt_manifest_ref": "manifest-d4e354f64e3e799d",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "b0c4b4d7458148d48e6ef21753141648",
+          "task_run_id": "taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e",
+          "task_id": "turn:b0c4b4d7458148d48e6ef21753141648:17",
+          "role": "assistant",
+          "content": "搜了。现在休赛期，最新的湖人新闻集中在交易动向和现有合同上。\n\n直接给你几条要点：\n\n1.  詹姆斯交易动态：有消息称，如果有球队愿意接纳他儿子布朗尼作为交易的一部分，勒布朗·詹姆斯会考虑放弃交易否决权。布朗尼目前因伤缺阵 G 联赛，有声音认为他第一年就要被淘汰。\n2.  合同操作：湖人已经裁掉了中锋克里斯蒂安·科洛科。另外，前锋贾里德·范德比尔特执行了他下赛季价值约 1400 万美元的球员选项。\n3.  未来阵容：有呼声建议湖人考虑用里夫斯等人去换凯文·杜兰特，或者去交易得到公牛的科比·怀特。\n\n以上就是从近 24 小时内多条新闻里提炼的核心信息，数据来源于多个体育新闻源。如果你对哪条具体动态感兴趣，我可以帮你深挖后续细节。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "b0c4b4d7458148d48e6ef21753141648",
+        "task_run_id": "taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:b0c4b4d7458148d48e6ef21753141648:turn:b0c4b4d7458148d48e6ef21753141648:17:e421cb0e",
+          "task_id": "turn:b0c4b4d7458148d48e6ef21753141648:17",
+          "terminal_reason": "completed",
+          "final_content_chars": 317
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1316,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777644669.0765193,
+  "checksum": "3766d78d9a32ee6c82be87f7390ac8fb9d674eb6671f97821267a9363ed42330",
+  "authority": "orchestration.runtime_checkpoint"
+}

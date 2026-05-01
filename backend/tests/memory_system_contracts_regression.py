@@ -281,7 +281,7 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     )
 
     assert isinstance(view, MemoryRuntimeView)
-    assert view.preview_only is True
+    assert view.read_only is True
     assert view.memory_write_allowed is False
     assert {candidate.memory_layer for candidate in view.context_candidates} == {
         "conversation",
@@ -312,6 +312,54 @@ def test_durable_extraction_preview_builds_write_candidates_without_saving(tmp_p
     assert facade.memory_manager.list_notes() == []
 
 
+def test_memory_message_adapter_excludes_control_plane_contracts_from_memory(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    messages = [
+        {
+            "role": "system",
+            "content": "## Runtime Stage Projection\nOperationGate\nResourcePolicy\nruntime_view_only: true",
+        },
+        {
+            "role": "assistant",
+            "content": "调试复述：## Runtime Context Package\nResourcePolicy\nOperationGate\nResourceRuntimeView",
+        },
+        {
+            "role": "user",
+            "content": "请记住：我偏好复杂问题先给结论。",
+        },
+    ]
+
+    converted = facade.adapter.to_messages(messages, session_id="session-contract-isolation")
+    rendered = "\n".join(message.content for message in converted)
+
+    assert [message.role for message in converted] == ["user"]
+    assert "我偏好复杂问题先给结论" in rendered
+    for marker in (
+        "Runtime Stage Projection",
+        "Runtime Context Package",
+        "OperationGate",
+        "ResourcePolicy",
+        "ResourceRuntimeView",
+        "runtime_view_only",
+    ):
+        assert marker not in rendered
+
+    candidates = facade.build_durable_memory_write_candidates("session-contract-isolation", messages)
+    serialized = "\n".join(candidate.content for candidate in candidates)
+
+    assert candidates
+    assert "我偏好复杂问题先给结论" in serialized
+    for marker in (
+        "Runtime Stage Projection",
+        "Runtime Context Package",
+        "OperationGate",
+        "ResourcePolicy",
+        "ResourceRuntimeView",
+        "runtime_view_only",
+    ):
+        assert marker not in serialized
+
+
 def test_memory_gate_preview_blocks_write_candidates(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
     candidates = facade.build_durable_memory_write_candidates(
@@ -319,11 +367,11 @@ def test_memory_gate_preview_blocks_write_candidates(tmp_path) -> None:
         [{"role": "user", "content": "请记住：我偏好设计讨论先给结论。"}],
     )
 
-    gate = facade.build_memory_gate_preview(candidates, gate_id="memory-gate:session-j:preview")
+    gate = facade.build_memory_gate(candidates, gate_id="memory-gate:session-j:writeback")
 
     assert isinstance(gate, MemoryGateDecision)
     assert gate.status == "blocked"
-    assert gate.preview_only is True
+    assert gate.read_only is True
     assert gate.memory_write_allowed is False
     assert gate.commit_allowed is False
     assert gate.write_candidates == candidates

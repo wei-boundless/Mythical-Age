@@ -73,7 +73,7 @@ def test_skill_scope_is_checked_by_contract_gate() -> None:
             tool_scope=SkillToolScope(
                 source="skill",
                 allowed_tools=("get_weather",),
-                skill_name="get-weather",
+                skill_name="weather-advisor",
                 reason="regression_scope",
             ),
             binding_context={"active_pdf": ""},

@@ -861,7 +861,7 @@ export function SystemFrameworkView() {
                     <header>
                       <small>上下文来源</small>
                       <strong>本轮装配记录</strong>
-                      <span>{promptManifest.debug_policy === "preview_only" ? "默认只展示来源摘要，不显示完整内容。" : "当前仅展示可读摘要。"}</span>
+                      <span>默认只展示来源摘要，不显示完整内容。</span>
                     </header>
                     <div className="prompt-manifest-flow" aria-label="上下文三层装配摘要">
                       {promptLayerStats.map((stat, index) => (

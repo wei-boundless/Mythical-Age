@@ -2,7 +2,6 @@
 
 import {
   AlertTriangle,
-  Bot,
   Boxes,
   Code2,
   FilePlus2,
@@ -10,6 +9,7 @@ import {
   Link2,
   Loader2,
   Network,
+  PlugZap,
   RefreshCw,
   Route,
   Save,
@@ -21,21 +21,21 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { AgentExecutionPanel } from "@/components/workspace/views/operations/AgentExecutionPanel";
 import {
   createOperationSkill,
   deleteOperationSkill,
   getOperationCatalog,
   refreshOperationCatalog,
   saveOperationSkill,
-  updateOperationSkillTools,
+  updateOperationSkillPromptView,
   updateOperationTool,
+  type CapabilityEndpoint,
   type OperationCatalog,
   type OperationSkill,
   type OperationTool
 } from "@/lib/api";
 
-type OperationPanel = "skills" | "tools" | "bindings" | "agents";
+type OperationPanel = "skills" | "tools" | "endpoints";
 type OperationsViewProps = {
   initialPanel?: OperationPanel;
 };
@@ -122,10 +122,27 @@ function toolSearchText(tool: OperationTool) {
     tool.operation_metadata.risk_level,
     tool.operation_metadata.ownership_label,
     tool.operation_metadata.bound_skills.map((skill) => skill.title || skill.name).join(" "),
-    tool.operation_metadata.bound_agents.map((agent) => agent.name).join(" "),
     tool.capability_tags.join(" "),
     tool.safety_tags.join(" "),
     tool.route_hints.join(" ")
+  ].join(" ").toLowerCase();
+}
+
+function endpointSearchText(endpoint: CapabilityEndpoint) {
+  return [
+    endpoint.endpoint_id,
+    endpoint.kind,
+    endpoint.name,
+    endpoint.title,
+    endpoint.description,
+    endpoint.operation_id,
+    endpoint.protocol_family,
+    endpoint.server_name,
+    endpoint.transport,
+    endpoint.runtime_lane,
+    endpoint.invocation_mode,
+    endpoint.model_visibility,
+    endpoint.tags.join(" ")
   ].join(" ").toLowerCase();
 }
 
@@ -134,7 +151,10 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
   const [activePanel, setActivePanel] = useState<OperationPanel>(initialPanel);
   const [selectedSkillName, setSelectedSkillName] = useState("");
   const [selectedToolName, setSelectedToolName] = useState("");
+  const [selectedEndpointId, setSelectedEndpointId] = useState("");
   const [skillDraft, setSkillDraft] = useState("");
+  const [promptDraft, setPromptDraft] = useState({ title: "", capability: "", use_when: "", output_rule: "" });
+  const [promptEditing, setPromptEditing] = useState(false);
   const [toolNoteDraft, setToolNoteDraft] = useState("");
   const [skillEditing, setSkillEditing] = useState(false);
   const [query, setQuery] = useState("");
@@ -158,6 +178,7 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
       setCatalog(payload);
       setSelectedSkillName((current) => payload.skills.some((skill) => skill.runtime.name === current) ? current : payload.skills[0]?.runtime.name ?? "");
       setSelectedToolName((current) => payload.tools.some((tool) => tool.name === current) ? current : payload.tools[0]?.name ?? "");
+      setSelectedEndpointId((current) => (payload.capability_endpoints ?? []).some((endpoint) => endpoint.endpoint_id === current) ? current : payload.capability_endpoints?.[0]?.endpoint_id ?? "");
       if (refresh) {
         setNotice("操作系统目录已刷新。");
       }
@@ -194,15 +215,32 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
     }),
     [catalog?.tools, normalizedQuery, toolBoundaryFilter, toolRiskFilter]
   );
+  const visibleEndpoints = useMemo(
+    () => (catalog?.capability_endpoints ?? []).filter((endpoint) => !normalizedQuery || endpointSearchText(endpoint).includes(normalizedQuery)),
+    [catalog?.capability_endpoints, normalizedQuery]
+  );
   const selectedSkill = (catalog?.skills ?? []).find((skill) => skill.runtime.name === selectedSkillName) ?? visibleSkills[0] ?? null;
   const selectedTool = (catalog?.tools ?? []).find((tool) => tool.name === selectedToolName) ?? visibleTools[0] ?? null;
+  const selectedEndpoint = (catalog?.capability_endpoints ?? []).find((endpoint) => endpoint.endpoint_id === selectedEndpointId) ?? visibleEndpoints[0] ?? null;
 
   useEffect(() => {
     if (!selectedSkill || skillEditing) {
       return;
     }
     setSkillDraft(selectedSkill.content);
-  }, [selectedSkill?.runtime.name, selectedSkill?.content, skillEditing]);
+  }, [selectedSkill, skillEditing]);
+
+  useEffect(() => {
+    if (!selectedSkill || promptEditing) {
+      return;
+    }
+    setPromptDraft({
+      title: selectedSkill.prompt_view.title || "",
+      capability: selectedSkill.prompt_view.capability || "",
+      use_when: selectedSkill.prompt_view.use_when || "",
+      output_rule: selectedSkill.prompt_view.output_rule || ""
+    });
+  }, [selectedSkill, promptEditing]);
 
   useEffect(() => {
     setToolNoteDraft(selectedTool?.operation_metadata.note ?? "");
@@ -287,6 +325,24 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
     }
   }
 
+  async function saveSkillPromptView() {
+    if (!selectedSkill) {
+      return;
+    }
+    setSaving(`prompt:${selectedSkill.runtime.name}`);
+    setError("");
+    try {
+      const payload = await updateOperationSkillPromptView(selectedSkill.runtime.name, promptDraft);
+      setCatalog(payload);
+      setPromptEditing(false);
+      setNotice(`${selectedSkill.runtime.title || selectedSkill.runtime.name} 的模型可见 Prompt 已保存。`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "保存模型可见 Prompt 失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
   async function saveToolNote(tool: OperationTool) {
     setSaving(`tool-note:${tool.name}`);
     setError("");
@@ -304,31 +360,13 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
     }
   }
 
-  async function toggleSkillToolBinding(skill: OperationSkill, toolName: string) {
-    const currentTools = skill.runtime.allowed_tools ?? [];
-    const nextTools = currentTools.includes(toolName)
-      ? currentTools.filter((name) => name !== toolName)
-      : [...currentTools, toolName];
-    setSaving(`skill-tools:${skill.runtime.name}`);
-    setError("");
-    try {
-      const payload = await updateOperationSkillTools(skill.runtime.name, nextTools);
-      setCatalog(payload);
-      setNotice(`${skill.runtime.title || skill.runtime.name} 的工具授权已更新。`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "更新 skill 工具绑定失败");
-    } finally {
-      setSaving("");
-    }
-  }
-
   return (
     <div className="workspace-view operation-system-console">
       <header className="workspace-view__header">
         <div>
           <p className="workspace-view__eyebrow">能力控制面</p>
           <h2 className="workspace-view__title">操作系统</h2>
-          <p className="workspace-view__subtitle">把 skills 与 tools 从编排系统里拆出来，专门管理模型可见提示、工具类型和调用边界。</p>
+          <p className="workspace-view__subtitle">管理 Skills 提示模板和 Tools 注册目录，维护能力说明、工具元数据和治理备注。</p>
         </div>
         <div className="workspace-view__actions">
           <button className="action-button action-button--ghost" onClick={() => void loadCatalog(true)} type="button">
@@ -345,17 +383,17 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
         <article>
           <span>模型可见 Skills</span>
           <strong>{catalog?.summary.model_visible_skills ?? "-"}</strong>
-          <p>这些 skill 会被压缩成模型可见的能力提示，用于影响路由与执行习惯。</p>
+          <p>这些 skill 会被压缩成能力提示，用于描述可复用方法和适用场景。</p>
         </article>
         <article>
           <span>工具目录</span>
           <strong>{catalog?.summary.tool_count ?? "-"}</strong>
-          <p>工具仍由后端注册表控制，这里负责展示契约、类型和安全边界。</p>
+          <p>这里展示后端已注册工具，便于维护分类、风险、边界和备注。</p>
         </article>
         <article>
-          <span>工具类型</span>
-          <strong>{catalog?.summary.tool_types.length ?? "-"}</strong>
-          <p>{catalog?.summary.tool_types.join(" / ") || "等待加载"}</p>
+          <span>Capability Endpoints</span>
+          <strong>{catalog?.summary.capability_endpoint_count ?? catalog?.capability_endpoints?.length ?? "-"}</strong>
+          <p>这里收纳 local workers 和未来的 MCP 端点，不和工具注册目录重复。</p>
         </article>
         <article>
           <span>调用边界</span>
@@ -368,8 +406,7 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
         {[
           { id: "skills", label: "Skills 管理", icon: Boxes },
           { id: "tools", label: "工具管理", icon: Wrench },
-          { id: "bindings", label: "绑定关系", icon: Network },
-          { id: "agents", label: "执行单元", icon: Bot }
+          { id: "endpoints", label: "能力端点", icon: PlugZap }
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -390,7 +427,7 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
         <Search size={17} />
         <input
           onChange={(event) => setQuery(event.target.value)}
-          placeholder={activePanel === "skills" ? "搜索 skill、工具授权、能力标签或模型可见提示" : activePanel === "tools" ? "搜索工具、类型、安全标签或契约字段" : activePanel === "bindings" ? "搜索 skill、tool、agent 或绑定关系" : "执行单元页内可管理 agent 启停、通信契约和移交流程"}
+          placeholder={activePanel === "skills" ? "搜索 skill、能力标签或模型可见提示" : activePanel === "tools" ? "搜索工具、类型、安全标签或契约字段" : "搜索 endpoint、worker、MCP server、operation 或调用模式"}
           value={query}
         />
       </div>
@@ -459,8 +496,8 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
                 <div className="operation-skill-meta">
                   <span>路径：{selectedSkill.runtime.path}</span>
                   <span>激活：{selectedSkill.runtime.activation_policy}</span>
-                  <span>上下文：{selectedSkill.runtime.context_mode}</span>
-                  <span>工具：{listText(selectedSkill.runtime.allowed_tools)}</span>
+                <span>上下文：{selectedSkill.runtime.context_mode}</span>
+                  <span>候选工具：{listText(selectedSkill.runtime.allowed_tools)}</span>
                 </div>
 
                 {selectedSkill.validation_errors.length ? (
@@ -468,16 +505,52 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
                     统一契约校验未通过：{selectedSkill.validation_errors.join(" / ")}
                   </div>
                 ) : (
-                  <div className="workspace-alert">统一 SkillContract 校验通过，运行时和模型可见提示均来自同一份契约。</div>
+                  <div className="workspace-alert">统一 SkillContract 校验通过。Skill 用于维护方法提示、候选工具和能力标签。</div>
                 )}
 
                 <div className="operation-prompt-panel">
                   <div>
                     <Sparkles size={16} />
                     <strong>模型可见 Prompt</strong>
-                    <span>由 Skill 元数据生成</span>
+                    <span>由 Prompt 视图字段生成</span>
+                    <button className="action-button action-button--ghost" onClick={() => setPromptEditing((value) => !value)} type="button">
+                      <Code2 size={14} />
+                      {promptEditing ? "预览" : "编辑"}
+                    </button>
+                    {promptEditing ? (
+                      <button
+                        className="action-button action-button--primary"
+                        disabled={saving === `prompt:${selectedSkill.runtime.name}`}
+                        onClick={() => void saveSkillPromptView()}
+                        type="button"
+                      >
+                        {saving === `prompt:${selectedSkill.runtime.name}` ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+                        保存 Prompt
+                      </button>
+                    ) : null}
                   </div>
-                  <pre>{selectedSkill.prompt_block || "这个 skill 暂无模型可见提示。"}</pre>
+                  {promptEditing ? (
+                    <div className="operation-prompt-editor">
+                      <label>
+                        标题
+                        <input value={promptDraft.title} onChange={(event) => setPromptDraft((prev) => ({ ...prev, title: event.target.value }))} />
+                      </label>
+                      <label>
+                        能力说明
+                        <textarea value={promptDraft.capability} onChange={(event) => setPromptDraft((prev) => ({ ...prev, capability: event.target.value }))} />
+                      </label>
+                      <label>
+                        使用条件
+                        <textarea value={promptDraft.use_when} onChange={(event) => setPromptDraft((prev) => ({ ...prev, use_when: event.target.value }))} />
+                      </label>
+                      <label>
+                        输出规则
+                        <textarea value={promptDraft.output_rule} onChange={(event) => setPromptDraft((prev) => ({ ...prev, output_rule: event.target.value }))} />
+                      </label>
+                    </div>
+                  ) : (
+                    <pre>{selectedSkill.prompt_block || "这个 skill 暂无模型可见提示。"}</pre>
+                  )}
                 </div>
 
                 <div className="operation-editor-panel">
@@ -547,8 +620,8 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
                 <div className="operation-tool-map" aria-label="工具调用链">
                   <article>
                     <Link2 size={16} />
-                    <span>Skills 授权</span>
-                    <strong>{selectedTool.operation_metadata.bound_skills.length || "未绑定"}</strong>
+                    <span>Skill 候选</span>
+                    <strong>{selectedTool.operation_metadata.bound_skills.length || "无"}</strong>
                   </article>
                   <i />
                   <article>
@@ -617,7 +690,7 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
 
                 <div className="operation-tool-linked">
                   <article>
-                    <strong>关联 Skills</strong>
+                    <strong>候选 Skills</strong>
                     {selectedTool.operation_metadata.bound_skills.length ? (
                       <div className="workspace-chip-row">
                         {selectedTool.operation_metadata.bound_skills.map((skill) => (
@@ -627,20 +700,12 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
                         ))}
                       </div>
                     ) : (
-                      <p>当前没有 skill 显式授权这个工具，通常需要由编排层或显式工具调用触发。</p>
+                      <p>当前没有 skill 声明这个工具为候选能力；工具仍然保留在注册目录中。</p>
                     )}
                   </article>
                   <article>
-                    <strong>归属 Agent</strong>
-                    {selectedTool.operation_metadata.bound_agents.length ? (
-                      <div className="workspace-chip-row">
-                        {selectedTool.operation_metadata.bound_agents.map((agent) => (
-                          <span className="workspace-mini-chip" key={agent.agent_id}>{agent.name}</span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p>这个工具还没有明确归属 agent，建议先分配责任边界。</p>
-                    )}
+                    <strong>注册可见性</strong>
+                    <p>{selectedTool.operation_metadata.visibility_label}</p>
                   </article>
                   <article>
                     <strong>治理提示</strong>
@@ -681,115 +746,123 @@ export function OperationsView({ initialPanel = "skills" }: OperationsViewProps 
             )}
           </article>
         </section>
-      ) : activePanel === "bindings" ? (
-        <section className="operation-binding-board">
-          <div className="operation-binding-graph">
-            <article className="operation-binding-node operation-binding-node--main">
-              <Bot size={18} />
-              <span>主 Agent</span>
-              <strong>主会话智能体</strong>
-              <p>只保留主运行时工具，把 PDF、结构化数据和检索等专业能力下沉到子 agent。</p>
-            </article>
-            <div className="operation-binding-agents">
-              {(catalog?.binding_graph.agent_nodes ?? []).filter((agent) => agent.agent_id !== "agent:main:conversation").map((agent) => (
-                <article className="operation-binding-node" key={agent.agent_id}>
-                  <Bot size={16} />
-                  <span>{agent.kind}</span>
-                  <strong>{agent.name}</strong>
-                  <p>{agent.description}</p>
-                  <small>{agent.bound_tools.length} 个工具：{agent.bound_tools.join(" / ") || "未绑定"}</small>
-                </article>
-              ))}
-            </div>
+      ) : activePanel === "endpoints" ? (
+        <section className="operation-layout operation-layout--workers">
+          <div className="operation-list">
+            {visibleEndpoints.map((endpoint) => (
+              <button
+                className={selectedEndpoint?.endpoint_id === endpoint.endpoint_id ? "operation-tool-card operation-tool-card--active" : "operation-tool-card"}
+                key={endpoint.endpoint_id}
+                onClick={() => setSelectedEndpointId(endpoint.endpoint_id)}
+                type="button"
+              >
+                <span>{endpoint.kind} · {endpoint.server_name}</span>
+                <strong>{endpoint.title || endpoint.name}</strong>
+                <p>{endpoint.operation_id} · {endpoint.invocation_mode}</p>
+                <small>{endpoint.runtime_lane} · {endpoint.model_visibility}</small>
+              </button>
+            ))}
           </div>
 
-          <div className="operation-binding-layout">
-            <div className="operation-binding-column">
-              <div className="workspace-section__head">
-                <Boxes size={18} />
-                <h3>Skill 到 Tool 授权</h3>
-              </div>
-              {visibleSkills.map((skill) => (
-                <button
-                  className={selectedSkill?.runtime.name === skill.runtime.name ? "operation-skill-card operation-skill-card--active" : "operation-skill-card"}
-                  key={skill.runtime.name}
-                  onClick={() => setSelectedSkillName(skill.runtime.name)}
-                  type="button"
-                >
-                  <span>{skill.runtime.activation_policy}</span>
-                  <strong>{skill.runtime.title || skill.runtime.name}</strong>
-                  <p>{skill.runtime.description}</p>
-                  <small>{skill.runtime.allowed_tools.length} 个工具授权</small>
-                </button>
-              ))}
-            </div>
-
-            <article className="operation-detail">
-              {selectedSkill ? (
-                <>
-                  <div className="operation-detail__head">
-                    <div>
-                      <span>绑定管理</span>
-                      <h3>{selectedSkill.runtime.title || selectedSkill.runtime.name}</h3>
-                      <p>这里直接管理 skill 的 `allowed_tools`，保存后会刷新统一注册表。</p>
-                    </div>
+          <article className="operation-detail">
+            {selectedEndpoint ? (
+              <>
+                <div className="operation-detail__head">
+                  <div>
+                    <span>{selectedEndpoint.protocol_family}</span>
+                    <h3>{selectedEndpoint.title || selectedEndpoint.name}</h3>
+                    <p>{selectedEndpoint.description}</p>
                   </div>
-                  <div className="operation-binding-tools">
-                    {(catalog?.tools ?? []).map((tool) => {
-                      const checked = selectedSkill.runtime.allowed_tools.includes(tool.name);
-                      const busy = saving === `skill-tools:${selectedSkill.runtime.name}`;
-                      return (
-                        <button
-                          className={[
-                            "operation-binding-tool",
-                            checked ? "operation-binding-tool--active" : "",
-                            RISK_CLASS[tool.operation_metadata.risk_level] ?? ""
-                          ].filter(Boolean).join(" ")}
-                          disabled={busy}
-                          key={tool.name}
-                          onClick={() => void toggleSkillToolBinding(selectedSkill, tool.name)}
-                          type="button"
-                        >
-                          <span>{checked ? "已授权" : "未授权"} · {tool.operation_metadata.ownership_label}</span>
-                          <strong>{tool.name}</strong>
-                          <p>{tool.operation_metadata.tool_boundary} · {tool.operation_metadata.adapter_type} · 风险 {tool.operation_metadata.risk_level}</p>
-                        </button>
-                      );
-                    })}
+                  <div className="operation-risk-badge operation-risk--low">
+                    <PlugZap size={16} />
+                    能力端点
                   </div>
-                </>
-              ) : (
-                <div className="workspace-alert">暂无 skill 可管理。</div>
-              )}
-            </article>
-          </div>
+                </div>
 
-          <div className="operation-binding-matrix">
-            <article>
-              <strong>Agent 持有 Tool</strong>
-              {(catalog?.binding_graph.agent_tool_edges ?? []).map((edge) => (
-                <p key={`${edge.from}-${edge.to}`}>{edge.from_label} → {edge.to_label}</p>
-              ))}
-            </article>
-            <article>
-              <strong>Skill 授权 Tool</strong>
-              {(catalog?.binding_graph.skill_tool_edges ?? []).length ? (catalog?.binding_graph.skill_tool_edges ?? []).map((edge) => (
-                <p key={`${edge.from}-${edge.to}`}>{edge.from_label} → {edge.to_label}</p>
-              )) : <p>暂无显式授权关系。</p>}
-            </article>
-            <article>
-              <strong>治理建议</strong>
-              {(catalog?.binding_graph.recommendations ?? []).length ? (catalog?.binding_graph.recommendations ?? []).map((item) => (
-                <p key={item}>{item}</p>
-              )) : <p>当前没有明显的归属冲突。PDF 工具已由文档智能体接管，主会话不会直接持有。</p>}
-            </article>
-          </div>
+                <div className="operation-tool-map" aria-label="能力端点调度链">
+                  <article>
+                    <Route size={16} />
+                    <span>Endpoint Kind</span>
+                    <strong>{selectedEndpoint.kind}</strong>
+                  </article>
+                  <i />
+                  <article>
+                    <ShieldCheck size={16} />
+                    <span>Operation</span>
+                    <strong>{selectedEndpoint.operation_id}</strong>
+                  </article>
+                  <i />
+                  <article>
+                    <Network size={16} />
+                    <span>Runtime Lane</span>
+                    <strong>{selectedEndpoint.runtime_lane}</strong>
+                  </article>
+                  <i />
+                  <article>
+                    <PlugZap size={16} />
+                    <span>Transport</span>
+                    <strong>{selectedEndpoint.transport}</strong>
+                  </article>
+                </div>
+
+                <div className="operation-tool-flags">
+                  <span>{selectedEndpoint.invocation_mode}</span>
+                  <span>{selectedEndpoint.model_visibility}</span>
+                  <span>{selectedEndpoint.prompt_exposure_policy}</span>
+                  <span>{selectedEndpoint.resource_exposure_policy}</span>
+                </div>
+
+                <div className="operation-tool-linked">
+                  <article>
+                    <strong>宿主 Agent</strong>
+                    {selectedEndpoint.owner_agents.length ? (
+                      <div className="workspace-chip-row">
+                        {selectedEndpoint.owner_agents.map((agent) => (
+                          <span className="workspace-mini-chip" key={agent.agent_id}>{agent.name || agent.agent_id}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p>当前没有显式宿主 agent。</p>
+                    )}
+                  </article>
+                  <article>
+                    <strong>服务名</strong>
+                    <p>{selectedEndpoint.server_name}</p>
+                  </article>
+                  <article>
+                    <strong>来源</strong>
+                    <p>{selectedEndpoint.source_ref}</p>
+                  </article>
+                </div>
+
+                <div className="operation-contract-grid">
+                  <article>
+                    <PlugZap size={15} />
+                    <strong>Input Schema</strong>
+                    <pre>{jsonText(selectedEndpoint.input_schema)}</pre>
+                  </article>
+                  <article>
+                    <ShieldCheck size={15} />
+                    <strong>Output Schema</strong>
+                    <pre>{jsonText(selectedEndpoint.output_schema)}</pre>
+                  </article>
+                  <article>
+                    <Search size={15} />
+                    <strong>Endpoint Metadata</strong>
+                    <pre>{jsonText({ annotations: selectedEndpoint.annotations, metadata: selectedEndpoint.metadata })}</pre>
+                  </article>
+                </div>
+
+                <div className="workspace-chip-row">
+                  {selectedEndpoint.tags.map((tag) => <span className="workspace-mini-chip" key={tag}>{tag}</span>)}
+                </div>
+              </>
+            ) : (
+              <div className="workspace-alert">暂无能力端点。</div>
+            )}
+          </article>
         </section>
-      ) : (
-        <section className="operation-agent-embedded">
-          <AgentExecutionPanel />
-        </section>
-      )}
+      ) : null}
     </div>
   );
 }

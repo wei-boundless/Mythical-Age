@@ -201,7 +201,7 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
 def build_snapshot(skills: list[SkillRecord]) -> str:
     lines = [
         "<skills>",
-        "  <summary>Available local capabilities. Use the most appropriate capability for the user's task without exposing internal tool or routing protocol.</summary>",
+        "  <summary>Skill registry snapshot for admin display. Runtime prompts should inject only the selected active skill.</summary>",
     ]
     for skill in skills:
         view = _build_prompt_view(skill)

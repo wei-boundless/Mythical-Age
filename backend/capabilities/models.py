@@ -29,6 +29,22 @@ class AgentCapability:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkerCapability:
+    worker_id: str
+    route: str
+    name: str
+    description: str
+    operation_id: str
+    agent_id: str
+    transport: str
+    model_visibility: str
+    tags: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class CapabilityBindingEdge:
     from_id: str
     from_label: str
@@ -49,15 +65,19 @@ class CapabilityBindingEdge:
 @dataclass(frozen=True, slots=True)
 class CapabilityBindingGraph:
     agent_nodes: list[AgentCapability] = field(default_factory=list)
+    worker_nodes: list[WorkerCapability] = field(default_factory=list)
     skill_tool_edges: list[CapabilityBindingEdge] = field(default_factory=list)
     agent_tool_edges: list[CapabilityBindingEdge] = field(default_factory=list)
+    worker_operation_edges: list[CapabilityBindingEdge] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
 
     def to_operation_payload(self) -> dict[str, Any]:
         return {
             "agent_nodes": [node.to_dict() for node in self.agent_nodes],
+            "worker_nodes": [node.to_dict() for node in self.worker_nodes],
             "skill_tool_edges": [edge.to_operation_edge() for edge in self.skill_tool_edges],
             "agent_tool_edges": [edge.to_operation_edge() for edge in self.agent_tool_edges],
+            "worker_operation_edges": [edge.to_operation_edge() for edge in self.worker_operation_edges],
             "recommendations": list(self.recommendations),
         }
 

@@ -5,35 +5,35 @@ from typing import Any
 
 
 @dataclass(slots=True, frozen=True)
-class MemoryCompactionPreview:
-    """Preview-only context compaction result for runtime adapters."""
+class MemoryCompactionResult:
+    """Read-only context compaction result for runtime adapters."""
 
     session_id: str
     pressure_level: str = "normal"
-    compaction_strategy: str = "memory_system_preview_only"
+    compaction_strategy: str = "none"
     compacted: bool = False
-    preview_only: bool = True
-    authority: str = "memory_compaction_preview"
+    read_only: bool = True
+    authority: str = "memory_compaction_result"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.preview_only:
-            raise ValueError("MemoryCompactionPreview must remain preview_only")
-        if self.authority != "memory_compaction_preview":
-            raise ValueError("MemoryCompactionPreview cannot carry runtime authority")
+        if not self.read_only:
+            raise ValueError("MemoryCompactionResult must remain read_only")
+        if self.authority != "memory_compaction_result":
+            raise ValueError("MemoryCompactionResult cannot carry runtime authority")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def build_memory_compaction_preview(
+def build_memory_compaction_result(
     *,
     session_id: str,
     history_count: int = 0,
     context_candidate_count: int = 0,
     restore_candidate_count: int = 0,
-) -> MemoryCompactionPreview:
-    return MemoryCompactionPreview(
+) -> MemoryCompactionResult:
+    return MemoryCompactionResult(
         session_id=session_id,
         diagnostics={
             "history_count": int(history_count or 0),

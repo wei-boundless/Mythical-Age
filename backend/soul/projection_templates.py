@@ -17,12 +17,19 @@ class ProjectionTemplate:
     default_memory_policy: str
     default_output_contract: str
     projection_resolution_policy: str = "pinned"
+    posture_tags: tuple[str, ...] = ()
+    expression_density: str = "normal"
+    attention_focus: tuple[str, ...] = ()
+    risk_notes: tuple[str, ...] = ()
     guardrails: tuple[str, ...] = ()
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["posture_tags"] = list(self.posture_tags)
+        payload["attention_focus"] = list(self.attention_focus)
+        payload["risk_notes"] = list(self.risk_notes)
         payload["guardrails"] = list(self.guardrails)
         return payload
 
@@ -40,9 +47,15 @@ def default_projection_templates() -> tuple[ProjectionTemplate, ...]:
             default_memory_policy="issue_local_readonly",
             default_output_contract="HealthTriageResult",
             projection_resolution_policy="pinned",
+            posture_tags=("health_maintenance", "evidence_first", "bounded_resource"),
+            expression_density="concise",
+            attention_focus=("health_issue", "runtime_trace", "resource_boundary", "verification"),
+            risk_notes=(
+                "健康维护投影只能消费任务与资源策略提供的证据。",
+                "只使用运行时实际注入的工具。",
+            ),
             guardrails=(
                 "只读取问题证据和显式 trace refs。",
-                "不得扩大 ResourcePolicy 或声称拥有工具权限。",
                 "只输出候选分析、用例草案或修复验证建议。",
             ),
             metadata={"default_agent_id": "agent:health:maintainer"},
@@ -58,6 +71,10 @@ def default_projection_templates() -> tuple[ProjectionTemplate, ...]:
             default_memory_policy="conversation_read_write",
             default_output_contract="AssistantFinalAnswer",
             projection_resolution_policy="hybrid",
+            posture_tags=("dispatcher", "interactive", "coordination"),
+            expression_density="normal",
+            attention_focus=("task_intake", "delegation", "final_answer"),
+            risk_notes=("主 Agent 可以协调任务，但不直接绕过操作系统授权。",),
             guardrails=("主 Agent 负责任务识别、委派和最终整合。",),
             metadata={"default_agent_id": "agent:main"},
         ),

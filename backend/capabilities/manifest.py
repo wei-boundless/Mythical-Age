@@ -8,7 +8,11 @@ from typing import Any
 import yaml
 
 from agents.a2a_cards import A2A_COMPATIBLE_PROTOCOL_VERSION, build_default_agent_cards
-from .models import AgentCapability, CapabilityBindingEdge, CapabilityBindingGraph
+from operations import build_default_operation_registry
+from tasks.definitions import default_task_definitions
+from workers import build_worker_catalog
+from .endpoints import build_capability_endpoints
+from .models import AgentCapability, CapabilityBindingEdge, CapabilityBindingGraph, WorkerCapability
 from .search_policy import classify_tool_source, search_policy_labels, tool_text_set
 from .validation import validate_capability_catalog
 
@@ -72,6 +76,26 @@ def set_skill_allowed_tools(path: Path, allowed_tools: list[str], known_tools: s
     meta["metadata"] = metadata
     write_skill_frontmatter(path, meta, body)
     return list(metadata["allowed_tools"])
+
+
+def set_skill_prompt_view(path: Path, prompt_view: dict[str, str]) -> dict[str, str]:
+    text = read_text(path)
+    meta, body = parse_frontmatter(text)
+    metadata = meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
+    existing = meta.get("prompt") if isinstance(meta.get("prompt"), dict) else meta.get("prompt_view")
+    if not isinstance(existing, dict):
+        existing = {}
+    next_prompt = {
+        "name": str(prompt_view.get("name") or existing.get("name") or meta.get("name") or "").strip(),
+        "title": str(prompt_view.get("title") or existing.get("title") or metadata.get("display_name") or meta.get("name") or "").strip(),
+        "capability": str(prompt_view.get("capability") or existing.get("capability") or meta.get("description") or "").strip(),
+        "use_when": str(prompt_view.get("use_when") if prompt_view.get("use_when") is not None else existing.get("use_when") or "").strip(),
+        "output_rule": str(prompt_view.get("output_rule") or existing.get("output_rule") or "").strip(),
+    }
+    meta.pop("prompt_view", None)
+    meta["prompt"] = next_prompt
+    write_skill_frontmatter(path, meta, body)
+    return next_prompt
 
 
 def default_tool_type(tool: dict[str, Any]) -> str:
@@ -178,6 +202,20 @@ def tool_bound_skills(skills: list[dict[str, Any]], tool_name: str) -> list[dict
             }
         )
     return bindings
+
+
+def skill_allowed_operations(skill: dict[str, Any], tools_by_name: dict[str, dict[str, Any]]) -> list[str]:
+    runtime = skill.get("runtime") if isinstance(skill.get("runtime"), dict) else {}
+    operation_ids: list[str] = []
+    seen: set[str] = set()
+    for tool_name in list(runtime.get("allowed_tools") or []):
+        tool = tools_by_name.get(str(tool_name or ""))
+        operation_id = str((tool or {}).get("operation_id") or "").strip()
+        if not operation_id or operation_id in seen:
+            continue
+        seen.add(operation_id)
+        operation_ids.append(operation_id)
+    return operation_ids
 
 
 def agent_tool_bindings(tools: list[dict[str, Any]]) -> dict[str, list[str]]:
@@ -306,6 +344,7 @@ def build_binding_graph(
     skills: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     bindings_by_agent: dict[str, list[str]],
+    workers: list[dict[str, Any]] | None = None,
 ) -> CapabilityBindingGraph:
     tool_lookup = {str(tool.get("name") or ""): tool for tool in tools}
     skill_edges: list[CapabilityBindingEdge] = []
@@ -318,9 +357,9 @@ def build_binding_graph(
                 CapabilityBindingEdge(
                     from_id=str(runtime.get("name") or ""),
                     from_label=str(runtime.get("title") or runtime.get("name") or ""),
-                    to_id=tool_name,
+                    to_id=str(tool_lookup[tool_name].get("operation_id") or tool_name),
                     to_label=tool_name,
-                    relation="skill 授权调用 tool",
+                    relation="skill 缩小 tool 候选范围",
                 )
             )
 
@@ -341,6 +380,32 @@ def build_binding_graph(
                 )
             )
 
+    worker_nodes = [
+        WorkerCapability(
+            worker_id=str(worker.get("worker_id") or ""),
+            route=str(worker.get("route") or ""),
+            name=str(worker.get("name") or ""),
+            description=str(worker.get("description") or ""),
+            operation_id=str(worker.get("operation_id") or ""),
+            agent_id=str(worker.get("agent_id") or ""),
+            transport=str(worker.get("transport") or ""),
+            model_visibility=str(worker.get("model_visibility") or ""),
+            tags=[str(tag) for tag in list(worker.get("tags") or [])],
+        )
+        for worker in list(workers or [])
+    ]
+    worker_edges = [
+        CapabilityBindingEdge(
+            from_id=str(worker.get("worker_id") or ""),
+            from_label=str(worker.get("name") or worker.get("route") or ""),
+            to_id=str(worker.get("operation_id") or ""),
+            to_label=str(worker.get("operation_id") or ""),
+            relation="worker 由 operation 系统调度",
+        )
+        for worker in list(workers or [])
+        if str(worker.get("operation_id") or "").strip()
+    ]
+
     recommendations = []
     for tool in tools:
         name = str(tool.get("name") or "")
@@ -352,8 +417,10 @@ def build_binding_graph(
             recommendations.append(f"{name} 尚未绑定智能体，建议明确归属后再参与自动路由。")
     return CapabilityBindingGraph(
         agent_nodes=nodes,
+        worker_nodes=worker_nodes,
         skill_tool_edges=skill_edges,
         agent_tool_edges=agent_edges,
+        worker_operation_edges=worker_edges,
         recommendations=recommendations,
     )
 
@@ -362,6 +429,16 @@ def build_operation_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] |
     overrides = dict(tool_overrides or {})
     skills = [skill_payload(runtime, skill) for skill in runtime.skill_registry.skills]
     raw_tools = [definition.to_registry_record() for definition in runtime.tool_runtime.definitions]
+    operation_registry = build_default_operation_registry()
+    operations = [operation.to_dict() for operation in operation_registry.list_operations()]
+    workers = build_worker_catalog(operation_registry)
+    task_operation_ids = sorted(
+        {
+            operation_id
+            for definition in default_task_definitions().values()
+            for operation_id in definition.default_operation_requirements
+        }
+    )
     bindings_by_agent = agent_tool_bindings(raw_tools)
     bound_agents_by_tool = tool_agent_bindings(bindings_by_agent)
     tools = []
@@ -374,6 +451,17 @@ def build_operation_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] |
                 "operation_metadata": operation_tool_metadata(record, metadata, skills, bound_agents_by_tool),
             }
         )
+    tools_by_name = {str(tool.get("name") or ""): tool for tool in tools}
+    capability_endpoints = build_capability_endpoints(
+        workers=workers,
+    )
+    skills = [
+        {
+            **skill,
+            "allowed_operations": skill_allowed_operations(skill, tools_by_name),
+        }
+        for skill in skills
+    ]
 
     risk_counts: dict[str, int] = {}
     boundary_counts: dict[str, int] = {}
@@ -384,20 +472,37 @@ def build_operation_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] |
         boundary_counts[operation_metadata["tool_boundary"]] = boundary_counts.get(operation_metadata["tool_boundary"], 0) + 1
         source_counts[operation_metadata["source_class"]] = source_counts.get(operation_metadata["source_class"], 0) + 1
 
-    validation_issues = validate_capability_catalog(skills=skills, tools=tools, agent_bindings=bindings_by_agent)
+    validation_issues = validate_capability_catalog(
+        skills=skills,
+        tools=tools,
+        agent_bindings=bindings_by_agent,
+        workers=workers,
+        capability_endpoints=capability_endpoints,
+        operations=operations,
+        task_operation_ids=task_operation_ids,
+    )
     return {
         "skills": skills,
         "tools": tools,
-        "binding_graph": build_binding_graph(skills, tools, bindings_by_agent).to_operation_payload(),
+        "workers": workers,
+        "capability_endpoints": capability_endpoints,
+        "operations": operations,
+        "binding_graph": build_binding_graph(skills, tools, bindings_by_agent, workers).to_operation_payload(),
         "validation_issues": [issue.to_dict() for issue in validation_issues],
         "tool_type_options": TOOL_TYPE_OPTIONS,
         "summary": {
             "skill_count": len(skills),
             "tool_count": len(tools),
+            "worker_count": len(workers),
+            "local_mcp_endpoint_count": len(workers),
+            "capability_endpoint_count": len(capability_endpoints),
             "model_visible_skills": sum(1 for item in skills if item["runtime"].get("activation_policy") == "model_visible"),
             "tool_types": sorted({tool["operation_metadata"]["tool_type"] for tool in tools}),
             "tool_boundaries": dict(sorted(boundary_counts.items())),
             "tool_sources": dict(sorted(source_counts.items())),
             "tool_risks": dict(sorted(risk_counts.items(), key=lambda item: TOOL_RISK_ORDER.get(item[0], 0))),
+            "operation_count": len(operations),
+            "validation_issue_count": len(validation_issues),
+            "validation_error_count": sum(1 for issue in validation_issues if issue.severity == "error"),
         },
     }

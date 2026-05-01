@@ -136,6 +136,10 @@ def _normalize_provider(
 
 
 def _resolve_llm_api_key(provider: str) -> str | None:
+    runtime_override = _runtime_llm_override()
+    override_api_key = str(runtime_override.get("api_key") or "").strip()
+    if override_api_key:
+        return override_api_key
     if provider == "zhipu":
         return _first_env("LLM_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY")
     if provider == "bailian":
@@ -146,6 +150,10 @@ def _resolve_llm_api_key(provider: str) -> str | None:
 
 
 def _resolve_llm_model(provider: str) -> str:
+    runtime_override = _runtime_llm_override()
+    override_model = str(runtime_override.get("model") or "").strip()
+    if override_model:
+        return override_model
     if provider == "zhipu":
         return _first_env("LLM_MODEL", "ZHIPU_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
     if provider == "bailian":
@@ -156,6 +164,10 @@ def _resolve_llm_model(provider: str) -> str:
 
 
 def _resolve_llm_base_url(provider: str) -> str:
+    runtime_override = _runtime_llm_override()
+    override_base_url = str(runtime_override.get("base_url") or "").strip()
+    if override_base_url:
+        return override_base_url
     if provider == "zhipu":
         return _first_env("LLM_BASE_URL", "ZHIPU_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "bailian":
@@ -166,6 +178,12 @@ def _resolve_llm_base_url(provider: str) -> str:
 
 
 def _resolve_llm_fallback_provider() -> str | None:
+    runtime_override = _runtime_llm_override()
+    if "fallback_provider" in runtime_override:
+        value = str(runtime_override.get("fallback_provider") or "").strip().lower()
+        if value in {"", "none", "disabled", "off"}:
+            return None
+        return _normalize_provider(value, default="", defaults=LLM_PROVIDER_DEFAULTS) or None
     value = _first_env("LLM_FALLBACK_PROVIDER")
     if not value:
         return None
@@ -173,9 +191,44 @@ def _resolve_llm_fallback_provider() -> str | None:
     return normalized or None
 
 
+def _runtime_config_path() -> Path:
+    return Path(__file__).resolve().parent / "config.json"
+
+
+def _runtime_payload() -> dict[str, Any]:
+    try:
+        payload = json.loads(_runtime_config_path().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _runtime_llm_override() -> dict[str, Any]:
+    payload = _runtime_payload()
+    model_config = payload.get("model_provider")
+    return dict(model_config) if isinstance(model_config, dict) else {}
+
+
+def _runtime_system_section(section: str) -> dict[str, Any]:
+    payload = _runtime_payload()
+    system_config = payload.get("system_config")
+    if not isinstance(system_config, dict):
+        return {}
+    section_config = system_config.get(section)
+    return dict(section_config) if isinstance(section_config, dict) else {}
+
+
+def _runtime_system_value(section: str, key: str) -> Any:
+    return _runtime_system_section(section).get(key)
+
+
 def _resolve_llm_fallback_api_key(provider: str | None) -> str | None:
     if not provider:
         return None
+    runtime_override = _runtime_llm_override()
+    override_api_key = str(runtime_override.get("fallback_api_key") or "").strip()
+    if override_api_key:
+        return override_api_key
     if provider == "zhipu":
         return _first_env("LLM_FALLBACK_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY")
     if provider == "bailian":
@@ -188,6 +241,10 @@ def _resolve_llm_fallback_api_key(provider: str | None) -> str | None:
 def _resolve_llm_fallback_model(provider: str | None) -> str | None:
     if not provider:
         return None
+    runtime_override = _runtime_llm_override()
+    override_model = str(runtime_override.get("fallback_model") or "").strip()
+    if override_model:
+        return override_model
     if provider == "zhipu":
         return _first_env("LLM_FALLBACK_MODEL", "ZHIPU_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
     if provider == "bailian":
@@ -200,6 +257,10 @@ def _resolve_llm_fallback_model(provider: str | None) -> str | None:
 def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
     if not provider:
         return None
+    runtime_override = _runtime_llm_override()
+    override_base_url = str(runtime_override.get("fallback_base_url") or "").strip()
+    if override_base_url:
+        return override_base_url
     if provider == "zhipu":
         return _first_env("LLM_FALLBACK_BASE_URL", "ZHIPU_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "bailian":
@@ -210,16 +271,25 @@ def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
 
 
 def _resolve_embedding_api_key(provider: str) -> str | None:
+    override_api_key = str(_runtime_system_value("embedding", "api_key") or "").strip()
+    if override_api_key:
+        return override_api_key
     if provider == "bailian":
         return _first_env("EMBEDDING_API_KEY", "BAILIAN_API_KEY", "DASHSCOPE_API_KEY")
     return _first_env("EMBEDDING_API_KEY", "OPENAI_API_KEY")
 
 
 def _resolve_embedding_model(provider: str) -> str:
+    override_model = str(_runtime_system_value("embedding", "model") or "").strip()
+    if override_model:
+        return override_model
     return _first_env("EMBEDDING_MODEL") or EMBEDDING_PROVIDER_DEFAULTS[provider]["model"]
 
 
 def _resolve_embedding_base_url(provider: str) -> str:
+    override_base_url = str(_runtime_system_value("embedding", "base_url") or "").strip()
+    if override_base_url:
+        return override_base_url
     if provider == "bailian":
         return (
             _first_env("EMBEDDING_BASE_URL", "BAILIAN_BASE_URL")
@@ -232,6 +302,13 @@ def _resolve_embedding_base_url(provider: str) -> str:
 
 
 def _resolve_embedding_dimensions() -> int | None:
+    override = _runtime_system_value("embedding", "dimensions")
+    if override not in {None, ""}:
+        try:
+            value = int(override)
+        except (TypeError, ValueError):
+            value = 1024
+        return value if value > 0 else 1024
     raw = _first_env("EMBEDDING_DIMENSIONS")
     if not raw:
         return 1024
@@ -243,6 +320,9 @@ def _resolve_embedding_dimensions() -> int | None:
 
 
 def _resolve_vector_store_backend() -> str:
+    override = str(_runtime_system_value("retrieval", "vector_store_backend") or "").strip().lower()
+    if override in {"faiss", "llamaindex", "qdrant"}:
+        return override
     value = (_first_env("VECTOR_STORE_BACKEND") or "qdrant").strip().lower()
     if value in {"faiss", "llamaindex", "qdrant"}:
         return value
@@ -250,6 +330,9 @@ def _resolve_vector_store_backend() -> str:
 
 
 def _resolve_document_conversion_backend() -> str:
+    override = str(_runtime_system_value("document", "document_conversion_backend") or "").strip().lower()
+    if override in {"docling", "legacy"}:
+        return override
     value = (_first_env("DOCUMENT_CONVERSION_BACKEND") or "docling").strip().lower()
     if value in {"docling", "legacy"}:
         return value
@@ -257,6 +340,9 @@ def _resolve_document_conversion_backend() -> str:
 
 
 def _resolve_retrieval_core_backend() -> str:
+    override = str(_runtime_system_value("retrieval", "retrieval_core_backend") or "").strip().lower()
+    if override in {"legacy", "llamaindex_v2"}:
+        return override
     value = (_first_env("RETRIEVAL_CORE_BACKEND") or "llamaindex_v2").strip().lower()
     if value in {"legacy", "llamaindex_v2"}:
         return value
@@ -264,6 +350,9 @@ def _resolve_retrieval_core_backend() -> str:
 
 
 def _resolve_faiss_metric() -> str:
+    override = str(_runtime_system_value("retrieval", "faiss_metric") or "").strip().lower()
+    if override in {"cosine", "inner_product", "l2"}:
+        return override
     value = (_first_env("FAISS_METRIC") or "cosine").strip().lower()
     if value in {"cosine", "inner_product", "l2"}:
         return value
@@ -271,6 +360,9 @@ def _resolve_faiss_metric() -> str:
 
 
 def _resolve_faiss_index_type() -> str:
+    override = str(_runtime_system_value("retrieval", "faiss_index_type") or "").strip().lower()
+    if override in {"flat", "hnsw"}:
+        return override
     value = (_first_env("FAISS_INDEX_TYPE") or "flat").strip().lower()
     if value in {"flat", "hnsw"}:
         return value
@@ -278,22 +370,31 @@ def _resolve_faiss_index_type() -> str:
 
 
 def _resolve_qdrant_url() -> str | None:
+    override = str(_runtime_system_value("retrieval", "qdrant_url") or "").strip()
+    if override:
+        return override
     value = _first_env("QDRANT_URL", "QDRANT_HOST")
     return value or None
 
 
 def _resolve_qdrant_api_key() -> str | None:
+    override = str(_runtime_system_value("retrieval", "qdrant_api_key") or "").strip()
+    if override:
+        return override
     value = _first_env("QDRANT_API_KEY")
     return value or None
 
 
 def _resolve_qdrant_collection_prefix() -> str:
+    override = str(_runtime_system_value("retrieval", "qdrant_collection_prefix") or "").strip()
+    if override:
+        return override
     value = (_first_env("QDRANT_COLLECTION_PREFIX") or "agent").strip()
     return value or "agent"
 
 
-def _resolve_positive_int(name: str, default: int) -> int:
-    raw = _first_env(name)
+def _resolve_positive_int(name: str, default: int, override: Any = None) -> int:
+    raw = override if override not in {None, ""} else _first_env(name)
     if not raw:
         return default
     try:
@@ -303,8 +404,8 @@ def _resolve_positive_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
-def _resolve_nonnegative_int(name: str, default: int) -> int:
-    raw = _first_env(name)
+def _resolve_nonnegative_int(name: str, default: int, override: Any = None) -> int:
+    raw = override if override not in {None, ""} else _first_env(name)
     if not raw:
         return default
     try:
@@ -314,8 +415,8 @@ def _resolve_nonnegative_int(name: str, default: int) -> int:
     return value if value >= 0 else default
 
 
-def _resolve_positive_float(name: str, default: float) -> float:
-    raw = _first_env(name)
+def _resolve_positive_float(name: str, default: float, override: Any = None) -> float:
+    raw = override if override not in {None, ""} else _first_env(name)
     if not raw:
         return default
     try:
@@ -337,33 +438,54 @@ def _resolve_bool(value: str | None, *, default: bool) -> bool:
 
 
 def _resolve_docling_enabled() -> bool:
+    override = _runtime_system_value("document", "docling_enabled")
+    if override not in {None, ""}:
+        return _resolve_bool(str(override), default=True)
     return _resolve_bool(os.getenv("DOCLING_ENABLED"), default=True)
 
 
 def _resolve_docling_prefer_ocr() -> bool:
+    override = _runtime_system_value("document", "docling_prefer_ocr")
+    if override not in {None, ""}:
+        return _resolve_bool(str(override), default=False)
     return _resolve_bool(os.getenv("DOCLING_PREFER_OCR"), default=False)
 
 
 def _resolve_rerank_provider() -> str:
+    override = str(_runtime_system_value("retrieval", "rerank_provider") or "").strip().lower()
+    if override:
+        return override
     return (_first_env("RERANK_PROVIDER") or "heuristic").strip().lower()
 
 
 def _resolve_rerank_model() -> str | None:
+    override = str(_runtime_system_value("retrieval", "rerank_model") or "").strip()
+    if override:
+        return override
     value = _first_env("RERANK_MODEL")
     return value or None
 
 
 def _resolve_rerank_api_key() -> str | None:
+    override = str(_runtime_system_value("retrieval", "rerank_api_key") or "").strip()
+    if override:
+        return override
     value = _first_env("RERANK_API_KEY")
     return value or None
 
 
 def _resolve_rerank_base_url() -> str | None:
+    override = str(_runtime_system_value("retrieval", "rerank_base_url") or "").strip()
+    if override:
+        return override
     value = _first_env("RERANK_BASE_URL")
     return value or None
 
 
 def _resolve_rerank_top_n() -> int:
+    override = _runtime_system_value("retrieval", "rerank_top_n")
+    if override not in {None, ""}:
+        return _resolve_positive_int("RERANK_TOP_N", 8, override)
     raw = _first_env("RERANK_TOP_N")
     if not raw:
         return 8
@@ -375,6 +497,9 @@ def _resolve_rerank_top_n() -> int:
 
 
 def _resolve_rerank_candidate_pool() -> int:
+    override = _runtime_system_value("retrieval", "rerank_candidate_pool")
+    if override not in {None, ""}:
+        return _resolve_positive_int("RERANK_CANDIDATE_POOL", 20, override)
     raw = _first_env("RERANK_CANDIDATE_POOL")
     if not raw:
         return 20
@@ -386,6 +511,9 @@ def _resolve_rerank_candidate_pool() -> int:
 
 
 def _resolve_rerank_batch_size() -> int:
+    override = _runtime_system_value("retrieval", "rerank_batch_size")
+    if override not in {None, ""}:
+        return _resolve_positive_int("RERANK_BATCH_SIZE", 8, override)
     raw = _first_env("RERANK_BATCH_SIZE")
     if not raw:
         return 8
@@ -397,6 +525,9 @@ def _resolve_rerank_batch_size() -> int:
 
 
 def _resolve_rerank_max_length() -> int:
+    override = _runtime_system_value("retrieval", "rerank_max_length")
+    if override not in {None, ""}:
+        return _resolve_positive_int("RERANK_MAX_LENGTH", 512, override)
     raw = _first_env("RERANK_MAX_LENGTH")
     if not raw:
         return 512
@@ -408,16 +539,25 @@ def _resolve_rerank_max_length() -> int:
 
 
 def _resolve_rerank_device() -> str | None:
+    override = str(_runtime_system_value("retrieval", "rerank_device") or "").strip()
+    if override:
+        return override
     value = _first_env("RERANK_DEVICE")
     return value or None
 
 
 def _resolve_mineru_api_base_url() -> str | None:
+    override = str(_runtime_system_value("document", "mineru_api_base_url") or "").strip()
+    if override:
+        return override
     value = _first_env("MINERU_API_BASE_URL", "MINERU_BASE_URL")
     return value or None
 
 
 def _resolve_mineru_api_mode() -> str:
+    override = str(_runtime_system_value("document", "mineru_api_mode") or "").strip().lower()
+    if override in {"local_sync", "cloud_v4_batch"}:
+        return override
     explicit = (_first_env("MINERU_API_MODE") or "").strip().lower()
     if explicit in {"local_sync", "cloud_v4_batch"}:
         return explicit
@@ -431,7 +571,8 @@ def _resolve_mineru_api_mode() -> str:
 
 def _resolve_mineru_api_parse_path() -> str:
     default = "/api/v4/file-urls/batch" if _resolve_mineru_api_mode() == "cloud_v4_batch" else "/file_parse"
-    value = _first_env("MINERU_API_PARSE_PATH", "MINERU_PARSE_PATH") or default
+    override = str(_runtime_system_value("document", "mineru_api_parse_path") or "").strip()
+    value = override or _first_env("MINERU_API_PARSE_PATH", "MINERU_PARSE_PATH") or default
     normalized = value.strip()
     if not normalized:
         return default
@@ -443,16 +584,21 @@ def _resolve_mineru_api_parse_path() -> str:
 
 
 def _resolve_mineru_api_key() -> str | None:
+    override = str(_runtime_system_value("document", "mineru_api_key") or "").strip()
+    if override:
+        return override
     value = _first_env("MINERU_API_KEY", "MINERU_API_TOKEN")
     return value or None
 
 
 def _resolve_mineru_api_timeout_seconds() -> int:
-    return _resolve_positive_int("MINERU_API_TIMEOUT_SECONDS", 180)
+    return _resolve_positive_int("MINERU_API_TIMEOUT_SECONDS", 180, _runtime_system_value("document", "mineru_api_timeout_seconds"))
 
 
 def _resolve_mineru_api_enabled() -> bool:
-    if not _resolve_bool(os.getenv("MINERU_API_ENABLED"), default=False):
+    override = _runtime_system_value("document", "mineru_api_enabled")
+    enabled = _resolve_bool(str(override), default=False) if override not in {None, ""} else _resolve_bool(os.getenv("MINERU_API_ENABLED"), default=False)
+    if not enabled:
         return False
     return bool(_resolve_mineru_api_base_url())
 
@@ -461,14 +607,15 @@ def _resolve_mineru_api_enabled() -> bool:
 def get_settings() -> Settings:
     backend_dir = _load_env_file()
     project_root = backend_dir.parent
+    runtime_llm = _runtime_llm_override()
 
     llm_provider = _normalize_provider(
-        os.getenv("LLM_PROVIDER"),
+        str(runtime_llm.get("provider") or "").strip() or os.getenv("LLM_PROVIDER"),
         default="zhipu",
         defaults=LLM_PROVIDER_DEFAULTS,
     )
     embedding_provider = _normalize_provider(
-        os.getenv("EMBEDDING_PROVIDER"),
+        str(_runtime_system_value("embedding", "provider") or "").strip() or os.getenv("EMBEDDING_PROVIDER"),
         default="bailian",
         defaults=EMBEDDING_PROVIDER_DEFAULTS,
     )
@@ -485,8 +632,8 @@ def get_settings() -> Settings:
         llm_fallback_model=_resolve_llm_fallback_model(llm_fallback_provider),
         llm_fallback_api_key=_resolve_llm_fallback_api_key(llm_fallback_provider),
         llm_fallback_base_url=_resolve_llm_fallback_base_url(llm_fallback_provider),
-        llm_timeout_seconds=_resolve_positive_float("LLM_TIMEOUT_SECONDS", 45.0),
-        llm_max_retries=_resolve_nonnegative_int("LLM_MAX_RETRIES", 2),
+        llm_timeout_seconds=_resolve_positive_float("LLM_TIMEOUT_SECONDS", 45.0, _runtime_system_value("runtime", "llm_timeout_seconds")),
+        llm_max_retries=_resolve_nonnegative_int("LLM_MAX_RETRIES", 2, _runtime_system_value("runtime", "llm_max_retries")),
         embedding_provider=embedding_provider,
         embedding_model=_resolve_embedding_model(embedding_provider),
         embedding_api_key=_resolve_embedding_api_key(embedding_provider),
@@ -507,7 +654,11 @@ def get_settings() -> Settings:
         document_cache_v2_root=backend_dir / "storage" / "document_cache_v2",
         docling_enabled=_resolve_docling_enabled(),
         docling_prefer_ocr=_resolve_docling_prefer_ocr(),
-        rerank_enabled=_resolve_bool(os.getenv("RERANK_ENABLED"), default=False),
+        rerank_enabled=(
+            _resolve_bool(str(_runtime_system_value("retrieval", "rerank_enabled")), default=False)
+            if _runtime_system_value("retrieval", "rerank_enabled") not in {None, ""}
+            else _resolve_bool(os.getenv("RERANK_ENABLED"), default=False)
+        ),
         rerank_provider=_resolve_rerank_provider(),
         rerank_model=_resolve_rerank_model(),
         rerank_api_key=_resolve_rerank_api_key(),
@@ -523,6 +674,8 @@ def get_settings() -> Settings:
         mineru_api_parse_path=_resolve_mineru_api_parse_path(),
         mineru_api_key=_resolve_mineru_api_key(),
         mineru_api_timeout_seconds=_resolve_mineru_api_timeout_seconds(),
+        component_char_limit=_resolve_positive_int("COMPONENT_CHAR_LIMIT", 20_000, _runtime_system_value("runtime", "component_char_limit")),
+        terminal_timeout_seconds=_resolve_positive_int("TERMINAL_TIMEOUT_SECONDS", 30, _runtime_system_value("runtime", "terminal_timeout_seconds")),
     )
 
 

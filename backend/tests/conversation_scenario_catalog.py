@@ -125,7 +125,7 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
         ),
         related_regressions=(
             "backend/tests/task_understanding_regression.py",
-            "backend/tests/task_operation_preview_trace_regression.py",
+            "backend/tests/task_runtime_contract_trace_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(
@@ -192,7 +192,7 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
         expected_artifacts=("tasks in TaskCoordinator",),
         related_regressions=(
             "backend/tests/task_understanding_regression.py",
-            "backend/tests/task_operation_preview_trace_regression.py",
+            "backend/tests/task_runtime_contract_trace_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(

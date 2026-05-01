@@ -69,6 +69,7 @@ def upsert_projection_card(
     name = str(request.get("projection_name") or "").strip()
     title = name or f"{soul_name} / {request.get('role_type')}"
     now = time.time()
+    legacy_runtime_preview = _legacy_runtime_preview(request)
     card = {
         "projection_id": projection_id,
         "title": title,
@@ -77,11 +78,18 @@ def upsert_projection_card(
         "role_type": request.get("role_type"),
         "task_mode": request.get("task_mode"),
         "agent_profile_id": request.get("agent_profile_id"),
+        "posture_tags": _list_of_str(request.get("posture_tags")),
+        "expression_density": str(request.get("expression_density") or "normal"),
+        "attention_focus": _list_of_str(request.get("attention_focus")),
+        "risk_notes": _list_of_str(request.get("risk_notes")),
         "task_contract_summary": request.get("task_contract_summary"),
         "skill_views": request.get("skill_views") or [],
         "tool_views": request.get("tool_views") or [],
         "memory_policy_summary": request.get("memory_policy_summary") or "",
         "output_contract_summary": request.get("output_contract_summary") or "",
+        "legacy_runtime_preview": legacy_runtime_preview,
+        "runtime_only_payload": True,
+        "static_projection_card": True,
         "style_content": str(request.get("style_content") or ""),
         "created_at": now,
         "updated_at": now,
@@ -187,6 +195,10 @@ def _projection_id(request: dict[str, Any]) -> str:
         "role_type": request.get("role_type") or "",
         "task_mode": request.get("task_mode") or "",
         "agent_profile_id": request.get("agent_profile_id") or "",
+        "posture_tags": _list_of_str(request.get("posture_tags")),
+        "expression_density": request.get("expression_density") or "",
+        "attention_focus": _list_of_str(request.get("attention_focus")),
+        "risk_notes": _list_of_str(request.get("risk_notes")),
         "task_contract_summary": request.get("task_contract_summary") or "",
         "memory_policy_summary": request.get("memory_policy_summary") or "",
         "output_contract_summary": request.get("output_contract_summary") or "",
@@ -216,6 +228,10 @@ def _default_projection_card(
     now = time.time()
     created_at = existing.get("created_at") if isinstance(existing, dict) and existing.get("created_at") else now
     current_style = existing.get("style_content") if isinstance(existing, dict) and "style_content" in existing else None
+    resolved_style = style_content if style_content else (current_style or "")
+    updated_at = existing.get("updated_at") if isinstance(existing, dict) and existing.get("updated_at") else created_at
+    if current_style is not None and style_content and current_style != style_content:
+        updated_at = now
     return {
         "projection_id": _default_projection_id(soul_id),
         "title": f"{soul_name} / 原始投影",
@@ -224,14 +240,27 @@ def _default_projection_card(
         "role_type": role_type,
         "task_mode": task_mode,
         "agent_profile_id": "general_agent",
+        "posture_tags": [],
+        "expression_density": "normal",
+        "attention_focus": [],
+        "risk_notes": [],
         "task_contract_summary": "",
         "skill_views": [],
         "tool_views": [],
         "memory_policy_summary": "原始投影沿用系统默认记忆策略。",
         "output_contract_summary": "原始投影沿用系统默认输出边界。",
-        "style_content": current_style if current_style is not None else style_content,
+        "legacy_runtime_preview": {
+            "task_contract_summary": "",
+            "skill_views": [],
+            "tool_views": [],
+            "memory_policy_summary": "原始投影沿用系统默认记忆策略。",
+            "output_contract_summary": "原始投影沿用系统默认输出边界。",
+        },
+        "runtime_only_payload": True,
+        "static_projection_card": True,
+        "style_content": resolved_style,
         "created_at": created_at,
-        "updated_at": created_at,
+        "updated_at": updated_at,
         "is_primary": True,
         "is_system_default": True,
     }
@@ -246,14 +275,44 @@ def _normalize_card(item: dict[str, Any]) -> dict[str, Any]:
         "role_type": str(item.get("role_type") or "dialogue"),
         "task_mode": str(item.get("task_mode") or "general_qa"),
         "agent_profile_id": str(item.get("agent_profile_id") or "general_agent"),
+        "posture_tags": _list_of_str(item.get("posture_tags")),
+        "expression_density": str(item.get("expression_density") or "normal"),
+        "attention_focus": _list_of_str(item.get("attention_focus")),
+        "risk_notes": _list_of_str(item.get("risk_notes")),
         "task_contract_summary": str(item.get("task_contract_summary") or ""),
         "skill_views": item.get("skill_views") if isinstance(item.get("skill_views"), list) else [],
         "tool_views": item.get("tool_views") if isinstance(item.get("tool_views"), list) else [],
         "memory_policy_summary": str(item.get("memory_policy_summary") or ""),
         "output_contract_summary": str(item.get("output_contract_summary") or ""),
+        "legacy_runtime_preview": _normalize_legacy_runtime_preview(item),
+        "runtime_only_payload": bool(item.get("runtime_only_payload", True)),
+        "static_projection_card": bool(item.get("static_projection_card", True)),
         "style_content": item.get("style_content") if "style_content" in item else None,
         "created_at": item.get("created_at") or time.time(),
         "updated_at": item.get("updated_at") or time.time(),
         "is_primary": bool(item.get("is_primary", False)),
         "is_system_default": bool(item.get("is_system_default", False)),
     }
+
+
+def _list_of_str(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item) for item in value if str(item or "").strip()]
+
+
+def _legacy_runtime_preview(request: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_contract_summary": request.get("task_contract_summary") or "",
+        "skill_views": request.get("skill_views") if isinstance(request.get("skill_views"), list) else [],
+        "tool_views": request.get("tool_views") if isinstance(request.get("tool_views"), list) else [],
+        "memory_policy_summary": request.get("memory_policy_summary") or "",
+        "output_contract_summary": request.get("output_contract_summary") or "",
+    }
+
+
+def _normalize_legacy_runtime_preview(item: dict[str, Any]) -> dict[str, Any]:
+    legacy = item.get("legacy_runtime_preview")
+    if isinstance(legacy, dict):
+        return _legacy_runtime_preview(legacy)
+    return _legacy_runtime_preview(item)

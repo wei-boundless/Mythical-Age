@@ -16,7 +16,7 @@ def test_regression_gate_chain_profile_covers_runtime_loop_basics() -> None:
     assert "tests/test_system_runtime_loop_regression.py" in paths
     assert "tests/test_system_case_registry_regression.py" in paths
     assert "tests/test_system_agent_regression.py" in paths
-    assert "tests/query_runtime_task_operation_preview_regression.py" in paths
+    assert "tests/query_runtime_runtime_loop_regression.py" in paths
 
 
 def test_regression_gate_detects_pytest_and_script_styles(tmp_path: Path) -> None:

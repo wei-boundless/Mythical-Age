@@ -32,17 +32,8 @@ from runtime.app_runtime import app_runtime
 from execution_core import collect_sse_events, extract_langsmith_trace_reference, final_text, has_event, iso_now
 
 
-class _FakeConversationAgent:
-    async def astream(self, _payload: dict[str, Any], *, stream_mode: list[str]):
-        yield ("messages", (SimpleNamespace(content="smoke token"), {}))
-        yield (
-            "updates",
-            {
-                "assistant": {
-                    "messages": [SimpleNamespace(type="ai", content="smoke token", tool_calls=[])]
-                }
-            },
-        )
+async def _fake_invoke_messages(_messages: list[dict[str, str]]):
+    return SimpleNamespace(content="smoke token")
 
 
 def _slug(value: str) -> str:
@@ -249,10 +240,10 @@ def _run_inprocess_sse_smoke(artifact_dir: Path) -> ScenarioResult:
 
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
-        original_factory = runtime.model_runtime.create_conversation_agent
+        original_invoke_messages = runtime.model_runtime.invoke_messages
         original_post_turn = runtime.query_runtime._run_post_turn_tasks
 
-        runtime.model_runtime.create_conversation_agent = lambda **_kwargs: _FakeConversationAgent()  # type: ignore[method-assign]
+        runtime.model_runtime.invoke_messages = _fake_invoke_messages  # type: ignore[method-assign]
         runtime.query_runtime._run_post_turn_tasks = _noop_post_turn  # type: ignore[method-assign]
         try:
             created = client.post("/api/sessions", json={"title": "System Eval Smoke"})
@@ -272,7 +263,7 @@ def _run_inprocess_sse_smoke(artifact_dir: Path) -> ScenarioResult:
                     request_start_ts=request_started_at,
                 )
         finally:
-            runtime.model_runtime.create_conversation_agent = original_factory  # type: ignore[method-assign]
+            runtime.model_runtime.invoke_messages = original_invoke_messages  # type: ignore[method-assign]
             runtime.query_runtime._run_post_turn_tasks = original_post_turn  # type: ignore[method-assign]
             if created_session_id:
                 client.delete(f"/api/sessions/{created_session_id}")
@@ -299,7 +290,7 @@ def _run_inprocess_sse_smoke(artifact_dir: Path) -> ScenarioResult:
         encoding="utf-8",
     )
     passed = (
-        has_event(events, "token")
+        (has_event(events, "token") or has_event(events, "answer_candidate"))
         and has_event(events, "done")
         and not has_event(events, "error")
         and orchestration_diff_status != "mismatch"

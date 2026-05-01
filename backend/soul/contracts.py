@@ -76,7 +76,7 @@ class SoulToolView:
     authorized: bool = False
     authorization_owner: str = "ResourcePolicy"
     requires_approval: bool = False
-    preview_available: bool = False
+    available_to_model: bool = False
     runtime_executable: bool = False
     denied_reason: str = ""
     policy_decision: str = "unknown"
@@ -96,8 +96,8 @@ class SoulProjectionRequest:
     skill_views: tuple[SoulSkillView, ...] = ()
     tool_views: tuple[SoulToolView, ...] = ()
     task_contract_summary: str = "当前投影没有绑定具体任务契约。"
-    memory_policy_summary: str = "当前预览不授予记忆写回权。"
-    output_contract_summary: str = "输出当前灵魂运行时视图预览。"
+    memory_policy_summary: str = "当前运行阶段不授予记忆写回权。"
+    output_contract_summary: str = "输出当前灵魂运行时视图。"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -116,9 +116,13 @@ class PromptSection:
     cache_scope: str
     visible_to_model: bool
     content: str
+    source_refs: tuple[str, ...] = ()
+    candidate_refs: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["source_refs"] = list(self.source_refs)
+        payload["candidate_refs"] = list(self.candidate_refs)
         payload["chars"] = len(self.content)
         return payload
 
@@ -148,6 +152,37 @@ class SoulRuntimeView:
 
 
 @dataclass(slots=True, frozen=True)
+class CommonContractPrompt:
+    prompt_id: str
+    title: str
+    content: str
+    source_ref: str
+    version: str = "v1"
+    cache_scope: str = "static"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["chars"] = len(self.content)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class SoulTemplatePrompt:
+    prompt_id: str
+    soul_id: str
+    title: str
+    content: str
+    source_ref: str
+    version: str = "v1"
+    cache_scope: str = "static"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["chars"] = len(self.content)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
 class PromptSectionManifest:
     section_id: str
     source_type: str
@@ -156,9 +191,14 @@ class PromptSectionManifest:
     cache_scope: str
     visible_to_model: bool
     chars: int
+    source_refs: tuple[str, ...] = ()
+    candidate_refs: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["source_refs"] = list(self.source_refs)
+        payload["candidate_refs"] = list(self.candidate_refs)
+        return payload
 
 
 @dataclass(slots=True, frozen=True)
@@ -178,4 +218,36 @@ class SoulPromptManifest:
             "projection_id": self.projection_id,
             "sections": [section.to_dict() for section in self.sections],
             "prompt_hash": self.prompt_hash,
+        }
+
+
+@dataclass(slots=True, frozen=True)
+class AgentPromptBundle:
+    bundle_id: str
+    agent_id: str
+    agent_profile_id: str
+    task_id: str
+    task_run_id: str
+    soul_id: str
+    projection_id: str
+    sections: tuple[PromptSection, ...]
+    prompt_manifest: SoulPromptManifest
+    cache_plan: Mapping[str, str] = field(default_factory=dict)
+    refs: Mapping[str, str] = field(default_factory=dict)
+    authority: str = "soul.agent_prompt_bundle"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "bundle_id": self.bundle_id,
+            "agent_id": self.agent_id,
+            "agent_profile_id": self.agent_profile_id,
+            "task_id": self.task_id,
+            "task_run_id": self.task_run_id,
+            "soul_id": self.soul_id,
+            "projection_id": self.projection_id,
+            "sections": [section.to_dict() for section in self.sections],
+            "prompt_manifest": self.prompt_manifest.to_dict(),
+            "cache_plan": dict(self.cache_plan),
+            "refs": dict(self.refs),
+            "authority": self.authority,
         }

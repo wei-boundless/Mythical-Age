@@ -3,15 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from context_policy import build_context_package_preview
+from context_policy import build_context_package_result
 from context_management import ContextPackage
 from context_management.budget_presets import get_context_budget_preset
 from memory.durable import DurableMemoryLayer
 from memory.messages import MemoryMessageAdapter
 from memory.session import SessionMemoryLayer
-from memory_system.compaction import build_memory_compaction_preview
+from memory_system.compaction import build_memory_compaction_result
 from memory_system.conversation_memory import ConversationMemoryStoreAdapter
-from memory_system.gate import build_blocked_memory_gate_preview
+from memory_system.gate import build_blocked_memory_gate
 from memory_system.governance import MemoryGovernance
 from memory_system.long_term_memory import LongTermMemoryStoreAdapter
 from memory_system.runtime_view import build_memory_runtime_view
@@ -119,7 +119,7 @@ class MemoryFacade:
             memory_intent=memory_intent,
             relevant_notes=relevant_notes,
             retrieval_results=retrieval_results,
-            rebuild_reason="legacy_session_memory_block_preview",
+            rebuild_reason="legacy_session_memory_block_result",
         )
         return _render_context_package_for_legacy_block(
             package,
@@ -137,7 +137,7 @@ class MemoryFacade:
         retrieval_results: list[dict[str, Any]] | None = None,
         rebuild_reason: str = "prompt_assembly",
     ):
-        return self.build_memory_context_package_preview(
+        return self.build_memory_context_package_result(
             session_id=session_id,
             query=pending_user_message,
             memory_intent=memory_intent,
@@ -212,7 +212,7 @@ class MemoryFacade:
             note_limit=note_limit,
         )
 
-    def build_memory_context_package_preview(
+    def build_memory_context_package_result(
         self,
         *,
         session_id: str,
@@ -233,39 +233,58 @@ class MemoryFacade:
             relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
-        return build_context_package_preview(
+        return build_context_package_result(
             memory_view,
-            rebuild_reason="memory_facade_context_package_preview",
+            rebuild_reason="memory_facade_context_package_result",
             retrieval_results=retrieval_results,
             available_context_tokens=available_context_tokens if available_context_tokens is not None else int(budget["available_context_tokens"]),
             reserved_output_tokens=reserved_output_tokens if reserved_output_tokens is not None else int(budget["reserved_output_tokens"]),
             long_term_token_cap=long_term_token_cap if long_term_token_cap is not None else int(budget["long_term_token_cap"]),
         )
 
-    def build_memory_compaction_preview(
+    def build_memory_context_package(
+        self,
+        *,
+        session_id: str,
+        pending_user_message: str | None = None,
+        memory_intent: Any | None = None,
+        relevant_notes: list[Any] | None = None,
+        retrieval_results: list[dict[str, Any]] | None = None,
+        note_limit: int = 5,
+    ):
+        return self.build_memory_context_package_result(
+            session_id=session_id,
+            query=pending_user_message,
+            memory_intent=memory_intent,
+            relevant_notes=relevant_notes,
+            retrieval_results=retrieval_results,
+            note_limit=note_limit,
+        )
+
+    def build_memory_compaction_result(
         self,
         *,
         session_id: str,
         history: list[dict[str, Any]] | None = None,
     ):
         memory_view = self.build_memory_runtime_view(session_id=session_id)
-        return build_memory_compaction_preview(
+        return build_memory_compaction_result(
             session_id=session_id,
             history_count=len(history or []),
             context_candidate_count=len(memory_view.context_candidates),
             restore_candidate_count=len(memory_view.restore_candidates),
         )
 
-    def preview_memory_context_compaction(
+    def inspect_memory_context_compaction(
         self,
         session_id: str,
         history: list[dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        preview = self.build_memory_compaction_preview(
+        result = self.build_memory_compaction_result(
             session_id=session_id,
             history=history,
         )
-        return list(history or []), preview.to_dict()
+        return list(history or []), result.to_dict()
 
     def build_durable_memory_write_candidates(
         self,
@@ -308,7 +327,7 @@ class MemoryFacade:
         task_summaries: list[Any] | None = None,
         corrections: list[str] | None = None,
     ):
-        content = self._render_session_memory_write_preview(
+        content = self._render_session_memory_write_candidate(
             main_context,
             task_summaries=task_summaries,
             corrections=corrections,
@@ -320,20 +339,20 @@ class MemoryFacade:
         )
         return (candidate,) if candidate is not None else ()
 
-    def build_memory_gate_preview(
+    def build_memory_gate(
         self,
         write_candidates,
         *,
-        gate_id: str = "memory-gate:preview",
+        gate_id: str = "memory-gate:writeback",
         reason: str = "memory_write_requires_commit_gate",
     ):
-        return build_blocked_memory_gate_preview(
+        return build_blocked_memory_gate(
             tuple(write_candidates or ()),
             gate_id=gate_id,
             reason=reason,
         )
 
-    def _render_session_memory_write_preview(
+    def _render_session_memory_write_candidate(
         self,
         main_context: Any,
         *,
@@ -467,9 +486,9 @@ class MemoryFacade:
         session_id: str,
         history: list[dict[str, Any]],
     ) -> tuple[list[dict[str, str]], dict[str, Any]]:
-        compacted_history, preview = self.preview_memory_context_compaction(session_id, history)
+        compacted_history, result = self.inspect_memory_context_compaction(session_id, history)
         return compacted_history, {
-            **preview,
+            **result,
             "legacy_adapter": "compact_history_for_query",
         }
 
@@ -492,9 +511,9 @@ class MemoryFacade:
             relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
-        context_preview = build_context_package_preview(
+        context_result = build_context_package_result(
             memory_view,
-            rebuild_reason="legacy_inspect_query_context_preview",
+            rebuild_reason="legacy_inspect_query_context_result",
             retrieval_results=retrieval_results,
             available_context_tokens=int(self._context_budget()["available_context_tokens"]),
             reserved_output_tokens=int(self._context_budget()["reserved_output_tokens"]),
@@ -502,10 +521,10 @@ class MemoryFacade:
         )
         return {
             "memory_runtime_view": memory_view.to_dict(),
-            "context_policy_preview": context_preview.to_dict(),
+            "context_policy_result": context_result.to_dict(),
             "context_compaction": dict(context_compaction or {}),
             "legacy_inspection": False,
-            "preview_only": True,
+            "inspection_mode": "read_only",
         }
 
     def _context_budget(self) -> dict[str, Any]:
@@ -535,6 +554,14 @@ class MemoryFacade:
         py_messages = self.adapter.to_messages(messages, session_id=session_id)
         return self.durable_memory.commit_extraction(py_messages)
 
+    async def acommit_durable_memory_extraction(
+        self,
+        session_id: str,
+        messages: list[dict[str, Any]],
+    ) -> int:
+        py_messages = self.adapter.to_messages(messages, session_id=session_id)
+        return await self.durable_memory.acommit_extraction(py_messages)
+
     def commit_durable_memory_extraction_from_context_state(
         self,
         session_id: str,
@@ -544,6 +571,21 @@ class MemoryFacade:
         corrections: list[str] | None = None,
     ) -> int:
         return self.durable_memory.commit_extraction_from_context_state(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
+        )
+
+    async def acommit_durable_memory_extraction_from_context_state(
+        self,
+        session_id: str,
+        main_context: Any,
+        *,
+        task_summaries: list[Any] | None = None,
+        corrections: list[str] | None = None,
+    ) -> int:
+        return await self.durable_memory.acommit_extraction_from_context_state(
             session_id,
             main_context,
             task_summaries=task_summaries,

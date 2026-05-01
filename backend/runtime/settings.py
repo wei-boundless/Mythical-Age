@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from config import Settings, get_settings, runtime_config
+from config import EMBEDDING_PROVIDER_DEFAULTS, LLM_PROVIDER_DEFAULTS, Settings, get_settings, runtime_config
 from context_management.budget_presets import (
     get_context_budget_preset,
     list_context_budget_presets,
@@ -46,10 +46,10 @@ class AppSettingsService:
 
     @property
     def static(self) -> Settings:
-        return self._static_settings
+        return get_settings()
 
     def static_snapshot(self) -> StaticSettingsSnapshot:
-        settings = self._static_settings
+        settings = self.static
         return StaticSettingsSnapshot(
             llm_provider=settings.llm_provider,
             llm_model=settings.llm_model,
@@ -167,3 +167,407 @@ class AppSettingsService:
             "presets": list_context_budget_presets(),
             "authority": "runtime.context_budget_presets",
         }
+
+    def model_provider_payload(self) -> dict[str, Any]:
+        settings = self.static
+        return {
+            "provider": settings.llm_provider,
+            "model": settings.llm_model,
+            "base_url": settings.llm_base_url,
+            "api_key_configured": bool(settings.llm_api_key),
+            "fallback_provider": settings.llm_fallback_provider or "",
+            "fallback_model": settings.llm_fallback_model or "",
+            "fallback_base_url": settings.llm_fallback_base_url or "",
+            "fallback_api_key_configured": bool(settings.llm_fallback_api_key),
+            "supported_providers": {
+                key: {
+                    "provider": key,
+                    "default_model": value["model"],
+                    "default_base_url": value["base_url"],
+                }
+                for key, value in LLM_PROVIDER_DEFAULTS.items()
+            },
+            "authority": "runtime.model_provider",
+        }
+
+    def set_model_provider(
+        self,
+        *,
+        provider: str,
+        model: str,
+        base_url: str,
+        api_key: str | None = None,
+        fallback_provider: str | None = None,
+        fallback_model: str | None = None,
+        fallback_base_url: str | None = None,
+        fallback_api_key: str | None = None,
+    ) -> dict[str, Any]:
+        from config import get_settings as cached_get_settings
+
+        normalized_provider = str(provider or "").strip().lower()
+        if normalized_provider not in LLM_PROVIDER_DEFAULTS:
+            normalized_provider = self.static.llm_provider
+        defaults = LLM_PROVIDER_DEFAULTS[normalized_provider]
+        payload: dict[str, Any] = {
+            "provider": normalized_provider,
+            "model": str(model or defaults["model"]).strip() or defaults["model"],
+            "base_url": str(base_url or defaults["base_url"]).strip() or defaults["base_url"],
+        }
+        normalized_fallback_provider = str(fallback_provider or "").strip().lower()
+        if normalized_fallback_provider in {"none", "disabled", "off"}:
+            normalized_fallback_provider = ""
+        if normalized_fallback_provider and normalized_fallback_provider not in LLM_PROVIDER_DEFAULTS:
+            normalized_fallback_provider = self.static.llm_fallback_provider or ""
+        if normalized_fallback_provider:
+            fallback_defaults = LLM_PROVIDER_DEFAULTS[normalized_fallback_provider]
+            payload["fallback_provider"] = normalized_fallback_provider
+            payload["fallback_model"] = str(fallback_model or fallback_defaults["model"]).strip() or fallback_defaults["model"]
+            payload["fallback_base_url"] = str(fallback_base_url or fallback_defaults["base_url"]).strip() or fallback_defaults["base_url"]
+        elif fallback_provider is not None:
+            payload["fallback_provider"] = ""
+            payload["fallback_model"] = ""
+            payload["fallback_base_url"] = ""
+        if api_key is not None and str(api_key).strip():
+            payload["api_key"] = str(api_key).strip()
+        else:
+            current = dict(runtime_config.load().get("model_provider") or {})
+            existing_key = str(current.get("api_key") or "").strip()
+            if existing_key:
+                payload["api_key"] = existing_key
+        if normalized_fallback_provider:
+            if fallback_api_key is not None and str(fallback_api_key).strip():
+                payload["fallback_api_key"] = str(fallback_api_key).strip()
+            else:
+                current = dict(runtime_config.load().get("model_provider") or {})
+                existing_key = str(current.get("fallback_api_key") or "").strip()
+                if existing_key:
+                    payload["fallback_api_key"] = existing_key
+        runtime_config.save({"model_provider": payload})
+        cache_clear = getattr(cached_get_settings, "cache_clear", None)
+        if callable(cache_clear):
+            cache_clear()
+        return self.model_provider_payload()
+
+    def _system_config_overrides(self) -> dict[str, Any]:
+        payload = runtime_config.load()
+        config = payload.get("system_config")
+        return dict(config) if isinstance(config, dict) else {}
+
+    def _system_section_overrides(self, section: str) -> dict[str, Any]:
+        config = self._system_config_overrides()
+        section_payload = config.get(section)
+        return dict(section_payload) if isinstance(section_payload, dict) else {}
+
+    def _field(
+        self,
+        *,
+        section: str,
+        key: str,
+        label: str,
+        field_type: str,
+        value: Any = None,
+        configured: bool | None = None,
+        options: list[str] | None = None,
+        description: str = "",
+        restart_required: bool = False,
+    ) -> dict[str, Any]:
+        overrides = self._system_section_overrides(section)
+        payload: dict[str, Any] = {
+            "key": key,
+            "label": label,
+            "type": field_type,
+            "source": "runtime_override" if key in overrides else "env_or_default",
+            "description": description,
+            "restart_required": restart_required,
+        }
+        if field_type == "secret":
+            payload["configured"] = bool(configured)
+        else:
+            payload["value"] = value
+        if options:
+            payload["options"] = options
+        return payload
+
+    def runtime_config_console_payload(self) -> dict[str, Any]:
+        settings = self.static
+        model_payload = self.model_provider_payload()
+        budget_payload = self.context_budget_payload()
+        model_overrides = dict(runtime_config.load().get("model_provider") or {})
+
+        model_group = {
+            "group_id": "model",
+            "title": "模型 Provider",
+            "description": "控制主模型和备用模型；备用模型只在主模型失败或运行时触发降级时使用。",
+            "status": f"{settings.llm_provider} / {settings.llm_model}"
+            + (f" -> {settings.llm_fallback_provider} / {settings.llm_fallback_model}" if settings.llm_fallback_provider else ""),
+            "fields": [
+                {
+                    "key": "provider",
+                    "label": "主模型 Provider",
+                    "type": "select",
+                    "value": settings.llm_provider,
+                    "options": list(LLM_PROVIDER_DEFAULTS.keys()),
+                    "source": "runtime_override" if "provider" in model_overrides else "env_or_default",
+                    "description": "主模型服务商。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "model",
+                    "label": "主模型名称",
+                    "type": "text",
+                    "value": settings.llm_model,
+                    "source": "runtime_override" if "model" in model_overrides else "env_or_default",
+                    "description": "主模型名称。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "base_url",
+                    "label": "主模型 Base URL",
+                    "type": "text",
+                    "value": settings.llm_base_url,
+                    "source": "runtime_override" if "base_url" in model_overrides else "env_or_default",
+                    "description": "OpenAI-compatible endpoint。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "api_key",
+                    "label": "主模型 API Key",
+                    "type": "secret",
+                    "configured": bool(settings.llm_api_key),
+                    "source": "runtime_override" if "api_key" in model_overrides else "env_or_default",
+                    "description": "留空保存会保留已有密钥。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "fallback_provider",
+                    "label": "备用模型 Provider",
+                    "type": "select",
+                    "value": settings.llm_fallback_provider or "",
+                    "options": ["", *list(LLM_PROVIDER_DEFAULTS.keys())],
+                    "source": "runtime_override" if "fallback_provider" in model_overrides else "env_or_default",
+                    "description": "留空表示关闭备用模型。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "fallback_model",
+                    "label": "备用模型名称",
+                    "type": "text",
+                    "value": settings.llm_fallback_model or "",
+                    "source": "runtime_override" if "fallback_model" in model_overrides else "env_or_default",
+                    "description": "备用模型名称；关闭备用模型时可留空。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "fallback_base_url",
+                    "label": "备用模型 Base URL",
+                    "type": "text",
+                    "value": settings.llm_fallback_base_url or "",
+                    "source": "runtime_override" if "fallback_base_url" in model_overrides else "env_or_default",
+                    "description": "备用模型 endpoint。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "fallback_api_key",
+                    "label": "备用模型 API Key",
+                    "type": "secret",
+                    "configured": bool(settings.llm_fallback_api_key),
+                    "source": "runtime_override" if "fallback_api_key" in model_overrides else "env_or_default",
+                    "description": "留空保存会保留已有密钥。",
+                    "restart_required": False,
+                },
+            ],
+            "metadata": {
+                "supported_providers": model_payload["supported_providers"],
+            },
+        }
+
+        context_group = {
+            "group_id": "context",
+            "title": "上下文预算",
+            "description": "控制上下文压缩、水位线和长期记忆切片规模。",
+            "status": budget_payload["active_preset"]["title"],
+            "fields": [],
+            "metadata": budget_payload,
+        }
+        rerank_mode = "disabled"
+        if settings.rerank_enabled:
+            provider = (settings.rerank_provider or "heuristic").strip().lower()
+            if provider == "heuristic":
+                rerank_mode = "heuristic"
+            elif provider in {"cross_encoder", "sentence_transformers", "huggingface"}:
+                rerank_mode = "local"
+            elif provider in {"bailian", "dashscope", "qwen", "remote_api", "remote"}:
+                rerank_mode = "api"
+            else:
+                rerank_mode = "heuristic"
+
+        return {
+            "authority": "runtime.system_config_console",
+            "groups": [
+                model_group,
+                {
+                    "group_id": "embedding",
+                    "title": "Embedding",
+                    "description": "控制向量化 Provider、模型、维度和密钥。",
+                    "status": f"{settings.embedding_provider} / {settings.embedding_model}",
+                    "fields": [
+                        self._field(section="embedding", key="provider", label="Provider", field_type="select", value=settings.embedding_provider, options=list(EMBEDDING_PROVIDER_DEFAULTS.keys()), description="Embedding 服务商。"),
+                        self._field(section="embedding", key="model", label="Model", field_type="text", value=settings.embedding_model, description="Embedding 模型名。"),
+                        self._field(section="embedding", key="base_url", label="Base URL", field_type="text", value=settings.embedding_base_url, description="Embedding endpoint。"),
+                        self._field(section="embedding", key="dimensions", label="Dimensions", field_type="number", value=settings.embedding_dimensions or 1024, description="向量维度。"),
+                        self._field(section="embedding", key="api_key", label="API Key", field_type="secret", configured=bool(settings.embedding_api_key), description="留空保存会保留已有密钥。"),
+                    ],
+                    "metadata": {
+                        "supported_providers": EMBEDDING_PROVIDER_DEFAULTS,
+                    },
+                },
+                {
+                    "group_id": "retrieval",
+                    "title": "检索与重排",
+                    "description": "控制 RAG 后端、向量库、Qdrant 和 rerank 参数。",
+                    "status": f"{settings.retrieval_core_backend} / {settings.vector_store_backend}",
+                    "fields": [
+                        self._field(section="retrieval", key="retrieval_core_backend", label="Retrieval Core", field_type="select", value=settings.retrieval_core_backend, options=["legacy", "llamaindex_v2"], description="检索核心实现。"),
+                        self._field(section="retrieval", key="vector_store_backend", label="Vector Store", field_type="select", value=settings.vector_store_backend, options=["qdrant", "faiss", "llamaindex"], description="向量存储后端。"),
+                        self._field(section="retrieval", key="qdrant_url", label="Qdrant URL", field_type="text", value=settings.qdrant_url or "", description="Qdrant 服务地址。"),
+                        self._field(section="retrieval", key="qdrant_collection_prefix", label="Collection Prefix", field_type="text", value=settings.qdrant_collection_prefix, description="Qdrant collection 前缀。"),
+                        self._field(section="retrieval", key="qdrant_api_key", label="Qdrant API Key", field_type="secret", configured=bool(settings.qdrant_api_key), description="留空保存会保留已有密钥。"),
+                        self._field(section="retrieval", key="faiss_metric", label="FAISS Metric", field_type="select", value=settings.faiss_metric, options=["cosine", "inner_product", "l2"], description="FAISS 距离度量。"),
+                        self._field(section="retrieval", key="faiss_index_type", label="FAISS Index", field_type="select", value=settings.faiss_index_type, options=["flat", "hnsw"], description="FAISS 索引类型。"),
+                        self._field(section="retrieval", key="rerank_mode", label="Rerank 模式", field_type="select", value=rerank_mode, options=["disabled", "heuristic", "local", "api"], description="关闭、轻量启发式、本地 cross-encoder、远程 API 四选一。"),
+                        self._field(section="retrieval", key="rerank_local_model", label="本地 Rerank 模型", field_type="text", value=settings.rerank_model or "", description="仅在本地模型模式使用，例如 cross-encoder 模型名。"),
+                        self._field(section="retrieval", key="rerank_device", label="本地设备", field_type="text", value=settings.rerank_device or "", description="仅本地模型模式使用，例如 cpu、cuda。"),
+                        self._field(section="retrieval", key="rerank_api_provider", label="API Provider", field_type="select", value=settings.rerank_provider if rerank_mode == "api" else "bailian", options=["bailian", "dashscope", "qwen", "remote_api", "remote"], description="仅 API 模式使用。"),
+                        self._field(section="retrieval", key="rerank_api_model", label="API Rerank 模型", field_type="text", value=settings.rerank_model or "", description="仅 API 模式使用。"),
+                        self._field(section="retrieval", key="rerank_api_base_url", label="API Base URL", field_type="text", value=settings.rerank_base_url or "", description="仅 API 模式使用。"),
+                        self._field(section="retrieval", key="rerank_api_key", label="API Key", field_type="secret", configured=bool(settings.rerank_api_key), description="仅 API 模式使用；留空保存会保留已有密钥。"),
+                        self._field(section="retrieval", key="rerank_top_n", label="Rerank Top N", field_type="number", value=settings.rerank_top_n, description="最终返回的重排条数。"),
+                        self._field(section="retrieval", key="rerank_candidate_pool", label="Candidate Pool", field_type="number", value=settings.rerank_candidate_pool, description="进入 rerank 的候选池大小。"),
+                        self._field(section="retrieval", key="rerank_batch_size", label="Batch Size", field_type="number", value=settings.rerank_batch_size, description="本地模型批大小。"),
+                        self._field(section="retrieval", key="rerank_max_length", label="Max Length", field_type="number", value=settings.rerank_max_length, description="本地模型输入最大长度。"),
+                    ],
+                },
+                {
+                    "group_id": "document",
+                    "title": "文档解析",
+                    "description": "控制 Docling、MinerU 和文档转换链路。",
+                    "status": f"{settings.document_conversion_backend} / {'MinerU on' if settings.mineru_api_enabled else 'MinerU off'}",
+                    "fields": [
+                        self._field(section="document", key="document_conversion_backend", label="Conversion Backend", field_type="select", value=settings.document_conversion_backend, options=["docling", "legacy"], description="文档转换后端。"),
+                        self._field(section="document", key="docling_enabled", label="Docling Enabled", field_type="boolean", value=settings.docling_enabled, description="是否启用 Docling。"),
+                        self._field(section="document", key="docling_prefer_ocr", label="Prefer OCR", field_type="boolean", value=settings.docling_prefer_ocr, description="Docling 是否优先 OCR。"),
+                        self._field(section="document", key="mineru_api_enabled", label="MinerU Enabled", field_type="boolean", value=settings.mineru_api_enabled, description="是否启用 MinerU API。"),
+                        self._field(section="document", key="mineru_api_mode", label="MinerU Mode", field_type="select", value=settings.mineru_api_mode, options=["local_sync", "cloud_v4_batch"], description="MinerU API 模式。"),
+                        self._field(section="document", key="mineru_api_base_url", label="MinerU Base URL", field_type="text", value=settings.mineru_api_base_url or "", description="MinerU 服务地址。"),
+                        self._field(section="document", key="mineru_api_parse_path", label="Parse Path", field_type="text", value=settings.mineru_api_parse_path, description="MinerU 解析路径。"),
+                        self._field(section="document", key="mineru_api_key", label="MinerU API Key", field_type="secret", configured=bool(settings.mineru_api_key), description="留空保存会保留已有密钥。"),
+                        self._field(section="document", key="mineru_api_timeout_seconds", label="Timeout Seconds", field_type="number", value=settings.mineru_api_timeout_seconds, description="MinerU API 超时时间。"),
+                    ],
+                },
+                {
+                    "group_id": "runtime",
+                    "title": "运行限制",
+                    "description": "控制模型调用重试、超时和命令/组件边界。",
+                    "status": f"{settings.llm_timeout_seconds:g}s / {settings.terminal_timeout_seconds}s",
+                    "fields": [
+                        self._field(section="runtime", key="llm_timeout_seconds", label="LLM Timeout", field_type="number", value=settings.llm_timeout_seconds, description="主模型请求超时时间。"),
+                        self._field(section="runtime", key="llm_max_retries", label="LLM Max Retries", field_type="number", value=settings.llm_max_retries, description="主模型最大重试次数。"),
+                        self._field(section="runtime", key="terminal_timeout_seconds", label="Terminal Timeout", field_type="number", value=settings.terminal_timeout_seconds, description="终端默认超时时间。"),
+                        self._field(section="runtime", key="component_char_limit", label="Component Char Limit", field_type="number", value=settings.component_char_limit, description="组件内容字符限制。"),
+                    ],
+                },
+                context_group,
+            ],
+        }
+
+    def set_runtime_config_group(self, group_id: str, values: dict[str, Any]) -> dict[str, Any]:
+        from config import get_settings as cached_get_settings
+
+        if group_id == "model":
+            self.set_model_provider(
+                provider=str(values.get("provider") or self.static.llm_provider),
+                model=str(values.get("model") or self.static.llm_model),
+                base_url=str(values.get("base_url") or self.static.llm_base_url),
+                api_key=str(values.get("api_key") or "").strip() or None,
+                fallback_provider=str(values.get("fallback_provider") or ""),
+                fallback_model=str(values.get("fallback_model") or ""),
+                fallback_base_url=str(values.get("fallback_base_url") or ""),
+                fallback_api_key=str(values.get("fallback_api_key") or "").strip() or None,
+            )
+            return self.runtime_config_console_payload()
+        allowed_groups = {"embedding", "retrieval", "document", "runtime"}
+        if group_id not in allowed_groups:
+            return self.runtime_config_console_payload()
+
+        current = runtime_config.load()
+        system_config = current.get("system_config")
+        if not isinstance(system_config, dict):
+            system_config = {}
+        section = dict(system_config.get(group_id) or {})
+        if group_id == "retrieval":
+            values = self._normalize_retrieval_values(values, section)
+        for key, value in values.items():
+            if value is None:
+                continue
+            if isinstance(value, str) and value.strip() == "":
+                if key.endswith("api_key"):
+                    continue
+                section[key] = ""
+                continue
+            section[key] = value
+        system_config[group_id] = section
+        runtime_config.save({"system_config": system_config})
+        cache_clear = getattr(cached_get_settings, "cache_clear", None)
+        if callable(cache_clear):
+            cache_clear()
+        return self.runtime_config_console_payload()
+
+    def _normalize_retrieval_values(self, values: dict[str, Any], current_section: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(values)
+        mode = str(normalized.get("rerank_mode") or current_section.get("rerank_mode") or "").strip().lower()
+        if not mode:
+            enabled = bool(normalized.get("rerank_enabled", current_section.get("rerank_enabled", False)))
+            provider = str(normalized.get("rerank_provider", current_section.get("rerank_provider", "heuristic")) or "heuristic").strip().lower()
+            if not enabled:
+                mode = "disabled"
+            elif provider in {"cross_encoder", "sentence_transformers", "huggingface"}:
+                mode = "local"
+            elif provider in {"bailian", "dashscope", "qwen", "remote_api", "remote"}:
+                mode = "api"
+            else:
+                mode = "heuristic"
+        if mode not in {"disabled", "heuristic", "local", "api"}:
+            mode = "heuristic"
+
+        if mode == "disabled":
+            normalized["rerank_enabled"] = False
+            normalized["rerank_provider"] = "heuristic"
+            normalized["rerank_model"] = ""
+            normalized["rerank_base_url"] = ""
+            normalized["rerank_device"] = ""
+            normalized.pop("rerank_api_key", None)
+        elif mode == "heuristic":
+            normalized["rerank_enabled"] = True
+            normalized["rerank_provider"] = "heuristic"
+            normalized["rerank_model"] = ""
+            normalized["rerank_base_url"] = ""
+            normalized["rerank_device"] = ""
+            normalized.pop("rerank_api_key", None)
+        elif mode == "local":
+            normalized["rerank_enabled"] = True
+            normalized["rerank_provider"] = "cross_encoder"
+            normalized["rerank_model"] = str(normalized.get("rerank_local_model") or current_section.get("rerank_model") or "").strip()
+            normalized["rerank_base_url"] = ""
+            normalized.pop("rerank_api_key", None)
+        else:
+            normalized["rerank_enabled"] = True
+            normalized["rerank_provider"] = str(normalized.get("rerank_api_provider") or current_section.get("rerank_provider") or "bailian").strip().lower()
+            normalized["rerank_model"] = str(normalized.get("rerank_api_model") or current_section.get("rerank_model") or "").strip()
+            normalized["rerank_base_url"] = str(normalized.get("rerank_api_base_url") or current_section.get("rerank_base_url") or "").strip()
+            api_key = str(normalized.get("rerank_api_key") or "").strip()
+            if not api_key:
+                normalized.pop("rerank_api_key", None)
+
+        for alias in ("rerank_mode", "rerank_local_model", "rerank_api_provider", "rerank_api_model", "rerank_api_base_url"):
+            normalized.pop(alias, None)
+        return normalized

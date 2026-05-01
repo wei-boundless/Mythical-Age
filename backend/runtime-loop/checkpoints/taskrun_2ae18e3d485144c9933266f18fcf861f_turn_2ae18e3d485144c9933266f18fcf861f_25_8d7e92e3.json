@@ -1,0 +1,237 @@
+{
+  "checkpoint_id": "rtchk:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:18",
+  "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:2ae18e3d485144c9933266f18fcf861f:25:8da200253a06",
+    "memory_state_ref": "memory-runtime:2ae18e3d485144c9933266f18fcf861f",
+    "projection_ref": "9e13528a8ac09f56",
+    "prompt_manifest_ref": "manifest-9e13528a8ac09f56",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {},
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:11aaf1d2",
+      "output_boundary:rtevt:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:14:bfc04fa0",
+      "commit_gate:commit-gate:turn:2ae18e3d485144c9933266f18fcf861f:25:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "2ae18e3d485144c9933266f18fcf861f",
+            "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3",
+            "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:25",
+            "role": "assistant",
+            "content": "根据我当前上下文里保留的历史摘要，你对贪吃蛇游戏的要求是：\n\n- 运行环境：网页版（HTML）\n- 操控方式：键盘控制\n- 复杂度：简单版本，没有特殊要求\n- 交付方式：一个单文件，你打开就能直接玩\n\n这就是摘要里记下的内容。如果你要追溯我当时给的具体代码、或者确认有没有遗漏细节，我可以把那份完整 HTML 再复述一遍，但摘要抓取的关键要求就是这四点。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "2ae18e3d485144c9933266f18fcf861f",
+          "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3",
+            "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:25",
+            "terminal_reason": "completed",
+            "final_content_chars": 177
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2628,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:2ae18e3d485144c9933266f18fcf861f:25",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 177,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:2ae18e3d485144c9933266f18fcf861f:25:8da200253a06",
+  "prompt_manifest_ref": "manifest-9e13528a8ac09f56",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "2ae18e3d485144c9933266f18fcf861f",
+          "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3",
+          "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:25",
+          "role": "assistant",
+          "content": "根据我当前上下文里保留的历史摘要，你对贪吃蛇游戏的要求是：\n\n- 运行环境：网页版（HTML）\n- 操控方式：键盘控制\n- 复杂度：简单版本，没有特殊要求\n- 交付方式：一个单文件，你打开就能直接玩\n\n这就是摘要里记下的内容。如果你要追溯我当时给的具体代码、或者确认有没有遗漏细节，我可以把那份完整 HTML 再复述一遍，但摘要抓取的关键要求就是这四点。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "2ae18e3d485144c9933266f18fcf861f",
+        "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:25:8d7e92e3",
+          "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:25",
+          "terminal_reason": "completed",
+          "final_content_chars": 177
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2628,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777641821.3332381,
+  "checksum": "96f7280a76a7688e0746eab1845bf5d07847a978fc26fd2d1974e5578db606b9",
+  "authority": "orchestration.runtime_checkpoint"
+}

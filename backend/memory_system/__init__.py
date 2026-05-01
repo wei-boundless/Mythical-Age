@@ -11,13 +11,13 @@ from .contracts import (
     StateMemorySnapshot,
 )
 from .conversation_memory import ConversationMemoryStoreAdapter
-from .compaction import MemoryCompactionPreview, build_memory_compaction_preview
-from .gate import MemoryGateDecision, build_blocked_memory_gate_preview
+from .compaction import MemoryCompactionResult, build_memory_compaction_result
+from .gate import MemoryGateDecision, build_blocked_memory_gate
 from .governance import MemoryGovernance
 from .long_term_memory import LongTermMemoryStoreAdapter
 from .runtime_view import MemoryRuntimeView, build_memory_runtime_view
 from .state_memory import StateMemoryStoreAdapter
-from .writeback import MemoryWritebackPreviewService, normalize_memory_write_statement
+from .writeback import MemoryWritebackService, normalize_memory_write_statement
 
 __all__ = [
     "ConversationMemoryStoreAdapter",
@@ -25,7 +25,7 @@ __all__ = [
     "ConversationMemorySnapshot",
     "LongTermMemoryRecord",
     "MemoryCommitRecord",
-    "MemoryCompactionPreview",
+    "MemoryCompactionResult",
     "MemoryContextCandidate",
     "MemoryGateDecision",
     "MemoryGovernance",
@@ -35,9 +35,9 @@ __all__ = [
     "StateMemoryRestoreCandidate",
     "StateMemorySnapshot",
     "StateMemoryStoreAdapter",
-    "MemoryWritebackPreviewService",
-    "build_blocked_memory_gate_preview",
-    "build_memory_compaction_preview",
+    "MemoryWritebackService",
+    "build_blocked_memory_gate",
+    "build_memory_compaction_result",
     "build_memory_runtime_view",
     "normalize_memory_write_statement",
 ]

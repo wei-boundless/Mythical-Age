@@ -32,7 +32,6 @@ class PromptManifest:
     total_chars: int
     total_sections: int
     sections: list[PromptSection] = field(default_factory=list)
-    debug_policy: str = "preview_only"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -116,7 +115,6 @@ def compact_prompt_manifest(manifest: PromptManifest | dict[str, Any] | None) ->
         "assembly_order": list(payload.get("assembly_order") or []),
         "total_chars": int(payload.get("total_chars") or 0),
         "total_sections": int(payload.get("total_sections") or len(sections)),
-        "debug_policy": str(payload.get("debug_policy") or "preview_only"),
         "sections": sections,
     }
 

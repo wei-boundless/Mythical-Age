@@ -31,11 +31,11 @@ class MemoryContextPolicy:
     retrieval_tokens: int = 0
     long_term_token_cap: int = 1_000
 
-    def build_context_package_preview(
+    def build_context_package_result(
         self,
         memory_view: MemoryRuntimeView,
         *,
-        rebuild_reason: str = "memory_context_policy_preview",
+        rebuild_reason: str = "memory_context_policy_result",
         retrieval_results: list[dict[str, Any]] | None = None,
     ) -> ContextPolicyResult:
         budget = self._budget()
@@ -129,7 +129,7 @@ class MemoryContextPolicy:
         return ContextPolicyResult(
             package=package,
             decisions=tuple(decisions),
-            preview_only=True,
+            read_only=True,
             diagnostics={
                 "memory_runtime_view_ref": memory_view.view_id,
                 "context_candidate_count": len(memory_view.context_candidates),
@@ -212,10 +212,10 @@ class MemoryContextPolicy:
         )
 
 
-def build_context_package_preview(
+def build_context_package_result(
     memory_view: MemoryRuntimeView,
     *,
-    rebuild_reason: str = "memory_context_policy_preview",
+    rebuild_reason: str = "memory_context_policy_result",
     retrieval_results: list[dict[str, Any]] | None = None,
     available_context_tokens: int = 6_000,
     reserved_output_tokens: int = 1_200,
@@ -225,7 +225,7 @@ def build_context_package_preview(
         available_context_tokens=available_context_tokens,
         reserved_output_tokens=reserved_output_tokens,
         long_term_token_cap=long_term_token_cap,
-    ).build_context_package_preview(
+    ).build_context_package_result(
         memory_view,
         rebuild_reason=rebuild_reason,
         retrieval_results=retrieval_results,

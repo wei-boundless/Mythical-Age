@@ -58,9 +58,9 @@ CONTEXT_BUDGET_PRESETS: tuple[ContextBudgetPreset, ...] = (
         title="DeepSeek 1M 档",
         model_hint="1M 上下文模型",
         context_window_tokens=1_000_000,
-        available_context_tokens=800_000,
-        reserved_output_tokens=32_000,
-        long_term_token_cap=80_000,
+        available_context_tokens=900_000,
+        reserved_output_tokens=64_000,
+        long_term_token_cap=120_000,
         description="当前推荐档位。为 1M 窗口保留输出和安全余量，压缩阈值大幅后移。",
     ),
 )

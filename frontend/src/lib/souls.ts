@@ -37,7 +37,7 @@ const SOUL_COLORS: Record<SoulKey, { color: string; glow: string; intro: string 
   hebo: {
     color: "#32b6ff",
     glow: "rgba(50, 182, 255, 0.38)",
-    intro: "河伯更偏冷静、克制，语气会更稳，表达更收束。"
+    intro: "河伯更偏冷静、克制，语气会更稳，表达更简洁。"
   },
   siyue: {
     color: "#f7cb62",

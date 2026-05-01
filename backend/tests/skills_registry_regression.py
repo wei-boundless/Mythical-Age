@@ -30,15 +30,7 @@ def main() -> None:
     skills = scanner.scan_skills(ROOT)
     by_name = {skill.name: skill for skill in skills}
 
-    assert "get-weather" in by_name
-    assert by_name["get-weather"].title == "天气查询"
-    assert by_name["get-weather"].examples[0] == "北京今天天气怎么样"
-    assert by_name["get-weather"].preferred_route == "tool"
-    assert by_name["get-weather"].allowed_tools == ["get_weather"]
-    assert by_name["get-weather"].supported_task_kinds == ["realtime_lookup"]
-    assert by_name["get-weather"].activation_policy == "model_visible"
-    assert by_name["get-weather"].context_mode == "inline"
-    assert by_name["get-weather"].route_authority == "candidate_only"
+    assert "get-weather" not in by_name
 
     assert "structured-data-analysis" in by_name
     structured = by_name["structured-data-analysis"]
@@ -66,13 +58,7 @@ def main() -> None:
     assert rag.allowed_tools == ["search_knowledge"]
     assert "faq_explanation" in rag.supported_task_kinds
 
-    assert "gold-price" in by_name
-    gold = by_name["gold-price"]
-    assert gold.title == "黄金价格查询"
-    assert gold.preferred_route == "tool"
-    assert gold.allowed_tools == ["get_gold_price"]
-    assert gold.supported_task_kinds == ["realtime_lookup"]
-    assert gold.supported_source_kinds == ["external_web"]
+    assert "gold-price" not in by_name
 
     registry = json.loads((ROOT / "SKILLS_REGISTRY.json").read_text(encoding="utf-8"))
     assert registry["version"] == 3
@@ -82,17 +68,12 @@ def main() -> None:
     assert all(item["validation_errors"] == [] for item in registry["skills"])
 
     skill_registry = SkillRegistry(ROOT)
-    weather = skill_registry.get_by_name("get-weather")
-    assert weather is not None
-    assert weather.allowed_tools == ["get_weather"]
-    assert weather.allowed_tool_scope() == ["get_weather"]
-    assert weather.prompt_view.title == "天气查询"
-    assert weather.prompt_view.capability == weather.description
-    assert weather.validation_errors == []
-    assert "Use When:" in weather.prompt_view.render_block()
-    assert "<allowed_tools>" not in weather.prompt_view.render_block()
+    assert skill_registry.get_by_name("get-weather") is None
+    assert skill_registry.get_by_name("gold-price") is None
 
     snapshot_text = (ROOT / "SKILLS_SNAPSHOT.md").read_text(encoding="utf-8")
+    assert "Skill registry snapshot for admin display" in snapshot_text
+    assert "Available local capabilities" not in snapshot_text
     assert "<use_when>" in snapshot_text
     assert "<output_rule>" in snapshot_text
     assert "<allowed_tools>" not in snapshot_text

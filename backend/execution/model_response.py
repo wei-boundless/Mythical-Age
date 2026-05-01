@@ -7,14 +7,16 @@ from output_boundary import AssistantOutputBoundary, sanitize_visible_assistant_
 from runtime.model_runtime import stringify_content
 
 class ModelResponseRuntimeExecutor:
-    """Directive-only executor for the current model-only runtime lane."""
+    """Directive-only executor for the current single-agent runtime lane."""
 
     def __init__(
         self,
         *,
         model_runtime,
+        tool_definition_resolver=None,
     ) -> None:
         self.model_runtime = model_runtime
+        self.tool_definition_resolver = tool_definition_resolver
 
     async def stream(
         self,
@@ -55,11 +57,13 @@ class ModelResponseRuntimeExecutor:
         tool_calls = _normalize_tool_calls(getattr(response, "tool_calls", None))
         if tool_calls:
             for tool_call in tool_calls:
+                tool_name = str(tool_call.get("name") or "")
+                operation_id = self._operation_id_for_tool(tool_name)
                 yield {
                     "type": "tool_call_requested",
                     "tool_call": tool_call,
-                    "tool_name": str(tool_call.get("name") or ""),
-                    "operation_id": str(tool_call.get("name") or ""),
+                    "tool_name": tool_name,
+                    "operation_id": operation_id,
                     "directive_ref": directive.directive_id,
                     "assistant_content": raw_content,
                 }
@@ -125,6 +129,15 @@ class ModelResponseRuntimeExecutor:
             "commit_gate": runtime_commit_gate.to_dict(),
             "legacy_query_chain_removed": True,
         }
+
+    def _operation_id_for_tool(self, tool_name: str) -> str:
+        resolver = self.tool_definition_resolver
+        if callable(resolver):
+            definition = resolver(tool_name)
+            operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+            if operation_id:
+                return operation_id
+        return str(tool_name or "").strip()
 
 
 def _normalize_tool_calls(raw_tool_calls: Any) -> list[dict[str, Any]]:

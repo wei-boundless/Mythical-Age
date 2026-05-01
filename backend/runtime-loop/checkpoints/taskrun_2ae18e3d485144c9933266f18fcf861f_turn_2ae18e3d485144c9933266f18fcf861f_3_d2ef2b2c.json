@@ -1,0 +1,237 @@
+{
+  "checkpoint_id": "rtchk:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:18",
+  "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:2ae18e3d485144c9933266f18fcf861f:3:6daaf87d147f",
+    "memory_state_ref": "memory-runtime:2ae18e3d485144c9933266f18fcf861f",
+    "projection_ref": "aaf4faa3d8f4f642",
+    "prompt_manifest_ref": "manifest-aaf4faa3d8f4f642",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {},
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:92702f35",
+      "output_boundary:rtevt:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:14:57a8aa1a",
+      "commit_gate:commit-gate:turn:2ae18e3d485144c9933266f18fcf861f:3:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "2ae18e3d485144c9933266f18fcf861f",
+            "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c",
+            "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:3",
+            "role": "assistant",
+            "content": "明白，给你一个单文件 HTML 贪吃蛇，保存为 `.html` 后直接打开就能用键盘玩。简单、干净，没额外依赖。\n\n```html\n<!DOCTYPE html>\n<html lang=\"zh\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>贪吃蛇</title>\n<style>\nbody {\nmargin: 0;\nbackground: #1a1a1a;\ndisplay: flex;\njustify-content: center;\nalign-items: center;\nheight: 100vh;\nfont-family: monospace;\n}\n#game {\ndisplay: flex;\nflex-direction: column;\nalign-items: center;\n}\ncanvas {\nbackground: #2d2d2d;\nborder: 2px solid #5c5c5c;\n}\n#info {\ncolor: #ccc;\nfont-size: 18px;\nmargin-top: 10px;\n}\n</style>\n</head>\n<body>\n<div id=\"game\">\n<canvas id=\"snakeCanvas\" width=\"400\" height=\"400\"></canvas>\n<div id=\"info\">得分: 0</div>\n</div>\n\n<script>\n({\nconst canvas = document.;\nconst ctx = canvas.;\n\n// 网格设置\nconst gridSize = 20;          // 每个格子像素\nconst cols = canvas.width / gridSize;   // 20\nconst rows = canvas.height / gridSize;  // 20\n\n// 方向常量\nconst Dir = { UP: 'UP', DOWN: 'DOWN', LEFT: 'LEFT', RIGHT: 'RIGHT' };\n\n// 初始状态\nlet snake = [\n{ x: 10, y: 10 },\n{ x: 9, y: 10 },\n{ x: 8, y: 10 }\n];\nlet food = { x: 15, y: 10 };\nlet direction = Dir.RIGHT;\nlet nextDirection = Dir.RIGHT;\nlet score = 0;\nlet gameOver = false;\nlet gameLoopInterval = null;\nconst speed = 100; // 毫秒\n\n// 生成随机食物位置（避免在蛇身上）\nfunction {\nconst allPositions = [];\nfor (let y = 0; y < rows; y++) {\nfor (let x = 0; x < cols; x++) {\nif (!snake.) {\nallPositions.;\n}\n}\n}\nif (allPositions.length === 0) return null; // 满了，胜利\nconst idx = Math.;\nreturn allPositions[idx];\n}\n\n// 重置游戏\nfunction {\nsnake = [\n{ x: 10, y: 10 },\n{ x: 9, y: 10 },\n{ x: 8, y: 10 }\n];\ndirection = Dir.RIGHT;\nnextDirection = Dir.RIGHT;\nscore = 0;\ngameOver = false;\nfood = { x: 15, y: 10 }; // 固定初始食物\ndocument..textContent = `得分: ${score}`;\nif (gameLoopInterval) ;\ngameLoopInterval = ;\n}\n\n// 绘制\nfunction {\n// 清空\nctx.fillStyle = '#2d2d2d';\nctx.;\n\n// 画食物\nctx.fillStyle = '#ff5555';\nctx.;\n\n// 画蛇\nsnake.forEach((seg, index) => {\nctx.fillStyle = index === 0 ? '#50fa7b' : '#8be9fd';\nctx.;\n});\n\n// 游戏结束遮罩\nif (gameOver) {\nctx.fillStyle = '';\nctx.;\nctx.fillStyle = '#f8f8f2';\nctx.font = '26px monospace';\nctx.textAlign = 'center';\nctx.;\nctx.font = '16px monospace';\nctx.;\n}\n}\n\n// 移动逻辑\nfunction {\nif (gameOver) return;\n\n// 更新方向（防止反向）\nif ((direction === Dir.UP && nextDirection !== Dir.DOWN) ||\n(direction === Dir.DOWN && nextDirection !== Dir.UP) ||\n(direction === Dir.LEFT && nextDirection !== Dir.RIGHT) ||\n(direction === Dir.RIGHT && nextDirection !== Dir.LEFT)) {\ndirection = nextDirection;\n}\n\nconst head = snake[0];\nlet newHead = { ...head };\n\nswitch (direction) {\ncase Dir.UP:    newHead.y -= 1; break;\ncase Dir.DOWN:  newHead.y += 1; break;\ncase Dir.LEFT:  newHead.x -= 1; break;\ncase Dir.RIGHT: newHead.x += 1; break;\n}\n\n// 边界碰撞检测\nif (newHead.x < 0 || newHead.x >= cols || newHead.y < 0 || newHead.y >= rows) {\ngameOver = true;\n;\ngameLoopInterval = null;\n;\nreturn;\n}\n\n// 自身碰撞检测（排除尾部，因为尾部会离开）\nif (snake.some((seg, idx) => idx !== 0 && seg.x === newHead.x && seg.y === newHead.y)) {\ngameOver = true;\n;\ngameLoopInterval = null;\n;\nreturn;\n}\n\n// 插入新头\nsnake.;\n\n// 检查是否吃到食物\nif (newHead.x === food.x && newHead.y === food.y) {\nscore++;\ndocument..textContent = `得分: ${score}`;\nconst newFood = ;\nif (newFood) {\nfood = newFood;\n} else {\n// 蛇已经占满所有格子，玩家胜利\ngameOver = true;\n;\ngameLoopInterval = null;\n;\nreturn;\n}\n} else {\n// 没吃到移除尾\nsnake.;\n}\n}\n\nfunction {\n;\n;\n}\n\n// 键盘监听\nwindow.addEventListener('keydown', (e) => {\n// 防止滚动和默认行为\nconst key = e.key;\nif (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].) {\ne.;\n}\n\nif (gameOver) {\nif (key === ' ') {\n;\n}\nreturn;\n}\n\nswitch (key) {\ncase 'ArrowUp':\nnextDirection = Dir.UP;\nbreak;\ncase 'ArrowDown':\nnextDirection = Dir.DOWN;\nbreak;\ncase 'ArrowLeft':\nnextDirection = Dir.LEFT;\nbreak;\ncase 'ArrowRight':\nnextDirection = Dir.RIGHT;\nbreak;\ncase ' ':\n// 空格也可以做暂停/重启，这里只用于游戏结束，非结束状态不处理\nbreak;\ndefault:\nbreak;\n}\n});\n\n// 启动游戏\n;\n})();\n</script>\n</body>\n</html>\n\n### 怎么用\n1. 把上面全部内容复制到文本编辑器，保存为 `贪吃蛇.html`。\n2. 双击用浏览器打开。\n3. 键盘 ↑ ↓ ← → 控制方向，碰到墙壁或自己身体就结束。\n4. 结束后按空格键重新开始。\n\n分数会实时显示在画布下方，速度已经调成适合操作的节奏。如果需要调快或调慢，可以修改代码里的 `speed` 变量（单位毫秒，越小越快）。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "2ae18e3d485144c9933266f18fcf861f",
+          "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c",
+            "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:3",
+            "terminal_reason": "completed",
+            "final_content_chars": 4043
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 659,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:2ae18e3d485144c9933266f18fcf861f:3",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 4043,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:2ae18e3d485144c9933266f18fcf861f:3:6daaf87d147f",
+  "prompt_manifest_ref": "manifest-aaf4faa3d8f4f642",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "2ae18e3d485144c9933266f18fcf861f",
+          "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c",
+          "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:3",
+          "role": "assistant",
+          "content": "明白，给你一个单文件 HTML 贪吃蛇，保存为 `.html` 后直接打开就能用键盘玩。简单、干净，没额外依赖。\n\n```html\n<!DOCTYPE html>\n<html lang=\"zh\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>贪吃蛇</title>\n<style>\nbody {\nmargin: 0;\nbackground: #1a1a1a;\ndisplay: flex;\njustify-content: center;\nalign-items: center;\nheight: 100vh;\nfont-family: monospace;\n}\n#game {\ndisplay: flex;\nflex-direction: column;\nalign-items: center;\n}\ncanvas {\nbackground: #2d2d2d;\nborder: 2px solid #5c5c5c;\n}\n#info {\ncolor: #ccc;\nfont-size: 18px;\nmargin-top: 10px;\n}\n</style>\n</head>\n<body>\n<div id=\"game\">\n<canvas id=\"snakeCanvas\" width=\"400\" height=\"400\"></canvas>\n<div id=\"info\">得分: 0</div>\n</div>\n\n<script>\n({\nconst canvas = document.;\nconst ctx = canvas.;\n\n// 网格设置\nconst gridSize = 20;          // 每个格子像素\nconst cols = canvas.width / gridSize;   // 20\nconst rows = canvas.height / gridSize;  // 20\n\n// 方向常量\nconst Dir = { UP: 'UP', DOWN: 'DOWN', LEFT: 'LEFT', RIGHT: 'RIGHT' };\n\n// 初始状态\nlet snake = [\n{ x: 10, y: 10 },\n{ x: 9, y: 10 },\n{ x: 8, y: 10 }\n];\nlet food = { x: 15, y: 10 };\nlet direction = Dir.RIGHT;\nlet nextDirection = Dir.RIGHT;\nlet score = 0;\nlet gameOver = false;\nlet gameLoopInterval = null;\nconst speed = 100; // 毫秒\n\n// 生成随机食物位置（避免在蛇身上）\nfunction {\nconst allPositions = [];\nfor (let y = 0; y < rows; y++) {\nfor (let x = 0; x < cols; x++) {\nif (!snake.) {\nallPositions.;\n}\n}\n}\nif (allPositions.length === 0) return null; // 满了，胜利\nconst idx = Math.;\nreturn allPositions[idx];\n}\n\n// 重置游戏\nfunction {\nsnake = [\n{ x: 10, y: 10 },\n{ x: 9, y: 10 },\n{ x: 8, y: 10 }\n];\ndirection = Dir.RIGHT;\nnextDirection = Dir.RIGHT;\nscore = 0;\ngameOver = false;\nfood = { x: 15, y: 10 }; // 固定初始食物\ndocument..textContent = `得分: ${score}`;\nif (gameLoopInterval) ;\ngameLoopInterval = ;\n}\n\n// 绘制\nfunction {\n// 清空\nctx.fillStyle = '#2d2d2d';\nctx.;\n\n// 画食物\nctx.fillStyle = '#ff5555';\nctx.;\n\n// 画蛇\nsnake.forEach((seg, index) => {\nctx.fillStyle = index === 0 ? '#50fa7b' : '#8be9fd';\nctx.;\n});\n\n// 游戏结束遮罩\nif (gameOver) {\nctx.fillStyle = '';\nctx.;\nctx.fillStyle = '#f8f8f2';\nctx.font = '26px monospace';\nctx.textAlign = 'center';\nctx.;\nctx.font = '16px monospace';\nctx.;\n}\n}\n\n// 移动逻辑\nfunction {\nif (gameOver) return;\n\n// 更新方向（防止反向）\nif ((direction === Dir.UP && nextDirection !== Dir.DOWN) ||\n(direction === Dir.DOWN && nextDirection !== Dir.UP) ||\n(direction === Dir.LEFT && nextDirection !== Dir.RIGHT) ||\n(direction === Dir.RIGHT && nextDirection !== Dir.LEFT)) {\ndirection = nextDirection;\n}\n\nconst head = snake[0];\nlet newHead = { ...head };\n\nswitch (direction) {\ncase Dir.UP:    newHead.y -= 1; break;\ncase Dir.DOWN:  newHead.y += 1; break;\ncase Dir.LEFT:  newHead.x -= 1; break;\ncase Dir.RIGHT: newHead.x += 1; break;\n}\n\n// 边界碰撞检测\nif (newHead.x < 0 || newHead.x >= cols || newHead.y < 0 || newHead.y >= rows) {\ngameOver = true;\n;\ngameLoopInterval = null;\n;\nreturn;\n}\n\n// 自身碰撞检测（排除尾部，因为尾部会离开）\nif (snake.some((seg, idx) => idx !== 0 && seg.x === newHead.x && seg.y === newHead.y)) {\ngameOver = true;\n;\ngameLoopInterval = null;\n;\nreturn;\n}\n\n// 插入新头\nsnake.;\n\n// 检查是否吃到食物\nif (newHead.x === food.x && newHead.y === food.y) {\nscore++;\ndocument..textContent = `得分: ${score}`;\nconst newFood = ;\nif (newFood) {\nfood = newFood;\n} else {\n// 蛇已经占满所有格子，玩家胜利\ngameOver = true;\n;\ngameLoopInterval = null;\n;\nreturn;\n}\n} else {\n// 没吃到移除尾\nsnake.;\n}\n}\n\nfunction {\n;\n;\n}\n\n// 键盘监听\nwindow.addEventListener('keydown', (e) => {\n// 防止滚动和默认行为\nconst key = e.key;\nif (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].) {\ne.;\n}\n\nif (gameOver) {\nif (key === ' ') {\n;\n}\nreturn;\n}\n\nswitch (key) {\ncase 'ArrowUp':\nnextDirection = Dir.UP;\nbreak;\ncase 'ArrowDown':\nnextDirection = Dir.DOWN;\nbreak;\ncase 'ArrowLeft':\nnextDirection = Dir.LEFT;\nbreak;\ncase 'ArrowRight':\nnextDirection = Dir.RIGHT;\nbreak;\ncase ' ':\n// 空格也可以做暂停/重启，这里只用于游戏结束，非结束状态不处理\nbreak;\ndefault:\nbreak;\n}\n});\n\n// 启动游戏\n;\n})();\n</script>\n</body>\n</html>\n\n### 怎么用\n1. 把上面全部内容复制到文本编辑器，保存为 `贪吃蛇.html`。\n2. 双击用浏览器打开。\n3. 键盘 ↑ ↓ ← → 控制方向，碰到墙壁或自己身体就结束。\n4. 结束后按空格键重新开始。\n\n分数会实时显示在画布下方，速度已经调成适合操作的节奏。如果需要调快或调慢，可以修改代码里的 `speed` 变量（单位毫秒，越小越快）。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "2ae18e3d485144c9933266f18fcf861f",
+        "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:3:d2ef2b2c",
+          "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:3",
+          "terminal_reason": "completed",
+          "final_content_chars": 4043
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 659,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777639873.5427735,
+  "checksum": "c93589f3a844296b17fa79eac590d2d68ef65e58b88ca0ceb68656e29b75ea5b",
+  "authority": "orchestration.runtime_checkpoint"
+}

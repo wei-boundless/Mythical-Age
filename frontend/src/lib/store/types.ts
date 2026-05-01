@@ -7,6 +7,7 @@ export type Message = {
   content: string;
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
+  stageStatus?: string;
 };
 
 export type TokenStats = {
@@ -43,7 +44,8 @@ export type WorkspaceView =
   | "task-system"
   | "system-framework"
   | "experiments"
-  | "playground";
+  | "playground"
+  | "system-config";
 
 export type SearchPolicySource = "rag" | "local_files" | "web";
 

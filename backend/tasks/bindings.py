@@ -62,7 +62,7 @@ def merge_task_bindings(bindings: list[TaskBindingRecord]) -> TaskBindingRecord:
         binding_id="+".join(binding.binding_id for binding in bindings),
         definition_id="+".join(binding.definition_id for binding in bindings),
         enabled=all(binding.enabled for binding in bindings),
-        source="merged_preview",
+        source="merged_runtime",
         projection_selector=bindings[-1].projection_selector,
         skill_scope=tuple(_dedupe([skill for binding in bindings for skill in binding.skill_scope])),
         denied_skills=tuple(_dedupe([skill for binding in bindings for skill in binding.denied_skills])),

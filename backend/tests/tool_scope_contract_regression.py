@@ -24,7 +24,7 @@ def main() -> None:
         allowed_tools=("get_weather",),
         trust_level="project",
         reason="test_skill_scope",
-        skill_name="get-weather",
+        skill_name="weather-advisor",
     )
     assert scope.allows("get_weather")
     assert not scope.allows("web_search")

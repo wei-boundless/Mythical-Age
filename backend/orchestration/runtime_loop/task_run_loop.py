@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import time
 import uuid
 from dataclasses import dataclass
@@ -66,6 +67,7 @@ class TaskRunLoop:
         self.trace_reader = RuntimeLoopTraceReader(self.state_index, self.event_log, self.checkpoints)
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.limits = limits or RuntimeLoopLimits()
+        self.tool_authorization_index = self._build_tool_authorization_index()
 
     def list_session_traces(self, session_id: str) -> dict[str, Any]:
         return self.trace_reader.list_session_task_runs(session_id)
@@ -190,7 +192,7 @@ class TaskRunLoop:
             events=(started.to_dict(), iteration.to_dict(), checkpoint_event.to_dict()),
         )
 
-    async def run_model_only_stream(
+    async def run_single_agent_stream(
         self,
         *,
         session_id: str,
@@ -203,17 +205,17 @@ class TaskRunLoop:
         runtime_context_manager: RuntimeContextManager,
         stage_projection_cycle: StageProjectionCycle | None = None,
         memory_intent: Any | None = None,
-        preview_event_builder: Callable[[dict[str, Any]], list[dict[str, Any]]] | None = None,
         assistant_message_committer: Callable[[dict[str, Any]], Any] | None = None,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
+        agent_capability_profile: Any | None = None,
     ):
-        """Run the current model-only lane inside the TaskRunLoop trace spine."""
+        """Run the current single-agent lane inside the TaskRunLoop trace spine."""
 
         start = self.start(
             session_id=session_id,
             task_id=task_id,
-            diagnostics={"runtime_channel": "model_response_only"},
+            diagnostics={"runtime_channel": "single_agent_runtime"},
         )
         state = start.loop_state
         yield {
@@ -225,16 +227,16 @@ class TaskRunLoop:
         for event in start.events:
             yield {"type": "runtime_loop_event", "event": dict(event)}
 
-        chain_preview = agent_runtime_chain.build_live_preview(
+        chain_runtime = agent_runtime_chain.build_runtime(
             session_id=session_id,
             task_id=task_id,
             message=user_message,
             source=source,
         )
-        task_operation_preview = dict(chain_preview.get("task_operation_preview") or {})
-        task_contract = dict(task_operation_preview.get("task_contract") or {})
-        memory_view = dict(chain_preview.get("memory_runtime_view") or {})
-        context_policy = dict(chain_preview.get("context_policy_preview") or {})
+        task_operation = dict(chain_runtime.get("task_operation") or {})
+        task_contract = dict(task_operation.get("task_contract") or {})
+        memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
+        context_policy = dict(chain_runtime.get("context_policy_result") or {})
 
         task_contract_ref = str(task_contract.get("task_id") or task_id)
         task_event = self.event_log.append(
@@ -260,8 +262,8 @@ class TaskRunLoop:
         )
         yield {"type": "runtime_loop_event", "event": memory_event.to_dict()}
         projection_cycle = stage_projection_cycle or StageProjectionCycle()
-        stage_projection = projection_cycle.build_from_task_operation_preview(
-            task_operation_preview,
+        stage_projection = projection_cycle.build_from_task_operation(
+            task_operation,
         )
         projection_event = self.event_log.append(
             state.task_run_id,
@@ -281,7 +283,7 @@ class TaskRunLoop:
             history=history,
             memory_intent=memory_intent,
             memory_runtime_view=memory_view,
-            context_policy_preview=context_policy,
+            context_policy_result=context_policy,
             stage_projection_snapshot=stage_projection,
         )
         context_event = self.event_log.append(
@@ -289,7 +291,7 @@ class TaskRunLoop:
             "context_snapshot_built",
             payload={
                 "context_snapshot": context_snapshot.to_dict(),
-                "context_policy_preview": context_policy,
+                "context_policy_result": context_policy,
             },
             refs={
                 "memory_runtime_view_ref": str(memory_view.get("view_id") or ""),
@@ -333,7 +335,7 @@ class TaskRunLoop:
             diagnostics={
                 **dict(state.diagnostics),
                 "task_contract_ref": task_contract_ref,
-                "chain_preview_built": True,
+                "runtime_chain_built": True,
                 "runtime_context_manager_applied": True,
                 "stage_projection_cycle_applied": True,
                 "context_invariant_checked": True,
@@ -342,10 +344,6 @@ class TaskRunLoop:
         )
         checkpoint = self._write_checkpoint_event(state, event_offset=invariant_event.offset)
         yield {"type": "runtime_loop_event", "event": checkpoint.to_dict()}
-
-        if preview_event_builder is not None:
-            for event in preview_event_builder(chain_preview):
-                yield event
 
         control_decision = check_runtime_loop_control(
             state,
@@ -397,7 +395,12 @@ class TaskRunLoop:
             )
             return
 
-        directive, resource_policy = build_model_response_runtime_adoption(task_operation_preview)
+        directive, resource_policy = build_model_response_runtime_adoption(
+            task_operation,
+            operation_registry=self.operation_gate.registry,
+            agent_capability_profile=agent_capability_profile,
+        )
+        runtime_tool_instances = self._tool_instances_for_resource_policy(tool_instances, resource_policy)
         directive_event = self.event_log.append(
             state.task_run_id,
             "runtime_directive_issued",
@@ -471,7 +474,7 @@ class TaskRunLoop:
         executor_event = self.event_log.append(
             state.task_run_id,
             "executor_started",
-            payload={"executor_type": "model", "runtime_channel": "model_response_only"},
+            payload={"executor_type": "model", "runtime_channel": "single_agent_runtime"},
             refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
         )
         yield {"type": "runtime_loop_event", "event": executor_event.to_dict()}
@@ -483,11 +486,12 @@ class TaskRunLoop:
         pending_tool_calls: list[dict[str, Any]] = []
         assistant_tool_call_content = ""
         tool_messages: list[ToolMessage] = []
+        tool_observation_count = 0
         async for event in model_response_executor.stream(
             user_message=user_message,
             model_messages=list(context_snapshot.model_messages),
             directive=directive,
-            tool_instances=list(tool_instances or []),
+            tool_instances=runtime_tool_instances,
         ):
             if event.get("type") == "tool_call_requested":
                 tool_call = dict(event.get("tool_call") or {})
@@ -497,7 +501,8 @@ class TaskRunLoop:
             runtime_events = await self._events_from_executor_event(
                 state.task_run_id,
                 task_id=task_id,
-                task_operation_preview=task_operation_preview,
+                task_operation=task_operation,
+                adopted_resource_policy=resource_policy,
                 runtime_context_manager=runtime_context_manager,
                 tool_runtime_executor=tool_runtime_executor,
                 event=event,
@@ -508,6 +513,7 @@ class TaskRunLoop:
                     result_refs.append(observation_ref)
                     observation = dict(runtime_event.payload.get("observation") or {})
                     if observation.get("observation_type") == "tool_result":
+                        tool_observation_count += 1
                         observation_payload = dict(observation.get("payload") or {})
                         tool_messages.append(
                             ToolMessage(
@@ -587,7 +593,12 @@ class TaskRunLoop:
             yield {"type": "runtime_loop_control", "control": followup_control.to_dict()}
             if not followup_control.allowed:
                 terminal_reason = followup_control.reason
-                final_content = ""
+                if not final_content:
+                    final_content = _build_runtime_budget_exhausted_message(
+                        followup_control.message,
+                        tool_observation_count=tool_observation_count,
+                    )
+                    final_answer_metadata = _runtime_budget_exhausted_answer_metadata()
                 break
             followup_event = self.event_log.append(
                 state.task_run_id,
@@ -607,7 +618,7 @@ class TaskRunLoop:
                 user_message=user_message,
                 model_messages=followup_messages,
                 directive=directive,
-                tool_instances=list(tool_instances or []),
+                tool_instances=runtime_tool_instances,
             ):
                 if event.get("type") == "tool_call_requested":
                     tool_call = dict(event.get("tool_call") or {})
@@ -619,7 +630,8 @@ class TaskRunLoop:
                 runtime_events = await self._events_from_executor_event(
                     state.task_run_id,
                     task_id=task_id,
-                    task_operation_preview=task_operation_preview,
+                    task_operation=task_operation,
+                    adopted_resource_policy=resource_policy,
                     runtime_context_manager=runtime_context_manager,
                     tool_runtime_executor=tool_runtime_executor,
                     event=event,
@@ -630,6 +642,7 @@ class TaskRunLoop:
                         result_refs.append(observation_ref)
                         observation = dict(runtime_event.payload.get("observation") or {})
                         if observation.get("observation_type") == "tool_result":
+                            tool_observation_count += 1
                             observation_payload = dict(observation.get("payload") or {})
                             next_tool_messages.append(
                                 ToolMessage(
@@ -682,13 +695,15 @@ class TaskRunLoop:
             session_id=session_id,
             task_run_id=terminal_state.task_run_id,
             task_id=task_id,
-            content=final_content if terminal_reason == "completed" else "",
+            content=final_content,
             **final_answer_metadata,
         )
         assistant_commit_applied = False
         assistant_commit_result: Any = None
         if assistant_commit.commit_allowed and assistant_message_committer is not None:
             assistant_commit_result = assistant_message_committer(dict(assistant_commit.commit_candidate.payload))
+            if inspect.isawaitable(assistant_commit_result):
+                assistant_commit_result = await assistant_commit_result
             assistant_commit_applied = True
         assistant_commit_summary = _commit_result_summary(assistant_commit_result)
         memory_commit_state = _memory_commit_state_from_assistant_commit_result(assistant_commit_result)
@@ -714,6 +729,16 @@ class TaskRunLoop:
             "commit_gate": assistant_commit.to_dict(),
             "commit_applied": assistant_commit_applied,
         }
+        if terminal_reason != "completed" and final_content:
+            yield {
+                "type": "done",
+                "content": final_content,
+                "main_context": {},
+                "task_summary_refs": [],
+                **final_answer_metadata,
+                "persist_policy": "progress_only",
+                "terminal_reason": terminal_reason,
+            }
         final_commit = build_task_run_final_commit_decision(
             task_run_id=terminal_state.task_run_id,
             task_id=task_id,
@@ -834,12 +859,37 @@ class TaskRunLoop:
             refs={"checkpoint_ref": checkpoint.checkpoint_id},
         )
 
+    def _tool_instances_for_resource_policy(self, tool_instances: list[Any] | None, resource_policy: Any) -> list[Any]:
+        from tools.authorization import build_authorized_tool_set
+
+        allowed_operations = {
+            self.operation_gate.registry.normalize_id(operation_id)
+            for operation_id in [
+                *tuple(getattr(resource_policy, "allowed_operations", ()) or ()),
+                *tuple(getattr(resource_policy, "requires_approval_operations", ()) or ()),
+            ]
+        }
+        authorized = build_authorized_tool_set(
+            tool_instances=tool_instances,
+            definitions_by_name=self.tool_authorization_index.definitions_by_name,
+            allowed_operations=allowed_operations,
+            runtime_lane="main_runtime",
+        )
+        return list(authorized.instances)
+
+    def _build_tool_authorization_index(self):
+        from tools.authorization import build_tool_authorization_index
+        from tools.definitions import get_tool_definitions
+
+        return build_tool_authorization_index(get_tool_definitions())
+
     async def _events_from_executor_event(
         self,
         task_run_id: str,
         *,
         task_id: str,
-        task_operation_preview: dict[str, Any],
+        task_operation: dict[str, Any],
+        adopted_resource_policy: Any,
         runtime_context_manager: RuntimeContextManager,
         tool_runtime_executor: Any | None,
         event: dict[str, Any],
@@ -890,6 +940,8 @@ class TaskRunLoop:
                 )
             ]
         if event_type == "tool_call_requested":
+            from tools.authorization import resolve_tool_operation_id
+
             action_request = build_tool_action_request(task_run_id, event)
             requested_event = self.event_log.append(
                 task_run_id,
@@ -903,15 +955,19 @@ class TaskRunLoop:
             )
             operation_id = self.operation_gate.registry.normalize_id(
                 action_request.operation_id
-                or str(action_request.payload.get("tool_name") or "")
+                or resolve_tool_operation_id(
+                    str(action_request.payload.get("tool_name") or ""),
+                    definitions_by_name=self.tool_authorization_index.definitions_by_name,
+                )
             )
             descriptor = self.operation_gate.registry.get_operation(operation_id)
             tool_directive, tool_policy = build_tool_request_runtime_adoption(
                 action_request=action_request,
                 task_id=task_id,
-                task_operation_preview=task_operation_preview,
+                task_operation=task_operation,
                 operation_id=operation_id,
                 operation_descriptor=descriptor,
+                adopted_resource_policy=adopted_resource_policy,
             )
             directive_event = self.event_log.append(
                 task_run_id,
@@ -1024,6 +1080,38 @@ class TaskRunLoop:
                 )
             ]
         return []
+
+
+def _runtime_budget_exhausted_answer_metadata() -> dict[str, str]:
+    return {
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_loop_control",
+        "answer_canonical_state": "progress_only",
+        "answer_persist_policy": "persist_debug_only",
+        "answer_finalization_policy": "none",
+        "answer_fallback_reason": "runtime_budget_exhausted",
+    }
+
+
+def _build_runtime_budget_exhausted_message(message: str = "", *, tool_observation_count: int = 0) -> str:
+    reason = str(message or "").strip()
+    if "max_runtime_seconds" in reason:
+        reason_text = "本轮运行时间达到上限"
+    elif "max_model_calls" in reason:
+        reason_text = "本轮模型续写次数达到上限"
+    elif "max_events" in reason:
+        reason_text = "本轮链路事件数量达到上限"
+    else:
+        reason_text = "本轮运行预算达到上限"
+    evidence_text = (
+        f"已经收到 {tool_observation_count} 条工具结果"
+        if tool_observation_count > 0
+        else "还没有收到可用于总结的工具结果"
+    )
+    return (
+        f"{reason_text}，所以先停止继续调用工具。{evidence_text}，但模型还没有把这些结果收口成最终回答。"
+        "请直接继续问“基于已读取内容总结”，我会从现有上下文继续收口。"
+    )
 
 
 def _diagnostic_int(payload: dict[str, Any], key: str) -> int:

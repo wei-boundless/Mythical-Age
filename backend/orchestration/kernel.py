@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .candidates import CandidateEnvelope, CandidateSet
-from .contracts import ControlKernelPreviewContext, TaskContract
+from .contracts import ControlKernelCandidateContext, TaskContract
 from .execution_graph import ExecutionGraph
 
 
@@ -45,12 +45,12 @@ class ControlKernel:
         *,
         task: TaskContract,
         candidates: CandidateSet | list[CandidateEnvelope] | tuple[CandidateEnvelope, ...] | None = None,
-        preview_context: ControlKernelPreviewContext | None = None,
+        candidate_context: ControlKernelCandidateContext | None = None,
     ) -> ControlKernelResult:
         candidate_items = _candidate_tuple(candidates)
-        graph_refs = _graph_refs(preview_context)
-        diagnostics = _diagnostics(candidate_items, preview_context)
-        reason = preview_context.blocked_reason if preview_context is not None else "wiring_cleared_pending_control_kernel"
+        graph_refs = _graph_refs(candidate_context)
+        diagnostics = _diagnostics(candidate_items, candidate_context)
+        reason = candidate_context.blocked_reason if candidate_context is not None else "wiring_cleared_pending_control_kernel"
         graph = ExecutionGraph(
             graph_id=f"graph:{task.task_id}",
             task_id=task.task_id,
@@ -79,29 +79,29 @@ def _candidate_tuple(
     return tuple(candidates)
 
 
-def _graph_refs(preview_context: ControlKernelPreviewContext | None) -> dict[str, Any]:
-    if preview_context is None:
+def _graph_refs(candidate_context: ControlKernelCandidateContext | None) -> dict[str, Any]:
+    if candidate_context is None:
         return {"state": "empty_until_directive_builder_exists"}
     payload = {
-        "state": "preview_only",
-        "blocked_reason": preview_context.blocked_reason,
-        "resource_policy_ref": preview_context.resource_policy_ref,
-        "resource_policy_state": preview_context.resource_policy_state,
-        "resource_policy_adopted": preview_context.resource_policy_adopted,
-        "task_prompt_contract_ref": preview_context.task_prompt_contract_ref,
-        "prompt_manifest_ref": preview_context.prompt_manifest_ref,
-        "operation_requirement_ref": preview_context.operation_requirement_ref,
-        "runtime_directive_enabled": preview_context.runtime_directive_enabled,
-        "runtime_executable": preview_context.runtime_executable,
-        "operation_gate_required_before_execution": preview_context.operation_gate_required_before_execution,
+        "state": "candidate_only",
+        "blocked_reason": candidate_context.blocked_reason,
+        "resource_policy_ref": candidate_context.resource_policy_ref,
+        "resource_policy_state": candidate_context.resource_policy_state,
+        "resource_policy_adopted": candidate_context.resource_policy_adopted,
+        "task_prompt_contract_ref": candidate_context.task_prompt_contract_ref,
+        "prompt_manifest_ref": candidate_context.prompt_manifest_ref,
+        "operation_requirement_ref": candidate_context.operation_requirement_ref,
+        "runtime_directive_enabled": candidate_context.runtime_directive_enabled,
+        "runtime_executable": candidate_context.runtime_executable,
+        "operation_gate_required_before_execution": candidate_context.operation_gate_required_before_execution,
     }
-    payload.update(preview_context.refs)
+    payload.update(candidate_context.refs)
     return payload
 
 
 def _diagnostics(
     candidates: tuple[CandidateEnvelope, ...],
-    preview_context: ControlKernelPreviewContext | None,
+    candidate_context: ControlKernelCandidateContext | None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "candidate_count": len(candidates),
@@ -112,24 +112,24 @@ def _diagnostics(
         "runtime_executable": False,
         "directive_count": 0,
     }
-    if preview_context is None:
+    if candidate_context is None:
         return payload
     payload.update(
         {
-            "task_prompt_contract_ref": preview_context.task_prompt_contract_ref,
-            "resource_policy_ref": preview_context.resource_policy_ref,
-            "prompt_manifest_ref": preview_context.prompt_manifest_ref,
-            "operation_requirement_ref": preview_context.operation_requirement_ref,
-            "resource_policy_state": preview_context.resource_policy_state,
-            "resource_policy_adopted": preview_context.resource_policy_adopted,
-            "preview_only": preview_context.preview_only,
-            "blocked_reason": preview_context.blocked_reason,
-            "denied_operations": list(preview_context.denied_operations),
-            "requires_approval_operations": list(preview_context.requires_approval_operations),
-            "operation_gate_required_before_execution": preview_context.operation_gate_required_before_execution,
+            "task_prompt_contract_ref": candidate_context.task_prompt_contract_ref,
+            "resource_policy_ref": candidate_context.resource_policy_ref,
+            "prompt_manifest_ref": candidate_context.prompt_manifest_ref,
+            "operation_requirement_ref": candidate_context.operation_requirement_ref,
+            "resource_policy_state": candidate_context.resource_policy_state,
+            "resource_policy_adopted": candidate_context.resource_policy_adopted,
+            "runtime_view_only": candidate_context.runtime_view_only,
+            "blocked_reason": candidate_context.blocked_reason,
+            "denied_operations": list(candidate_context.denied_operations),
+            "requires_approval_operations": list(candidate_context.requires_approval_operations),
+            "operation_gate_required_before_execution": candidate_context.operation_gate_required_before_execution,
         }
     )
-    payload.update(preview_context.diagnostics)
+    payload.update(candidate_context.diagnostics)
     payload["fail_closed"] = True
     payload["runtime_directive_enabled"] = False
     payload["runtime_executable"] = False

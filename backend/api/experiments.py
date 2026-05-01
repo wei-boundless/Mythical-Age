@@ -96,9 +96,9 @@ async def get_experiment_turn_orchestration(run_id: str, turn_id: str, artifact_
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/experiments/task-operation-preview-snapshots")
-async def get_task_operation_preview_snapshots() -> dict[str, object]:
-    return experiment_runner.get_task_operation_preview_snapshots()
+@router.get("/experiments/task-runtime-contract-snapshots")
+async def get_task_runtime_contract_snapshots() -> dict[str, object]:
+    return experiment_runner.get_task_runtime_contract_snapshots()
 
 
 @router.post("/experiments/runs/{run_id}/cancel")

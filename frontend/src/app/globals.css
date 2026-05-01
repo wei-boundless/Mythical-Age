@@ -8655,6 +8655,39 @@ button:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.message-stage-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.48rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.42rem 0.68rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, rgba(255, 255, 255, 0.08));
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-soul) 12%, rgba(255, 255, 255, 0.025)), transparent),
+    rgba(255, 255, 255, 0.035);
+  color: color-mix(in srgb, var(--color-text) 82%, var(--color-soul));
+  font-size: 0.76rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.message-stage-status span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-stage-status__dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-soul) 78%, white);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-soul) 42%, transparent);
+}
+
 .soul-switcher {
   display: inline-flex;
   flex-direction: row;
@@ -8935,6 +8968,13 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
   .workspace-view__header {
     flex-direction: column;
+  }
+
+  .system-config-overview,
+  .system-config-layout,
+  .system-config-field-grid,
+  .system-config-budget-grid {
+    grid-template-columns: 1fr;
   }
 
   .workspace-metrics-grid,
@@ -9260,7 +9300,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .operation-switcher {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.8rem;
 }
 
@@ -9332,6 +9372,8 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .operation-create-card input,
 .operation-create-card textarea,
+.operation-prompt-editor input,
+.operation-prompt-editor textarea,
 .operation-editor-panel textarea,
 .operation-tool-control select,
 .operation-tool-control textarea,
@@ -9346,6 +9388,23 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .operation-create-card textarea {
   min-height: 76px;
+  resize: vertical;
+}
+
+.operation-prompt-editor {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.operation-prompt-editor label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--color-text);
+  font-size: 0.86rem;
+}
+
+.operation-prompt-editor textarea {
+  min-height: 96px;
   resize: vertical;
 }
 
@@ -9613,153 +9672,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .operation-contract-grid strong {
   color: var(--color-text);
-}
-
-.operation-binding-board {
-  display: grid;
-  gap: 1rem;
-}
-
-.operation-binding-graph {
-  display: grid;
-  grid-template-columns: minmax(240px, 0.28fr) minmax(0, 1fr);
-  gap: 1rem;
-  align-items: stretch;
-}
-
-.operation-binding-agents {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.operation-binding-node {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
-  border-radius: var(--radius-card);
-  background:
-    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--color-soul) 16%, transparent), transparent 42%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.045), transparent 58%),
-    var(--color-panel-strong);
-  padding: 1rem;
-}
-
-.operation-binding-node--main {
-  display: grid;
-  align-content: center;
-  min-height: 100%;
-}
-
-.operation-binding-node svg {
-  color: var(--color-soul);
-}
-
-.operation-binding-node span,
-.operation-binding-node small {
-  color: var(--color-text-soft);
-  font-size: 0.72rem;
-}
-
-.operation-binding-node strong {
-  display: block;
-  margin: 0.35rem 0;
-  color: var(--color-text);
-  font-size: 1.05rem;
-}
-
-.operation-binding-node p {
-  margin: 0 0 0.65rem;
-  color: var(--color-text-soft);
-  font-size: 0.85rem;
-  line-height: 1.55;
-}
-
-.operation-binding-layout {
-  display: grid;
-  grid-template-columns: minmax(250px, 0.34fr) minmax(0, 1fr);
-  gap: 1rem;
-}
-
-.operation-binding-column {
-  display: grid;
-  align-content: start;
-  gap: 0.75rem;
-}
-
-.operation-binding-tools {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.operation-binding-tool {
-  display: grid;
-  gap: 0.35rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
-  border-radius: var(--radius-card);
-  background: rgba(255, 255, 255, 0.035);
-  color: var(--color-text);
-  padding: 0.85rem;
-  text-align: left;
-}
-
-.operation-binding-tool--active {
-  border-color: color-mix(in srgb, var(--color-soul) 62%, white);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 58%),
-    rgba(255, 255, 255, 0.05);
-  box-shadow: 0 14px 30px color-mix(in srgb, var(--color-soul) 12%, transparent);
-}
-
-.operation-binding-tool span {
-  color: var(--color-text-soft);
-  font-size: 0.72rem;
-}
-
-.operation-binding-tool strong {
-  color: var(--color-text);
-}
-
-.operation-binding-tool p {
-  margin: 0;
-  color: var(--color-text-soft);
-  font-size: 0.82rem;
-  line-height: 1.45;
-}
-
-.operation-binding-matrix {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.operation-binding-matrix article {
-  max-height: 320px;
-  overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
-  border-radius: var(--radius-card);
-  background: rgba(255, 255, 255, 0.035);
-  padding: 0.9rem;
-}
-
-.operation-binding-matrix strong {
-  display: block;
-  margin-bottom: 0.6rem;
-  color: var(--color-text);
-}
-
-.operation-binding-matrix p {
-  margin: 0 0 0.45rem;
-  color: var(--color-text-soft);
-  font-size: 0.84rem;
-  line-height: 1.5;
-}
-
-.operation-agent-embedded {
-  display: grid;
-  min-height: 0;
 }
 
 .operation-execution-panel {
@@ -10386,6 +10298,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .soul-projection-form-grid input,
+.soul-projection-form-grid select,
 .soul-projection-editor-card__contract textarea {
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--color-soul) 22%, var(--color-border));
@@ -10402,6 +10315,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .soul-projection-form-grid input:focus,
+.soul-projection-form-grid select:focus,
 .soul-projection-editor-card__contract textarea:focus {
   border-color: color-mix(in srgb, var(--color-soul) 62%, white);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-soul) 14%, transparent);
@@ -10411,6 +10325,526 @@ html[data-soul="xuannv"] .soul-portrait__label {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
+}
+
+.soul-config-rail,
+.soul-system-config-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.soul-config-summary,
+.soul-config-card,
+.soul-budget-preset {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 24%, var(--color-border));
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 54%),
+    var(--color-panel);
+}
+
+.soul-config-summary {
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.soul-config-summary span,
+.soul-config-card__head span,
+.soul-budget-preset span {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.soul-config-summary strong,
+.soul-config-card__head strong,
+.soul-budget-preset strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--color-text);
+}
+
+.soul-config-summary em,
+.soul-config-card__head em,
+.soul-budget-preset em {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  font-style: normal;
+}
+
+.soul-config-card {
+  border-radius: 18px;
+  padding: 18px;
+}
+
+.soul-config-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.soul-config-card__head small {
+  color: var(--color-text-soft);
+  white-space: nowrap;
+}
+
+.soul-budget-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.soul-budget-preset {
+  cursor: pointer;
+  border-radius: 14px;
+  padding: 14px;
+  text-align: left;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.soul-budget-preset:hover,
+.soul-budget-preset--active {
+  border-color: color-mix(in srgb, var(--color-soul) 68%, white);
+  transform: translateY(-1px);
+}
+
+.soul-budget-preset p {
+  margin: 10px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.system-config-workbench {
+  gap: 1rem;
+}
+
+.system-config-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.system-config-overview article {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 9%, transparent), transparent 62%),
+    rgba(255, 255, 255, 0.025);
+  padding: 1rem;
+}
+
+.system-config-overview span,
+.system-config-editor__head span,
+.system-config-nav__item em,
+.system-config-budget span {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.system-config-overview strong,
+.system-config-budget strong {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.system-config-overview em,
+.system-config-budget em {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.system-config-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.32fr) minmax(0, 1fr);
+  gap: 1rem;
+  min-height: 0;
+}
+
+.system-config-nav,
+.system-config-editor {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-block);
+  background:
+    linear-gradient(150deg, color-mix(in srgb, var(--color-soul) 7%, transparent), transparent 54%),
+    var(--color-panel);
+}
+
+.system-config-nav {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  padding: 0.8rem;
+}
+
+.system-config-nav__item {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.75rem;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.system-config-nav__item:hover,
+.system-config-nav__item--active {
+  border-color: color-mix(in srgb, var(--color-soul) 38%, var(--color-border));
+  background: color-mix(in srgb, var(--color-soul) 10%, transparent);
+  transform: translateY(-1px);
+}
+
+.system-config-nav__icon {
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-soul) 15%, transparent);
+  color: var(--color-accent);
+}
+
+.system-config-nav__item strong,
+.system-config-nav__item small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-config-nav__item strong {
+  margin-top: 0.15rem;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.system-config-nav__item small {
+  margin-top: 0.15rem;
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+}
+
+.system-config-editor {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1rem;
+}
+
+.system-config-editor__head {
+  display: grid;
+  grid-template-columns: 2.8rem minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: start;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 1rem;
+}
+
+.system-config-editor__mark {
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 36%, var(--color-border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--color-soul) 12%, transparent);
+  color: var(--color-accent);
+}
+
+.system-config-editor__head strong {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--color-text);
+  font-size: 1.18rem;
+}
+
+.system-config-editor__head p {
+  margin: 0.35rem 0 0;
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.system-config-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.system-config-field-sections {
+  display: grid;
+  gap: 1rem;
+}
+
+.system-config-field-section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.system-config-field-section__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  padding-bottom: 0.45rem;
+}
+
+.system-config-field-section__head strong {
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.system-config-field-section__head em {
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.system-config-field {
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.026);
+  padding: 0.85rem;
+}
+
+.system-config-field > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.system-config-field strong {
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.system-config-field em {
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.system-config-field input,
+.system-config-field select {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--color-text);
+  font-size: 0.92rem;
+  outline: none;
+  padding: 0.72rem 0.8rem;
+}
+
+.system-config-field input:focus,
+.system-config-field select:focus {
+  border-color: color-mix(in srgb, var(--color-soul) 62%, white);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-soul) 14%, transparent);
+}
+
+.system-config-field small {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.system-config-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 0.28rem 0.75rem 0.28rem 0.28rem;
+}
+
+.system-config-toggle span {
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 999px;
+  background: var(--color-text-soft);
+}
+
+.system-config-toggle--on {
+  border-color: color-mix(in srgb, var(--color-soul) 58%, white);
+  background: color-mix(in srgb, var(--color-soul) 16%, transparent);
+  color: var(--color-text);
+}
+
+.system-config-toggle--on span {
+  background: var(--color-accent);
+}
+
+.system-config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  padding-top: 0.3rem;
+}
+
+.system-config-budget-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.system-config-budget {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 56%),
+    rgba(255, 255, 255, 0.026);
+  color: inherit;
+  cursor: pointer;
+  min-height: 10rem;
+  padding: 1rem;
+  text-align: left;
+  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.system-config-budget:hover,
+.system-config-budget--active {
+  border-color: color-mix(in srgb, var(--color-soul) 62%, white);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.035);
+  transform: translateY(-1px);
+}
+
+.system-config-budget p {
+  margin: 0.7rem 0 0;
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.system-config-capabilities {
+  display: grid;
+  gap: 1rem;
+}
+
+.system-config-capability-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.system-config-capability-metrics article,
+.system-config-tool-list article,
+.system-config-issue-list article {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-soul) 7%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.026);
+}
+
+.system-config-capability-metrics article {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem;
+}
+
+.system-config-capability-metrics span,
+.system-config-tool-list span,
+.system-config-issue-list span {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.system-config-capability-metrics strong {
+  color: var(--color-text);
+  font-size: 1.35rem;
+}
+
+.system-config-capability-metrics em,
+.system-config-tool-list em {
+  color: var(--color-text-soft);
+  font-size: 0.8rem;
+  font-style: normal;
+}
+
+.system-config-tool-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.system-config-tool-list--compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.system-config-tool-list article {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.75rem;
+}
+
+.system-config-tool-list span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-transform: none;
+}
+
+.system-config-tool-list strong {
+  color: var(--color-text);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.system-config-issue-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.system-config-issue-list article {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem;
+}
+
+.system-config-issue-list strong {
+  color: #f0a4ad;
+  font-size: 0.86rem;
+}
+
+.system-config-issue-list p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.5;
 }
 
 .soul-managed-sections {
@@ -14787,11 +15221,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .operation-layout,
   .operation-contract-grid,
   .operation-tool-linked,
-  .operation-binding-graph,
-  .operation-binding-agents,
-  .operation-binding-layout,
-  .operation-binding-tools,
-  .operation-binding-matrix,
   .test-health-hero,
   .test-layer-grid,
   .test-governance-grid,
@@ -14897,6 +15326,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .agent-detail__matrix,
   .soul-projection-card-grid,
   .soul-projection-form-grid,
+  .soul-budget-preset-grid,
   .test-system-view .test-system-tabs,
   .health-system-tabs,
   .health-workbench-metrics,

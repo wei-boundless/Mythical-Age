@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-ResourceDecisionKind = Literal["allow", "deny", "requires_approval", "preview_only", "unknown"]
+ResourceDecisionKind = Literal["allow", "deny", "requires_approval", "not_executable", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +29,7 @@ class ResourcePolicy:
     allowed_operations: tuple[str, ...] = ()
     denied_operations: tuple[str, ...] = ()
     requires_approval_operations: tuple[str, ...] = ()
-    preview_only_operations: tuple[str, ...] = ()
+    not_executable_operations: tuple[str, ...] = ()
     allowed_tools: tuple[str, ...] = ()
     denied_tools: tuple[str, ...] = ()
     allowed_workers: tuple[str, ...] = ()
@@ -43,7 +43,7 @@ class ResourcePolicy:
     shell_scope: dict[str, Any] = field(default_factory=dict)
     approval_policy: str = "default"
     authority: str = "resource_policy"
-    preview_only: bool = True
+    runtime_view_only: bool = True
     adopted: bool = False
     runtime_executable: bool = False
     decisions: tuple[ResourceDecision, ...] = ()
@@ -51,4 +51,3 @@ class ResourcePolicy:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-

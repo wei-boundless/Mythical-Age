@@ -12,7 +12,8 @@ def _strip_leading_markdown_title(content: str) -> str:
     lines = content.splitlines()
     if not lines:
         return content
-    if lines[0].lstrip().startswith("#"):
+    first_line = lines[0].lstrip()
+    if first_line.startswith("# ") and not first_line.startswith("##"):
         lines = lines[1:]
         while lines and not lines[0].strip():
             lines = lines[1:]

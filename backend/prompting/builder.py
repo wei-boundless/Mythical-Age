@@ -10,12 +10,7 @@ from prompting.manifest import PromptManifest, build_prompt_manifest, prompt_sec
 if TYPE_CHECKING:
     from context_management import ContextPackage
 
-STATIC_COMPONENTS: tuple[tuple[str, str], ...] = (
-    ("Skills Snapshot", "SKILLS_SNAPSHOT.md"),
-)
-
 STATIC_PROMPT_ASSEMBLY_ORDER: tuple[str, ...] = (
-    "capability_summary",
     "soul_static_context",
     "retrieval_grounding_guard",
     "static_prompt_concealment_guard",
@@ -34,13 +29,6 @@ def _truncate(text: str, limit: int) -> str:
     return text[:limit] + "\n...[truncated]"
 
 
-def _read_component(base_dir: Path, relative_path: str, limit: int) -> str:
-    path = base_dir / relative_path
-    if not path.exists():
-        return f"[missing component: {relative_path}]"
-    return _truncate(path.read_text(encoding="utf-8"), limit)
-
-
 def _render_context_package_block(
     package: ContextPackage,
     *,
@@ -57,6 +45,13 @@ def _render_context_package_block(
         ("exact_durable_context", "## Exact Durable Context"),
         ("relevant_durable_context", "## Relevant Durable Context"),
     ]
+    section_notes = {
+        "hot_truth_window": "近期上下文摘要，用于保持连续性；它不是完整事实源，和当前用户消息或可验证资料冲突时应让位。",
+        "retrieval_evidence": "当前检索证据；可用时优先作为回答依据。",
+        "warm_snapshots": "较弱的历史线索；仅在和当前任务相关时使用。",
+        "exact_durable_context": "精确长期记忆；使用前仍要确认适用范围。",
+        "relevant_durable_context": "相关长期记忆；只作为当前判断的辅助依据。",
+    }
     lines: list[str] = []
     sections = _sections_for_package(package, mode=mode)
     for section_name, heading in section_order:
@@ -80,6 +75,9 @@ def _render_context_package_block(
             if lines:
                 lines.append("")
             lines.append(heading)
+            note = section_notes.get(section_name)
+            if note:
+                lines.append(note)
         for item in items:
             stripped = str(item).strip()
             if not stripped:
@@ -115,10 +113,6 @@ def build_static_prompt(
 ) -> str:
     settings = get_settings()
     parts: list[str] = []
-
-    for label, relative_path in STATIC_COMPONENTS:
-        content = _read_component(base_dir, relative_path, settings.component_char_limit)
-        parts.append(f"## 当前可用能力摘要\n{content}")
 
     long_term_context = long_term_context_bundle or build_long_term_context_bundle(base_dir)
     static_context = long_term_context.render(
@@ -244,7 +238,6 @@ def build_system_prompt_with_manifest(
     session_id: str = "",
     turn_id: str = "",
 ) -> tuple[str, PromptManifest]:
-    settings = get_settings()
     long_term_context = build_long_term_context_bundle(
         base_dir,
         persistent_memory=persistent_memory,
@@ -267,19 +260,6 @@ def build_system_prompt_with_manifest(
     prompt = "\n\n".join(part for part in [static_prompt, session_prompt, turn_prompt] if part.strip())
     sections = []
     order = 0
-
-    for label, relative_path in STATIC_COMPONENTS:
-        order += 1
-        sections.append(
-            prompt_section(
-                section_id="capability_summary",
-                title="当前可用能力摘要",
-                layer="static",
-                source=relative_path,
-                content=_read_component(base_dir, relative_path, settings.component_char_limit),
-                order=order,
-            )
-        )
 
     for heading, content in long_term_context.static_sections:
         order += 1
@@ -392,8 +372,6 @@ def build_system_prompt_with_manifest(
 def _static_context_source(heading: str) -> str:
     if heading == "当前风格":
         return "soul/agent_core/ACTIVE_SEED.md"
-    if heading == "稳定原则":
+    if heading in {"稳定原则", "共同契约", "用户与项目偏好"}:
         return "soul/agent_core/CORE.md"
-    if heading == "用户与项目偏好":
-        return "soul/agent.md"
     return "memory.static_loader"

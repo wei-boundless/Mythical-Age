@@ -1,0 +1,237 @@
+{
+  "checkpoint_id": "rtchk:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:18",
+  "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:2ae18e3d485144c9933266f18fcf861f:15:ee15394dbeeb",
+    "memory_state_ref": "memory-runtime:2ae18e3d485144c9933266f18fcf861f",
+    "projection_ref": "f760b40148fad0d7",
+    "prompt_manifest_ref": "manifest-f760b40148fad0d7",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {},
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:e707cf3d",
+      "output_boundary:rtevt:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:14:b13e249d",
+      "commit_gate:commit-gate:turn:2ae18e3d485144c9933266f18fcf861f:15:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "2ae18e3d485144c9933266f18fcf861f",
+            "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56",
+            "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:15",
+            "role": "assistant",
+            "content": "不是不能，是不能全摊开。开发者视角下，我可以告诉你：\n\n- 记忆形式：以结构化摘要块存在，分为历史摘要（前文关键结论的精炼）和 Hot Truth Window（少量关键事实原文快照），不是日记式记忆。\n- 内容范围：历史摘要目前保留了咱俩对话的关键节点——例如你让我做贪吃蛇、问契约数量、确认能力边界、现在在调整体验。但不保留完整对话原文，也不带有无关上下文。\n- 限制：我不能把内部摘要的原文、完整结构、存储标签或 Hot Truth 里的逐字片段直接打给你看，这部分在暴露边界之外。\n\n所以，能说的我都说了：记忆是精炼的、一次性的、分层的，形式是摘要和事实快照，但具体原文不对外暴露。要调整体验的话，你可以直接指定想改哪一层（比如摘要保留策略、或者让快照只从哪类数据取），我就能配合。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "2ae18e3d485144c9933266f18fcf861f",
+          "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56",
+            "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:15",
+            "terminal_reason": "completed",
+            "final_content_chars": 345
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2482,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:2ae18e3d485144c9933266f18fcf861f:15",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 345,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:2ae18e3d485144c9933266f18fcf861f:15:ee15394dbeeb",
+  "prompt_manifest_ref": "manifest-f760b40148fad0d7",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "2ae18e3d485144c9933266f18fcf861f",
+          "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56",
+          "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:15",
+          "role": "assistant",
+          "content": "不是不能，是不能全摊开。开发者视角下，我可以告诉你：\n\n- 记忆形式：以结构化摘要块存在，分为历史摘要（前文关键结论的精炼）和 Hot Truth Window（少量关键事实原文快照），不是日记式记忆。\n- 内容范围：历史摘要目前保留了咱俩对话的关键节点——例如你让我做贪吃蛇、问契约数量、确认能力边界、现在在调整体验。但不保留完整对话原文，也不带有无关上下文。\n- 限制：我不能把内部摘要的原文、完整结构、存储标签或 Hot Truth 里的逐字片段直接打给你看，这部分在暴露边界之外。\n\n所以，能说的我都说了：记忆是精炼的、一次性的、分层的，形式是摘要和事实快照，但具体原文不对外暴露。要调整体验的话，你可以直接指定想改哪一层（比如摘要保留策略、或者让快照只从哪类数据取），我就能配合。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "2ae18e3d485144c9933266f18fcf861f",
+        "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:2ae18e3d485144c9933266f18fcf861f:turn:2ae18e3d485144c9933266f18fcf861f:15:f5d3bf56",
+          "task_id": "turn:2ae18e3d485144c9933266f18fcf861f:15",
+          "terminal_reason": "completed",
+          "final_content_chars": 345
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2482,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777640848.6776412,
+  "checksum": "3c6aec624f2d0a09ecfe27c32db2c57ef2c3f07e2637f7365538046dfffdbbec",
+  "authority": "orchestration.runtime_checkpoint"
+}

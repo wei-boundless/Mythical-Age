@@ -157,14 +157,14 @@ class OperationGate:
                 pipeline_stage="adopted_resource_policy_exists",
                 diagnostics={"fail_closed": True},
             )
-        if resource_policy.preview_only or not resource_policy.adopted or not resource_policy.runtime_executable:
+        if resource_policy.runtime_view_only or not resource_policy.adopted or not resource_policy.runtime_executable:
             return OperationGateResult(
                 operation_id=descriptor.operation_id,
                 decision="deny",
-                reason="resource policy is preview-only and not executable",
+                reason="resource policy is not adopted for execution",
                 pipeline_stage="adopted_resource_policy_exists",
                 diagnostics={
-                    "preview_only": resource_policy.preview_only,
+                    "runtime_view_only": resource_policy.runtime_view_only,
                     "adopted": resource_policy.adopted,
                     "runtime_executable": resource_policy.runtime_executable,
                 },

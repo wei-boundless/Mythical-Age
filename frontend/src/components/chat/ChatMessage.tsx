@@ -10,12 +10,14 @@ import type { RetrievalResult, ToolCall } from "@/lib/api";
 export function ChatMessage({
   role,
   content,
+  stageStatus,
   toolCalls,
   retrievals,
   assistantName = "河伯"
 }: {
   role: "user" | "assistant";
   content: string;
+  stageStatus?: string;
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   assistantName?: string;
@@ -46,6 +48,12 @@ export function ChatMessage({
           </div>
         </div>
       </div>
+      {!isUser && stageStatus ? (
+        <div className="message-stage-status mb-4" aria-label={`当前阶段：${stageStatus}`}>
+          <span className="message-stage-status__dot" />
+          <span>阶段：{stageStatus}</span>
+        </div>
+      ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
       {!isUser && <ThoughtChain toolCalls={toolCalls} />}
       <div className={isUser ? "whitespace-pre-wrap leading-7" : "markdown"}>

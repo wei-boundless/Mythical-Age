@@ -1,0 +1,237 @@
+{
+  "checkpoint_id": "rtchk:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:18",
+  "task_run_id": "taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:session-runtime-events:1:b3f60625d367",
+    "memory_state_ref": "",
+    "projection_ref": "0ced65d56ab72374",
+    "prompt_manifest_ref": "manifest-0ced65d56ab72374",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {},
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:46b6696d",
+      "output_boundary:rtevt:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:14:e06c9311",
+      "commit_gate:commit-gate:turn:session-runtime-events:1:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "session-runtime-events",
+            "task_run_id": "taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff",
+            "task_id": "turn:session-runtime-events:1",
+            "role": "assistant",
+            "content": "single-agent runtime directive answer",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "session-runtime-events",
+          "task_run_id": "taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff",
+            "task_id": "turn:session-runtime-events:1",
+            "terminal_reason": "completed",
+            "final_content_chars": 37
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": false,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 0,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:session-runtime-events:1",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 37,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:session-runtime-events:1:b3f60625d367",
+  "prompt_manifest_ref": "manifest-0ced65d56ab72374",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "session-runtime-events",
+          "task_run_id": "taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff",
+          "task_id": "turn:session-runtime-events:1",
+          "role": "assistant",
+          "content": "single-agent runtime directive answer",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "session-runtime-events",
+        "task_run_id": "taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:session-runtime-events:turn:session-runtime-events:1:d86a1dff",
+          "task_id": "turn:session-runtime-events:1",
+          "terminal_reason": "completed",
+          "final_content_chars": 37
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": false,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 0,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777647055.9863696,
+  "checksum": "2696f594ab2cd93a6c73edac1dec67fe17e8d21e8365745cb253b3f5427ad9d1",
+  "authority": "orchestration.runtime_checkpoint"
+}

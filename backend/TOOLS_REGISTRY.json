@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "tool_count": 14,
+  "tool_count": 16,
   "tools": [
     {
       "name": "get_weather",
+      "operation_id": "op.get_weather",
       "module": "tools.get_weather_tool",
       "contract": {
         "required_inputs": [
@@ -62,6 +63,7 @@
     },
     {
       "name": "get_gold_price",
+      "operation_id": "op.get_gold_price",
       "module": "tools.get_gold_price_tool",
       "contract": {
         "required_inputs": [
@@ -121,6 +123,7 @@
     },
     {
       "name": "web_search",
+      "operation_id": "op.web_search",
       "module": "tools.web_search_tool",
       "contract": {
         "required_inputs": [
@@ -180,6 +183,7 @@
     },
     {
       "name": "structured_data_analysis",
+      "operation_id": "op.structured_data_analysis",
       "module": "tools.structured_data_analysis_tool",
       "contract": {
         "required_inputs": [
@@ -245,6 +249,7 @@
     },
     {
       "name": "pdf_analysis",
+      "operation_id": "op.pdf_analysis",
       "module": "tools.pdf_analysis_tool",
       "contract": {
         "required_inputs": [
@@ -307,6 +312,7 @@
     },
     {
       "name": "search_knowledge",
+      "operation_id": "op.search_knowledge",
       "module": "tools.search_knowledge_tool",
       "contract": {
         "required_inputs": [
@@ -367,6 +373,7 @@
     },
     {
       "name": "analyze_multimodal_file",
+      "operation_id": "op.analyze_multimodal_file",
       "module": "tools.analyze_multimodal_file_tool",
       "contract": {
         "required_inputs": [
@@ -427,6 +434,7 @@
     },
     {
       "name": "index_multimodal_file",
+      "operation_id": "op.index_multimodal_file",
       "module": "tools.index_multimodal_file_tool",
       "contract": {
         "required_inputs": [
@@ -487,6 +495,7 @@
     },
     {
       "name": "search_files",
+      "operation_id": "op.search_files",
       "module": "tools.search_files_tool",
       "contract": {
         "required_inputs": [
@@ -549,6 +558,7 @@
     },
     {
       "name": "search_text",
+      "operation_id": "op.search_text",
       "module": "tools.search_files_tool",
       "contract": {
         "required_inputs": [
@@ -612,6 +622,7 @@
     },
     {
       "name": "read_file",
+      "operation_id": "op.read_file",
       "module": "tools.read_file_tool",
       "contract": {
         "required_inputs": [
@@ -670,6 +681,7 @@
     },
     {
       "name": "fetch_url",
+      "operation_id": "op.fetch_url",
       "module": "tools.fetch_url_tool",
       "contract": {
         "required_inputs": [
@@ -726,7 +738,131 @@
       "is_concurrency_safe": true
     },
     {
+      "name": "write_file",
+      "operation_id": "op.write_file",
+      "module": "tools.write_file_tool",
+      "contract": {
+        "required_inputs": [
+          "path",
+          "content"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "deny",
+        "context_policy": "isolated",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_if_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "file",
+        "write",
+        "workspace"
+      ],
+      "supported_modalities": [
+        "text",
+        "code",
+        "document"
+      ],
+      "safety_tags": [
+        "write",
+        "local_write"
+      ],
+      "route_hints": [
+        "tool",
+        "workspace_write"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/write_file",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "edit_file",
+      "operation_id": "op.edit_file",
+      "module": "tools.write_file_tool",
+      "contract": {
+        "required_inputs": [
+          "path",
+          "old_text",
+          "new_text"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "deny",
+        "context_policy": "isolated",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_if_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "file",
+        "edit",
+        "workspace"
+      ],
+      "supported_modalities": [
+        "text",
+        "code",
+        "document"
+      ],
+      "safety_tags": [
+        "write",
+        "local_write"
+      ],
+      "route_hints": [
+        "tool",
+        "workspace_edit"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/edit_file",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
       "name": "terminal",
+      "operation_id": "op.shell",
       "module": "tools.terminal_tool",
       "contract": {
         "required_inputs": [
@@ -785,6 +921,7 @@
     },
     {
       "name": "python_repl",
+      "operation_id": "op.python_repl",
       "module": "tools.python_repl_tool",
       "contract": {
         "required_inputs": [

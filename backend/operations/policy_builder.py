@@ -25,7 +25,7 @@ DENY_BY_DEFAULT_RISK_TAGS = {
     "session_write_candidate",
     "artifact_write_candidate",
 }
-PREVIEW_ONLY_TYPES = {"worker", "agent"}
+NOT_EXECUTABLE_TYPES = {"worker", "agent"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +36,7 @@ class RuntimeApprovalContext:
     headless_mode: bool = False
 
 
-def build_resource_policy_preview(
+def build_resource_policy_candidate(
     requirement: OperationRequirement,
     registry: OperationRegistry,
     *,
@@ -50,7 +50,7 @@ def build_resource_policy_preview(
     allowed = []
     denied = []
     requires_approval = []
-    preview_only = []
+    not_executable = []
 
     for requested_id in requested:
         normalized_id = registry.normalize_id(requested_id)
@@ -68,8 +68,8 @@ def build_resource_policy_preview(
             allowed.append(decision.operation_id)
         elif decision.decision == "requires_approval":
             requires_approval.append(decision.operation_id)
-        elif decision.decision == "preview_only":
-            preview_only.append(decision.operation_id)
+        elif decision.decision == "not_executable":
+            not_executable.append(decision.operation_id)
         else:
             denied.append(decision.operation_id)
 
@@ -92,14 +92,14 @@ def build_resource_policy_preview(
     allowed_tuple = tuple(_dedupe(allowed))
     denied_tuple = tuple(_dedupe(denied))
     requires_tuple = tuple(_dedupe(requires_approval))
-    preview_tuple = tuple(_dedupe(preview_only))
+    not_executable_tuple = tuple(_dedupe(not_executable))
     return ResourcePolicy(
-        policy_id=f"respol:{requirement.task_id}:preview",
+        policy_id=f"respol:{requirement.task_id}:candidate",
         task_id=requirement.task_id,
         allowed_operations=allowed_tuple,
         denied_operations=denied_tuple,
         requires_approval_operations=requires_tuple,
-        preview_only_operations=preview_tuple,
+        not_executable_operations=not_executable_tuple,
         allowed_tools=allowed_tuple,
         denied_tools=denied_tuple,
         allowed_workers=(),
@@ -107,14 +107,13 @@ def build_resource_policy_preview(
         allowed_agents=(),
         denied_agents=tuple(op for op in denied_tuple if _operation_type(registry, op) == "agent"),
         approval_policy=str(requirement.metadata.get("approval_policy") or "default"),
-        preview_only=True,
+        runtime_view_only=True,
         adopted=False,
         runtime_executable=False,
         decisions=tuple(decisions),
         diagnostics={
-            "preview_only": True,
             "fail_closed": True,
-            "resource_policy_state": "preview",
+            "resource_policy_state": "candidate",
             "resource_policy_adopted": False,
             "runtime_executable": False,
             "operation_gate_required_before_execution": True,
@@ -149,7 +148,7 @@ def _decide_operation(
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="deny",
-            reason="operation is denied by default in preview phase",
+            reason="operation is denied by default before runtime adoption",
             risk_tags=descriptor.risk_tags,
         )
     if approval_policy == "auto" and (descriptor.destructive or set(descriptor.risk_tags) & DANGEROUS_AUTO_RISK_TAGS):
@@ -160,11 +159,11 @@ def _decide_operation(
             risk_tags=descriptor.risk_tags,
             diagnostics={"approval_policy": approval_policy},
         )
-    if descriptor.operation_type in PREVIEW_ONLY_TYPES:
+    if descriptor.operation_type in NOT_EXECUTABLE_TYPES:
         return ResourceDecision(
             operation_id=descriptor.operation_id,
-            decision="preview_only",
-            reason="worker and agent operations are preview-only in phase 1",
+            decision="not_executable",
+            reason="worker and agent operations are not exposed to the model as direct tools",
             risk_tags=descriptor.risk_tags,
         )
     if descriptor.requires_approval_by_default or descriptor.destructive or set(descriptor.risk_tags) & APPROVAL_RISK_TAGS:
@@ -188,7 +187,7 @@ def _decide_operation(
     return ResourceDecision(
         operation_id=descriptor.operation_id,
         decision="allow",
-        reason="allowed in preview policy",
+        reason="allowed by candidate policy",
         risk_tags=descriptor.risk_tags,
     )
 

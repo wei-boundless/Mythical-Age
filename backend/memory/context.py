@@ -7,7 +7,7 @@ class MemoryContextLayer:
     def __init__(self, *args, **kwargs) -> None:
         raise RuntimeError(
             "MemoryContextLayer is retired. Use MemoryFacade.build_memory_runtime_view(), "
-            "build_memory_context_package_preview(), and preview_memory_context_compaction()."
+            "build_memory_context_package_result(), and inspect_memory_context_compaction()."
         )
 
 

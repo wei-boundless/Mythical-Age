@@ -163,11 +163,11 @@ class ContextController:
     def _build_budget(self) -> ContextBudget:
         available_context = self.compactor.effective_history_token_budget
         total = available_context + self.reserved_output_tokens
-        static_budget = min(600, max(120, int(available_context * 0.08)))
-        active_process_budget = min(1800, max(260, int(available_context * 0.24)))
-        hot_truth_budget = min(2200, max(320, int(available_context * 0.3)))
-        warm_budget = min(1100, max(180, int(available_context * 0.12)))
-        durable_budget = min(1000, max(180, int(available_context * 0.1)))
+        static_budget = min(max(600, int(available_context * 0.02)), max(120, int(available_context * 0.08)))
+        active_process_budget = min(max(1800, int(available_context * 0.08)), max(260, int(available_context * 0.24)))
+        hot_truth_budget = min(max(2200, int(available_context * 0.12)), max(320, int(available_context * 0.3)))
+        warm_budget = min(max(1100, int(available_context * 0.06)), max(180, int(available_context * 0.12)))
+        durable_budget = min(max(1000, int(available_context * 0.08)), max(180, int(available_context * 0.1)))
         retrieval_budget = max(
             0,
             available_context

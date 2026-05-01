@@ -1,0 +1,53 @@
+{
+  "checkpoint_id": "rtchk:taskrun:debug-runtime:turn:debug-runtime:1:68d6722e:1",
+  "task_run_id": "taskrun:debug-runtime:turn:debug-runtime:1:68d6722e",
+  "event_offset": 1,
+  "loop_state": {
+    "task_run_id": "taskrun:debug-runtime:turn:debug-runtime:1:68d6722e",
+    "status": "running",
+    "turn_count": 0,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "start",
+    "terminal_reason": "",
+    "messages_ref": "",
+    "context_snapshot_ref": "",
+    "memory_state_ref": "",
+    "projection_ref": "",
+    "prompt_manifest_ref": "",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {},
+    "compaction_state": {},
+    "result_refs": [],
+    "commit_state": {},
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only"
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "",
+  "prompt_manifest_ref": "",
+  "approval_state": {},
+  "commit_state": {},
+  "created_at": 1777635926.7835746,
+  "checksum": "5e763f867bf7e2b105d91cc3309f9ca6f8483a9236575d427a1d88bc4fc89843",
+  "authority": "orchestration.runtime_checkpoint"
+}

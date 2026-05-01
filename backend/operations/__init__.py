@@ -11,7 +11,7 @@ from .gate import (
     OperationGateResult,
 )
 from .policies import ResourceDecision, ResourcePolicy
-from .policy_builder import RuntimeApprovalContext, build_resource_policy_preview
+from .policy_builder import RuntimeApprovalContext, build_resource_policy_candidate
 from .registry import OperationDescriptor, OperationRegistry, build_default_operation_registry
 from .requirements import OperationRequirement, build_operation_requirement
 from .runtime_view import ResourceRuntimeView, build_resource_runtime_views
@@ -38,6 +38,6 @@ __all__ = [
     "default_agent_capabilities",
     "default_agent_descriptors",
     "build_operation_requirement",
-    "build_resource_policy_preview",
+    "build_resource_policy_candidate",
     "build_resource_runtime_views",
 ]

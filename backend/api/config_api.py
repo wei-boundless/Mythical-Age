@@ -20,6 +20,18 @@ class ContextBudgetPresetRequest(BaseModel):
     preset_id: str
 
 
+class ModelProviderRequest(BaseModel):
+    provider: str
+    model: str
+    base_url: str
+    api_key: str | None = None
+
+
+class RuntimeConfigGroupRequest(BaseModel):
+    group_id: str
+    values: dict[str, object]
+
+
 @router.get("/config/rag-mode")
 async def get_rag_mode() -> dict[str, bool]:
     runtime = require_runtime()
@@ -63,3 +75,32 @@ async def set_context_budget(payload: ContextBudgetPresetRequest) -> dict[str, o
     runtime = require_runtime()
     runtime.settings.set_context_budget_preset(payload.preset_id)
     return runtime.settings.context_budget_payload()
+
+
+@router.get("/config/model-provider")
+async def get_model_provider() -> dict[str, object]:
+    runtime = require_runtime()
+    return runtime.settings.model_provider_payload()
+
+
+@router.put("/config/model-provider")
+async def set_model_provider(payload: ModelProviderRequest) -> dict[str, object]:
+    runtime = require_runtime()
+    return runtime.settings.set_model_provider(
+        provider=payload.provider,
+        model=payload.model,
+        base_url=payload.base_url,
+        api_key=payload.api_key,
+    )
+
+
+@router.get("/config/runtime-console")
+async def get_runtime_config_console() -> dict[str, object]:
+    runtime = require_runtime()
+    return runtime.settings.runtime_config_console_payload()
+
+
+@router.put("/config/runtime-console")
+async def set_runtime_config_group(payload: RuntimeConfigGroupRequest) -> dict[str, object]:
+    runtime = require_runtime()
+    return runtime.settings.set_runtime_config_group(payload.group_id, dict(payload.values))

@@ -48,6 +48,10 @@ class DurableMemoryLayer:
         notes = self.extractor.save_extracted(messages)
         return len(notes)
 
+    async def acommit_extraction(self, messages: list[Message]) -> int:
+        notes = await self.extractor.asave_extracted(messages)
+        return len(notes)
+
     def preview_extraction_notes(self, messages: list[Message]) -> list[Any]:
         """Build durable-memory note candidates without writing the store."""
 
@@ -84,6 +88,23 @@ class DurableMemoryLayer:
             corrections=corrections,
         )
         notes = self.extractor.save_extracted(projected)
+        return len(notes)
+
+    async def acommit_extraction_from_context_state(
+        self,
+        session_id: str,
+        main_context: Any,
+        *,
+        task_summaries: list[Any] | None = None,
+        corrections: list[str] | None = None,
+    ) -> int:
+        projected = self._project_context_state_messages(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            corrections=corrections,
+        )
+        notes = await self.extractor.asave_extracted(projected)
         return len(notes)
 
     def preview_extraction_notes_from_context_state(

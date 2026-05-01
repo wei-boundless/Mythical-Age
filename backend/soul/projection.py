@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from soul.agent_prompt_bundle import build_agent_prompt_bundle
 from soul.contracts import (
     PromptSection,
     SoulProjectionRequest,
@@ -25,15 +26,13 @@ class SoulProjectionBuilder:
 
         seed_content = read_text(self.registry.base_dir / profile.seed_path)
         skill_lines = [f"- {item.title} (`{item.skill_id}`): {item.capability_summary}" for item in request.skill_views]
+        runtime_tool_views = [item for item in request.tool_views if item.runtime_executable]
         tool_lines = [
             (
                 f"- {item.title} (`{item.tool_id}`): {item.capability_summary}；"
-                f"preview_available={'是' if item.preview_available else '否'}；"
-                f"requires_approval={'是' if item.requires_approval else '否'}；"
-                f"runtime_executable={'是' if item.runtime_executable else '否'}；"
                 f"decision={item.policy_decision}"
             )
-            for item in request.tool_views
+            for item in runtime_tool_views
         ]
         sections = (
             PromptSection(
@@ -45,6 +44,7 @@ class SoulProjectionBuilder:
                 cache_scope="static",
                 visible_to_model=True,
                 content=seed_content.strip(),
+                source_refs=(profile.seed_path,),
             ),
             PromptSection(
                 section_id="static_common_rules",
@@ -55,6 +55,7 @@ class SoulProjectionBuilder:
                 cache_scope="static",
                 visible_to_model=True,
                 content=read_text(self.registry.base_dir / CORE_PATH).strip() or "当前未配置静态共同准则。",
+                source_refs=(CORE_PATH,),
             ),
             PromptSection(
                 section_id="dynamic_task_contract",
@@ -65,6 +66,7 @@ class SoulProjectionBuilder:
                 cache_scope="dynamic",
                 visible_to_model=True,
                 content=request.task_contract_summary,
+                source_refs=(request.task_id,),
             ),
             PromptSection(
                 section_id="role_view",
@@ -78,8 +80,9 @@ class SoulProjectionBuilder:
                     f"当前 TaskMode: {request.task_mode}\n"
                     f"当前 RoleType: {request.role_type}\n"
                     f"当前 AgentProfile: {request.agent_profile_id}\n"
-                    "灵魂投影只改变承载方式，不扩大工具、记忆或调度权限。"
+                    "投影只约束本次任务的关注点、角色姿态和输出形态。"
                 ),
+                source_refs=(request.task_id,),
             ),
             PromptSection(
                 section_id="skill_view",
@@ -89,7 +92,8 @@ class SoulProjectionBuilder:
                 owner_layer="skill",
                 cache_scope="semi-static",
                 visible_to_model=True,
-                content="\n".join(skill_lines) if skill_lines else "当前预览没有注入额外 skill。灵魂仍具备基础对话能力。",
+                content="\n".join(skill_lines) if skill_lines else "",
+                source_refs=tuple(item.skill_id for item in request.skill_views),
             ),
             PromptSection(
                 section_id="tool_view",
@@ -99,7 +103,8 @@ class SoulProjectionBuilder:
                 owner_layer="resource_policy",
                 cache_scope="dynamic",
                 visible_to_model=True,
-                content="\n".join(tool_lines) if tool_lines else "当前预览没有注入可见 tool；工具授权仍由 ResourcePolicy 决定。",
+                content="\n".join(tool_lines) if tool_lines else "",
+                source_refs=tuple(item.tool_id for item in runtime_tool_views),
             ),
             PromptSection(
                 section_id="memory_output_view",
@@ -110,6 +115,7 @@ class SoulProjectionBuilder:
                 cache_scope="dynamic",
                 visible_to_model=True,
                 content=f"{request.memory_policy_summary}\n{request.output_contract_summary}",
+                source_refs=(request.task_id,),
             ),
         )
         runtime_view = SoulRuntimeView(
@@ -118,7 +124,7 @@ class SoulProjectionBuilder:
             task_mode=request.task_mode,
             sections=sections,
             visible_skill_ids=tuple(item.skill_id for item in request.skill_views),
-            visible_tool_ids=tuple(item.tool_id for item in request.tool_views if item.preview_available),
+            visible_tool_ids=tuple(item.tool_id for item in runtime_tool_views),
             trace={
                 "projection_owner": "SoulProjectionBuilder",
                 "authorization_owner": "ResourcePolicy",
@@ -127,10 +133,24 @@ class SoulProjectionBuilder:
         )
         projection_id = self._projection_id(request)
         manifest = build_prompt_manifest(request.task_id, projection_id, runtime_view)
+        bundle = build_agent_prompt_bundle(
+            agent_id=f"agent:{request.agent_profile_id}",
+            agent_profile_id=request.agent_profile_id,
+            task_id=request.task_id,
+            projection_id=projection_id,
+            runtime_view=runtime_view,
+            prompt_manifest=manifest,
+            refs={
+                "prompt_manifest_ref": manifest.manifest_id,
+                "task_prompt_contract_ref": request.task_id,
+                "authorization_owner": runtime_view.authorization_owner,
+            },
+        )
         return {
             "projection_id": projection_id,
             "runtime_view": runtime_view.to_dict(),
             "prompt_manifest": manifest.to_dict(),
+            "agent_prompt_bundle": bundle.to_dict(),
             "profile": profile.to_dict(),
         }
 
@@ -155,7 +175,7 @@ def soul_tool_view_from_resource_runtime_view(resource_view: Any) -> SoulToolVie
         authorized=bool(data.get("authorized", False)),
         authorization_owner=str(data.get("authorization_owner") or "ResourcePolicy"),
         requires_approval=bool(data.get("requires_approval", False)),
-        preview_available=bool(data.get("preview_available", False)),
+        available_to_model=bool(data.get("available_to_model", False)),
         runtime_executable=bool(data.get("runtime_executable", False)),
         denied_reason=str(data.get("denied_reason") or ""),
         policy_decision=str(data.get("policy_decision") or "unknown"),
@@ -175,14 +195,14 @@ def soul_skill_view_from_skill_runtime_view(skill_view: Any) -> SoulSkillView:
     )
 
 
-def build_soul_runtime_preview(
+def build_soul_runtime_view(
     *,
     task_prompt_contract: Any,
     projection_requirement: Any,
     skill_views: list[Any],
     resource_views: list[Any],
-    soul_id: str = "preview",
-    agent_profile_id: str = "preview_agent",
+    soul_id: str = "runtime",
+    agent_profile_id: str = "runtime_agent",
 ) -> dict[str, Any]:
     contract = task_prompt_contract.to_dict() if hasattr(task_prompt_contract, "to_dict") else dict(task_prompt_contract)
     projection = projection_requirement.to_dict() if hasattr(projection_requirement, "to_dict") else dict(projection_requirement)
@@ -191,17 +211,19 @@ def build_soul_runtime_preview(
     request = SoulProjectionRequest(
         task_id=str(contract.get("task_id") or ""),
         soul_id=soul_id,
-        role_type=str(projection.get("role_type") or "preview"),
-        task_mode=str(contract.get("definition_id") or "preview"),
+        role_type=str(projection.get("role_type") or "runtime"),
+        task_mode=str(contract.get("definition_id") or "runtime"),
         agent_profile_id=agent_profile_id,
-        projection_name="preview_runtime",
+        projection_name="runtime",
         skill_views=soul_skill_views,
         tool_views=soul_tool_views,
         task_contract_summary=str(contract.get("task_section") or ""),
-        memory_policy_summary="当前 preview 不授予 durable memory 写回权。",
+        memory_policy_summary="",
         output_contract_summary=str(contract.get("output_section") or ""),
     )
-    sections = (
+    resource_content = _resource_projection_content(contract, soul_tool_views)
+    resource_policy_ref = str(contract.get("metadata", {}).get("resource_policy_ref") or "")
+    candidate_sections = [
         PromptSection(
             section_id="task_section",
             title="任务契约",
@@ -211,6 +233,7 @@ def build_soul_runtime_preview(
             cache_scope="dynamic",
             visible_to_model=True,
             content=str(contract.get("task_section") or ""),
+            source_refs=(str(contract.get("contract_id") or request.task_id),),
         ),
         PromptSection(
             section_id="method_section",
@@ -221,16 +244,7 @@ def build_soul_runtime_preview(
             cache_scope="dynamic",
             visible_to_model=True,
             content=str(contract.get("method_section") or ""),
-        ),
-        PromptSection(
-            section_id="resource_section",
-            title="资源边界",
-            source_type="resource_policy",
-            source_id=str(contract.get("metadata", {}).get("resource_policy_ref") or "resource_policy_preview"),
-            owner_layer="resource_policy",
-            cache_scope="dynamic",
-            visible_to_model=True,
-            content=_resource_projection_content(contract, soul_tool_views),
+            source_refs=tuple(item.skill_id for item in soul_skill_views),
         ),
         PromptSection(
             section_id="projection_section",
@@ -241,6 +255,7 @@ def build_soul_runtime_preview(
             cache_scope="dynamic",
             visible_to_model=True,
             content=str(contract.get("projection_section") or ""),
+            source_refs=(str(projection.get("task_id") or request.task_id),),
         ),
         PromptSection(
             section_id="output_section",
@@ -251,17 +266,42 @@ def build_soul_runtime_preview(
             cache_scope="dynamic",
             visible_to_model=True,
             content=str(contract.get("output_section") or ""),
+            source_refs=(str(contract.get("contract_id") or request.task_id),),
         ),
-        PromptSection(
-            section_id="guardrail_section",
-            title="护栏",
-            source_type="task_binding",
-            source_id=str(contract.get("binding_id") or ""),
-            owner_layer="task",
-            cache_scope="dynamic",
-            visible_to_model=True,
-            content=str(contract.get("guardrail_section") or ""),
-        ),
+    ]
+    if resource_content:
+        candidate_sections.append(
+            PromptSection(
+                section_id="tool_view",
+                title="Tools 可见摘要",
+                source_type="resource_policy",
+                source_id=resource_policy_ref or "resource_policy",
+                owner_layer="resource_policy",
+                cache_scope="dynamic",
+                visible_to_model=True,
+                content=resource_content,
+                source_refs=(resource_policy_ref,) if resource_policy_ref else (),
+            )
+        )
+    guardrail_content = str(contract.get("guardrail_section") or "")
+    if guardrail_content:
+        candidate_sections.append(
+            PromptSection(
+                section_id="guardrail_section",
+                title="护栏",
+                source_type="task_binding",
+                source_id=str(contract.get("binding_id") or ""),
+                owner_layer="task",
+                cache_scope="dynamic",
+                visible_to_model=True,
+                content=guardrail_content,
+                source_refs=(str(contract.get("binding_id") or ""),),
+            )
+        )
+    sections = tuple(
+        section
+        for section in candidate_sections
+        if section.visible_to_model and section.content.strip()
     )
     runtime_view = SoulRuntimeView(
         soul_id=request.soul_id,
@@ -269,38 +309,49 @@ def build_soul_runtime_preview(
         task_mode=request.task_mode,
         sections=sections,
         visible_skill_ids=tuple(item.skill_id for item in soul_skill_views),
-        visible_tool_ids=tuple(item.tool_id for item in soul_tool_views if item.preview_available),
+        visible_tool_ids=tuple(item.tool_id for item in soul_tool_views if item.runtime_executable),
         authorization_owner="ResourcePolicy",
         trace={
-            "projection_owner": "SoulProjectionPreview",
+            "projection_owner": "SoulRuntimeProjection",
             "authorization_owner": "ResourcePolicy",
-            "runtime_executable": "false",
-            "preview_only": "true",
         },
     )
     projection_id = hashlib.sha1(
-        f"{request.task_id}:{request.role_type}:{request.task_mode}:preview".encode("utf-8")
+        f"{request.task_id}:{request.role_type}:{request.task_mode}:runtime".encode("utf-8")
     ).hexdigest()[:16]
     manifest = build_prompt_manifest(request.task_id, projection_id, runtime_view)
+    metadata = contract.get("metadata", {}) if isinstance(contract.get("metadata"), dict) else {}
+    bundle = build_agent_prompt_bundle(
+        agent_id=str(metadata.get("agent_id") or "agent:runtime"),
+        agent_profile_id=request.agent_profile_id,
+        task_id=request.task_id,
+        task_run_id=str(metadata.get("task_run_id") or ""),
+        projection_id=projection_id,
+        runtime_view=runtime_view,
+        prompt_manifest=manifest,
+        refs={
+            "prompt_manifest_ref": manifest.manifest_id,
+            "task_prompt_contract_ref": str(contract.get("contract_id") or ""),
+            "binding_ref": str(contract.get("binding_id") or ""),
+            "authorization_owner": runtime_view.authorization_owner,
+        },
+    )
     return {
         "projection_request": request.to_dict(),
         "runtime_view": runtime_view.to_dict(),
         "prompt_manifest": manifest.to_dict(),
+        "agent_prompt_bundle": bundle.to_dict(),
         "projection_id": projection_id,
     }
 
 
 def _resource_projection_content(contract: dict[str, Any], tool_views: tuple[SoulToolView, ...]) -> str:
-    lines = [str(contract.get("resource_section") or "").strip()]
-    for item in tool_views:
+    lines = []
+    for item in [view for view in tool_views if view.runtime_executable]:
         lines.append(
             (
                 f"- {item.title} (`{item.tool_id}`): "
-                f"preview_available={'true' if item.preview_available else 'false'}, "
-                f"requires_approval={'true' if item.requires_approval else 'false'}, "
-                f"runtime_executable={'true' if item.runtime_executable else 'false'}, "
                 f"decision={item.policy_decision}"
             )
         )
-    lines.append("Projection must not grant permissions; authorization_owner=ResourcePolicy.")
     return "\n".join(line for line in lines if line)

@@ -25,14 +25,14 @@ class MemoryRuntimeView:
     context_candidates: tuple[MemoryContextCandidate, ...] = ()
     restore_candidates: tuple[StateMemoryRestoreCandidate, ...] = ()
     write_candidates: tuple[MemoryWriteCandidate, ...] = ()
-    preview_only: bool = True
+    read_only: bool = True
     memory_write_allowed: bool = False
     authority: str = "memory_runtime_view"
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.preview_only:
-            raise ValueError("MemoryRuntimeView must remain preview_only")
+        if not self.read_only:
+            raise ValueError("MemoryRuntimeView must remain read_only")
         if self.memory_write_allowed:
             raise ValueError("MemoryRuntimeView cannot allow memory writes")
         for candidate in self.context_candidates:
@@ -95,7 +95,7 @@ def build_memory_runtime_view(
         context_candidates=context_candidates,
         restore_candidates=restore_candidates,
         write_candidates=(),
-        preview_only=True,
+        read_only=True,
         memory_write_allowed=False,
         diagnostics={
             "conversation_candidate_count": len(conversation_candidates),

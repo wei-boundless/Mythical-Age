@@ -47,8 +47,18 @@ class MemoryExtractor:
             return self._dedupe(extracted)
         return self._dedupe(self._extract_from_explicit_messages(messages))
 
+    async def aextract(self, messages: list[Message]) -> list[MemoryNote]:
+        extracted = await self._aextract_from_projection_messages(messages)
+        if extracted:
+            return self._dedupe(extracted)
+        return self._dedupe(await self._aextract_from_explicit_messages(messages))
+
     def save_extracted(self, messages: list[Message]) -> list[MemoryNote]:
         notes = self.extract(messages)
+        return self.store_writer.save_notes(notes)
+
+    async def asave_extracted(self, messages: list[Message]) -> list[MemoryNote]:
+        notes = await self.aextract(messages)
         return self.store_writer.save_notes(notes)
 
     def _make_title(self, text: str) -> str:
@@ -185,49 +195,58 @@ class MemoryExtractor:
         for message in messages:
             if str(message.meta.get("projection", "") or "") != "durable_context_state":
                 continue
-            bundle = DurableExtractionBundle(
-                session_id=str(message.meta.get("session_id", "") or ""),
-                turn_id=str(message.meta.get("turn_id", "") or ""),
-                message_slice=[
-                    {
-                        "role": msg.role,
-                        "content": msg.content,
-                    }
-                    for msg in messages[-8:]
-                ],
-                main_context=dict(message.meta.get("main_context", {}) or {}),
-                task_summaries=[
-                    item
-                    for item in list(message.meta.get("task_summaries", []) or [])
-                    if isinstance(item, dict)
-                ],
-                corrections=[
-                    str(item)
-                    for item in list(message.meta.get("corrections", []) or [])
-                    if str(item).strip()
-                ],
-                session_projection={},
-                manifest_headers=[
-                    {
-                        "note_id": header.note_id,
-                        "filename": header.filename,
-                        "memory_type": header.memory_type,
-                        "memory_class": header.memory_class,
-                        "title": header.title,
-                        "description": header.description,
-                        "status": header.status,
-                        "confidence": header.confidence,
-                        "eligible_for_injection": header.eligible_for_injection,
-                        "canonical_statement": header.canonical_statement,
-                        "summary": header.summary,
-                    }
-                    for header in scan_memory_headers(self.memory_manager.root_dir, limit=200)
-                ],
-            )
+            bundle = self._projection_bundle(message, messages)
             extracted.extend(self._extract_notes_from_bundle(bundle))
         return extracted
 
+    async def _aextract_from_projection_messages(self, messages: list[Message]) -> list[MemoryNote]:
+        extracted: list[MemoryNote] = []
+        for message in messages:
+            if str(message.meta.get("projection", "") or "") != "durable_context_state":
+                continue
+            bundle = self._projection_bundle(message, messages)
+            extracted.extend(await self._aextract_notes_from_bundle(bundle))
+        return extracted
+
     def _extract_from_explicit_messages(self, messages: list[Message]) -> list[MemoryNote]:
+        bundle = self._explicit_bundle(messages)
+        if bundle is None:
+            return []
+        return self._extract_notes_from_bundle(bundle)
+
+    async def _aextract_from_explicit_messages(self, messages: list[Message]) -> list[MemoryNote]:
+        bundle = self._explicit_bundle(messages)
+        if bundle is None:
+            return []
+        return await self._aextract_notes_from_bundle(bundle)
+
+    def _projection_bundle(self, message: Message, messages: list[Message]) -> DurableExtractionBundle:
+        return DurableExtractionBundle(
+            session_id=str(message.meta.get("session_id", "") or ""),
+            turn_id=str(message.meta.get("turn_id", "") or ""),
+            message_slice=[
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                }
+                for msg in messages[-8:]
+            ],
+            main_context=dict(message.meta.get("main_context", {}) or {}),
+            task_summaries=[
+                item
+                for item in list(message.meta.get("task_summaries", []) or [])
+                if isinstance(item, dict)
+            ],
+            corrections=[
+                str(item)
+                for item in list(message.meta.get("corrections", []) or [])
+                if str(item).strip()
+            ],
+            session_projection={},
+            manifest_headers=self._manifest_headers(),
+        )
+
+    def _explicit_bundle(self, messages: list[Message]) -> DurableExtractionBundle | None:
         candidates = [
             {
                 "role": msg.role,
@@ -238,8 +257,8 @@ class MemoryExtractor:
             if msg.role == "user" and self._is_explicit_write_candidate(normalize_storage_text(msg.content))
         ]
         if not candidates:
-            return []
-        bundle = DurableExtractionBundle(
+            return None
+        return DurableExtractionBundle(
             session_id=str(candidates[-1].get("session_id", "") or ""),
             turn_id="explicit-fallback",
             message_slice=candidates,
@@ -247,27 +266,36 @@ class MemoryExtractor:
             task_summaries=[],
             corrections=[],
             session_projection={},
-            manifest_headers=[
-                {
-                    "note_id": header.note_id,
-                    "filename": header.filename,
-                    "memory_type": header.memory_type,
-                    "memory_class": header.memory_class,
-                    "title": header.title,
-                    "description": header.description,
-                    "status": header.status,
-                    "confidence": header.confidence,
-                    "eligible_for_injection": header.eligible_for_injection,
-                    "canonical_statement": header.canonical_statement,
-                    "summary": header.summary,
-                }
-                for header in scan_memory_headers(self.memory_manager.root_dir, limit=200)
-            ],
+            manifest_headers=self._manifest_headers(),
         )
-        return self._extract_notes_from_bundle(bundle)
+
+    def _manifest_headers(self) -> list[dict[str, object]]:
+        return [
+            {
+                "note_id": header.note_id,
+                "filename": header.filename,
+                "memory_type": header.memory_type,
+                "memory_class": header.memory_class,
+                "title": header.title,
+                "description": header.description,
+                "status": header.status,
+                "confidence": header.confidence,
+                "eligible_for_injection": header.eligible_for_injection,
+                "canonical_statement": header.canonical_statement,
+                "summary": header.summary,
+            }
+            for header in scan_memory_headers(self.memory_manager.root_dir, limit=200)
+        ]
 
     def _extract_notes_from_bundle(self, bundle: DurableExtractionBundle) -> list[MemoryNote]:
         drafts = asyncio.run(self.write_agent.extract(bundle))
+        return self._notes_from_drafts(drafts)
+
+    async def _aextract_notes_from_bundle(self, bundle: DurableExtractionBundle) -> list[MemoryNote]:
+        drafts = await self.write_agent.extract(bundle)
+        return self._notes_from_drafts(drafts)
+
+    def _notes_from_drafts(self, drafts) -> list[MemoryNote]:
         if not drafts:
             return []
         decisions = self.admission_policy.evaluate_many(

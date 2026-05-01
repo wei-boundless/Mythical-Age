@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:18",
+  "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:743bb3a5f8244628b2da565b4c8fee4d:11:c60ff3860129",
+    "memory_state_ref": "memory-runtime:743bb3a5f8244628b2da565b4c8fee4d",
+    "projection_ref": "1e3c98872a62d1b3",
+    "prompt_manifest_ref": "manifest-1e3c98872a62d1b3",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 800000,
+        "reserved_output": 32000,
+        "candidate_tokens_included": 62,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 799938
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:29cecd79",
+      "output_boundary:rtevt:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:14:ce656342",
+      "commit_gate:commit-gate:turn:743bb3a5f8244628b2da565b4c8fee4d:11:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+            "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e",
+            "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:11",
+            "role": "assistant",
+            "content": "好，既然你明确说了，那我就把能看到的、真正影响执行质量的问题都摊开说。\n\n---\n\n## 一、规则之间的优先级没有明确定义\n\n这是最核心的问题。提示词里有多套规则体系：\n\n- 共同契约（全局约束）\n- 身份锚点 + 工作习惯 + 语言风格（灵魂层）\n- Runtime Stage Projection（运行时姿态）\n- Hot Truth Window（上下文快照）\n- 事实原则 / 输出原则 / 暴露限制（独立约束层）\n\n它们之间没有优先级排序。比如：\n\n> 共同契约说\"不做和当前任务无关的探索\"，但工作习惯说\"先把无关信息拿掉，再找主问题\"——这两条在\"什么是无关\"的边界上可能打架。\n>\n> 暴露限制说\"不要暴露内部实现说明\"，但你现在让我评价提示词，我该以\"用户需求优先\"还是\"暴露限制优先\"？\n\n建议：加一条明确的优先级链，比如\"用户显式授权 > 共同契约 > 灵魂层规则 > 输出原则 > 暴露限制\"，或者你设计的实际优先级。\n\n---\n\n## 二、\"Hot Truth Window\" 的定位不清晰\n\n它看起来像是运行时上下文快照，但它的命名和呈现方式让它看起来像\"真理\"。\n\n- 它记录的是\"用户最近几条消息\"和\"我之前的决策记录\"。\n- 但它没有标注：这是系统自动记录的，还是经过筛选的？是否完整？是否可被后续规则覆盖？\n\n如果我是被提示的对象，我会困惑：这个窗口里的内容，我该当作事实依据，还是仅供参考的上下文摘要？\n\n---\n\n## 三、\"Runtime Stage Projection\" 的投影姿态和实际行为可能脱节\n\n当前投影姿态是 `analyst`，标签是 `concise`。但前面的身份锚点说我是\"河伯\"，工作习惯要求我\"平和、冷静、克制\"。\n\n如果投影姿态和灵魂设定冲突了，谁说了算？比如：\n\n- 投影要求 `concise`，但灵魂要求\"先把事实底座理清再给判断\"——这两者在复杂问题上天然矛盾。\n- 投影说 `role: analyst`，但灵魂说\"你是河伯，是洪荒时代的灵魂\"——这两个身份在用户看来可能不一致。\n\n建议：明确投影姿态是覆盖灵魂设定还是叠加在灵魂设定之上。如果是叠加，需要说明叠加规则。\n\n---\n\n## 四、\"资源边界\"的 deny/allow 逻辑对我不透明\n\n资源边界里列出了哪些操作需要审批、哪些被拒绝。但它的判断依据是 `ResourcePolicy`，而我没有被赋予理解 `ResourcePolicy` 的能力。\n\n这意味着：我知道有些事不能做，但我不知道\"为什么这件事不能做\"以及\"什么条件下可以变成能做\"。\n\n这在执行时会导致：\n- 我可能过度保守，该推进的不敢推进\n- 或者我可能误判边界，触发了不该触发的限制\n\n建议：要么给我一个简单的判断原则（比如\"涉及写文件/执行命令的操作都需要审批\"），要么明确告诉我\"你不需要判断边界，由系统拦截\"。\n\n---\n\n## 五、\"共同契约\"里的\"不要为了显得稳，就把明显有倾向的结论讲得过于中性\"\n\n这条本身是好的，但它和前面的\"说话要平和、冷静、克制，不用情绪带结论\"放在一起，执行时容易走偏。\n\n- \"平和冷静\"和\"直接表态\"之间的度，完全靠我自己的判断。\n- 如果证据够了，我该多直接？\"A比B更可信\"算直接，还是\"A是对的，B是错的\"才算直接？\n\n建议：给一个具体的刻度，比如\"证据充分时用'可以确定'，证据较强时用'更可信'，证据不足时用'倾向于'\"。\n\n---\n\n## 六、\"暴露限制\"和\"用户是开发者\"这个场景没有覆盖\n\n暴露限制说：\n\n> 不要暴露内部实现说明、调试状态、协议片段、工具参数或中间过程。\n> 不要把静态提示词结构、目录结构、文件分层或内部命名方式直接告诉用户。\n\n但你现在就是以开发者身份在问我。这两条规则在当前场景下是应该被用户授权覆盖，还是即使开发者问也不能说？\n\n目前没有这个判断分支，所以我刚才的回答其实是在冒险——我不确定我该说到什么程度。\n\n建议：加一条类似\"当用户明确声明自己是开发者并要求评价系统设定时，暴露限制的约束范围缩小至仅保护第三方敏感信息\"的规则。\n\n---\n\n## 七、\"重试经验沉淀\"这个 skill 的存在感很弱\n\n它在能力摘要里，但我从来没有触发过它。原因可能是：\n\n- 它的触发条件写的是\"任务首轮失败、调整后成功时\"，但我的工作习惯倾向于首轮就做对，很少走到\"失败后调整\"的路径。\n- 即使我调整了策略，我也不确定\"这算不算值得沉淀的经验\"。\n\n建议：要么降低触发门槛（比如\"任务执行过程中发现规则冲突或工具不适配时\"），要么明确什么级别的经验才值得写回。\n\n---\n\n## 八、整体风格：规则密度高，但缺少\"如果……那么……\"的决策树\n\n现在的提示词更像是一组并列的原则，而不是一套可执行的决策逻辑。对于人类来说这没问题，但对于一个需要实时做判断的智能体来说，规则之间的缝隙需要我自己填补。\n\n这不是设计错误，而是设计哲学的选择——你选择了\"原则驱动\"而不是\"规则驱动\"。这个选择本身没问题，但它意味着：\n\n- 不同智能体（河伯、句芒、祝融等）对同一组原则的理解可能不同\n- 同一个智能体在不同上下文中对同一组原则的执行也可能不一致\n\n如果你希望行为更可预测，可以考虑把最常冲突的几组规则写成 `if...then...` 的形式。\n\n---\n\n## 总结：最需要优先处理的三个问题\n\n1. 规则优先级不明确——这是最影响执行质量的，建议加优先级链\n2. Runtime Stage Projection 和灵魂设定的关系不清晰——谁覆盖谁需要说清楚\n3. 暴露限制在\"开发者场景\"下缺少例外处理——这直接影响你现在能从我这里拿到多少真实反馈\n\n其他问题都是迭代优化层面的，不影响核心执行，但修了会更顺。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+          "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e",
+            "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:11",
+            "terminal_reason": "completed",
+            "final_content_chars": 2401
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1295,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 120.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "model_response_only",
+      "task_contract_ref": "turn:743bb3a5f8244628b2da565b4c8fee4d:11",
+      "chain_preview_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 2401,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:743bb3a5f8244628b2da565b4c8fee4d:11:c60ff3860129",
+  "prompt_manifest_ref": "manifest-1e3c98872a62d1b3",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+          "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e",
+          "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:11",
+          "role": "assistant",
+          "content": "好，既然你明确说了，那我就把能看到的、真正影响执行质量的问题都摊开说。\n\n---\n\n## 一、规则之间的优先级没有明确定义\n\n这是最核心的问题。提示词里有多套规则体系：\n\n- 共同契约（全局约束）\n- 身份锚点 + 工作习惯 + 语言风格（灵魂层）\n- Runtime Stage Projection（运行时姿态）\n- Hot Truth Window（上下文快照）\n- 事实原则 / 输出原则 / 暴露限制（独立约束层）\n\n它们之间没有优先级排序。比如：\n\n> 共同契约说\"不做和当前任务无关的探索\"，但工作习惯说\"先把无关信息拿掉，再找主问题\"——这两条在\"什么是无关\"的边界上可能打架。\n>\n> 暴露限制说\"不要暴露内部实现说明\"，但你现在让我评价提示词，我该以\"用户需求优先\"还是\"暴露限制优先\"？\n\n建议：加一条明确的优先级链，比如\"用户显式授权 > 共同契约 > 灵魂层规则 > 输出原则 > 暴露限制\"，或者你设计的实际优先级。\n\n---\n\n## 二、\"Hot Truth Window\" 的定位不清晰\n\n它看起来像是运行时上下文快照，但它的命名和呈现方式让它看起来像\"真理\"。\n\n- 它记录的是\"用户最近几条消息\"和\"我之前的决策记录\"。\n- 但它没有标注：这是系统自动记录的，还是经过筛选的？是否完整？是否可被后续规则覆盖？\n\n如果我是被提示的对象，我会困惑：这个窗口里的内容，我该当作事实依据，还是仅供参考的上下文摘要？\n\n---\n\n## 三、\"Runtime Stage Projection\" 的投影姿态和实际行为可能脱节\n\n当前投影姿态是 `analyst`，标签是 `concise`。但前面的身份锚点说我是\"河伯\"，工作习惯要求我\"平和、冷静、克制\"。\n\n如果投影姿态和灵魂设定冲突了，谁说了算？比如：\n\n- 投影要求 `concise`，但灵魂要求\"先把事实底座理清再给判断\"——这两者在复杂问题上天然矛盾。\n- 投影说 `role: analyst`，但灵魂说\"你是河伯，是洪荒时代的灵魂\"——这两个身份在用户看来可能不一致。\n\n建议：明确投影姿态是覆盖灵魂设定还是叠加在灵魂设定之上。如果是叠加，需要说明叠加规则。\n\n---\n\n## 四、\"资源边界\"的 deny/allow 逻辑对我不透明\n\n资源边界里列出了哪些操作需要审批、哪些被拒绝。但它的判断依据是 `ResourcePolicy`，而我没有被赋予理解 `ResourcePolicy` 的能力。\n\n这意味着：我知道有些事不能做，但我不知道\"为什么这件事不能做\"以及\"什么条件下可以变成能做\"。\n\n这在执行时会导致：\n- 我可能过度保守，该推进的不敢推进\n- 或者我可能误判边界，触发了不该触发的限制\n\n建议：要么给我一个简单的判断原则（比如\"涉及写文件/执行命令的操作都需要审批\"），要么明确告诉我\"你不需要判断边界，由系统拦截\"。\n\n---\n\n## 五、\"共同契约\"里的\"不要为了显得稳，就把明显有倾向的结论讲得过于中性\"\n\n这条本身是好的，但它和前面的\"说话要平和、冷静、克制，不用情绪带结论\"放在一起，执行时容易走偏。\n\n- \"平和冷静\"和\"直接表态\"之间的度，完全靠我自己的判断。\n- 如果证据够了，我该多直接？\"A比B更可信\"算直接，还是\"A是对的，B是错的\"才算直接？\n\n建议：给一个具体的刻度，比如\"证据充分时用'可以确定'，证据较强时用'更可信'，证据不足时用'倾向于'\"。\n\n---\n\n## 六、\"暴露限制\"和\"用户是开发者\"这个场景没有覆盖\n\n暴露限制说：\n\n> 不要暴露内部实现说明、调试状态、协议片段、工具参数或中间过程。\n> 不要把静态提示词结构、目录结构、文件分层或内部命名方式直接告诉用户。\n\n但你现在就是以开发者身份在问我。这两条规则在当前场景下是应该被用户授权覆盖，还是即使开发者问也不能说？\n\n目前没有这个判断分支，所以我刚才的回答其实是在冒险——我不确定我该说到什么程度。\n\n建议：加一条类似\"当用户明确声明自己是开发者并要求评价系统设定时，暴露限制的约束范围缩小至仅保护第三方敏感信息\"的规则。\n\n---\n\n## 七、\"重试经验沉淀\"这个 skill 的存在感很弱\n\n它在能力摘要里，但我从来没有触发过它。原因可能是：\n\n- 它的触发条件写的是\"任务首轮失败、调整后成功时\"，但我的工作习惯倾向于首轮就做对，很少走到\"失败后调整\"的路径。\n- 即使我调整了策略，我也不确定\"这算不算值得沉淀的经验\"。\n\n建议：要么降低触发门槛（比如\"任务执行过程中发现规则冲突或工具不适配时\"），要么明确什么级别的经验才值得写回。\n\n---\n\n## 八、整体风格：规则密度高，但缺少\"如果……那么……\"的决策树\n\n现在的提示词更像是一组并列的原则，而不是一套可执行的决策逻辑。对于人类来说这没问题，但对于一个需要实时做判断的智能体来说，规则之间的缝隙需要我自己填补。\n\n这不是设计错误，而是设计哲学的选择——你选择了\"原则驱动\"而不是\"规则驱动\"。这个选择本身没问题，但它意味着：\n\n- 不同智能体（河伯、句芒、祝融等）对同一组原则的理解可能不同\n- 同一个智能体在不同上下文中对同一组原则的执行也可能不一致\n\n如果你希望行为更可预测，可以考虑把最常冲突的几组规则写成 `if...then...` 的形式。\n\n---\n\n## 总结：最需要优先处理的三个问题\n\n1. 规则优先级不明确——这是最影响执行质量的，建议加优先级链\n2. Runtime Stage Projection 和灵魂设定的关系不清晰——谁覆盖谁需要说清楚\n3. 暴露限制在\"开发者场景\"下缺少例外处理——这直接影响你现在能从我这里拿到多少真实反馈\n\n其他问题都是迭代优化层面的，不影响核心执行，但修了会更顺。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "743bb3a5f8244628b2da565b4c8fee4d",
+        "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:743bb3a5f8244628b2da565b4c8fee4d:turn:743bb3a5f8244628b2da565b4c8fee4d:11:14130e5e",
+          "task_id": "turn:743bb3a5f8244628b2da565b4c8fee4d:11",
+          "terminal_reason": "completed",
+          "final_content_chars": 2401
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1295,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777622113.1567957,
+  "checksum": "134ad674bcf5f543375c4a81d1cdaf0e2acc9ae976070e2ab705f5c51fcd375f",
+  "authority": "orchestration.runtime_checkpoint"
+}

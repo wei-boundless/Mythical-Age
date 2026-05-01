@@ -339,6 +339,81 @@ def _orchestration_diff_mismatches(diff: dict[str, Any]) -> list[str]:
     return mismatches
 
 
+def _event_data(events: list[dict[str, Any]], event_name: str) -> list[dict[str, Any]]:
+    return [
+        dict(item.get("data") or {})
+        for item in events
+        if str(item.get("event") or "") == event_name
+    ]
+
+
+def _runtime_loop_payloads(events: list[dict[str, Any]], runtime_event_type: str) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for data in _event_data(events, "runtime_loop_event"):
+        event = dict(data.get("event") or {})
+        if str(event.get("event_type") or "") != runtime_event_type:
+            continue
+        payloads.append(dict(event.get("payload") or {}))
+    return payloads
+
+
+def _first_runtime_loop_payload(events: list[dict[str, Any]], runtime_event_type: str) -> dict[str, Any]:
+    payloads = _runtime_loop_payloads(events, runtime_event_type)
+    return payloads[0] if payloads else {}
+
+
+def _runtime_operation_refs(events: list[dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    for data in _event_data(events, "runtime_directive"):
+        directive = dict(data.get("directive") or {})
+        for operation_ref in list(directive.get("operation_refs") or []):
+            normalized = str(operation_ref or "").strip()
+            if normalized and normalized not in refs:
+                refs.append(normalized)
+    return refs
+
+
+def _infer_plan_fields_from_runtime(events: list[dict[str, Any]]) -> dict[str, Any]:
+    task_payload = _first_runtime_loop_payload(events, "task_contract_built")
+    task_contract = dict(task_payload.get("task_contract") or {})
+    projection_payload = _first_runtime_loop_payload(events, "stage_projection_built")
+    stage_projection = dict(projection_payload.get("stage_projection") or {})
+    directive_operations = _runtime_operation_refs(events)
+    tool_requests = _event_data(events, "tool_call_requested")
+
+    tool_names = [
+        str(item.get("tool_name") or dict(item.get("tool_call") or {}).get("name") or "").strip()
+        for item in tool_requests
+        if str(item.get("tool_name") or dict(item.get("tool_call") or {}).get("name") or "").strip()
+    ]
+    if not tool_names:
+        for operation_ref in directive_operations:
+            if operation_ref.startswith("op.") and operation_ref != "op.model_response":
+                tool_names.append(operation_ref.removeprefix("op."))
+
+    primary_tool = tool_names[0] if tool_names else ""
+    route = "model"
+    if primary_tool:
+        route = "tool"
+    elif "op.web_search" in directive_operations or "op.fetch_url" in directive_operations:
+        route = "rag"
+
+    return {
+        "route": str(task_contract.get("route") or route),
+        "tool": primary_tool,
+        "worker": "",
+        "skill": str(stage_projection.get("skill_ref") or task_contract.get("skill_name") or ""),
+        "execution_mode": str(task_contract.get("execution_mode") or "single_agent_runtime"),
+        "bundle_item_count": 0,
+        "subquery_count": 0,
+        "tool_names": tool_names,
+        "worker_names": [],
+        "runtime_effective_route": route,
+        "task_contract": task_contract,
+        "stage_projection": stage_projection,
+    }
+
+
 def _resolve_positive_float_env(name: str, default: float) -> float:
     raw = os.getenv(name)
     if not raw or not raw.strip():
@@ -427,16 +502,6 @@ def _execute_user_turn(
     session_ids: dict[str, str],
 ) -> TurnResult:
     session_id = _ensure_session(client, session_ids, turn.session, title=turn.session)
-    history = runtime.session_manager.load_session_for_agent(
-        session_id,
-        include_compressed_context=False,
-    )
-    plan = runtime.query_runtime._planner_build_plan(
-        session_id=session_id,
-        message=turn.content,
-        history=history,
-        authority_context=runtime.query_runtime._planner_authority_context(session_id),
-    )
 
     request_started_at = iso_now()
     request_started = time.perf_counter()
@@ -450,6 +515,7 @@ def _execute_user_turn(
             request_start=request_started,
             request_start_ts=request_started_at,
         )
+    inferred = _infer_plan_fields_from_runtime(events)
     sync_details: dict[str, Any] | None = None
     memory_sync_ms = 0.0
     if turn.force_memory_sync:
@@ -499,7 +565,7 @@ def _execute_user_turn(
     runtime_effective_route = ""
     if active_work_item.startswith("followup_task_"):
         runtime_effective_route = "followup_direct"
-    elif any(item.get("event") == "tool_start" for item in events):
+    elif any(item.get("event") in {"tool_start", "tool_call_requested", "tool_result_received"} for item in events):
         runtime_effective_route = "tool"
     elif any(item.get("event") == "worker_start" for item in events):
         runtime_effective_route = "worker"
@@ -510,20 +576,12 @@ def _execute_user_turn(
         for item in events
         if item.get("event") == "tool_start"
     ]
+    tool_names.extend(name for name in list(inferred.get("tool_names") or []) if name and name not in tool_names)
     worker_names = [
         str(dict(item.get("data") or {}).get("worker", "") or "")
         for item in events
         if item.get("event") == "worker_start"
     ]
-    plan_worker = str(getattr(getattr(plan, "worker_plan", None), "worker_route", "") or "")
-    if not plan_worker:
-        executions = plan.iter_executions()
-        for execution in executions:
-            worker_plan = getattr(execution, "worker_plan", None)
-            worker_route = str(getattr(worker_plan, "worker_route", "") or "")
-            if worker_route:
-                plan_worker = worker_route
-                break
     orchestration_topology = dict(orchestration_plan.get("topology") or {})
     orchestration_executions = [
         dict(item)
@@ -531,15 +589,15 @@ def _execute_user_turn(
         if isinstance(item, dict)
     ]
     orchestration_execution = orchestration_executions[0] if orchestration_executions else {}
-    effective_plan_route = str(orchestration_topology.get("route") or plan.query_understanding.route or "")
-    effective_plan_tool = str(orchestration_execution.get("tool_name") or plan.query_understanding.tool_name or "")
-    effective_plan_worker = str(orchestration_execution.get("worker_route") or plan_worker or "")
+    effective_plan_route = str(orchestration_topology.get("route") or inferred.get("route") or "")
+    effective_plan_tool = str(orchestration_execution.get("tool_name") or inferred.get("tool") or "")
+    effective_plan_worker = str(orchestration_execution.get("worker_route") or inferred.get("worker") or "")
     effective_plan_skill = str(
         orchestration_execution.get("skill_name")
-        or (plan.active_skill.name if plan.active_skill is not None else plan.query_understanding.skill_name)
+        or inferred.get("skill")
         or ""
     )
-    effective_execution_mode = str(orchestration_topology.get("mode") or getattr(plan, "execution_mode", "") or "")
+    effective_execution_mode = str(orchestration_topology.get("mode") or inferred.get("execution_mode") or "")
     task_count = len(runtime.task_coordinator.list_tasks(session_id=session_id))
 
     turn_result = TurnResult(
@@ -552,13 +610,13 @@ def _execute_user_turn(
         plan_worker=effective_plan_worker,
         plan_skill=effective_plan_skill,
         execution_mode=effective_execution_mode,
-        bundle_item_count=len(list(getattr(getattr(plan, "bundle_plan", None), "items", []) or [])),
-        subquery_count=len(plan.subqueries),
+        bundle_item_count=int(inferred.get("bundle_item_count") or 0),
+        subquery_count=int(inferred.get("subquery_count") or 0),
         event_types=[str(item.get("event", "")) for item in events],
         tool_names=[name for name in tool_names if name],
         worker_names=[name for name in worker_names if name],
         response_text=response_text,
-        runtime_effective_route=runtime_effective_route or plan.query_understanding.route,
+        runtime_effective_route=runtime_effective_route or str(inferred.get("runtime_effective_route") or ""),
         followup_mode=str(done_payload.get("followup_mode", "") or ("direct_task_handle" if active_work_item.startswith("followup_task_") else "")),
         followup_task_id=str(main_context.get("followup_target_task_id", "") or ""),
         followup_task_ids=[
@@ -625,7 +683,10 @@ def _execute_user_turn(
                     "skill": turn_result.plan_skill,
                     "execution_mode": turn_result.execution_mode,
                     "bundle_item_count": turn_result.bundle_item_count,
-                    "subqueries": list(plan.subqueries),
+                    "subqueries": [],
+                    "source": "runtime_loop_events",
+                    "task_contract": inferred.get("task_contract") or {},
+                    "stage_projection": inferred.get("stage_projection") or {},
                 },
                 "events": events,
                 "orchestration_plan": orchestration_plan,

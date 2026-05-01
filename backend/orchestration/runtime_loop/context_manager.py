@@ -112,7 +112,7 @@ class RuntimeContextManager:
         history: list[dict[str, Any]],
         memory_intent: Any | None = None,
         memory_runtime_view: dict[str, Any] | None = None,
-        context_policy_preview: dict[str, Any] | None = None,
+        context_policy_result: dict[str, Any] | None = None,
         stage_projection_snapshot: Any | None = None,
     ) -> RuntimeContextSnapshot:
         system_prompt = self.system_prompt_builder(
@@ -122,14 +122,14 @@ class RuntimeContextManager:
         )
         normalized_history = tuple(_normalize_history(history))
         pending = str(user_message or "")
-        context_policy_ref = _context_policy_ref(context_policy_preview)
+        context_policy_ref = _context_policy_ref(context_policy_result)
         memory_view_ref = str((memory_runtime_view or {}).get("view_id") or "")
         projection_ref = str(getattr(stage_projection_snapshot, "projection_ref", "") or "")
         prompt_manifest_ref = str(getattr(stage_projection_snapshot, "prompt_manifest_ref", "") or "")
         runtime_prompt = _build_runtime_system_prompt(
             legacy_system_prompt=system_prompt,
             stage_projection_snapshot=stage_projection_snapshot,
-            context_policy_preview=context_policy_preview,
+            context_policy_result=context_policy_result,
         )
         model_messages = (
             {"role": "system", "content": runtime_prompt},
@@ -155,10 +155,10 @@ class RuntimeContextManager:
             history_message_count=len(normalized_history),
             pending_user_message_chars=len(pending),
             system_prompt_chars=len(runtime_prompt),
-            token_pressure=_token_pressure(context_policy_preview),
+            token_pressure=_token_pressure(context_policy_result),
             prompt_source_report=_prompt_source_report(
                 stage_projection_snapshot=stage_projection_snapshot,
-                context_policy_preview=context_policy_preview,
+                context_policy_result=context_policy_result,
                 legacy_system_prompt_chars=len(system_prompt),
                 runtime_system_prompt_chars=len(runtime_prompt),
             ),
@@ -181,7 +181,7 @@ class RuntimeContextManager:
     def record_observation(self, observation: RuntimeObservation) -> RuntimeContextObservationRecord:
         """Normalize an observation into a future context update.
 
-        The current model-only lane does not mutate model_messages after the
+        The current single-agent lane does not mutate model_messages after the
         final answer. This record is the durable slot that tool_result and
         worker_result observations will use before a next_turn model call.
         """
@@ -239,7 +239,7 @@ def _normalize_history(history: list[dict[str, Any]]) -> list[dict[str, str]]:
 
 
 def _tool_result_pairing_ok(messages: tuple[dict[str, str], ...]) -> bool:
-    # Current model-only messages do not carry structured tool_use/tool_result
+    # Current model messages do not carry structured tool_use/tool_result
     # ids. The first invariant is therefore conservative: if a future adapter
     # marks a message as tool_result without a paired id, fail the report.
     for item in messages:
@@ -249,8 +249,8 @@ def _tool_result_pairing_ok(messages: tuple[dict[str, str], ...]) -> bool:
     return True
 
 
-def _context_policy_ref(context_policy_preview: dict[str, Any] | None) -> str:
-    payload = dict(context_policy_preview or {})
+def _context_policy_ref(context_policy_result: dict[str, Any] | None) -> str:
+    payload = dict(context_policy_result or {})
     package = dict(payload.get("package") or {})
     return str(
         payload.get("result_id")
@@ -261,8 +261,8 @@ def _context_policy_ref(context_policy_preview: dict[str, Any] | None) -> str:
     )
 
 
-def _token_pressure(context_policy_preview: dict[str, Any] | None) -> dict[str, Any]:
-    package = dict((context_policy_preview or {}).get("package") or {})
+def _token_pressure(context_policy_result: dict[str, Any] | None) -> dict[str, Any]:
+    package = dict((context_policy_result or {}).get("package") or {})
     return {
         "pressure_level": str(package.get("pressure_level") or "normal"),
         "token_accounting": dict(package.get("token_accounting") or {}),
@@ -273,13 +273,13 @@ def _token_pressure(context_policy_preview: dict[str, Any] | None) -> dict[str, 
 def _prompt_source_report(
     *,
     stage_projection_snapshot: Any | None,
-    context_policy_preview: dict[str, Any] | None,
+    context_policy_result: dict[str, Any] | None,
     legacy_system_prompt_chars: int,
     runtime_system_prompt_chars: int,
 ) -> dict[str, Any]:
     prompt_manifest = dict(getattr(stage_projection_snapshot, "prompt_manifest", {}) or {})
     soul_runtime_view = dict(getattr(stage_projection_snapshot, "soul_runtime_view", {}) or {})
-    context_package = dict((context_policy_preview or {}).get("package") or {})
+    context_package = dict((context_policy_result or {}).get("package") or {})
     manifest_sections = []
     for index, section in enumerate(list(prompt_manifest.get("sections") or ())):
         item = dict(section or {})
@@ -295,6 +295,11 @@ def _prompt_source_report(
                 "chars": int(item.get("chars") or 0),
             }
         )
+    model_visible_runtime_sections = _model_visible_projection_sections(stage_projection_snapshot)
+    model_visible_ids = {
+        str(dict(section or {}).get("section_id") or "")
+        for section in model_visible_runtime_sections
+    }
     runtime_sections = []
     for index, section in enumerate(list(soul_runtime_view.get("sections") or ())):
         item = dict(section or {})
@@ -305,7 +310,7 @@ def _prompt_source_report(
                 "title": str(item.get("title") or ""),
                 "owner_layer": str(item.get("owner_layer") or ""),
                 "cache_scope": str(item.get("cache_scope") or ""),
-                "visible_to_model": bool(item.get("visible_to_model", True)),
+                "visible_to_model": str(item.get("section_id") or "") in model_visible_ids,
                 "chars": int(item.get("chars") or len(str(item.get("content") or ""))),
             }
         )
@@ -316,7 +321,7 @@ def _prompt_source_report(
         "projection_ref": str(getattr(stage_projection_snapshot, "projection_ref", "") or ""),
         "prompt_manifest_ref": str(getattr(stage_projection_snapshot, "prompt_manifest_ref", "") or ""),
         "manifest_section_count": len(manifest_sections),
-        "runtime_section_count": len(runtime_sections),
+        "runtime_section_count": len(model_visible_runtime_sections),
         "context_selected_sections": list(context_package.get("selected_sections") or ()),
         "context_pressure_level": str(context_package.get("pressure_level") or "normal"),
         "manifest_sections": manifest_sections,
@@ -328,13 +333,13 @@ def _build_runtime_system_prompt(
     *,
     legacy_system_prompt: str,
     stage_projection_snapshot: Any | None,
-    context_policy_preview: dict[str, Any] | None,
+    context_policy_result: dict[str, Any] | None,
 ) -> str:
     parts = [str(legacy_system_prompt or "").strip()]
     projection_block = _render_projection_block(stage_projection_snapshot)
     if projection_block:
         parts.append(projection_block)
-    context_block = _render_context_policy_block(context_policy_preview)
+    context_block = _render_context_policy_block(context_policy_result)
     if context_block:
         parts.append(context_block)
     return "\n\n".join(part for part in parts if part)
@@ -343,12 +348,9 @@ def _build_runtime_system_prompt(
 def _render_projection_block(stage_projection_snapshot: Any | None) -> str:
     if stage_projection_snapshot is None:
         return ""
-    soul_runtime_view = dict(getattr(stage_projection_snapshot, "soul_runtime_view", {}) or {})
     sections = []
-    for section in list(soul_runtime_view.get("sections") or ()):
+    for section in _model_visible_projection_sections(stage_projection_snapshot):
         item = dict(section or {})
-        if item.get("visible_to_model") is False:
-            continue
         title = str(item.get("title") or item.get("section_id") or "Runtime Projection").strip()
         content = str(item.get("content") or "").strip()
         if not content:
@@ -358,14 +360,56 @@ def _render_projection_block(stage_projection_snapshot: Any | None) -> str:
         return ""
     header = (
         "## Runtime Stage Projection\n"
-        "The following projection sections bind the current task posture. "
-        "They do not grant permissions; OperationGate remains the authority for execution."
+        "当前投影只约束本次任务的关注点、角色姿态和输出形态；"
+        "它叠加在当前灵魂之上，不替代身份锚点和共同契约。"
     )
     return "\n\n".join([header, *sections])
 
 
-def _render_context_policy_block(context_policy_preview: dict[str, Any] | None) -> str:
-    package = dict((context_policy_preview or {}).get("package") or {})
+def _model_visible_projection_sections(stage_projection_snapshot: Any | None) -> list[dict[str, Any]]:
+    if stage_projection_snapshot is None:
+        return []
+    soul_runtime_view = dict(getattr(stage_projection_snapshot, "soul_runtime_view", {}) or {})
+    sections: list[dict[str, Any]] = []
+    for section in list(soul_runtime_view.get("sections") or ()):
+        item = dict(section or {})
+        if item.get("visible_to_model") is False:
+            continue
+        if _is_control_plane_projection_section(item):
+            continue
+        if not str(item.get("content") or "").strip():
+            continue
+        sections.append(item)
+    return sections
+
+
+def _is_control_plane_projection_section(section: dict[str, Any]) -> bool:
+    section_id = str(section.get("section_id") or "").strip()
+    owner_layer = str(section.get("owner_layer") or "").strip()
+    source_type = str(section.get("source_type") or "").strip()
+    source_id = str(section.get("source_id") or "").strip()
+    source_refs = [str(item or "").strip() for item in list(section.get("source_refs") or ())]
+    metadata = dict(section.get("metadata") or {}) if isinstance(section.get("metadata"), dict) else {}
+    content = str(section.get("content") or "")
+    if section_id in {"resource_section", "guardrail_section"}:
+        return True
+    if owner_layer in {"resource_policy", "control_kernel", "operation_gate", "commit_gate"}:
+        return True
+    if source_type in {"resource_policy", "operation_gate", "control_kernel", "commit_gate"}:
+        return True
+    probe = "\n".join([source_id, *source_refs, content, repr(metadata)]).lower()
+    blocked_markers = (
+        ":preview",
+        "denied:",
+        "do not execute tools",
+        "runtime_executable=false",
+        "runtime_executable: false",
+    )
+    return any(marker in probe for marker in blocked_markers)
+
+
+def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -> str:
+    package = dict((context_policy_result or {}).get("package") or {})
     model_sections = dict(package.get("model_visible_sections") or package.get("sections") or {})
     section_order = [
         "active_process_context",
@@ -376,16 +420,33 @@ def _render_context_policy_block(context_policy_preview: dict[str, Any] | None) 
         "relevant_durable_context",
     ]
     lines = []
+    section_notes = {
+        "active_process_context": "当前进行中的任务状态；用于保持推进方向。",
+        "hot_truth_window": "近期上下文摘要，用于保持连续性；它不是完整事实源，和当前用户消息或可验证资料冲突时应让位。",
+        "retrieval_evidence": "当前检索证据；可用时优先作为回答依据。",
+        "warm_snapshots": "较弱的历史线索；仅在和当前任务相关时使用。",
+        "exact_durable_context": "精确长期记忆；使用前仍要确认适用范围。",
+        "relevant_durable_context": "相关长期记忆；只作为当前判断的辅助依据。",
+    }
     for section_name in section_order:
         items = [str(item).strip() for item in list(model_sections.get(section_name) or ()) if str(item).strip()]
         if not items:
             continue
         title = section_name.replace("_", " ").title()
         lines.append(f"### {title}")
+        note = section_notes.get(section_name)
+        if note:
+            lines.append(note)
         lines.extend(f"- {item}" for item in items)
     if not lines:
         return ""
-    return "\n".join(["## Runtime Context Package", *lines])
+    return "\n".join(
+        [
+            "## Runtime Context Package",
+            "以下内容是本轮运行时上下文，用于辅助当前任务，不覆盖共同契约、当前灵魂、当前用户消息或可验证资料。",
+            *lines,
+        ]
+    )
 
 
 def _snapshot_id(
