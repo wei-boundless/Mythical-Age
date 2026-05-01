@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:18",
+  "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:ba1bb64fa57e",
+    "memory_state_ref": "memory-runtime:b6e1cec379db4282bb94aa4fc8e7e375",
+    "projection_ref": "e8e1f88a348eb9ee",
+    "prompt_manifest_ref": "manifest-e8e1f88a348eb9ee",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 407,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899593
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:b8b57a0c",
+      "output_boundary:rtevt:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:14:0476ce59",
+      "commit_gate:commit-gate:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "b6e1cec379db4282bb94aa4fc8e7e375",
+            "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2",
+            "task_id": "turn:b6e1cec379db4282bb94aa4fc8e7e375:39",
+            "role": "assistant",
+            "content": "岩，你刚才让我长期记住了三件事：\n\n1. 复杂问题先给结论。\n2. 回答你时直接称呼你“岩”。\n3. 信息不足时，先明确告诉你缺什么，不直接猜。\n\n这些都是你明确要求我长期记住的稳定偏好。还有什么需要我记住的吗？",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "b6e1cec379db4282bb94aa4fc8e7e375",
+          "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2",
+            "task_id": "turn:b6e1cec379db4282bb94aa4fc8e7e375:39",
+            "terminal_reason": "completed",
+            "final_content_chars": 106
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2572,
+      "durable_saved_count": 2,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:b6e1cec379db4282bb94aa4fc8e7e375:39",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 106,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:ba1bb64fa57e",
+  "prompt_manifest_ref": "manifest-e8e1f88a348eb9ee",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "b6e1cec379db4282bb94aa4fc8e7e375",
+          "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2",
+          "task_id": "turn:b6e1cec379db4282bb94aa4fc8e7e375:39",
+          "role": "assistant",
+          "content": "岩，你刚才让我长期记住了三件事：\n\n1. 复杂问题先给结论。\n2. 回答你时直接称呼你“岩”。\n3. 信息不足时，先明确告诉你缺什么，不直接猜。\n\n这些都是你明确要求我长期记住的稳定偏好。还有什么需要我记住的吗？",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "b6e1cec379db4282bb94aa4fc8e7e375",
+        "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:39:e74d42c2",
+          "task_id": "turn:b6e1cec379db4282bb94aa4fc8e7e375:39",
+          "terminal_reason": "completed",
+          "final_content_chars": 106
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2572,
+    "durable_saved_count": 2,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777663497.5338893,
+  "checksum": "c466571b4fa4061d6341d4b4f3105c18f4586c16abafc779a72aca49eb753e1a",
+  "authority": "orchestration.runtime_checkpoint"
+}

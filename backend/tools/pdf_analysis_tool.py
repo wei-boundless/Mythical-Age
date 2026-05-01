@@ -77,12 +77,17 @@ class PdfAnalysisTool(BaseTool):
         except ValueError as exc:
             code = str(exc)
             if code == "missing_explicit_pdf_path":
-                return "PDF analysis failed: explicit path is required."
+                try:
+                    file_path = PdfAnalysisCatalog.resolve_pdf_path(self._root_dir, "", query)
+                    path = PdfAnalysisCatalog.relative_path(self._root_dir, file_path)
+                except Exception:
+                    return "PDF analysis failed: explicit path is required."
             if code == "file_does_not_exist":
                 return "PDF analysis failed: file does not exist."
             if code == "path_is_directory":
                 return "PDF analysis failed: the provided path is a directory."
-            return f"PDF analysis failed: {exc}"
+            if code not in {"missing_explicit_pdf_path", "file_does_not_exist", "path_is_directory"}:
+                return f"PDF analysis failed: {exc}"
 
         result = self._runtime.run(
             request=PDFReadRequest(

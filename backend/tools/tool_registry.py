@@ -61,6 +61,8 @@ class ToolRegistry:
             if not overlap:
                 continue
             score = float(len(overlap)) * 10.0
+            if "latest_information" in requested and "latest_information" in metadata_terms:
+                score += 4.0
             if route and str(route).strip().lower() in {str(item).lower() for item in tool.route_hints}:
                 score += 2.0
             if modality and str(modality).strip().lower() in {str(item).lower() for item in tool.supported_modalities}:

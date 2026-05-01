@@ -55,6 +55,7 @@ class TaskSignals:
     knowledge_source_anchor_kind: str = ""
     workspace_read_request: bool = False
     workspace_search_request: bool = False
+    business_dataset_request: bool = False
     faq_shape: bool = False
     external_requirement: bool = False
     official_source_requirement: bool = False
@@ -79,6 +80,7 @@ class TaskSignals:
             "knowledge_source_anchor_kind": self.knowledge_source_anchor_kind,
             "workspace_read_request": self.workspace_read_request,
             "workspace_search_request": self.workspace_search_request,
+            "business_dataset_request": self.business_dataset_request,
             "faq_shape": self.faq_shape,
             "external_requirement": self.external_requirement,
             "official_source_requirement": self.official_source_requirement,
@@ -192,6 +194,7 @@ def _collect_task_signals(message: str, lowered: str) -> TaskSignals:
     local_knowledge_scope = bool(knowledge_source_anchor)
     workspace_read_request = explicit_workspace_path != "" and _looks_like_workspace_read_request(lowered)
     workspace_search_request = _looks_like_workspace_search_request(lowered)
+    business_dataset_request = _looks_like_business_dataset_request(lowered)
     faq_shape = _looks_like_faq_problem(lowered)
     external_requirement = bool(explicit_urls) or _contains_any(
         lowered,
@@ -259,6 +262,7 @@ def _collect_task_signals(message: str, lowered: str) -> TaskSignals:
         knowledge_source_anchor_kind=knowledge_source_anchor_kind,
         workspace_read_request=workspace_read_request,
         workspace_search_request=workspace_search_request,
+        business_dataset_request=business_dataset_request,
         faq_shape=faq_shape,
         external_requirement=external_requirement,
         official_source_requirement=official_source_requirement,
@@ -271,12 +275,14 @@ def _collect_task_signals(message: str, lowered: str) -> TaskSignals:
 
 
 def _build_direct_dataset_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not signals.explicit_dataset_path:
+    if not signals.explicit_dataset_path and not signals.business_dataset_request:
         return None
     parameters: dict[str, Any] = {
         "query": message,
-        "path": signals.explicit_dataset_path,
     }
+    reasons = ["explicit_dataset_anchor"] if signals.explicit_dataset_path else ["business_dataset_intent"]
+    if signals.explicit_dataset_path:
+        parameters["path"] = signals.explicit_dataset_path
     return TaskUnderstanding(
         intent="structured_dataset_query",
         source_kind="dataset",
@@ -287,17 +293,18 @@ def _build_direct_dataset_task(message: str, signals: TaskSignals) -> TaskUnders
         capability_requests=["dataset_analysis"],
         parameters=parameters,
         execution_posture="direct_tool",
-        direct_route_reason="explicit_dataset_anchor",
+        direct_route_reason=reasons[0],
         should_skip_rag=True,
-        confidence=0.96,
-        reasons=["explicit_dataset_anchor"],
+        confidence=0.96 if signals.explicit_dataset_path else 0.86,
+        reasons=reasons,
         structural_signals=signals.to_dict(),
     )
 
 
 def _build_direct_pdf_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
     has_document_anchor = bool(signals.explicit_pdf_path) or (
-        signals.document_reference and (signals.page_reference or signals.section_reference or signals.document_read_intent)
+        (signals.document_reference or signals.page_reference or signals.section_reference)
+        and (signals.page_reference or signals.section_reference or signals.document_read_intent)
     )
     if not has_document_anchor or signals.external_requirement:
         return None
@@ -568,6 +575,74 @@ def _extract_knowledge_source_anchor(message: str) -> tuple[str, str]:
         return "知识库", "named_knowledge_base"
 
     return "", ""
+
+
+def _looks_like_business_dataset_request(lowered: str) -> bool:
+    data_anchor = _contains_any(
+        lowered,
+        (
+            "数据库",
+            "数据表",
+            "表格",
+            "excel",
+            "xlsx",
+            "csv",
+            "库存",
+            "商品",
+            "货物",
+            "销售",
+            "订单",
+            "员工",
+            "客户",
+            "薪水",
+            "工资",
+            "薪资",
+        ),
+    )
+    analytic_intent = _contains_any(
+        lowered,
+        (
+            "查询",
+            "分析",
+            "统计",
+            "汇总",
+            "排名",
+            "排行",
+            "前五",
+            "前三",
+            "前十",
+            "top",
+            "哪些",
+            "哪个",
+            "多少",
+            "缺货",
+            "不足",
+            "不缺货",
+            "不缺",
+            "不够",
+            "充足",
+            "最高",
+            "最低",
+        ),
+    )
+    implicit_inventory_intent = _contains_any(
+        lowered,
+        (
+            "缺货",
+            "不缺货",
+            "不缺",
+            "库存不足",
+            "不够",
+            "补货",
+            "安全库存",
+            "货物最充足",
+        ),
+    )
+    implicit_location_inventory = implicit_inventory_intent and _contains_any(
+        lowered,
+        ("哪些地方", "哪个地方", "地方", "哪里", "仓库", "地区", "区域"),
+    )
+    return (data_anchor and analytic_intent) or implicit_location_inventory
 
 
 def _looks_like_workspace_read_request(lowered: str) -> bool:

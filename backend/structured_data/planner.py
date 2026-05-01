@@ -140,7 +140,7 @@ class StructuredDataPlanner:
 
         if any(token in lowered for token in ("列名", "字段", "结构", "schema", "columns", "表头")):
             return "schema_preview"
-        if any(token in lowered for token in ("总数", "总行数", "多少条", "几条", "多少人", "多少商品", "row count")):
+        if any(token in lowered for token in ("总数", "总行数", "多少行", "行数", "多少条", "几条", "多少人", "多少商品", "row count")):
             return "row_count"
         if state_kind == "non_shortage" and wants_location_breakdown:
             return "top_n"
@@ -215,6 +215,8 @@ class StructuredDataPlanner:
         group_hint = semantic_hints.get("group_hint")
         if isinstance(group_hint, str) and group_hint in df.columns:
             return group_hint
+        if analysis_type == "top_n" and self._looks_like_record_top_n(lowered):
+            return None
         for column, hints in self.catalog.GROUP_HINTS:
             if column not in df.columns:
                 continue
@@ -425,6 +427,8 @@ class StructuredDataPlanner:
     def _should_group_top_n(self, lowered: str, df: pd.DataFrame) -> bool:
         if self._wants_location_breakdown(lowered, df):
             return True
+        if self._looks_like_record_top_n(lowered):
+            return False
 
         aggregation_markers = (
             "总和",
@@ -451,11 +455,33 @@ class StructuredDataPlanner:
             return True
 
         for column, hints in self.catalog.GROUP_HINTS:
+            if column in {"name", "product"}:
+                continue
             if column not in df.columns:
                 continue
             if any(hint.lower() in lowered for hint in hints if len(hint) >= 2):
                 return True
         return False
+
+    def _looks_like_record_top_n(self, lowered: str) -> bool:
+        record_entity_markers = (
+            "员工",
+            "人员",
+            "人",
+            "客户",
+            "用户",
+            "订单",
+            "商品",
+            "产品",
+            "记录",
+            "明细",
+            "employee",
+            "customer",
+            "order",
+            "record",
+            "item",
+        )
+        return any(marker in lowered for marker in record_entity_markers)
 
     def _detect_entity_column(self, df: pd.DataFrame) -> str | None:
         for column in ("name", "product", "sku", "employee_id", "order_id", "customer_id"):

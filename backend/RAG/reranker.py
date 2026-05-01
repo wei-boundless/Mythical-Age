@@ -206,20 +206,50 @@ class CrossEncoderReranker:
             batch_size=self.batch_size,
             show_progress_bar=False,
         )
+        rerank_scores = [float(score) for score in scores]
+        min_rerank = min(rerank_scores) if rerank_scores else 0.0
+        max_rerank = max(rerank_scores) if rerank_scores else 0.0
+        rerank_range = max_rerank - min_rerank
+
+        retrieval_scores = [float(item.get("retrieval_score", item.get("score", 0.0)) or 0.0) for item in head]
+        min_retrieval = min(retrieval_scores) if retrieval_scores else 0.0
+        max_retrieval = max(retrieval_scores) if retrieval_scores else 0.0
+        retrieval_range = max_retrieval - min_retrieval
+
         rescored: list[dict[str, Any]] = []
         for item, score in zip(head, scores, strict=False):
             base_score = float(item.get("score", 0.0) or 0.0)
             item["retrieval_score"] = float(item.get("retrieval_score", base_score) or 0.0)
+            rerank_score = float(score)
+            rerank_normalized = (
+                (rerank_score - min_rerank) / rerank_range
+                if rerank_range > 0
+                else 0.0
+            )
+            retrieval_normalized = (
+                (item["retrieval_score"] - min_retrieval) / retrieval_range
+                if retrieval_range > 0
+                else 0.0
+            )
             item["rerank_backend"] = "cross_encoder"
             item["rerank_model"] = self.model_name
-            item["rerank_score"] = float(score)
-            item["rerank_reasons"] = ["cross_encoder_score"]
-            item["score"] = float(score)
+            item["rerank_score"] = rerank_score
+            item["rerank_score_normalized"] = rerank_normalized
+            item["rerank_retrieval_score_normalized"] = retrieval_normalized
+            item["rerank_score_blend"] = {
+                "cross_encoder": rerank_score,
+                "cross_encoder_normalized": rerank_normalized,
+                "retrieval_normalized": retrieval_normalized,
+                "retrieval_weight": 0.05,
+            }
+            item["rerank_reasons"] = ["cross_encoder_score", "retrieval_prior_blend"]
+            item["score"] = rerank_normalized + 0.05 * retrieval_normalized
             item["rerank_applied"] = True
             rescored.append(item)
 
         rescored.sort(
             key=lambda row: (
+                float(row.get("score", 0.0)),
                 float(row.get("rerank_score", 0.0)),
                 float(row.get("retrieval_score", 0.0)),
             ),

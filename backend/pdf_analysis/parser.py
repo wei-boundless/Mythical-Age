@@ -46,7 +46,12 @@ class PdfTextParser:
     def extract_segments(self, file_path: Path) -> list[PdfSegment]:
         remote = self._load_remote_result(file_path)
         if remote is not None and remote.blocks:
-            return [self._segment_from_remote_block(block) for block in remote.blocks]
+            segments = [self._segment_from_remote_block(block) for block in remote.blocks]
+            segments.extend(self._extract_table_segments_with_pdfplumber(file_path))
+            return segments
+        local_segments = self._extract_segments_with_pdfplumber(file_path)
+        if local_segments:
+            return local_segments
         pages = remote.pages if remote is not None and remote.pages else self._extract_pages_locally(file_path)
         segments: list[PdfSegment] = []
         for page, text in pages:
@@ -71,6 +76,89 @@ class PdfTextParser:
                 )
             )
         return segments
+
+    def _extract_segments_with_pdfplumber(self, file_path: Path) -> list[PdfSegment]:
+        try:
+            import pdfplumber  # type: ignore
+        except Exception:
+            return []
+
+        segments: list[PdfSegment] = []
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                for page_number, page in enumerate(pdf.pages, start=1):
+                    text = (page.extract_text() or "").strip()
+                    if text:
+                        classification = self._classify_segment(
+                            text=text,
+                            kind="text",
+                            section=None,
+                            modality="text",
+                        )
+                        segments.append(
+                            PdfSegment(
+                                text=self._normalize_page_text(text),
+                                page=page_number,
+                                modality="text",
+                                element_type=classification["element_type"],
+                                answer_eligible=bool(classification["answer_eligible"]),
+                                excluded_from_summary=bool(classification["excluded_from_summary"]),
+                                diagnostic_only=bool(classification["diagnostic_only"]),
+                                metadata={"parser": "pdfplumber_text", **classification["metadata"]},
+                            )
+                        )
+                    for table_index, table in enumerate(page.extract_tables() or [], start=1):
+                        table_text = self._table_to_text(table)
+                        if not table_text:
+                            continue
+                        classification = self._classify_segment(
+                            text=table_text,
+                            kind="table",
+                            section=None,
+                            modality="table",
+                        )
+                        segments.append(
+                            PdfSegment(
+                                text=table_text,
+                                page=page_number,
+                                modality="table",
+                                element_type=classification["element_type"],
+                                answer_eligible=bool(classification["answer_eligible"]),
+                                excluded_from_summary=False,
+                                diagnostic_only=bool(classification["diagnostic_only"]),
+                                metadata={
+                                    "parser": "pdfplumber_table",
+                                    "table_index": table_index,
+                                    **classification["metadata"],
+                                },
+                            )
+                        )
+        except Exception:
+            return []
+        return segments
+
+    def _extract_table_segments_with_pdfplumber(self, file_path: Path) -> list[PdfSegment]:
+        return [
+            segment
+            for segment in self._extract_segments_with_pdfplumber(file_path)
+            if segment.element_type == "table_text"
+        ]
+
+    def _table_to_text(self, table: list[list[object | None]]) -> str:
+        rows: list[str] = []
+        for raw_row in table:
+            if not raw_row:
+                continue
+            cells = [self._normalize_table_cell(cell) for cell in raw_row]
+            if not any(cells):
+                continue
+            rows.append(" ; ".join(cells))
+        return "\n".join(rows).strip()
+
+    def _normalize_table_cell(self, value: object | None) -> str:
+        if value is None:
+            return ""
+        return re.sub(r"\s+", " ", str(value)).strip()
 
     def document_total_pages(self, file_path: Path) -> int:
         remote = self._load_remote_result(file_path)

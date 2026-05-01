@@ -101,12 +101,17 @@ class StructuredDataAnalysisTool(BaseTool):
         except ValueError as exc:
             code = str(exc)
             if code == "missing_explicit_dataset_path":
-                return "结构化分析失败：必须显式提供数据文件 path。"
+                try:
+                    file_path = StructuredDataCatalog.resolve_dataset_path(self._root_dir, "", query)
+                    path = StructuredDataCatalog.relative_path(self._root_dir, file_path)
+                except Exception:
+                    return "结构化分析失败：必须显式提供数据文件 path。"
             if code == "file_does_not_exist":
                 return "结构化分析失败：文件不存在。"
             if code == "path_is_directory":
                 return "结构化分析失败：给定路径是目录。"
-            return f"结构化分析失败：{exc}"
+            if code not in {"missing_explicit_dataset_path", "file_does_not_exist", "path_is_directory"}:
+                return f"结构化分析失败：{exc}"
 
         try:
             df = self._load_dataframe(file_path, sheet_name=sheet_name)

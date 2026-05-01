@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:18",
+  "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:b7673addf160",
+    "memory_state_ref": "memory-runtime:b6e1cec379db4282bb94aa4fc8e7e375",
+    "projection_ref": "2d12ff459ce92d36",
+    "prompt_manifest_ref": "manifest-2d12ff459ce92d36",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 240,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899760
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:fe62c0a3",
+      "output_boundary:rtevt:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:14:70fd88c9",
+      "commit_gate:commit-gate:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "b6e1cec379db4282bb94aa4fc8e7e375",
+            "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0",
+            "task_id": "turn:b6e1cec379db4282bb94aa4fc8e7e375:49",
+            "role": "assistant",
+            "content": "岩，删临时文件前的安全检查步骤：\n\n1. 确认目录 — `pwd` 确认当前在 workspace，避免误删其他目录。\n2. 列清单 — `ls -la` 把文件全列出来，逐个确认哪些是临时文件（.tmp、.temp、cache、~ 结尾、日志转储等）。\n3. 逐文件三问：\n- 有没有进程还在用它？→ `lsof | grep 文件名`\n- 是不是重要数据的唯一副本？\n- 删了之后，正在跑的服务会不会受影响？\n4. 圈定删除范围 — 确认无误后，明确要删的文件名列表，不搞通配符一把梭。\n5. 先移后删（保险） — 不确定的话，先 `mv` 到一个临时目录观察一阵，确认没事再彻底 `rm`。\n\n要我把这几个步骤压成一条终端可执行的检查命令吗？",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "b6e1cec379db4282bb94aa4fc8e7e375",
+          "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0",
+            "task_id": "turn:b6e1cec379db4282bb94aa4fc8e7e375:49",
+            "terminal_reason": "completed",
+            "final_content_chars": 324
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1522,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:b6e1cec379db4282bb94aa4fc8e7e375:49",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 324,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:b7673addf160",
+  "prompt_manifest_ref": "manifest-2d12ff459ce92d36",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "b6e1cec379db4282bb94aa4fc8e7e375",
+          "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0",
+          "task_id": "turn:b6e1cec379db4282bb94aa4fc8e7e375:49",
+          "role": "assistant",
+          "content": "岩，删临时文件前的安全检查步骤：\n\n1. 确认目录 — `pwd` 确认当前在 workspace，避免误删其他目录。\n2. 列清单 — `ls -la` 把文件全列出来，逐个确认哪些是临时文件（.tmp、.temp、cache、~ 结尾、日志转储等）。\n3. 逐文件三问：\n- 有没有进程还在用它？→ `lsof | grep 文件名`\n- 是不是重要数据的唯一副本？\n- 删了之后，正在跑的服务会不会受影响？\n4. 圈定删除范围 — 确认无误后，明确要删的文件名列表，不搞通配符一把梭。\n5. 先移后删（保险） — 不确定的话，先 `mv` 到一个临时目录观察一阵，确认没事再彻底 `rm`。\n\n要我把这几个步骤压成一条终端可执行的检查命令吗？",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "b6e1cec379db4282bb94aa4fc8e7e375",
+        "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:b6e1cec379db4282bb94aa4fc8e7e375:turn:b6e1cec379db4282bb94aa4fc8e7e375:49:c14253c0",
+          "task_id": "turn:b6e1cec379db4282bb94aa4fc8e7e375:49",
+          "terminal_reason": "completed",
+          "final_content_chars": 324
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1522,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777663708.166993,
+  "checksum": "30510c2c032a3ca5a1869a189e9edac1cddbfc676dbaefb05ca2f44ef4c926de",
+  "authority": "orchestration.runtime_checkpoint"
+}

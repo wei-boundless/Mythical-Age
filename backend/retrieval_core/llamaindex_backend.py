@@ -801,6 +801,7 @@ class LlamaIndexRetrievalBackend:
                 "lexical_main" in index_profiles
                 or unit.unit_type in {"object_block", "page_summary"}
                 or (unit.unit_type == "content_block" and not index_profiles)
+                or (unit.unit_type == "document" and not index_profiles)
             ):
                 selected.append(unit)
         return selected

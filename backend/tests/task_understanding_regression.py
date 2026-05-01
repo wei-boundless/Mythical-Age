@@ -12,14 +12,14 @@ from understanding.task_understanding import analyze_task_understanding
 
 def main() -> None:
     shortage = analyze_task_understanding("从我的数据库中，查询有哪些货物缺货")
-    assert shortage.source_kind == "knowledge_base"
-    assert shortage.task_kind == "knowledge_lookup"
+    assert shortage.source_kind == "dataset"
+    assert shortage.task_kind == "dataset_query"
     assert shortage.target_object is None
-    assert shortage.route_hint == "rag"
-    assert shortage.execution_posture == "direct_rag"
-    assert shortage.capability_requests == ["knowledge_lookup"]
+    assert shortage.route_hint == "tool"
+    assert shortage.execution_posture == "direct_tool"
+    assert shortage.capability_requests == ["dataset_analysis"]
     assert shortage.candidate_tools == []
-    assert shortage.preferred_skill == "rag-skill"
+    assert shortage.preferred_skill == "structured-data-analysis"
     assert shortage.parameters == {"query": "从我的数据库中，查询有哪些货物缺货"}
     assert shortage.structural_signals["explicit_dataset_path"] == ""
     assert shortage.structural_signals["local_knowledge_scope"] is True
@@ -27,12 +27,12 @@ def main() -> None:
     assert shortage.structural_signals["knowledge_source_anchor_kind"] == "qualified_local_source"
 
     local_database = analyze_task_understanding("为我搜索本地的数据库，看看有没有缺货情况")
-    assert local_database.source_kind == "knowledge_base"
-    assert local_database.task_kind == "knowledge_lookup"
-    assert local_database.route_hint == "rag"
-    assert local_database.execution_posture == "direct_rag"
-    assert local_database.capability_requests == ["knowledge_lookup"]
-    assert local_database.preferred_skill == "rag-skill"
+    assert local_database.source_kind == "dataset"
+    assert local_database.task_kind == "dataset_query"
+    assert local_database.route_hint == "tool"
+    assert local_database.execution_posture == "direct_tool"
+    assert local_database.capability_requests == ["dataset_analysis"]
+    assert local_database.preferred_skill == "structured-data-analysis"
     assert local_database.structural_signals["local_knowledge_scope"] is True
     assert local_database.structural_signals["knowledge_source_anchor"] == "本地的数据库"
     assert local_database.structural_signals["knowledge_source_anchor_kind"] == "qualified_local_source"

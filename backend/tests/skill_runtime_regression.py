@@ -62,51 +62,58 @@ def main() -> None:
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    _assert_bounded_lookup(structured, "销售前五的有哪些")
+    assert structured.route == "tool"
+    assert structured.skill_name is None
+    assert skill_resolver.resolve(task_frame=structured).name == "structured-data-analysis"
+    assert structured.tool_name == "structured_data_analysis"
+    assert structured.tool_input == {"query": "销售前五的有哪些"}
 
     shortage = analyze_query_understanding(
         "从我的数据库中，查询有哪些货物缺货",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert shortage.route == "rag"
-    assert shortage.execution_posture == "direct_rag"
+    assert shortage.route == "tool"
+    assert shortage.execution_posture == "direct_tool"
     assert shortage.skill_name is None
-    assert skill_resolver.resolve(task_frame=shortage).name == "rag-skill"
-    assert shortage.tool_name is None
-    assert shortage.candidate_tools == []
+    assert skill_resolver.resolve(task_frame=shortage).name == "structured-data-analysis"
+    assert shortage.tool_name == "structured_data_analysis"
+    assert shortage.candidate_tools == ["structured_data_analysis"]
 
     local_database = analyze_query_understanding(
         "为我搜索本地的数据库，看看有没有缺货情况",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert local_database.route == "rag"
-    assert local_database.execution_posture == "direct_rag"
-    assert skill_resolver.resolve(task_frame=local_database).name == "rag-skill"
-    assert local_database.tool_name is None
-    assert local_database.candidate_tools == []
+    assert local_database.route == "tool"
+    assert local_database.execution_posture == "direct_tool"
+    assert skill_resolver.resolve(task_frame=local_database).name == "structured-data-analysis"
+    assert local_database.tool_name == "structured_data_analysis"
+    assert local_database.candidate_tools == ["structured_data_analysis"]
 
     abundance = analyze_query_understanding(
         "我不是要知道缺货情况，我要你分析哪些地方货物最充足",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    _assert_bounded_lookup(abundance, "我不是要知道缺货情况，我要你分析哪些地方货物最充足")
+    assert abundance.route == "tool"
+    assert abundance.tool_name == "structured_data_analysis"
 
     shortage_places = analyze_query_understanding(
         "哪些地方货物不够",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    _assert_bounded_lookup(shortage_places, "哪些地方货物不够")
+    assert shortage_places.route == "tool"
+    assert shortage_places.tool_name == "structured_data_analysis"
 
     non_shortage_places = analyze_query_understanding(
         "哪些地方不缺货",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    _assert_bounded_lookup(non_shortage_places, "哪些地方不缺货")
+    assert non_shortage_places.route == "tool"
+    assert non_shortage_places.tool_name == "structured_data_analysis"
 
     explicit_structured = analyze_query_understanding(
         "帮我看一下 inventory.xlsx 里销量前五的有哪些",
@@ -145,7 +152,7 @@ def main() -> None:
     assert faq.task_kind == "faq_explanation"
     assert faq.target_object is None
     assert faq.tool_name is None
-    assert faq.candidate_tools == []
+    assert faq.candidate_tools == ["search_knowledge"]
 
     rag = analyze_query_understanding(
         "为我讲讲AI吧，你的数据库里有不少AI知识吧",
@@ -157,6 +164,7 @@ def main() -> None:
     assert skill_resolver.resolve(task_frame=rag).name == "rag-skill"
     assert rag.target_object is None
     assert rag.tool_name is None
+    assert rag.candidate_tools == ["search_knowledge"]
 
     web = analyze_query_understanding(
         "帮我联网查 OpenAI API 最新更新",

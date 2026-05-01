@@ -35,6 +35,10 @@ _SECTION_TITLE_RE = re.compile(
 _REFERENCE_HINT_RE = re.compile(r"(?:参考文献|references|bibliography|致谢)", re.IGNORECASE)
 _TOC_HINT_RE = re.compile(r"(?:目录|contents)(?:\s|$)", re.IGNORECASE)
 _COPYRIGHT_HINT_RE = re.compile(r"(?:版权所有|copyright|all rights reserved|免责声明|联系方式)", re.IGNORECASE)
+_PDF_BOILERPLATE_HINT_RE = re.compile(
+    r"(?:不存在任何虚假记载|误导性陈述|重大遗漏|真实性、准确性和完整性|承担个别和连带的法律责任|是否经审计)",
+    re.IGNORECASE,
+)
 _DOT_LEADER_RE = re.compile(r"(?:\.{4,}|·{4,}|…{2,})")
 _WHITESPACE_RE = re.compile(r"\s+")
 _CHINESE_NUMERAL_RE = re.compile(r"[零一二三四五六七八九十百千两]+")
@@ -206,7 +210,9 @@ class PDFReadAgentRuntime:
     ) -> PDFPreparedPage:
         flags: list[str] = []
         normalized = self._collapse(text)
-        body_text = self._clean_body_text_for_summary(self._body_text_from_segments(segments, fallback_text=text))
+        body_text = self._clean_mixed_body_text_for_summary(
+            self._body_text_from_segments(segments, fallback_text=text)
+        )
         body_chars = len(self._collapse(body_text))
         excluded_ratio = self._excluded_ratio(segments=segments, fallback_text=text)
         dominant_element_type = self._dominant_element_type(segments=segments)
@@ -245,7 +251,7 @@ class PDFReadAgentRuntime:
             page_number=page_number,
             text=text.strip(),
             section=section,
-            body_text=self._collapse(body_text),
+            body_text=self._preserve_line_structure(body_text),
             quality_score=quality_score,
             quality_flags=list(dict.fromkeys(flags)),
             parse_strategy=parse_strategy,
@@ -362,7 +368,7 @@ class PDFReadAgentRuntime:
             query=query,
             pages=[page for page in prepared.pages if self._page_eligible_for_document_summary(page)],
         )
-        selected = ranked[: max(1, min(max_chunks, 3))]
+        selected = self._select_document_pages(query=query, ranked=ranked, max_chunks=max_chunks)
         evidence = [self._evidence_from_page(page, score=score, snippet_chars=520) for page, score in selected]
         if not evidence or not self._document_meets_stable_gate([page for page, _score in selected]):
             return _PDFExecutionOutcome(
@@ -376,7 +382,8 @@ class PDFReadAgentRuntime:
                 degraded_reason="document_summary_text_quality_low",
                 evidence=evidence,
             )
-        summary = self._summarize_text(merged, sentence_limit=5, char_limit=900)
+        financial_summary = self._extract_financial_table_summary(selected_pages=[page for page, _score in selected])
+        summary = financial_summary or self._summarize_text(merged, sentence_limit=5, char_limit=900)
         if not summary:
             return _PDFExecutionOutcome(
                 degraded_reason="document_summary_text_quality_low",
@@ -386,6 +393,126 @@ class PDFReadAgentRuntime:
             stable_summary=f"已定位与当前问题最相关的页面：{selected_label}。文档要点：{summary}",
             evidence=evidence,
         )
+
+    def _select_document_pages(
+        self,
+        *,
+        query: str,
+        ranked: list[tuple[PDFPreparedPage, float]],
+        max_chunks: int,
+    ) -> list[tuple[PDFPreparedPage, float]]:
+        limit = max(1, min(max_chunks, 4))
+        selected: list[tuple[PDFPreparedPage, float]] = []
+        selected_pages: set[int] = set()
+
+        for terms in self._financial_query_term_groups(query):
+            match = self._best_ranked_page_matching_terms(ranked, terms)
+            if match is None or match[0].page_number in selected_pages:
+                continue
+            selected.append(match)
+            selected_pages.add(match[0].page_number)
+            if len(selected) >= limit:
+                return selected
+
+        for item in ranked:
+            if item[0].page_number in selected_pages:
+                continue
+            selected.append(item)
+            selected_pages.add(item[0].page_number)
+            if len(selected) >= limit:
+                break
+        return selected
+
+    def _financial_query_term_groups(self, query: str) -> list[tuple[str, ...]]:
+        lowered = str(query or "").lower()
+        groups: list[tuple[str, ...]] = []
+        if any(token in lowered for token in ("营业收入", "收入", "revenue")):
+            groups.append(("营业收入", "营业总收入"))
+        if any(token in lowered for token in ("净利润", "利润", "profit")):
+            groups.append(("归属于上市公司股东的净利润", "归母净利润", "净利润", "利润总额"))
+        if any(token in lowered for token in ("现金流", "cash flow")):
+            groups.append(("经营活动产生的现金流量净额", "经营活动现金流量净额", "现金流量净额"))
+        return groups
+
+    def _best_ranked_page_matching_terms(
+        self,
+        ranked: list[tuple[PDFPreparedPage, float]],
+        terms: tuple[str, ...],
+    ) -> tuple[PDFPreparedPage, float] | None:
+        best: tuple[PDFPreparedPage, float] | None = None
+        best_score = float("-inf")
+        for page, score in ranked:
+            text = self._normalize_metric_label(page.body_text or page.text)
+            matched = sum(1 for term in terms if self._normalize_metric_label(term) in text)
+            if matched <= 0:
+                continue
+            adjusted = float(score) + matched * 3.0
+            if adjusted > best_score:
+                best = (page, score)
+                best_score = adjusted
+        return best
+
+    def _extract_financial_table_summary(self, *, selected_pages: list[PDFPreparedPage]) -> str:
+        merged = "\n".join(page.body_text or page.text for page in selected_pages)
+        if not merged:
+            return ""
+        metric_aliases: tuple[tuple[str, tuple[str, ...]], ...] = (
+            ("营业收入", ("营业收入", "其中：营业收入")),
+            ("归母净利润", ("归属于上市公司股东的净 利润", "归属于上市公司股东的净利润")),
+            ("扣非归母净利润", ("归属于上市公司股东的扣 除非经常性损益的净利润", "扣除非经常性损益的净利润")),
+            ("经营活动现金流量净额", ("经营活动产生的现金流量 净额", "经营活动产生的现金流量净额")),
+            ("营业总收入", ("一、营业总收入", "营业总收入")),
+            ("营业总成本", ("二、营业总成本", "营业总成本")),
+            ("研发费用", ("研发费用",)),
+            ("综合收益总额", ("七、综合收益总额", "综合收益总额")),
+        )
+        lines: list[str] = []
+        for label, aliases in metric_aliases:
+            row = self._find_table_metric_row(merged, aliases)
+            if not row:
+                continue
+            values = self._extract_metric_values_from_table_row(row)
+            if not values:
+                continue
+            value_text = "，".join(values[:4])
+            lines.append(f"{label}：{value_text}")
+        if not lines:
+            return ""
+        return "；".join(lines[:6]) + "。"
+
+    def _find_table_metric_row(self, text: str, aliases: tuple[str, ...]) -> str:
+        normalized_aliases = [self._normalize_metric_label(alias) for alias in aliases if alias]
+        for raw_line in str(text or "").splitlines():
+            line = self._collapse(raw_line)
+            if not line:
+                continue
+            normalized_line = self._normalize_metric_label(line)
+            if any(alias and alias in normalized_line for alias in normalized_aliases):
+                return line
+        return ""
+
+    def _normalize_metric_label(self, text: str) -> str:
+        return re.sub(r"\s+", "", str(text or "").replace("：", ":").lower())
+
+    def _extract_metric_values_from_table_row(self, row: str) -> list[str]:
+        cells = [self._collapse(cell) for cell in str(row or "").split(";")]
+        value_cells = cells[1:] if len(cells) > 1 else cells
+        values: list[str] = []
+        for cell in value_cells:
+            if not cell or cell in {"不适用", "适用"}:
+                continue
+            if re.fullmatch(r"(?:19|20)\d{2}(?:年.*)?", cell):
+                continue
+            if "前年" in cell or "报告期" in cell or "上年" in cell or "调整" in cell or "项目" in cell:
+                continue
+            values.extend(re.findall(r"-?\d[\d,]*(?:\.\d+)?%?", cell))
+        cleaned: list[str] = []
+        for value in values:
+            if value in {"1", "9"}:
+                continue
+            if value not in cleaned:
+                cleaned.append(value)
+        return cleaned
 
     def _match_section_pages(
         self,
@@ -418,20 +545,27 @@ class PDFReadAgentRuntime:
                 continue
             score = page.quality_score
             lowered = (page.body_text or page.text).lower()
+            matched_core_financial_terms: set[str] = set()
             for token in tokens:
                 if len(token) < 2:
                     continue
                 score += lowered.count(token) * max(1.0, len(token) / 4.0)
                 if token in str(page.section or "").lower():
                     score += max(1.5, len(token) / 3.0)
+                if token in {"营业收入", "营业总收入", "净利润", "归母净利润", "归属于上市公司股东的净利润", "现金流", "经营活动产生的现金流量净额", "经营活动现金流量净额"} and token in lowered:
+                    matched_core_financial_terms.add(token)
             if not tokens:
                 score += 0.2
+            if len(matched_core_financial_terms) >= 2:
+                score += 4.0
             if page.page_number <= 3:
                 score += 0.08
             if page.excluded_ratio > _EXCLUDED_RATIO_MAX:
                 score -= 0.35
             if "reference_page" in page.quality_flags or "toc_page" in page.quality_flags:
                 score -= 0.45
+            if _PDF_BOILERPLATE_HINT_RE.search(lowered):
+                score -= 0.35
             if page.body_chars >= _PAGE_BODY_CHARS_MIN or score > 0.95:
                 scored.append((page, round(score, 3)))
         scored.sort(key=lambda item: (item[1], -item[0].page_number), reverse=True)
@@ -577,7 +711,23 @@ class PDFReadAgentRuntime:
 
     def _tokens(self, text: str) -> list[str]:
         lowered = str(text or "").lower()
-        return re.findall(r"[\u4e00-\u9fff]{2,}|[a-z0-9]{2,}", lowered)
+        tokens = re.findall(r"[\u4e00-\u9fff]{2,}|[a-z0-9]{2,}", lowered)
+        expanded = list(tokens)
+        phrase_expansions = (
+            ("营业收入", ("营业收入", "营业总收入")),
+            ("净利润", ("净利润", "归属于上市公司股东的净利润", "归母净利润")),
+            ("现金流", ("现金流", "经营活动产生的现金流量净额", "经营活动现金流量净额")),
+            ("利润", ("利润总额", "净利润")),
+            ("收入", ("营业收入", "营业总收入")),
+        )
+        for marker, additions in phrase_expansions:
+            if marker in lowered:
+                expanded.extend(additions)
+        deduped: list[str] = []
+        for token in expanded:
+            if token and token not in deduped:
+                deduped.append(token)
+        return deduped
 
     def _parse_chinese_number(self, text: str) -> int | None:
         digits = {
@@ -615,26 +765,62 @@ class PDFReadAgentRuntime:
     def _collapse(self, text: str) -> str:
         return _WHITESPACE_RE.sub(" ", str(text or "")).strip()
 
+    def _preserve_line_structure(self, text: str) -> str:
+        lines = [self._collapse(line) for line in str(text or "").replace("\r\n", "\n").replace("\r", "\n").splitlines()]
+        kept = [line for line in lines if line]
+        return "\n".join(kept)
+
     def _body_text_from_segments(self, segments: list[PdfSegment], *, fallback_text: str) -> str:
-        body_parts = [
-            self._collapse(segment.text)
-            for segment in segments
-            if segment.element_type == "body_text" and self._collapse(segment.text)
-        ]
-        fallback = self._collapse(fallback_text)
+        body_parts: list[str] = []
+        for segment in segments:
+            if segment.element_type == "table_text":
+                table_text = self._clean_table_text_for_summary(segment.text)
+                if table_text:
+                    body_parts.append(table_text)
+                continue
+            if segment.element_type == "body_text" and self._collapse(segment.text):
+                body_parts.append(self._collapse(segment.text))
         if body_parts:
-            candidate = " ".join(body_parts)
-            if len(fallback) >= len(candidate) + 8:
-                return fallback
-            return candidate
+            return " ".join(body_parts)
         return fallback_text
 
+    def _clean_table_text_for_summary(self, text: str) -> str:
+        rows: list[str] = []
+        for raw_line in str(text or "").replace("\r\n", "\n").replace("\r", "\n").splitlines():
+            line = self._collapse(raw_line)
+            if not line:
+                continue
+            if self._parser.looks_unusable_text(line):
+                continue
+            rows.append(line)
+        return "\n".join(rows)
+
+    def _clean_mixed_body_text_for_summary(self, text: str) -> str:
+        table_rows: list[str] = []
+        normal_parts: list[str] = []
+        for raw_line in str(text or "").replace("\r\n", "\n").replace("\r", "\n").splitlines():
+            line = self._collapse(raw_line)
+            if not line:
+                continue
+            if self._looks_like_table_row(line):
+                cleaned_table = self._clean_table_text_for_summary(line)
+                if cleaned_table:
+                    table_rows.append(cleaned_table)
+                continue
+            normal_parts.append(line)
+        cleaned_normal = self._clean_body_text_for_summary("\n".join(normal_parts))
+        parts = [part for part in [cleaned_normal, *table_rows] if self._collapse(part)]
+        return "\n".join(parts)
+
+    def _looks_like_table_row(self, text: str) -> bool:
+        normalized = self._collapse(text)
+        return ";" in normalized and bool(re.search(r"\d", normalized))
+
     def _merge_summary_source(self, pages) -> str:
-        merged = " ".join(self._page_summary_source(page) for page in pages if self._page_summary_source(page))
-        return self._clean_body_text_for_summary(merged)
+        return "\n".join(self._page_summary_source(page) for page in pages if self._page_summary_source(page))
 
     def _page_summary_source(self, page: PDFPreparedPage) -> str:
-        return self._clean_body_text_for_summary(page.body_text or page.text)
+        return self._clean_mixed_body_text_for_summary(page.body_text or page.text)
 
     def _page_evidence_source(self, page: PDFPreparedPage) -> str:
         preferred = self._clean_text_for_evidence(page.body_text or page.text)
@@ -829,7 +1015,7 @@ class PDFReadAgentRuntime:
             page.page_has_text
             and page.body_chars >= _PAGE_BODY_CHARS_MIN
             and page.excluded_ratio <= _EXCLUDED_RATIO_MAX
-            and page.dominant_element_type in {"body_text", "section_heading"}
+            and page.dominant_element_type in {"body_text", "section_heading", "table_text"}
             and "reference_page" not in page.quality_flags
             and "toc_page" not in page.quality_flags
             and "copyright_page" not in page.quality_flags
@@ -855,7 +1041,7 @@ class PDFReadAgentRuntime:
             page.page_has_text
             and page.body_chars >= max(20, _PAGE_BODY_CHARS_MIN - 10)
             and page.excluded_ratio <= _EXCLUDED_RATIO_MAX
-            and page.dominant_element_type in {"body_text", "section_heading"}
+            and page.dominant_element_type in {"body_text", "section_heading", "table_text"}
             and "reference_page" not in page.quality_flags
             and "toc_page" not in page.quality_flags
             and "copyright_page" not in page.quality_flags

@@ -1,0 +1,223 @@
+{
+  "config": {
+    "split": "test",
+    "max_queries": 50,
+    "candidate_top_k": 100,
+    "metric_top_k": 10,
+    "seed": 42,
+    "use_rerank": true,
+    "rebuild": false
+  },
+  "scifact_root": "D:\\AI应用\\langchain-agent\\scifact\\_beir_extract\\scifact",
+  "build_seconds": 0.0,
+  "index_payload": {
+    "collection": "benchmark",
+    "status": "ready",
+    "dense_documents": 5183,
+    "dense_documents_indexed": 5183,
+    "parser_backends": [
+      "scifact_jsonl"
+    ],
+    "vector_backend": "qdrant",
+    "qdrant_collection": "agent__benchmark",
+    "build_batch_size": 128,
+    "dense_status": "ready",
+    "dense_verification": {
+      "collection": "benchmark",
+      "collection_name": "agent__benchmark",
+      "vector_backend": "qdrant",
+      "available": true,
+      "query_ok": true,
+      "points_count": 5183,
+      "status": "ready"
+    },
+    "dense_vector_name": "dense",
+    "lexical_enabled": true,
+    "lexical_documents": 5183,
+    "lexical_status": "ready",
+    "strategy_name": "baseline_dense_lexical",
+    "chain_version": "baseline_dense_lexical__qdrant_dense__app_bm25__app_fusion__coalesce_v1",
+    "runtime_descriptor": {
+      "retrieval_backend": "llamaindex_v2",
+      "dense_backend": "qdrant",
+      "sparse_backend": "none",
+      "lexical_backend": "application_bm25",
+      "fusion_backend": "application_rrf_like",
+      "coalesce_backend": "application_level",
+      "strategy_name": "baseline_dense_lexical",
+      "chain_version": "baseline_dense_lexical__qdrant_dense__app_bm25__app_fusion__coalesce_v1",
+      "primary_chain": [
+        "dense_retrieval",
+        "application_lexical_retrieval",
+        "application_fusion",
+        "coalesce"
+      ]
+    },
+    "build_id": "benchmark-64b7d4246f64",
+    "build_started_at_utc": "2026-05-01T17:21:00.276137Z",
+    "metadata_schema_version": "retrieval_v2_meta_v1",
+    "layout_root": "D:\\AI应用\\langchain-agent\\backend\\storage\\indexes_v2",
+    "collection_dir": "D:\\AI应用\\langchain-agent\\backend\\storage\\indexes_v2\\benchmark",
+    "metadata_path": "D:\\AI应用\\langchain-agent\\backend\\storage\\indexes_v2\\benchmark\\meta.json",
+    "written_at_utc": "2026-05-01T17:34:29.251704Z"
+  },
+  "base_retrieval": {
+    "queries_evaluated": 50,
+    "accuracy_at_1": 0.56,
+    "hit_at_3": 0.74,
+    "hit_at_5": 0.76,
+    "hit_at_10": 0.8,
+    "recall_at_10": 0.7759999999999999,
+    "mrr_at_10": 0.6487222222222222,
+    "ndcg_at_10": 0.6739972667847156
+  },
+  "current_chain": {
+    "queries_evaluated": 50,
+    "accuracy_at_1": 0.62,
+    "hit_at_3": 0.72,
+    "hit_at_5": 0.74,
+    "hit_at_10": 0.86,
+    "recall_at_10": 0.8220000000000001,
+    "mrr_at_10": 0.6882698412698413,
+    "ndcg_at_10": 0.7155505698197676
+  },
+  "latency": {
+    "mean_retrieval_seconds": 0.6112,
+    "mean_rerank_seconds": 4.3288
+  },
+  "sample_failures": [
+    {
+      "qid": "132",
+      "query": "Aspirin inhibits the production of PGE2.",
+      "gold_doc_ids": [
+        "7975937"
+      ],
+      "top_doc_ids": [
+        "343052",
+        "6945691",
+        "3866315",
+        "9159125",
+        "2443495",
+        "27615329",
+        "54482327",
+        "45401535",
+        "21181273",
+        "58006489"
+      ]
+    },
+    {
+      "qid": "239",
+      "query": "Cellular aging closely links to an older appearance.",
+      "gold_doc_ids": [
+        "14079881"
+      ],
+      "top_doc_ids": [
+        "40349336",
+        "615047",
+        "25419778",
+        "19343151",
+        "15521377",
+        "516867",
+        "3230557",
+        "7468449",
+        "31293581",
+        "9559146"
+      ]
+    },
+    {
+      "qid": "502",
+      "query": "Healthcare delivery efficiency in crowded delivery centers is impaired by improving structural, logistical, and interpersonal elements.",
+      "gold_doc_ids": [
+        "13071728"
+      ],
+      "top_doc_ids": [
+        "21323587",
+        "29107210",
+        "70516463",
+        "21377587",
+        "27712433",
+        "10509344",
+        "1338283",
+        "25691878",
+        "10854174",
+        "24318630"
+      ]
+    },
+    {
+      "qid": "870",
+      "query": "Obesity decreases life quality.",
+      "gold_doc_ids": [
+        "195689316"
+      ],
+      "top_doc_ids": [
+        "1456068",
+        "43220289",
+        "24347647",
+        "6313547",
+        "4345757",
+        "11630388",
+        "25969485",
+        "18872233",
+        "12770738",
+        "25837950"
+      ]
+    },
+    {
+      "qid": "887",
+      "query": "Only a minority of cells survive development after differentiation into stress-resistant spores.",
+      "gold_doc_ids": [
+        "18855191"
+      ],
+      "top_doc_ids": [
+        "4942718",
+        "25915873",
+        "16728949",
+        "20524091",
+        "2140513",
+        "21498497",
+        "17991818",
+        "6599693",
+        "8148122",
+        "43619625"
+      ]
+    },
+    {
+      "qid": "975",
+      "query": "Primary pro-inflammatory cytokines induce secondary pro- and anti-inflammatory mediators.",
+      "gold_doc_ids": [
+        "5304891"
+      ],
+      "top_doc_ids": [
+        "27093166",
+        "9334631",
+        "343052",
+        "2844490",
+        "25315295",
+        "1360607",
+        "6144969",
+        "52865789",
+        "16488405",
+        "2391552"
+      ]
+    },
+    {
+      "qid": "1099",
+      "query": "Statins decrease blood cholesterol.",
+      "gold_doc_ids": [
+        "7662206"
+      ],
+      "top_doc_ids": [
+        "22420524",
+        "43629704",
+        "21557614",
+        "30981192",
+        "1287809",
+        "5698494",
+        "30805636",
+        "9617381",
+        "24005548",
+        "27466734"
+      ]
+    }
+  ]
+}
