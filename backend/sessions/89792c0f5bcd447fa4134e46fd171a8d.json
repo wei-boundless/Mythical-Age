@@ -1,0 +1,48 @@
+{
+  "id": "89792c0f5bcd447fa4134e46fd171a8d",
+  "title": "Marathon Recall Session",
+  "created_at": 1777667201.7522519,
+  "updated_at": 1777667222.0429215,
+  "compressed_context": "",
+  "messages": [
+    {
+      "role": "user",
+      "content": "如果我之后再问复杂问题，你应该先怎么回答？"
+    },
+    {
+      "role": "assistant",
+      "content": "岩，先给结论，再展开解释。\n\n这是你之前定下的偏好，我已经记着了。复杂问题上，我会先把最核心的判断、动作或结论扔出来，不铺垫、不绕路，然后再补理由、验证和风险。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    },
+    {
+      "role": "user",
+      "content": "你之后应该怎么称呼我？"
+    },
+    {
+      "role": "assistant",
+      "content": "岩。\n\n你之前就定过这个，我一直记着：回答时直接叫你岩。不用每次再确认。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    },
+    {
+      "role": "user",
+      "content": "如果信息不足，你应该怎么处理？"
+    },
+    {
+      "role": "assistant",
+      "content": "直接承认不够，说清楚缺什么，然后给出当前还能推进的那一步。\n\n岩，这是我的处理方式：\n\n- 不硬猜、不硬补。 依据不足时，不会把猜测包装成确定结论。\n- 三句话交代清楚： 缺什么、为什么缺、现在还能做什么。\n- 不卡死。 即便信息不全，也尽量指一条能先走的路，哪怕是\"先把这步确认了再来\"。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    }
+  ]
+}

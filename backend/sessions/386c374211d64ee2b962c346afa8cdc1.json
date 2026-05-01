@@ -1,0 +1,48 @@
+{
+  "id": "386c374211d64ee2b962c346afa8cdc1",
+  "title": "Second Recall Session",
+  "created_at": 1777667874.1093345,
+  "updated_at": 1777667889.9240384,
+  "compressed_context": "",
+  "messages": [
+    {
+      "role": "user",
+      "content": "如果我之后再问复杂问题，你应该先怎么回答？"
+    },
+    {
+      "role": "assistant",
+      "content": "结论在前，解释在后。这是你之前定的，我已经记住了。\n\n以后你问复杂问题，我会先把判断或动作放在最前面，再补理由和细节。直接叫\"岩\"也不会忘。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    },
+    {
+      "role": "user",
+      "content": "你之后应该怎么称呼我？"
+    },
+    {
+      "role": "assistant",
+      "content": "岩。\n\n已经记住了，不会再忘。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    },
+    {
+      "role": "user",
+      "content": "如果信息不够，你该先怎么处理？"
+    },
+    {
+      "role": "assistant",
+      "content": "直接说\"信息不够\"，然后做三件事：\n\n1. 标出缺什么——哪块信息缺失，影响的是判断还是执行。\n2. 框定能做的——在现有信息下，仍可推进的第一步是什么。\n3. 不猜不补——不用猜测把缺口填成确定结论。\n\n这样你不会被卡住，我也没在硬推。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    }
+  ]
+}

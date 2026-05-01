@@ -1,0 +1,248 @@
+{
+  "checkpoint_id": "rtchk:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:70",
+  "task_run_id": "taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f",
+  "event_offset": 70,
+  "loop_state": {
+    "task_run_id": "taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f",
+    "status": "failed",
+    "turn_count": 9,
+    "step_count": 8,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "max_turns",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:01b16abc877c4830b5c6b61b660a1291:11:c5c08aaf01a5",
+    "memory_state_ref": "memory-runtime:01b16abc877c4830b5c6b61b660a1291",
+    "projection_ref": "11eefbab103533e1",
+    "prompt_manifest_ref": "manifest-11eefbab103533e1",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 348,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899652
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:5c71a698",
+      "rtobs:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:80a3ac0e",
+      "rtobs:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:4040eb6e",
+      "rtobs:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:10777d7b",
+      "rtobs:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:647fdc98",
+      "rtobs:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:7bc6c09d",
+      "rtobs:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:44c53816",
+      "rtobs:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:84ce370c",
+      "commit_gate:commit-gate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "01b16abc877c4830b5c6b61b660a1291",
+            "task_run_id": "taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f",
+            "task_id": "turn:01b16abc877c4830b5c6b61b660a1291:11",
+            "role": "assistant",
+            "content": "本轮运行预算达到上限，所以先停止继续调用工具。已经收到 8 条工具结果，但模型还没有把这些结果收口成最终回答。请直接继续问“基于已读取内容总结”，我会从现有上下文继续收口。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_loop_control",
+            "answer_canonical_state": "progress_only",
+            "answer_persist_policy": "persist_debug_only",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": "runtime_budget_exhausted"
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "01b16abc877c4830b5c6b61b660a1291",
+          "task_run_id": "taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f",
+            "task_id": "turn:01b16abc877c4830b5c6b61b660a1291:11",
+            "terminal_reason": "max_turns",
+            "final_content_chars": 86
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2357,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:01b16abc877c4830b5c6b61b660a1291:11",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 86,
+      "result_ref_count": 10
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:01b16abc877c4830b5c6b61b660a1291:11:c5c08aaf01a5",
+  "prompt_manifest_ref": "manifest-11eefbab103533e1",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "01b16abc877c4830b5c6b61b660a1291",
+          "task_run_id": "taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f",
+          "task_id": "turn:01b16abc877c4830b5c6b61b660a1291:11",
+          "role": "assistant",
+          "content": "本轮运行预算达到上限，所以先停止继续调用工具。已经收到 8 条工具结果，但模型还没有把这些结果收口成最终回答。请直接继续问“基于已读取内容总结”，我会从现有上下文继续收口。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_loop_control",
+          "answer_canonical_state": "progress_only",
+          "answer_persist_policy": "persist_debug_only",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": "runtime_budget_exhausted"
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "01b16abc877c4830b5c6b61b660a1291",
+        "task_run_id": "taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:01b16abc877c4830b5c6b61b660a1291:turn:01b16abc877c4830b5c6b61b660a1291:11:3283471f",
+          "task_id": "turn:01b16abc877c4830b5c6b61b660a1291:11",
+          "terminal_reason": "max_turns",
+          "final_content_chars": 86
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2357,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777666687.7103384,
+  "checksum": "d51daf16f6963be8c242ba7da0e9abd54b12c5e3779166d6497e0aca53aaeb71",
+  "authority": "orchestration.runtime_checkpoint"
+}

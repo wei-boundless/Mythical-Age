@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:18",
+  "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:3a600bb11b7b4b03a2698d6aae372fab:59:73f44ad6f462",
+    "memory_state_ref": "memory-runtime:3a600bb11b7b4b03a2698d6aae372fab",
+    "projection_ref": "24c7e6133d237ada",
+    "prompt_manifest_ref": "manifest-24c7e6133d237ada",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 221,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899779
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:b02fe16d",
+      "output_boundary:rtevt:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:14:ed8f1ebb",
+      "commit_gate:commit-gate:turn:3a600bb11b7b4b03a2698d6aae372fab:59:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "3a600bb11b7b4b03a2698d6aae372fab",
+            "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb",
+            "task_id": "turn:3a600bb11b7b4b03a2698d6aae372fab:59",
+            "role": "assistant",
+            "content": "岩，两句话：\n\n一、 模型的黑箱属性让风险难以定位和评估，能力边界不明——幻觉、偏见、价值对齐失效持续存在，风险形态从已知漏洞向未知风险扩展。\n\n二、 模型迭代速度远超治理手段更新速度，现行评估体系跟不上，这是当前模型治理最紧迫的约束。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "3a600bb11b7b4b03a2698d6aae372fab",
+          "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb",
+            "task_id": "turn:3a600bb11b7b4b03a2698d6aae372fab:59",
+            "terminal_reason": "completed",
+            "final_content_chars": 118
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2038,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:3a600bb11b7b4b03a2698d6aae372fab:59",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 118,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:3a600bb11b7b4b03a2698d6aae372fab:59:73f44ad6f462",
+  "prompt_manifest_ref": "manifest-24c7e6133d237ada",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "3a600bb11b7b4b03a2698d6aae372fab",
+          "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb",
+          "task_id": "turn:3a600bb11b7b4b03a2698d6aae372fab:59",
+          "role": "assistant",
+          "content": "岩，两句话：\n\n一、 模型的黑箱属性让风险难以定位和评估，能力边界不明——幻觉、偏见、价值对齐失效持续存在，风险形态从已知漏洞向未知风险扩展。\n\n二、 模型迭代速度远超治理手段更新速度，现行评估体系跟不上，这是当前模型治理最紧迫的约束。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "3a600bb11b7b4b03a2698d6aae372fab",
+        "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:59:3f6e9cfb",
+          "task_id": "turn:3a600bb11b7b4b03a2698d6aae372fab:59",
+          "terminal_reason": "completed",
+          "final_content_chars": 118
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2038,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777666349.136975,
+  "checksum": "22dcbe311daa9b4b0ce7457a4354ff7704bf5be93f22492b65bf14c01558679a",
+  "authority": "orchestration.runtime_checkpoint"
+}

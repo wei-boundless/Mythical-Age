@@ -276,10 +276,26 @@ class QueryRuntime:
             ],
         )
         history = self.session_manager.load_session(session_id)
+        main_context = dict(payload.get("main_context") or {})
+        task_summary_refs = [
+            dict(item)
+            for item in list(payload.get("task_summary_refs") or [])
+            if isinstance(item, dict)
+        ]
         session_memory_chars = 0
         durable_saved_count = 0
         try:
-            session_memory_chars = len(self.memory_facade.refresh_session_memory(session_id, history) or "")
+            if main_context or task_summary_refs:
+                session_memory_chars = len(
+                    self.memory_facade.refresh_session_memory_from_context_state(
+                        session_id,
+                        main_context,
+                        task_summaries=task_summary_refs,
+                    )
+                    or ""
+                )
+            else:
+                session_memory_chars = len(self.memory_facade.refresh_session_memory(session_id, history) or "")
         except Exception:
             logger.warning("session memory refresh failed after assistant commit", exc_info=True)
         try:
@@ -290,6 +306,7 @@ class QueryRuntime:
             "appended_messages": appended,
             "session_memory_chars": session_memory_chars,
             "durable_saved_count": durable_saved_count,
+            "file_work_context_writeback": bool(main_context or task_summary_refs),
         }
 
     async def _apply_assistant_message_commit_async(self, session_id: str, payload: dict[str, Any]):
@@ -309,10 +326,26 @@ class QueryRuntime:
             ],
         )
         history = self.session_manager.load_session(session_id)
+        main_context = dict(payload.get("main_context") or {})
+        task_summary_refs = [
+            dict(item)
+            for item in list(payload.get("task_summary_refs") or [])
+            if isinstance(item, dict)
+        ]
         session_memory_chars = 0
         durable_saved_count = 0
         try:
-            session_memory_chars = len(self.memory_facade.refresh_session_memory(session_id, history) or "")
+            if main_context or task_summary_refs:
+                session_memory_chars = len(
+                    self.memory_facade.refresh_session_memory_from_context_state(
+                        session_id,
+                        main_context,
+                        task_summaries=task_summary_refs,
+                    )
+                    or ""
+                )
+            else:
+                session_memory_chars = len(self.memory_facade.refresh_session_memory(session_id, history) or "")
         except Exception:
             logger.warning("session memory refresh failed after assistant commit", exc_info=True)
         try:
@@ -327,6 +360,7 @@ class QueryRuntime:
             "appended_messages": appended,
             "session_memory_chars": session_memory_chars,
             "durable_saved_count": durable_saved_count,
+            "file_work_context_writeback": bool(main_context or task_summary_refs),
         }
 
     def _all_tool_instances(self) -> list[Any]:

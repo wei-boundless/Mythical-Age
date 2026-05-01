@@ -8,7 +8,7 @@ from understanding import build_understanding_candidates
 
 from .bindings import default_task_binding, merge_task_bindings
 from .contracts import build_task_contract
-from .definitions import select_task_definitions
+from .definitions import select_runtime_task_definitions, select_task_definitions
 from .runtime_contracts import (
     ProjectionRequirement,
     SkillRuntimeView,
@@ -31,7 +31,10 @@ def build_task_runtime_contract(
     runtime_required_operations: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, Any]:
     _ = approval_context
-    definitions = select_task_definitions(user_goal)
+    definitions = select_runtime_task_definitions(
+        user_goal,
+        query_understanding=query_understanding,
+    )
     bindings = [default_task_binding(definition) for definition in definitions]
     merged_binding = merge_task_bindings(bindings)
     task_family = "+".join(_dedupe([definition.task_family for definition in definitions]))
@@ -201,10 +204,21 @@ def _projection_section(requirement: ProjectionRequirement) -> str:
 
 def _output_section(definitions: list[Any]) -> str:
     modes = ", ".join(definition.task_mode for definition in definitions)
+    direct_execution = any(str(definition.task_mode or "") == "capability_execution" for definition in definitions)
+    if direct_execution:
+        return (
+            f"Output should satisfy task modes: {modes}. "
+            "If the request is clear and required inputs are already present, execute the relevant capability and "
+            "return the result directly instead of asking for confirmation."
+        )
     return f"Output should satisfy task modes: {modes}. Return a concise response."
 
 
 def _projection_tags(task_mode: str) -> list[str]:
+    if "capability_execution" in task_mode:
+        return ["direct-execution", "result-first"]
+    if "knowledge_retrieval" in task_mode:
+        return ["evidence-first", "grounded-answer"]
     if "information_search" in task_mode:
         return ["evidence-first", "traceability"]
     if "inspection_and_correction" in task_mode:

@@ -51,6 +51,31 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             default_projection_role="evidence_first",
         ),
         TaskDefinition(
+            definition_id="task.capability_execution",
+            title="Capability execution",
+            task_family="execution",
+            task_mode="capability_execution",
+            level="basic",
+            goal_summary="Execute the selected authorized capability for a clear user request.",
+            completion_criteria=(
+                "Required capability is selected.",
+                "Available operation is executed when required inputs are present.",
+                "Answer is grounded in the capability result.",
+            ),
+            default_projection_role="operator",
+        ),
+        TaskDefinition(
+            definition_id="task.knowledge_retrieval",
+            title="Knowledge retrieval",
+            task_family="search",
+            task_mode="knowledge_retrieval",
+            level="basic",
+            goal_summary="Retrieve relevant knowledge-base evidence and answer from it.",
+            completion_criteria=("Relevant evidence is retrieved.", "Answer is grounded in retrieved material."),
+            default_skill_refs=("skill.rag-skill", "skill.evidence_summary"),
+            default_projection_role="evidence_first",
+        ),
+        TaskDefinition(
             definition_id="task.local_material_read",
             title="Local material read",
             task_family="local_processing",
@@ -133,6 +158,65 @@ def select_task_definitions(user_goal: str) -> list[TaskDefinition]:
     if has_local_target and _has_review_intent(text):
         return [definitions["task.inspection_and_correction"]]
     return [definitions["task.request_intake"]]
+
+
+def select_runtime_task_definitions(
+    user_goal: str,
+    *,
+    query_understanding: dict[str, Any] | None = None,
+) -> list[TaskDefinition]:
+    """Select runtime task definitions from structured understanding first.
+
+    Text heuristics are only a fallback. The runtime path already has a
+    query-understanding layer, so task prompts should not reclassify clear
+    executable requests as request intake just because the raw text is short.
+    """
+    definitions = default_task_definitions()
+    understanding = dict(query_understanding or {})
+    execution_posture = str(understanding.get("execution_posture") or "").strip()
+    route_hint = str(understanding.get("route_hint") or "").strip()
+    source_kind = str(understanding.get("source_kind") or "").strip()
+    modality = str(understanding.get("modality") or "").strip()
+    task_kind = str(understanding.get("task_kind") or "").strip()
+    capability_requests = {
+        str(item or "").strip()
+        for item in list(understanding.get("capability_requests") or ())
+        if str(item or "").strip()
+    }
+    candidate_tools = {
+        str(item or "").strip()
+        for item in list(understanding.get("candidate_tools") or ())
+        if str(item or "").strip()
+    }
+    preferred_skill = str(understanding.get("preferred_skill") or "").strip()
+
+    if execution_posture == "direct_tool" or route_hint == "tool" or candidate_tools:
+        if modality == "pdf" or "document_analysis" in capability_requests or preferred_skill == "pdf-analysis":
+            return [definitions["task.capability_execution"]]
+        if (
+            modality == "table"
+            or source_kind == "dataset"
+            or "dataset_analysis" in capability_requests
+            or preferred_skill == "structured-data-analysis"
+        ):
+            return [definitions["task.capability_execution"]]
+        if source_kind == "workspace" or {"read_file", "search_files"} & candidate_tools:
+            return [
+                definitions["task.capability_execution"],
+                definitions["task.local_material_read"],
+                definitions["task.information_synthesis"],
+            ]
+        if source_kind == "external_web" or task_kind in {"realtime_lookup", "web_lookup"}:
+            return [definitions["task.capability_execution"], definitions["task.information_search"]]
+        return [definitions["task.capability_execution"]]
+
+    if execution_posture == "direct_rag" or route_hint == "rag" or preferred_skill == "rag-skill":
+        return [definitions["task.knowledge_retrieval"], definitions["task.information_synthesis"]]
+
+    if execution_posture == "direct_memory" or route_hint == "memory":
+        return [definitions["task.information_synthesis"]]
+
+    return select_task_definitions(user_goal)
 
 
 def _has_local_material_evidence(text: str) -> bool:

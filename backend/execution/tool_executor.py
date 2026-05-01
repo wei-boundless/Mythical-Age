@@ -31,6 +31,7 @@ class ToolRuntimeExecutor:
                 directive_ref=directive.directive_id,
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
+                tool_args=tool_args,
                 result=f"Tool execution failed: unknown tool {tool_name}.",
             )
         tool = self.tool_runtime.get_instance(tool_name)
@@ -41,6 +42,7 @@ class ToolRuntimeExecutor:
                 directive_ref=directive.directive_id,
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
+                tool_args=tool_args,
                 result=f"Tool execution failed: {tool_name} is unavailable.",
             )
         try:
@@ -62,6 +64,7 @@ class ToolRuntimeExecutor:
             directive_ref=directive.directive_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
+            tool_args=tool_args,
             result=text,
             truncated=truncated,
         )

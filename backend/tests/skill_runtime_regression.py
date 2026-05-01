@@ -129,6 +129,20 @@ def main() -> None:
         "path": "inventory.xlsx",
     }
 
+    bound_structured = analyze_query_understanding(
+        "按仓库汇总前五。",
+        active_bindings={"active_dataset": "Data/inventory.xlsx"},
+        skill_registry=skill_registry,
+        tool_registry=tool_registry,
+    )
+    assert bound_structured.route == "tool"
+    assert bound_structured.tool_name == "structured_data_analysis"
+    assert bound_structured.tool_input == {
+        "query": "按仓库汇总前五。",
+        "path": "Data/inventory.xlsx",
+    }
+    assert "bound_dataset_followup" in bound_structured.reasons
+
     pdf = analyze_query_understanding(
         "2025年AI治理报告的第三页讲得什么",
         skill_registry=skill_registry,
@@ -140,6 +154,21 @@ def main() -> None:
     assert pdf.tool_name == "pdf_analysis"
     assert pdf.target_object is None
     assert pdf.tool_input.get("mode") == "page"
+
+    bound_pdf = analyze_query_understanding(
+        "把这份 PDF 的核心结论压成三条行动建议。",
+        active_bindings={"committed_pdf": "knowledge/AI Knowledge/report.pdf"},
+        skill_registry=skill_registry,
+        tool_registry=tool_registry,
+    )
+    assert bound_pdf.route == "tool"
+    assert bound_pdf.tool_name == "pdf_analysis"
+    assert bound_pdf.tool_input == {
+        "query": "把这份 PDF 的核心结论压成三条行动建议。",
+        "mode": "document",
+        "path": "knowledge/AI Knowledge/report.pdf",
+    }
+    assert "bound_pdf_followup" in bound_pdf.reasons
 
     faq = analyze_query_understanding(
         "为什么我在我的帐户中找不到我的订单？",

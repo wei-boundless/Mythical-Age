@@ -118,6 +118,7 @@ def build_tool_result_observation(
     directive_ref: str,
     tool_name: str,
     result: Any,
+    tool_args: dict[str, Any] | None = None,
     tool_call_id: str = "",
     truncated: bool = False,
 ) -> RuntimeObservation:
@@ -133,6 +134,7 @@ def build_tool_result_observation(
         payload={
             "tool_name": str(tool_name or ""),
             "tool_call_id": str(tool_call_id or ""),
+            "tool_args": dict(tool_args or {}),
             "result": content,
             "result_chars": len(content),
             "truncated": truncated,

@@ -364,6 +364,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "基于本地知识库，告诉我 AI 治理里最常见的三类风险。",
         "plan.route=rag",
         "event=retrieval",
+        "response.contains_groups=风险;技术安全|模型|幻觉;应用|就业|场景;伦理|社会|偏见",
         "response.nonempty",
     ),
     user("main", "把这三类风险改写成适合周会汇报的三条。", "response.nonempty"),
@@ -372,6 +373,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "现在分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，先给我全文总览。",
         "plan.worker=pdf",
         "event.worker=pdf",
+        "response.contains_groups=回归现实主义|现实主义;数据;模型;应用|产业",
         "response.nonempty",
     ),
     user(
@@ -379,6 +381,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "第三页具体讲了什么？",
         "plan.worker=pdf",
         "event.worker=pdf",
+        "response.contains_any=封面|扉页|标题",
         "response.nonempty",
     ),
     user(
@@ -402,6 +405,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "切到 knowledge/E-commerce Data/inventory.xlsx，先看哪些仓库缺货。",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=33|上海仓|深圳仓|武汉仓|北京仓|成都仓|广州仓",
         "response.nonempty",
     ),
     user(
@@ -409,6 +413,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "按仓库汇总前五。",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=武汉仓|404|上海仓|392|深圳仓|392",
+        "response.not_contains_any=库存充足|数据不全|只能看到部分|建议我直接读取完整文件",
         "response.nonempty",
     ),
     user(
@@ -416,6 +422,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "哪些仓库其实并不缺货？",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_any=没有|不存在|全部|所有",
+        "response.not_contains_any=全都不缺|全部不缺",
         "response.nonempty",
     ),
     user(
@@ -423,6 +431,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=罗凯|唐琳|许晨|杨乐|朱敏",
         "response.nonempty",
     ),
     user(
@@ -430,6 +439,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "按部门汇总这些高薪员工。",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=运营|技术|销售|产品|人力",
         "response.nonempty",
     ),
     user("main", "把员工和库存结果分开做一个运营摘要。", "response.nonempty"),
@@ -438,6 +448,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "查询黄金价格。",
         "plan.tool=get_gold_price",
         "event.tool=get_gold_price",
+        "response.not_contains_any=要我现在查吗|要我现在直接拉|可以马上帮你拉",
         "response.nonempty",
     ),
     user(
@@ -445,6 +456,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "再查一下北京今天天气。",
         "plan.tool=get_weather",
         "event.tool=get_weather",
+        "response.contains_any=北京|天气|温度|°C",
+        "response.not_contains_any=要我现在查吗|要我现在直接拉|可以马上帮你拉",
         "response.nonempty",
     ),
     user("main", "把实时查询结果改写成值班提示。", "response.nonempty"),
@@ -492,10 +505,21 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。",
         "plan.execution_mode=bundle_execution",
         "plan.bundle_items=3",
+        "response.contains_all=第三页|深圳仓|广州仓|成都仓|北京",
         "response.nonempty",
     ),
-    user("main", "只展开第二个子任务。", "response.nonempty"),
-    user("main", "把第一个和第三个子任务各压成一句话。", "response.nonempty"),
+    user(
+        "main",
+        "只展开第二个子任务。",
+        "response.contains_all=深圳仓|广州仓|成都仓",
+        "response.nonempty",
+    ),
+    user(
+        "main",
+        "把第一个和第三个子任务各压成一句话。",
+        "response.contains_all=第三页|北京",
+        "response.nonempty",
+    ),
     operator("main", "set_permission_mode", mode="default"),
     user("main", "直接在终端里删掉 workspace 里的临时文件。", "response.nonempty"),
     user("main", "那你不要执行，只告诉我安全检查步骤。", "response.nonempty"),
@@ -509,6 +533,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "回到 knowledge/E-commerce Data/inventory.xlsx，哪个仓库现在最需要优先补货？",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=深圳仓|儿童绘本|122",
         "response.nonempty",
     ),
     user(
@@ -523,6 +548,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf 的核心结论。",
         "plan.worker=pdf",
         "event.worker=pdf",
+        "response.contains_groups=回归现实主义|现实主义;产业;治理",
         "response.nonempty",
     ),
     user(
@@ -530,6 +556,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "在 knowledge/E-commerce Data/inventory.xlsx 里查哪些仓库缺货。",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=33|上海仓|深圳仓|武汉仓|北京仓|成都仓|广州仓",
         "response.nonempty",
     ),
     user(
@@ -537,6 +564,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "查询黄金价格。",
         "plan.tool=get_gold_price",
         "event.tool=get_gold_price",
+        "response.not_contains_any=要我现在查吗|要我现在直接拉|可以马上帮你拉",
         "response.nonempty",
     ),
     user(
@@ -544,6 +572,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "第三页讲了什么？",
         "plan.worker=pdf",
         "event.worker=pdf",
+        "response.contains_any=封面|扉页|标题",
         "response.nonempty",
     ),
     user(
@@ -551,6 +580,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "按仓库汇总前五。",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=武汉仓|404|上海仓|392|深圳仓|392",
+        "response.not_contains_any=库存充足|数据不全|只能看到部分|建议我直接读取完整文件",
         "response.nonempty",
     ),
     user(
@@ -558,6 +589,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "再查北京天气。",
         "plan.tool=get_weather",
         "event.tool=get_weather",
+        "response.contains_any=北京|天气|温度|°C",
+        "response.not_contains_any=要我现在查吗|要我现在直接拉|可以马上帮你拉",
         "response.nonempty",
     ),
     user("doc", "把 PDF 部分压成两条行动项。", "response.nonempty"),
@@ -566,9 +599,17 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "哪些仓库不缺货？",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_any=没有|不存在|全部|所有",
+        "response.not_contains_any=全都不缺|全部不缺",
         "response.nonempty",
     ),
-    user("live", "回顾一下刚才两次实时查询的结论。", "response.nonempty"),
+    user(
+        "live",
+        "回顾一下刚才两次实时查询的结论。",
+        "response.contains_all=黄金|北京",
+        "response.not_contains_any=没有查询结论|未拉数据|只到了确认环节",
+        "response.nonempty",
+    ),
     user("main", "把 main、doc、ops、live 四条线程分开总结。", "response.nonempty"),
     operator("recall2", "ensure_session", title="Second Recall Session"),
     user(
@@ -600,6 +641,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "再切回 employees.xlsx，找出薪资前五的人。",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=罗凯|唐琳|许晨|杨乐|朱敏",
         "response.nonempty",
     ),
     user(
@@ -607,6 +649,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "按部门汇总这些人。",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=运营|技术|销售|产品|人力",
         "response.nonempty",
     ),
     user(
@@ -614,11 +657,13 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
         "回到 inventory.xlsx，哪个仓库最该先补货？",
         "plan.tool=structured_data_analysis",
         "event.worker=structured_data",
+        "response.contains_all=深圳仓|儿童绘本|122",
         "response.nonempty",
     ),
     user(
         "main",
         "最后给我一个总总结，按 PDF、数据、实时、长期记忆四段组织，而且先给结论。",
+        "response.contains_all=PDF|数据|实时|长期记忆|岩",
         "response.nonempty",
     ),
     user(

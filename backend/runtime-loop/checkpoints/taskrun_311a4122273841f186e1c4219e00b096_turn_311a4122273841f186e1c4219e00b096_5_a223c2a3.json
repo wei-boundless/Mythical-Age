@@ -1,0 +1,244 @@
+{
+  "checkpoint_id": "rtchk:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:25",
+  "task_run_id": "taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3",
+  "event_offset": 25,
+  "loop_state": {
+    "task_run_id": "taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3",
+    "status": "completed",
+    "turn_count": 2,
+    "step_count": 1,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:311a4122273841f186e1c4219e00b096:5:fb8d36304425",
+    "memory_state_ref": "memory-runtime:311a4122273841f186e1c4219e00b096",
+    "projection_ref": "4f965cccf7769e9c",
+    "prompt_manifest_ref": "manifest-4f965cccf7769e9c",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 102,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899898
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:98134bb9",
+      "rtobs:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:ec549b39",
+      "output_boundary:rtevt:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:21:b079e3ca",
+      "commit_gate:commit-gate:turn:311a4122273841f186e1c4219e00b096:5:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "311a4122273841f186e1c4219e00b096",
+            "task_run_id": "taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3",
+            "task_id": "turn:311a4122273841f186e1c4219e00b096:5",
+            "role": "assistant",
+            "content": "《2025年AI治理报告：回归现实主义》全文总览\n\n---\n\n核心判断\n\n2025年全球AI治理的基调已彻底转向——从\"防范末日风险\"切换到\"释放产业潜能\"。报告的核心论点是：各国不再纠结于要不要按下暂停键，而是在高速行进中完成换挡。治理从理想主义走向现实主义。\n\n---\n\n报告结构（三大模块）\n\n报告以 数据、模型、应用 三个模块为框架，梳理2025年AI治理的核心议题：\n\n1. 数据治理\n- 核心问题：数据从何而来？如何使用？\n- 数据供给瓶颈的破解路径，以及如何划定清晰、可持续的使用边界\n\n2. 模型治理\n- 聚焦算法能力本身的治理，包括模型安全、评估标准、透明度等\n\n3. 应用治理\n- AI面向社会运行的直接落点，涉及行业落地中的监管与责任划分\n\n---\n\n关键趋势\n\n- 产业优先：相比早期以安全伦理为中心，更多国家将产业发展置于优先位置\n- 规则分化：各国在具体规则路径和治理模式上仍有明显差异\n- 多边机制务实化：国际治理从宏观宣言转向标准制定、实施指南等技术性工具\n- 立法实验期：全球AI治理政策与立法关注度显著提升，但实际落地有限，整体处于探索阶段\n\n---\n\n一句话总结\n\n这份报告的核心信息是：2025年，AI治理不再谈\"要不要发展\"，而是谈\"怎么在发展中管住风险\"。治理重心从防御性转向建设性，从理想化转向可操作。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "311a4122273841f186e1c4219e00b096",
+          "task_run_id": "taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3",
+            "task_id": "turn:311a4122273841f186e1c4219e00b096:5",
+            "terminal_reason": "completed",
+            "final_content_chars": 574
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2387,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:311a4122273841f186e1c4219e00b096:5",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 574,
+      "result_ref_count": 6
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:311a4122273841f186e1c4219e00b096:5:fb8d36304425",
+  "prompt_manifest_ref": "manifest-4f965cccf7769e9c",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "311a4122273841f186e1c4219e00b096",
+          "task_run_id": "taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3",
+          "task_id": "turn:311a4122273841f186e1c4219e00b096:5",
+          "role": "assistant",
+          "content": "《2025年AI治理报告：回归现实主义》全文总览\n\n---\n\n核心判断\n\n2025年全球AI治理的基调已彻底转向——从\"防范末日风险\"切换到\"释放产业潜能\"。报告的核心论点是：各国不再纠结于要不要按下暂停键，而是在高速行进中完成换挡。治理从理想主义走向现实主义。\n\n---\n\n报告结构（三大模块）\n\n报告以 数据、模型、应用 三个模块为框架，梳理2025年AI治理的核心议题：\n\n1. 数据治理\n- 核心问题：数据从何而来？如何使用？\n- 数据供给瓶颈的破解路径，以及如何划定清晰、可持续的使用边界\n\n2. 模型治理\n- 聚焦算法能力本身的治理，包括模型安全、评估标准、透明度等\n\n3. 应用治理\n- AI面向社会运行的直接落点，涉及行业落地中的监管与责任划分\n\n---\n\n关键趋势\n\n- 产业优先：相比早期以安全伦理为中心，更多国家将产业发展置于优先位置\n- 规则分化：各国在具体规则路径和治理模式上仍有明显差异\n- 多边机制务实化：国际治理从宏观宣言转向标准制定、实施指南等技术性工具\n- 立法实验期：全球AI治理政策与立法关注度显著提升，但实际落地有限，整体处于探索阶段\n\n---\n\n一句话总结\n\n这份报告的核心信息是：2025年，AI治理不再谈\"要不要发展\"，而是谈\"怎么在发展中管住风险\"。治理重心从防御性转向建设性，从理想化转向可操作。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "311a4122273841f186e1c4219e00b096",
+        "task_run_id": "taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:311a4122273841f186e1c4219e00b096:turn:311a4122273841f186e1c4219e00b096:5:a223c2a3",
+          "task_id": "turn:311a4122273841f186e1c4219e00b096:5",
+          "terminal_reason": "completed",
+          "final_content_chars": 574
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2387,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777673441.183018,
+  "checksum": "da592300d960ef0459375b92381a23517fbd4c2f051f0f8487902cb16ce53c1d",
+  "authority": "orchestration.runtime_checkpoint"
+}

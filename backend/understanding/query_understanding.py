@@ -36,10 +36,15 @@ def analyze_query_understanding(
     message: str,
     memory_intent: MemoryIntent | None = None,
     *,
+    active_bindings: dict[str, Any] | None = None,
     skill_registry: SkillRegistry | None = None,
     tool_registry: ToolRegistry | None = None,
 ) -> QueryUnderstanding:
-    task = analyze_task_understanding(message, memory_intent)
+    task = analyze_task_understanding(
+        message,
+        memory_intent,
+        active_bindings=active_bindings,
+    )
     understanding = _from_task(task)
     _apply_skill_tool_routing(
         understanding,

@@ -1,0 +1,241 @@
+{
+  "checkpoint_id": "rtchk:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:20",
+  "task_run_id": "taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa",
+  "event_offset": 20,
+  "loop_state": {
+    "task_run_id": "taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:906bb7412e4f4d8c9f6a04d826d22312:3:cc5db8e3f8fa",
+    "memory_state_ref": "memory-runtime:906bb7412e4f4d8c9f6a04d826d22312",
+    "projection_ref": "f0e9d564f66277c7",
+    "prompt_manifest_ref": "manifest-f0e9d564f66277c7",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 147,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899853
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:f26de5bd",
+      "commit_gate:commit-gate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "906bb7412e4f4d8c9f6a04d826d22312",
+            "task_run_id": "taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa",
+            "task_id": "turn:906bb7412e4f4d8c9f6a04d826d22312:3",
+            "role": "assistant",
+            "content": "北京，北京市，中国 当前天气：\n- 温度：15.9°C\n- 天气状况：阴天\n- 风速：3.9 km/h，东北风\n- 观测时间：2026-05-02T04:00\n- 数据来源：Open-Meteo",
+            "answer_channel": "tool_visible_summary",
+            "answer_source": "direct_tool.get_weather",
+            "answer_canonical_state": "tool_summary",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "906bb7412e4f4d8c9f6a04d826d22312",
+          "task_run_id": "taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa",
+            "task_id": "turn:906bb7412e4f4d8c9f6a04d826d22312:3",
+            "terminal_reason": "completed",
+            "final_content_chars": 97
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1438,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:906bb7412e4f4d8c9f6a04d826d22312:3",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 97,
+      "result_ref_count": 3
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:906bb7412e4f4d8c9f6a04d826d22312:3:cc5db8e3f8fa",
+  "prompt_manifest_ref": "manifest-f0e9d564f66277c7",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "906bb7412e4f4d8c9f6a04d826d22312",
+          "task_run_id": "taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa",
+          "task_id": "turn:906bb7412e4f4d8c9f6a04d826d22312:3",
+          "role": "assistant",
+          "content": "北京，北京市，中国 当前天气：\n- 温度：15.9°C\n- 天气状况：阴天\n- 风速：3.9 km/h，东北风\n- 观测时间：2026-05-02T04:00\n- 数据来源：Open-Meteo",
+          "answer_channel": "tool_visible_summary",
+          "answer_source": "direct_tool.get_weather",
+          "answer_canonical_state": "tool_summary",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "906bb7412e4f4d8c9f6a04d826d22312",
+        "task_run_id": "taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:906bb7412e4f4d8c9f6a04d826d22312:turn:906bb7412e4f4d8c9f6a04d826d22312:3:8e97fbaa",
+          "task_id": "turn:906bb7412e4f4d8c9f6a04d826d22312:3",
+          "terminal_reason": "completed",
+          "final_content_chars": 97
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1438,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777666401.5994165,
+  "checksum": "eb806d2c15534ac9334bfbe70299f72f184d846e7d23dd08a2668513d1f29877",
+  "authority": "orchestration.runtime_checkpoint"
+}

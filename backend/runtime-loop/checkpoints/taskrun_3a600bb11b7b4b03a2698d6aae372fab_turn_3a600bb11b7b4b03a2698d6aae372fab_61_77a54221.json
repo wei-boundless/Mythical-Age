@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:18",
+  "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:3a600bb11b7b4b03a2698d6aae372fab:61:444576a7653a",
+    "memory_state_ref": "memory-runtime:3a600bb11b7b4b03a2698d6aae372fab",
+    "projection_ref": "798200076f489431",
+    "prompt_manifest_ref": "manifest-798200076f489431",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 206,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899794
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:5a362099",
+      "output_boundary:rtevt:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:14:68e57e03",
+      "commit_gate:commit-gate:turn:3a600bb11b7b4b03a2698d6aae372fab:61:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "3a600bb11b7b4b03a2698d6aae372fab",
+            "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221",
+            "task_id": "turn:3a600bb11b7b4b03a2698d6aae372fab:61",
+            "role": "assistant",
+            "content": "岩，四条线程总结如下：\n\n---\n\nmain — 对话主线\n核心交互线程。贯穿全文的用户偏好设定（先结论、称\"岩\"、信息不足不猜）、任务调度（在 PDF / 库存 / 员工 / 实时数据间多次切换），以及你刚才表达焦虑时的情绪回应。当前无遗留待办。\n\ndoc — 文档分析线\n聚焦一份PDF：《2025年AI治理报告：回归现实主义》。产出了全文总览、报告结构（数据·模型·应用）、第三页确认为标题页、第二部分模型约束的要点及两句话浓缩版、三条行动建议。当前状态：报告核心内容已提取完毕，无未完成项。\n\nops — 运营数据线\n涉及两个文件：inventory.xlsx（缺货分析：33/200缺货，深圳仓最严重，杭州仓零缺货）和 employees.xlsx（薪资前五，五部门各一人）。产出了按仓库缺货前五、运营摘要。最后停在\"深圳仓最需要优先补货\"这个结论上。\n\nlive — 实时查询线\n两次外部查询：黄金价格（XAU/USD 4,633.90，2026-05-02）和北京天气（阴，15.9°C）。合并改写成值班提示。当前状态：已完成。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "3a600bb11b7b4b03a2698d6aae372fab",
+          "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221",
+            "task_id": "turn:3a600bb11b7b4b03a2698d6aae372fab:61",
+            "terminal_reason": "completed",
+            "final_content_chars": 471
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2584,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:3a600bb11b7b4b03a2698d6aae372fab:61",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 471,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:3a600bb11b7b4b03a2698d6aae372fab:61:444576a7653a",
+  "prompt_manifest_ref": "manifest-798200076f489431",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "3a600bb11b7b4b03a2698d6aae372fab",
+          "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221",
+          "task_id": "turn:3a600bb11b7b4b03a2698d6aae372fab:61",
+          "role": "assistant",
+          "content": "岩，四条线程总结如下：\n\n---\n\nmain — 对话主线\n核心交互线程。贯穿全文的用户偏好设定（先结论、称\"岩\"、信息不足不猜）、任务调度（在 PDF / 库存 / 员工 / 实时数据间多次切换），以及你刚才表达焦虑时的情绪回应。当前无遗留待办。\n\ndoc — 文档分析线\n聚焦一份PDF：《2025年AI治理报告：回归现实主义》。产出了全文总览、报告结构（数据·模型·应用）、第三页确认为标题页、第二部分模型约束的要点及两句话浓缩版、三条行动建议。当前状态：报告核心内容已提取完毕，无未完成项。\n\nops — 运营数据线\n涉及两个文件：inventory.xlsx（缺货分析：33/200缺货，深圳仓最严重，杭州仓零缺货）和 employees.xlsx（薪资前五，五部门各一人）。产出了按仓库缺货前五、运营摘要。最后停在\"深圳仓最需要优先补货\"这个结论上。\n\nlive — 实时查询线\n两次外部查询：黄金价格（XAU/USD 4,633.90，2026-05-02）和北京天气（阴，15.9°C）。合并改写成值班提示。当前状态：已完成。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "3a600bb11b7b4b03a2698d6aae372fab",
+        "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:3a600bb11b7b4b03a2698d6aae372fab:turn:3a600bb11b7b4b03a2698d6aae372fab:61:77a54221",
+          "task_id": "turn:3a600bb11b7b4b03a2698d6aae372fab:61",
+          "terminal_reason": "completed",
+          "final_content_chars": 471
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2584,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777666456.2733002,
+  "checksum": "ac41b36bf12aecfcda033f37ae772068a5517084c2a95c85def0abdce894494e",
+  "authority": "orchestration.runtime_checkpoint"
+}

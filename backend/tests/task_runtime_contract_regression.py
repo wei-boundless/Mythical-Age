@@ -93,3 +93,55 @@ def test_task_runtime_contract_api_returns_runtime_contract() -> None:
     assert runtime["status"] == "runtime"
     assert runtime["runtime_executable"] is True
     assert runtime["task_prompt_contract"]["metadata"]["runtime_directive_enabled"] is True
+
+
+def test_direct_tool_runtime_contract_does_not_fall_back_to_request_intake() -> None:
+    runtime = build_task_runtime_contract(
+        session_id="session-weather",
+        task_id="task-weather",
+        user_goal="再查一下北京今天天气。",
+        query_understanding={
+            "execution_posture": "direct_tool",
+            "route_hint": "tool",
+            "source_kind": "external_web",
+            "task_kind": "realtime_lookup",
+            "modality": "realtime",
+            "candidate_tools": ["get_weather"],
+            "capability_requests": ["weather"],
+        },
+    )
+
+    definition_ids = [item["definition_id"] for item in runtime["definitions"]]
+    task_section = runtime["task_prompt_contract"]["task_section"]
+    output_section = runtime["task_prompt_contract"]["output_section"]
+    operations = set(runtime["operation_requirement"]["required_operations"])
+
+    assert "task.request_intake" not in definition_ids
+    assert "task.capability_execution" in definition_ids
+    assert "No execution is performed." not in task_section
+    assert "execute the relevant capability" in output_section
+    assert "op.model_response" in operations
+
+
+def test_direct_rag_runtime_contract_does_not_fall_back_to_request_intake() -> None:
+    runtime = build_task_runtime_contract(
+        session_id="session-rag",
+        task_id="task-rag",
+        user_goal="基于本地知识库，告诉我 AI 治理里最常见的三类风险。",
+        query_understanding={
+            "execution_posture": "direct_rag",
+            "route_hint": "rag",
+            "source_kind": "knowledge_base",
+            "task_kind": "knowledge_lookup",
+            "modality": "general",
+            "preferred_skill": "rag-skill",
+            "capability_requests": ["knowledge_lookup"],
+        },
+    )
+
+    definition_ids = [item["definition_id"] for item in runtime["definitions"]]
+    task_section = runtime["task_prompt_contract"]["task_section"]
+
+    assert "task.request_intake" not in definition_ids
+    assert definition_ids[0] == "task.knowledge_retrieval"
+    assert "No execution is performed." not in task_section

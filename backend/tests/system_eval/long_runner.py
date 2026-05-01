@@ -219,6 +219,26 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             if any(item in turn.response_text for item in variants):
                 failures.append(f"{check} (actual={turn.response_text[:160]})")
             continue
+        if check.startswith("response.contains_all="):
+            variants = [item.strip() for item in check.split("=", 1)[1].split("|") if item.strip()]
+            missing = [item for item in variants if item not in turn.response_text]
+            if missing:
+                failures.append(f"{check} (missing={missing}, actual={turn.response_text[:160]})")
+            continue
+        if check.startswith("response.contains_groups="):
+            groups = [
+                [variant.strip() for variant in group.split("|") if variant.strip()]
+                for group in check.split("=", 1)[1].split(";")
+                if group.strip()
+            ]
+            missing_groups = [
+                group
+                for group in groups
+                if not any(variant in turn.response_text for variant in group)
+            ]
+            if missing_groups:
+                failures.append(f"{check} (missing_groups={missing_groups}, actual={turn.response_text[:160]})")
+            continue
         if check == "response.no_leak_flags":
             if turn.answer_leak_flags:
                 failures.append(f"{check} (actual={turn.answer_leak_flags})")

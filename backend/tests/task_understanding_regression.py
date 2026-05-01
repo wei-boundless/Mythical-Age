@@ -55,6 +55,20 @@ def main() -> None:
     assert generic_followup.source_kind == "knowledge_base"
     assert generic_followup.task_kind == "knowledge_lookup"
 
+    bound_dataset_followup = analyze_task_understanding(
+        "按仓库展开一下",
+        active_bindings={"active_dataset": "Data/inventory.xlsx"},
+    )
+    assert bound_dataset_followup.source_kind == "dataset"
+    assert bound_dataset_followup.task_kind == "dataset_query"
+    assert bound_dataset_followup.route_hint == "tool"
+    assert bound_dataset_followup.preferred_skill == "structured-data-analysis"
+    assert bound_dataset_followup.parameters == {
+        "query": "按仓库展开一下",
+        "path": "Data/inventory.xlsx",
+    }
+    assert bound_dataset_followup.direct_route_reason == "bound_dataset_followup"
+
     pdf_page = analyze_task_understanding("2025年AI治理报告的第三页讲得什么")
     assert pdf_page.source_kind == "document"
     assert pdf_page.task_kind == "document_page"
@@ -68,6 +82,16 @@ def main() -> None:
         "现在打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，给我一个全文总览。"
     )
     assert pdf_explicit.parameters["path"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+
+    bound_pdf_followup = analyze_task_understanding(
+        "把这份 PDF 的核心结论压成三条行动建议。",
+        active_bindings={"committed_pdf": "knowledge/AI Knowledge/report.pdf"},
+    )
+    assert bound_pdf_followup.source_kind == "document"
+    assert bound_pdf_followup.route_hint == "tool"
+    assert bound_pdf_followup.preferred_skill == "pdf-analysis"
+    assert bound_pdf_followup.parameters["path"] == "knowledge/AI Knowledge/report.pdf"
+    assert bound_pdf_followup.direct_route_reason == "bound_pdf_followup"
 
     faq = analyze_task_understanding("为什么我在我的帐户中找不到我的订单？")
     assert faq.source_kind == "knowledge_base"

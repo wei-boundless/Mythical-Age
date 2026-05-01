@@ -483,6 +483,8 @@ class TaskRunLoop:
         final_answer_metadata: dict[str, Any] = {}
         terminal_reason = "completed"
         result_refs: list[str] = []
+        final_main_context: dict[str, Any] = {}
+        final_task_summary_refs: list[dict[str, Any]] = []
         pending_tool_calls: list[dict[str, Any]] = []
         assistant_tool_call_content = ""
         tool_messages: list[ToolMessage] = []
@@ -515,6 +517,13 @@ class TaskRunLoop:
                     if observation.get("observation_type") == "tool_result":
                         tool_observation_count += 1
                         observation_payload = dict(observation.get("payload") or {})
+                        projected_main_context, projected_task_summary_refs = _project_file_work_context_from_tool_observation(
+                            observation_payload
+                        )
+                        if projected_main_context:
+                            final_main_context = projected_main_context
+                        if projected_task_summary_refs:
+                            final_task_summary_refs = projected_task_summary_refs
                         tool_messages.append(
                             ToolMessage(
                                 content=str(observation_payload.get("result") or ""),
@@ -543,7 +552,8 @@ class TaskRunLoop:
                 }
             elif event.get("type") == "error":
                 terminal_reason = "executor_failed"
-            yield event
+            if event.get("type") != "done":
+                yield event
 
         turn_count = 1
         model_call_count = 1
@@ -618,7 +628,7 @@ class TaskRunLoop:
                 user_message=user_message,
                 model_messages=followup_messages,
                 directive=directive,
-                tool_instances=runtime_tool_instances,
+                tool_instances=[],
             ):
                 if event.get("type") == "tool_call_requested":
                     tool_call = dict(event.get("tool_call") or {})
@@ -644,6 +654,13 @@ class TaskRunLoop:
                         if observation.get("observation_type") == "tool_result":
                             tool_observation_count += 1
                             observation_payload = dict(observation.get("payload") or {})
+                            projected_main_context, projected_task_summary_refs = _project_file_work_context_from_tool_observation(
+                                observation_payload
+                            )
+                            if projected_main_context:
+                                final_main_context = projected_main_context
+                            if projected_task_summary_refs:
+                                final_task_summary_refs = projected_task_summary_refs
                             next_tool_messages.append(
                                 ToolMessage(
                                     content=str(observation_payload.get("result") or ""),
@@ -672,7 +689,8 @@ class TaskRunLoop:
                     }
                 elif event.get("type") == "error":
                     terminal_reason = "executor_failed"
-                yield event
+                if event.get("type") != "done":
+                    yield event
             if next_pending_tool_calls and next_tool_messages and terminal_reason == "completed":
                 followup_messages = [
                     *followup_messages,
@@ -701,7 +719,12 @@ class TaskRunLoop:
         assistant_commit_applied = False
         assistant_commit_result: Any = None
         if assistant_commit.commit_allowed and assistant_message_committer is not None:
-            assistant_commit_result = assistant_message_committer(dict(assistant_commit.commit_candidate.payload))
+            assistant_payload = dict(assistant_commit.commit_candidate.payload)
+            if final_main_context:
+                assistant_payload["main_context"] = dict(final_main_context)
+            if final_task_summary_refs:
+                assistant_payload["task_summary_refs"] = [dict(item) for item in final_task_summary_refs]
+            assistant_commit_result = assistant_message_committer(assistant_payload)
             if inspect.isawaitable(assistant_commit_result):
                 assistant_commit_result = await assistant_commit_result
             assistant_commit_applied = True
@@ -729,16 +752,6 @@ class TaskRunLoop:
             "commit_gate": assistant_commit.to_dict(),
             "commit_applied": assistant_commit_applied,
         }
-        if terminal_reason != "completed" and final_content:
-            yield {
-                "type": "done",
-                "content": final_content,
-                "main_context": {},
-                "task_summary_refs": [],
-                **final_answer_metadata,
-                "persist_policy": "progress_only",
-                "terminal_reason": terminal_reason,
-            }
         final_commit = build_task_run_final_commit_decision(
             task_run_id=terminal_state.task_run_id,
             task_id=task_id,
@@ -757,6 +770,26 @@ class TaskRunLoop:
         result_refs.append(f"commit_gate:{final_commit.gate_id}")
         yield {"type": "runtime_loop_event", "event": commit_event.to_dict()}
         yield {"type": "runtime_task_result_commit", "commit_gate": final_commit.to_dict()}
+        yield {
+            "type": "done",
+            "content": final_content,
+            "main_context": dict(final_main_context),
+            "task_summary_refs": [dict(item) for item in final_task_summary_refs],
+            **final_answer_metadata,
+            "persist_policy": "committed" if terminal_reason == "completed" else "progress_only",
+            "terminal_reason": terminal_reason,
+            "commit_gate": assistant_commit.to_dict(),
+            "task_result_commit": final_commit.to_dict(),
+            "output_commit": {
+                "state": "committed" if assistant_commit_applied else "not_applied",
+                "assistant_commit_applied": assistant_commit_applied,
+                "assistant_commit": assistant_commit.to_dict(),
+                "task_result_commit": final_commit.to_dict(),
+                "memory": dict(memory_commit_state),
+                "file_work_context_writeback": bool(final_main_context or final_task_summary_refs),
+            },
+            "legacy_query_chain_removed": True,
+        }
         terminal_state = RuntimeLoopState(
             task_run_id=terminal_state.task_run_id,
             status=terminal_state.status,
@@ -1112,6 +1145,272 @@ def _build_runtime_budget_exhausted_message(message: str = "", *, tool_observati
         f"{reason_text}，所以先停止继续调用工具。{evidence_text}，但模型还没有把这些结果收口成最终回答。"
         "请直接继续问“基于已读取内容总结”，我会从现有上下文继续收口。"
     )
+
+
+def _project_file_work_context_from_tool_observation(payload: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    tool_name = str(payload.get("tool_name") or "").strip()
+    tool_args = dict(payload.get("tool_args") or {})
+    result_text = str(payload.get("result") or "").strip()
+    if not result_text or str(payload.get("truncated") or "").lower() == "true":
+        return {}, []
+    if tool_name == "pdf_analysis":
+        return _project_pdf_tool_context(tool_args=tool_args, result_text=result_text)
+    if tool_name == "structured_data_analysis":
+        return _project_structured_data_tool_context(tool_args=tool_args, result_text=result_text)
+    return {}, []
+
+
+def _project_pdf_tool_context(*, tool_args: dict[str, Any], result_text: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    path = _clean_text(tool_args.get("path"))
+    query = _clean_text(tool_args.get("query"))
+    if not path:
+        path = _extract_tool_output_field(result_text, ("PDF", "文件", "path", "source"))
+    canonical_payload = _parse_tool_canonical_payload(result_text, "PDF_CANONICAL_RESULT::")
+    if not path and canonical_payload:
+        path = _clean_text(canonical_payload.get("source"))
+    if not path or _looks_like_failed_tool_result(result_text):
+        return {}, []
+    object_handle_id = _stable_file_work_id("source:pdf", path)
+    result_handle_id = _stable_file_work_id("result:pdf_answer", f"{path}:{query}:{result_text[:160]}")
+    pages = _extract_page_numbers(result_text)
+    if not pages and canonical_payload:
+        pages = [
+            int(page)
+            for page in list(canonical_payload.get("pages") or [])
+            if _safe_positive_int(page) is not None
+        ][:12]
+    if not pages and canonical_payload:
+        metadata = dict(canonical_payload.get("metadata") or {})
+        target_page = _safe_positive_int(metadata.get("target_page"))
+        if target_page is not None:
+            pages = [target_page]
+    subset_handle_id = (
+        _stable_file_work_id("subset:pdf_pages", f"{path}:{','.join(str(page) for page in pages)}")
+        if pages
+        else ""
+    )
+    mode = _clean_text(tool_args.get("mode")) or ("page" if pages else "document")
+    active_constraints: dict[str, Any] = {
+        "active_pdf": path,
+        "active_pdf_mode": mode,
+        "source_kind": "pdf",
+    }
+    if pages:
+        active_constraints["active_pdf_pages"] = pages
+    main_context = {
+        "active_goal": query,
+        "active_work_item": "pdf",
+        "active_binding_identity": _binding_identity(path),
+        "active_object_handle_id": object_handle_id,
+        "active_result_handle_id": result_handle_id,
+        "active_subset_handle_id": subset_handle_id,
+        "followup_mode": "task_ref",
+        "followup_resolution_source": "tool_observation_projection",
+        "followup_target_task_id": result_handle_id,
+        "followup_target_task_ids": [result_handle_id],
+        "followup_binding_key": "active_pdf",
+        "followup_binding_identity": _binding_identity(path),
+        "active_constraints": active_constraints,
+    }
+    summary_source = _clean_text(canonical_payload.get("summary")) if canonical_payload else ""
+    degraded_reason = _clean_text(canonical_payload.get("degraded_reason")) if canonical_payload else ""
+    summary = _compact_summary(summary_source or result_text)
+    if degraded_reason and degraded_reason not in summary:
+        summary = _compact_summary(f"{summary} degraded_reason={degraded_reason}")
+    task_summary = {
+        "task_id": result_handle_id,
+        "query": query,
+        "summary": summary,
+        "task_kind": "pdf",
+        "key_points": [
+            f"pdf={path}",
+            f"pdf_mode={mode}",
+            *([f"pdf_pages={','.join(str(page) for page in pages)}"] if pages else []),
+            f"artifact={path}#analysis",
+        ],
+    }
+    return main_context, [task_summary]
+
+
+def _project_structured_data_tool_context(
+    *,
+    tool_args: dict[str, Any],
+    result_text: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    path = _clean_text(tool_args.get("path"))
+    query = _clean_text(tool_args.get("query"))
+    if not path:
+        path = _extract_tool_output_field(result_text, ("数据集", "文件", "path", "source"))
+    if not path or _looks_like_failed_tool_result(result_text):
+        return {}, []
+    object_handle_id = _stable_file_work_id("source:dataset", path)
+    result_handle_id = _stable_file_work_id("result:structured_answer", f"{path}:{query}:{result_text[:160]}")
+    subset_labels = _extract_ranked_labels(result_text)
+    subset_handle_id = (
+        _stable_file_work_id("subset:structured_selection", f"{path}:{'|'.join(subset_labels)}")
+        if subset_labels
+        else ""
+    )
+    active_constraints: dict[str, Any] = {
+        "active_dataset": path,
+        "source_kind": "dataset",
+    }
+    if subset_labels:
+        active_constraints["subset_labels"] = subset_labels
+    main_context = {
+        "active_goal": query,
+        "active_work_item": "structured_data",
+        "active_binding_identity": _binding_identity(path),
+        "active_object_handle_id": object_handle_id,
+        "active_result_handle_id": result_handle_id,
+        "active_subset_handle_id": subset_handle_id,
+        "followup_mode": "task_ref",
+        "followup_resolution_source": "tool_observation_projection",
+        "followup_target_task_id": result_handle_id,
+        "followup_target_task_ids": [result_handle_id],
+        "followup_binding_key": "active_dataset",
+        "followup_binding_identity": _binding_identity(path),
+        "active_constraints": active_constraints,
+    }
+    summary = _compact_summary(result_text)
+    task_summary = {
+        "task_id": result_handle_id,
+        "query": query,
+        "summary": summary,
+        "task_kind": "structured_data",
+        "key_points": [
+            f"dataset={path}",
+            *([f"subset={','.join(subset_labels[:8])}"] if subset_labels else []),
+            f"artifact={path}#analysis",
+        ],
+    }
+    return main_context, [task_summary]
+
+
+def _stable_file_work_id(prefix: str, value: str) -> str:
+    import hashlib
+
+    digest = hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}:{digest}"
+
+
+def _parse_tool_canonical_payload(value: str, marker: str) -> dict[str, Any]:
+    import json
+
+    text = str(value or "").strip()
+    if marker not in text:
+        return {}
+    raw = text.split(marker, 1)[1].strip()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _binding_identity(value: str) -> str:
+    return str(value or "").replace("\\", "/").strip().lower()
+
+
+def _compact_summary(value: str, max_chars: int = 280) -> str:
+    return " ".join(str(value or "").split()).strip()[:max_chars]
+
+
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _safe_positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _looks_like_failed_tool_result(value: str) -> bool:
+    text = str(value or "").strip().lower()
+    failure_markers = (
+        "failed:",
+        "分析失败",
+        "explicit path is required",
+        "file does not exist",
+        "文件不存在",
+        "unavailable",
+    )
+    return any(marker in text for marker in failure_markers)
+
+
+def _extract_page_numbers(value: str) -> list[int]:
+    import re
+
+    pages: list[int] = []
+    for match in re.finditer(r"(?:第\s*|page\s*|p\.?\s*)(\d{1,4})\s*(?:页)?", str(value or ""), flags=re.IGNORECASE):
+        try:
+            page = int(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        if page > 0 and page not in pages:
+            pages.append(page)
+    return pages[:12]
+
+
+def _extract_ranked_labels(value: str) -> list[str]:
+    import re
+
+    labels: list[str] = []
+    lines = [line.strip() for line in str(value or "").splitlines() if line.strip()]
+    for line in lines:
+        if "|" in line:
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if not cells or set("".join(cells)) <= {"-", " "}:
+                continue
+            for cell in cells[:3]:
+                if _looks_like_label(cell) and cell not in labels:
+                    labels.append(cell)
+                    break
+        else:
+            match = re.match(r"^\s*(?:\d+[\.、)]\s*)?([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9_\-]{1,24})", line)
+            if match:
+                label = match.group(1).strip()
+                if _looks_like_label(label) and label not in labels:
+                    labels.append(label)
+        if len(labels) >= 12:
+            break
+    return labels
+
+
+def _looks_like_label(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text or len(text) > 32:
+        return False
+    blocked = {
+        "排名",
+        "姓名",
+        "部门",
+        "职位",
+        "城市",
+        "薪资",
+        "仓库",
+        "商品",
+        "库存",
+        "结果",
+        "排名姓名",
+    }
+    if text in blocked:
+        return False
+    if set(text) <= {"-", " "}:
+        return False
+    return True
+
+
+def _extract_tool_output_field(value: str, labels: tuple[str, ...]) -> str:
+    import re
+
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    pattern = rf"(?:{label_pattern})\s*[:：]\s*([^\s,，;；]+)"
+    match = re.search(pattern, str(value or ""), flags=re.IGNORECASE)
+    return match.group(1).strip() if match else ""
 
 
 def _diagnostic_int(payload: dict[str, Any], key: str) -> int:

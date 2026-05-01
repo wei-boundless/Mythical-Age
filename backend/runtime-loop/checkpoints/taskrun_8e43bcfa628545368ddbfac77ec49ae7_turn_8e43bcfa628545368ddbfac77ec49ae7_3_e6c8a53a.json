@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:18",
+  "task_run_id": "taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:8e43bcfa628545368ddbfac77ec49ae7:3:b7376479eb67",
+    "memory_state_ref": "memory-runtime:8e43bcfa628545368ddbfac77ec49ae7",
+    "projection_ref": "b345dd413c9d8d15",
+    "prompt_manifest_ref": "manifest-b345dd413c9d8d15",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 34,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899966
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:2e59d6d5",
+      "output_boundary:rtevt:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:14:31c0a3c5",
+      "commit_gate:commit-gate:turn:8e43bcfa628545368ddbfac77ec49ae7:3:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "8e43bcfa628545368ddbfac77ec49ae7",
+            "task_run_id": "taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a",
+            "task_id": "turn:8e43bcfa628545368ddbfac77ec49ae7:3",
+            "role": "assistant",
+            "content": "好的，下面是改写后的周会汇报版三条：\n\n---\n\n1. 偏见与公平性风险\n模型在训练数据和推理中有可能复现并放大社会偏见，导致面向不同用户群体时出现不公平结果。需要在模型选型和上线前评测中加入公平性校验，避免合规和声誉损失。\n\n2. 隐私与数据安全风险\nAI系统对训练和推理数据的依赖度高，存在数据泄露、逆向推断敏感信息的隐患。当前需重点关注数据使用边界、脱敏策略和第三方模型的数据流转控制。\n\n3. 安全与可控性风险\n模型面临对抗性攻击、幻觉输出和不可解释决策三类安全问题。建议在关键决策链路保持人工复核节点，并对模型输出接入内容安全过滤。\n\n---\n\n每条结构都是一句话定性 + 一句话行动指向，周会上一分钟能讲完。如果需要加具体进展或指标口径，可以直接往上补。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "8e43bcfa628545368ddbfac77ec49ae7",
+          "task_run_id": "taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a",
+            "task_id": "turn:8e43bcfa628545368ddbfac77ec49ae7:3",
+            "terminal_reason": "completed",
+            "final_content_chars": 333
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1408,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:8e43bcfa628545368ddbfac77ec49ae7:3",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 333,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:8e43bcfa628545368ddbfac77ec49ae7:3:b7376479eb67",
+  "prompt_manifest_ref": "manifest-b345dd413c9d8d15",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "8e43bcfa628545368ddbfac77ec49ae7",
+          "task_run_id": "taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a",
+          "task_id": "turn:8e43bcfa628545368ddbfac77ec49ae7:3",
+          "role": "assistant",
+          "content": "好的，下面是改写后的周会汇报版三条：\n\n---\n\n1. 偏见与公平性风险\n模型在训练数据和推理中有可能复现并放大社会偏见，导致面向不同用户群体时出现不公平结果。需要在模型选型和上线前评测中加入公平性校验，避免合规和声誉损失。\n\n2. 隐私与数据安全风险\nAI系统对训练和推理数据的依赖度高，存在数据泄露、逆向推断敏感信息的隐患。当前需重点关注数据使用边界、脱敏策略和第三方模型的数据流转控制。\n\n3. 安全与可控性风险\n模型面临对抗性攻击、幻觉输出和不可解释决策三类安全问题。建议在关键决策链路保持人工复核节点，并对模型输出接入内容安全过滤。\n\n---\n\n每条结构都是一句话定性 + 一句话行动指向，周会上一分钟能讲完。如果需要加具体进展或指标口径，可以直接往上补。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "8e43bcfa628545368ddbfac77ec49ae7",
+        "task_run_id": "taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:8e43bcfa628545368ddbfac77ec49ae7:turn:8e43bcfa628545368ddbfac77ec49ae7:3:e6c8a53a",
+          "task_id": "turn:8e43bcfa628545368ddbfac77ec49ae7:3",
+          "terminal_reason": "completed",
+          "final_content_chars": 333
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1408,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777666746.0135005,
+  "checksum": "ee3b324449a914e23989926c382504d8aa0b81fc5dc6043cd3d1f48450e2f7cd",
+  "authority": "orchestration.runtime_checkpoint"
+}

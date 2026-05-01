@@ -36,9 +36,11 @@ class AgentRuntimeChainAssembler:
             memory_intent=memory_intent,
         )
         context_payload = _to_dict(context_policy_result)
+        active_bindings = _active_bindings_from_memory_payload(memory_payload)
         query_understanding = analyze_query_understanding(
             message,
             memory_intent,
+            active_bindings=active_bindings,
             skill_registry=self.skill_registry,
             tool_registry=self.tool_registry,
         )
@@ -130,6 +132,35 @@ def _to_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return dict(value)
+
+
+def _active_bindings_from_memory_payload(memory_payload: dict[str, Any]) -> dict[str, Any]:
+    state_snapshot = dict(memory_payload.get("state_snapshot") or {})
+    context_slots = dict(state_snapshot.get("context_slots") or {})
+    active_handles = dict(state_snapshot.get("active_handles") or {})
+    result: dict[str, Any] = {}
+    for key in (
+        "active_pdf",
+        "active_pdf_mode",
+        "active_pdf_section",
+        "active_pdf_pages",
+        "active_dataset",
+        "active_binding_kind",
+        "active_binding_identity",
+        "active_binding_owner_task_id",
+        "committed_pdf",
+        "committed_pdf_owner_task_id",
+        "committed_dataset",
+        "committed_dataset_owner_task_id",
+    ):
+        value = context_slots.get(key)
+        if value not in ("", [], {}, None):
+            result[key] = value
+    for key in ("active_object_handle_id", "active_result_handle_id", "active_subset_handle_id"):
+        value = active_handles.get(key) or context_slots.get(key)
+        if value not in ("", [], {}, None):
+            result[key] = value
+    return result
 
 
 def _resolve_skill_frame(skill_registry: Any | None, task_frame: Any) -> Any | None:

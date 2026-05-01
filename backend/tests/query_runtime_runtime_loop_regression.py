@@ -280,9 +280,10 @@ def test_astream_executes_only_model_response_runtime_directive() -> None:
         for candidate in runtime_commit_gate_event["commit_gate"]["commit_candidates"]
     )
     assert done_event["answer_source"] == "runtime_directive:model_response"
-    assert done_event["persist_policy"] == "commit_gate_blocked"
-    assert done_event["commit_gate"]["commit_allowed"] is False
+    assert done_event["persist_policy"] == "committed"
+    assert done_event["commit_gate"]["commit_allowed"] is True
     assert done_event["content"] == "single-agent runtime directive answer"
+    assert done_event["output_commit"]["assistant_commit_applied"] is True
     projection_event = next(
         event
         for event in events
@@ -369,6 +370,45 @@ def test_astream_keeps_hidden_and_unrequested_tools_out_of_model_lane(tmp_path: 
     assert "pdf_analysis" not in tool_names
     assert "op.shell" not in directive_event["resource_policy"]["allowed_operations"]
     assert "op.python_repl" not in directive_event["resource_policy"]["allowed_operations"]
+
+
+def test_followup_after_tool_result_enters_answer_synthesis_without_more_tools(tmp_path: Path) -> None:
+    runtime = _build_tool_loop_runtime(tmp_path)
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-followup-synthesis",
+                message="读取 backend/soul/agent_core/CORE.md 并总结",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    done_event = next(event for event in events if event["type"] == "done")
+    tool_request_events = [
+        event
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "tool_call_requested"
+    ]
+    loop_control_events = [
+        event
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "loop_control_checked"
+    ]
+
+    assert runtime.model_runtime.tool_enabled_calls == 1
+    assert len(tool_request_events) == 1
+    assert len(loop_control_events) >= 2
+    assert done_event["content"] == "summary after tools"
+    assert done_event["answer_source"] == "runtime_directive:model_response"
 
 
 def test_tool_request_adoption_cannot_self_authorize_against_adopted_policy() -> None:
