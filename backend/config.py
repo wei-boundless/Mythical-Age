@@ -122,6 +122,28 @@ def _first_env(*names: str) -> str | None:
     return None
 
 
+def _provider_first_env(provider: str, specific_name: str, generic_name: str) -> str | None:
+    """Resolve provider-bound config before global compatibility config.
+
+    Global LLM_* env vars are kept as compatibility fallbacks, but they should
+    not override provider-specific values once a provider has been selected.
+    Otherwise a model name for one provider can silently enter another
+    provider's candidate chain.
+    """
+
+    specific = _first_env(specific_name)
+    if specific:
+        return specific
+    return _first_env(generic_name)
+
+
+def _normalize_llm_model_id(provider: str, model: str) -> str:
+    normalized = str(model or "").strip()
+    if provider == "deepseek":
+        return normalized.lower()
+    return normalized
+
+
 def _normalize_provider(
     value: str | None,
     *,
@@ -153,14 +175,18 @@ def _resolve_llm_model(provider: str) -> str:
     runtime_override = _runtime_llm_override()
     override_model = str(runtime_override.get("model") or "").strip()
     if override_model:
-        return override_model
+        return _normalize_llm_model_id(provider, override_model)
     if provider == "zhipu":
-        return _first_env("LLM_MODEL", "ZHIPU_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        model = _provider_first_env(provider, "ZHIPU_MODEL", "LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        return _normalize_llm_model_id(provider, model)
     if provider == "bailian":
-        return _first_env("LLM_MODEL", "BAILIAN_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        model = _provider_first_env(provider, "BAILIAN_MODEL", "LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        return _normalize_llm_model_id(provider, model)
     if provider == "deepseek":
-        return _first_env("LLM_MODEL", "DEEPSEEK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
-    return _first_env("LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        model = _provider_first_env(provider, "DEEPSEEK_MODEL", "LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        return _normalize_llm_model_id(provider, model)
+    model = _first_env("LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    return _normalize_llm_model_id(provider, model)
 
 
 def _resolve_llm_base_url(provider: str) -> str:
@@ -169,11 +195,11 @@ def _resolve_llm_base_url(provider: str) -> str:
     if override_base_url:
         return override_base_url
     if provider == "zhipu":
-        return _first_env("LLM_BASE_URL", "ZHIPU_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _provider_first_env(provider, "ZHIPU_BASE_URL", "LLM_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "bailian":
-        return _first_env("LLM_BASE_URL", "BAILIAN_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _provider_first_env(provider, "BAILIAN_BASE_URL", "LLM_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "deepseek":
-        return _first_env("LLM_BASE_URL", "DEEPSEEK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _provider_first_env(provider, "DEEPSEEK_BASE_URL", "LLM_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     return _first_env("LLM_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
 
 
@@ -244,14 +270,18 @@ def _resolve_llm_fallback_model(provider: str | None) -> str | None:
     runtime_override = _runtime_llm_override()
     override_model = str(runtime_override.get("fallback_model") or "").strip()
     if override_model:
-        return override_model
+        return _normalize_llm_model_id(provider, override_model)
     if provider == "zhipu":
-        return _first_env("LLM_FALLBACK_MODEL", "ZHIPU_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        model = _provider_first_env(provider, "ZHIPU_MODEL", "LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        return _normalize_llm_model_id(provider, model)
     if provider == "bailian":
-        return _first_env("LLM_FALLBACK_MODEL", "BAILIAN_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        model = _provider_first_env(provider, "BAILIAN_MODEL", "LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        return _normalize_llm_model_id(provider, model)
     if provider == "deepseek":
-        return _first_env("LLM_FALLBACK_MODEL", "DEEPSEEK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
-    return _first_env("LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        model = _provider_first_env(provider, "DEEPSEEK_MODEL", "LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+        return _normalize_llm_model_id(provider, model)
+    model = _first_env("LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
+    return _normalize_llm_model_id(provider, model)
 
 
 def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
@@ -262,11 +292,11 @@ def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
     if override_base_url:
         return override_base_url
     if provider == "zhipu":
-        return _first_env("LLM_FALLBACK_BASE_URL", "ZHIPU_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _provider_first_env(provider, "ZHIPU_BASE_URL", "LLM_FALLBACK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "bailian":
-        return _first_env("LLM_FALLBACK_BASE_URL", "BAILIAN_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _provider_first_env(provider, "BAILIAN_BASE_URL", "LLM_FALLBACK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "deepseek":
-        return _first_env("LLM_FALLBACK_BASE_URL", "DEEPSEEK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+        return _provider_first_env(provider, "DEEPSEEK_BASE_URL", "LLM_FALLBACK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     return _first_env("LLM_FALLBACK_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
 
 

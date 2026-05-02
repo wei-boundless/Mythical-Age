@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:18",
+  "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:7fca357cd6de400abba193fb281ea57d:29:96b9edff8a3f",
+    "memory_state_ref": "memory-runtime:7fca357cd6de400abba193fb281ea57d",
+    "projection_ref": "064beffce3c29b98",
+    "prompt_manifest_ref": "manifest-064beffce3c29b98",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 415,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899585
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:87ac17a5",
+      "output_boundary:rtevt:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:14:2b69d2e8",
+      "commit_gate:commit-gate:turn:7fca357cd6de400abba193fb281ea57d:29:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "7fca357cd6de400abba193fb281ea57d",
+            "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742",
+            "task_id": "turn:7fca357cd6de400abba193fb281ea57d:29",
+            "role": "assistant",
+            "content": "好，直接改写，值班交接时一眼看完。\n\n---\n\n## 📋 值班提示\n\n日期： 2026年5月2日（周六）\n\n---\n\n### 一、关键外部数据\n\n黄金价格（截至今日）\n- 现货黄金 XAU/USD：4,614.21 美元/盎司\n- 数据源：Bloomberg\n- 关注点：金价处于高位，如有相关持仓或报价业务，注意汇率波动风险。\n\n北京天气（截至 08:15）\n- 当前温度：17.1°C\n- 天气状况：阴天\n- 风速：北风 6.0 km/h\n- 关注点：早间偏凉，户外作业或物流配送注意添衣；阴天持续，暂无降雨信号。\n\n---\n\n### 二、今日值班重点关注\n\n| 事项 | 状态 | 建议动作 |\n|------|------|----------|\n| 仓库缺货 | 6个仓库共33款缺货，日用/电子品类最严重 | 优先补上海、深圳、武汉三仓缺口超100的5款商品 |\n| 薪资分布 | 头部薪资扁平化，5个部门各占一席 | 关注运营岗薪资排第一的原因，后续可做岗位价值复盘 |\n| 黄金价格 | 高位运行，4,614美元/盎司 | 如有贵金属相关业务，盯盘关注日内波动 |\n| 北京天气 | 阴天，17.1°C | 户外配送/作业注意体感偏凉 |\n\n---\n\n### 三、交班备注\n- 库存缺货是当前最紧迫的执行项，建议接班同事优先推进补货计划。\n- 金价和天气为参考信息，不需立即动作，但需保持关注。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "7fca357cd6de400abba193fb281ea57d",
+          "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742",
+            "task_id": "turn:7fca357cd6de400abba193fb281ea57d:29",
+            "terminal_reason": "completed",
+            "final_content_chars": 605
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 3328,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:7fca357cd6de400abba193fb281ea57d:29",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 605,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:7fca357cd6de400abba193fb281ea57d:29:96b9edff8a3f",
+  "prompt_manifest_ref": "manifest-064beffce3c29b98",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "7fca357cd6de400abba193fb281ea57d",
+          "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742",
+          "task_id": "turn:7fca357cd6de400abba193fb281ea57d:29",
+          "role": "assistant",
+          "content": "好，直接改写，值班交接时一眼看完。\n\n---\n\n## 📋 值班提示\n\n日期： 2026年5月2日（周六）\n\n---\n\n### 一、关键外部数据\n\n黄金价格（截至今日）\n- 现货黄金 XAU/USD：4,614.21 美元/盎司\n- 数据源：Bloomberg\n- 关注点：金价处于高位，如有相关持仓或报价业务，注意汇率波动风险。\n\n北京天气（截至 08:15）\n- 当前温度：17.1°C\n- 天气状况：阴天\n- 风速：北风 6.0 km/h\n- 关注点：早间偏凉，户外作业或物流配送注意添衣；阴天持续，暂无降雨信号。\n\n---\n\n### 二、今日值班重点关注\n\n| 事项 | 状态 | 建议动作 |\n|------|------|----------|\n| 仓库缺货 | 6个仓库共33款缺货，日用/电子品类最严重 | 优先补上海、深圳、武汉三仓缺口超100的5款商品 |\n| 薪资分布 | 头部薪资扁平化，5个部门各占一席 | 关注运营岗薪资排第一的原因，后续可做岗位价值复盘 |\n| 黄金价格 | 高位运行，4,614美元/盎司 | 如有贵金属相关业务，盯盘关注日内波动 |\n| 北京天气 | 阴天，17.1°C | 户外配送/作业注意体感偏凉 |\n\n---\n\n### 三、交班备注\n- 库存缺货是当前最紧迫的执行项，建议接班同事优先推进补货计划。\n- 金价和天气为参考信息，不需立即动作，但需保持关注。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "7fca357cd6de400abba193fb281ea57d",
+        "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:29:2de61742",
+          "task_id": "turn:7fca357cd6de400abba193fb281ea57d:29",
+          "terminal_reason": "completed",
+          "final_content_chars": 605
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 3328,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777681599.1976044,
+  "checksum": "4f342224840701b42a59f9cf10b7c813af3c30a0fc53fd68011b46ba1e5341c3",
+  "authority": "orchestration.runtime_checkpoint"
+}

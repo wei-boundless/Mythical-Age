@@ -4,7 +4,7 @@ import asyncio
 import inspect
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, convert_to_messages
@@ -15,9 +15,11 @@ try:
 except ImportError:  # pragma: no cover - optional dependency at runtime
     ChatDeepSeek = None
 
-from agents.models import AgentDefinition
 from config import LLM_PROVIDER_DEFAULTS
 from runtime.settings import AppSettingsService
+
+if TYPE_CHECKING:
+    from agents.models import AgentDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -187,10 +189,11 @@ class ModelRuntime:
                 continue
             if spec_index < len(candidates) - 1:
                 logger.warning(
-                    "Switching model candidate after %s on %s/%s",
+                    "Switching model candidate after %s on %s/%s: %s",
                     last_error.code,
                     spec.provider,
                     spec.model,
+                    _compact_error_detail(last_error.detail),
                 )
                 continue
             raise last_error
@@ -229,10 +232,11 @@ class ModelRuntime:
                 continue
             if spec_index < len(candidates) - 1:
                 logger.warning(
-                    "Switching tool-enabled model candidate after %s on %s/%s",
+                    "Switching tool-enabled model candidate after %s on %s/%s: %s",
                     last_error.code,
                     spec.provider,
                     spec.model,
+                    _compact_error_detail(last_error.detail),
                 )
                 continue
             raise last_error
@@ -288,10 +292,11 @@ class ModelRuntime:
                 continue
             if spec_index < len(candidates) - 1:
                 logger.warning(
-                    "Switching stream model candidate after %s on %s/%s",
+                    "Switching stream model candidate after %s on %s/%s: %s",
                     last_error.code,
                     spec.provider,
                     spec.model,
+                    _compact_error_detail(last_error.detail),
                 )
                 continue
             raise last_error
@@ -521,3 +526,10 @@ class ModelRuntime:
             retryable=False,
             user_message="模型调用失败，请稍后重试。",
         )
+
+
+def _compact_error_detail(detail: str, *, limit: int = 500) -> str:
+    normalized = " ".join(str(detail or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3] + "..."

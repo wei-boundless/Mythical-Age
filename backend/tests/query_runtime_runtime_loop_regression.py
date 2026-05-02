@@ -10,8 +10,10 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from query import QueryRuntime
+from understanding.query_understanding import analyze_query_understanding
 from tasks import TaskCoordinator
 from orchestration import RuntimeActionRequest, RuntimeLoopLimits
+from orchestration.runtime_loop.task_run_loop import _direct_tool_answer_from_observation
 from orchestration.runtime_loop.tool_adoption import build_tool_request_runtime_adoption
 from operations import ResourceDecision, ResourcePolicy, build_default_operation_registry
 
@@ -372,7 +374,7 @@ def test_astream_keeps_hidden_and_unrequested_tools_out_of_model_lane(tmp_path: 
     assert "op.python_repl" not in directive_event["resource_policy"]["allowed_operations"]
 
 
-def test_followup_after_tool_result_enters_answer_synthesis_without_more_tools(tmp_path: Path) -> None:
+def test_followup_after_tool_result_stays_tool_capable_until_final_answer(tmp_path: Path) -> None:
     runtime = _build_tool_loop_runtime(tmp_path)
 
     async def _collect() -> list[dict[str, object]]:
@@ -404,11 +406,50 @@ def test_followup_after_tool_result_enters_answer_synthesis_without_more_tools(t
         and dict(event.get("event") or {}).get("event_type") == "loop_control_checked"
     ]
 
-    assert runtime.model_runtime.tool_enabled_calls == 1
+    assert runtime.model_runtime.tool_enabled_calls == 2
     assert len(tool_request_events) == 1
     assert len(loop_control_events) >= 2
     assert done_event["content"] == "summary after tools"
     assert done_event["answer_source"] == "runtime_directive:model_response"
+
+
+def test_pdf_canonical_tool_result_can_finalize_directly() -> None:
+    answer = _direct_tool_answer_from_observation(
+        user_message="打开这份 PDF，给我一个全文总览",
+        observation_payload={
+            "tool_name": "pdf_analysis",
+            "tool_args": {
+                "query": "全文总览",
+                "path": "knowledge/AI Knowledge/report.pdf",
+                "mode": "document",
+            },
+            "result": (
+                'PDF_CANONICAL_RESULT::{"status":"ok","source":"knowledge/AI Knowledge/report.pdf",'
+                '"requested_mode":"document","effective_mode":"document",'
+                '"summary":"这份 PDF 的核心结论是 AI 治理正在从抽象风险转向现实产业落地。",'
+                '"degraded_reason":"","pages":[3],'
+                '"evidence":[{"page_number":3,"score":1.0,"snippet":"AI 治理正在回归现实主义。"}],'
+                '"error":"","metadata":{"query":"全文总览","target_page":3}}'
+            ),
+        },
+    )
+
+    assert answer is not None
+    assert answer["answer_source"] == "direct_tool.pdf_analysis"
+    assert answer["answer_channel"] == "tool_visible_summary"
+    assert "AI 治理正在从抽象风险转向现实产业落地" in answer["content"]
+
+
+def test_realtime_weather_intent_overrides_bound_dataset_followup() -> None:
+    understanding = analyze_query_understanding(
+        "再看一下北京今天天气。",
+        active_bindings={"active_dataset": "knowledge/E-commerce Data/inventory.xlsx"},
+        tool_registry=_LoopToolRuntimeStub(Path.cwd()).registry,
+    )
+
+    assert understanding.intent == "weather_query"
+    assert understanding.capability_requests == ["weather"]
+    assert understanding.should_skip_rag is True
 
 
 def test_tool_request_adoption_cannot_self_authorize_against_adopted_policy() -> None:

@@ -10,6 +10,7 @@ from typing import Any, Callable
 from langchain_core.messages import AIMessage, ToolMessage
 
 from operations import OperationGate, build_default_operation_registry
+from output_boundary import AssistantOutputBoundary
 
 from ..commit_gate import build_assistant_session_message_commit_decision, build_task_run_final_commit_decision
 from .action_request import (
@@ -489,6 +490,7 @@ class TaskRunLoop:
         assistant_tool_call_content = ""
         tool_messages: list[ToolMessage] = []
         tool_observation_count = 0
+        direct_tool_finalized = False
         async for event in model_response_executor.stream(
             user_message=user_message,
             model_messages=list(context_snapshot.model_messages),
@@ -530,6 +532,21 @@ class TaskRunLoop:
                                 tool_call_id=str(observation_payload.get("tool_call_id") or observation_ref),
                             )
                         )
+                        direct_tool_answer_metadata = _direct_tool_answer_from_observation(
+                            user_message=user_message,
+                            observation_payload=observation_payload,
+                        )
+                        if direct_tool_answer_metadata is not None:
+                            final_content = direct_tool_answer_metadata["content"]
+                            final_answer_metadata = {
+                                "answer_channel": direct_tool_answer_metadata["answer_channel"],
+                                "answer_source": direct_tool_answer_metadata["answer_source"],
+                                "answer_canonical_state": direct_tool_answer_metadata["answer_canonical_state"],
+                                "answer_persist_policy": direct_tool_answer_metadata["answer_persist_policy"],
+                                "answer_finalization_policy": direct_tool_answer_metadata["answer_finalization_policy"],
+                                "answer_fallback_reason": direct_tool_answer_metadata["answer_fallback_reason"],
+                            }
+                            direct_tool_finalized = True
                 elif runtime_event.event_type == "output_boundary_applied":
                     result_refs.append(f"output_boundary:{runtime_event.event_id}")
                 elif runtime_event.event_type == "commit_gate_checked":
@@ -558,7 +575,7 @@ class TaskRunLoop:
         turn_count = 1
         model_call_count = 1
         followup_messages: list[Any] = []
-        if pending_tool_calls and tool_messages and terminal_reason == "completed":
+        if pending_tool_calls and tool_messages and terminal_reason == "completed" and not direct_tool_finalized:
             followup_messages = [
                 *list(context_snapshot.model_messages),
                 AIMessage(content=assistant_tool_call_content, tool_calls=pending_tool_calls),
@@ -628,7 +645,7 @@ class TaskRunLoop:
                 user_message=user_message,
                 model_messages=followup_messages,
                 directive=directive,
-                tool_instances=[],
+                tool_instances=runtime_tool_instances,
             ):
                 if event.get("type") == "tool_call_requested":
                     tool_call = dict(event.get("tool_call") or {})
@@ -775,6 +792,9 @@ class TaskRunLoop:
             "content": final_content,
             "main_context": dict(final_main_context),
             "task_summary_refs": [dict(item) for item in final_task_summary_refs],
+            "followup_mode": str(final_main_context.get("followup_mode") or ""),
+            "followup_target_task_id": str(final_main_context.get("followup_target_task_id") or ""),
+            "followup_target_task_ids": list(final_main_context.get("followup_target_task_ids") or []),
             **final_answer_metadata,
             "persist_policy": "committed" if terminal_reason == "completed" else "progress_only",
             "terminal_reason": terminal_reason,
@@ -1147,6 +1167,41 @@ def _build_runtime_budget_exhausted_message(message: str = "", *, tool_observati
     )
 
 
+def _direct_tool_answer_from_observation(
+    *,
+    user_message: str,
+    observation_payload: dict[str, Any],
+) -> dict[str, str] | None:
+    tool_name = str(observation_payload.get("tool_name") or "").strip()
+    result_text = str(observation_payload.get("result") or "").strip()
+    if not tool_name or not result_text:
+        return None
+    boundary = AssistantOutputBoundary()
+    boundary.ingest_tool_result(tool_name, result_text)
+    boundary.finalize_segment()
+    response = boundary.build_response(
+        route="tool",
+        execution_posture="direct_tool",
+        user_message=user_message,
+        tool_name=tool_name,
+        retrieval_results=None,
+    )
+    content = str(response.canonical_answer or "").strip()
+    if not content or response.fallback_reason:
+        return None
+    if response.selected_channel not in {"tool_visible_summary", "answer_candidate"}:
+        return None
+    return {
+        "content": content,
+        "answer_channel": str(response.selected_channel or "answer_candidate"),
+        "answer_source": f"direct_tool.{tool_name}",
+        "answer_canonical_state": str(response.canonical_state or "stable_answer"),
+        "answer_persist_policy": str(response.persist_policy or "persist_canonical"),
+        "answer_finalization_policy": str(response.finalization_policy or "none"),
+        "answer_fallback_reason": "",
+    }
+
+
 def _project_file_work_context_from_tool_observation(payload: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     tool_name = str(payload.get("tool_name") or "").strip()
     tool_args = dict(payload.get("tool_args") or {})
@@ -1204,7 +1259,7 @@ def _project_pdf_tool_context(*, tool_args: dict[str, Any], result_text: str) ->
         "active_object_handle_id": object_handle_id,
         "active_result_handle_id": result_handle_id,
         "active_subset_handle_id": subset_handle_id,
-        "followup_mode": "task_ref",
+        "followup_mode": "binding_ref",
         "followup_resolution_source": "tool_observation_projection",
         "followup_target_task_id": result_handle_id,
         "followup_target_task_ids": [result_handle_id],
@@ -1264,7 +1319,7 @@ def _project_structured_data_tool_context(
         "active_object_handle_id": object_handle_id,
         "active_result_handle_id": result_handle_id,
         "active_subset_handle_id": subset_handle_id,
-        "followup_mode": "task_ref",
+        "followup_mode": "binding_ref",
         "followup_resolution_source": "tool_observation_projection",
         "followup_target_task_id": result_handle_id,
         "followup_target_task_ids": [result_handle_id],

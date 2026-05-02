@@ -1,0 +1,69 @@
+{
+  "checkpoint_id": "rtchk:taskrun:2bc80a70a5d94a8ab21e9e7fdecc6f44:turn:2bc80a70a5d94a8ab21e9e7fdecc6f44:26:a7786400:7",
+  "task_run_id": "taskrun:2bc80a70a5d94a8ab21e9e7fdecc6f44:turn:2bc80a70a5d94a8ab21e9e7fdecc6f44:26:a7786400",
+  "event_offset": 7,
+  "loop_state": {
+    "task_run_id": "taskrun:2bc80a70a5d94a8ab21e9e7fdecc6f44:turn:2bc80a70a5d94a8ab21e9e7fdecc6f44:26:a7786400",
+    "status": "running",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "start",
+    "terminal_reason": "",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:2bc80a70a5d94a8ab21e9e7fdecc6f44:26:4c01fe5ccf65",
+    "memory_state_ref": "memory-runtime:2bc80a70a5d94a8ab21e9e7fdecc6f44",
+    "projection_ref": "37cdd0342ba7a607",
+    "prompt_manifest_ref": "manifest-37cdd0342ba7a607",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 81,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899919
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [],
+    "commit_state": {},
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:2bc80a70a5d94a8ab21e9e7fdecc6f44:26",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:2bc80a70a5d94a8ab21e9e7fdecc6f44:26:4c01fe5ccf65",
+  "prompt_manifest_ref": "manifest-37cdd0342ba7a607",
+  "approval_state": {},
+  "commit_state": {},
+  "created_at": 1777681177.7471483,
+  "checksum": "624d496bc62e7569625a2f008c11acbfc584457568026105d5c3f0d843ae2a4c",
+  "authority": "orchestration.runtime_checkpoint"
+}

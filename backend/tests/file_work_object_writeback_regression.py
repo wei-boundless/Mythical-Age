@@ -47,6 +47,7 @@ def test_pdf_tool_observation_projects_file_work_context() -> None:
     )
 
     assert main_context["active_work_item"] == "pdf"
+    assert main_context["followup_mode"] == "binding_ref"
     assert main_context["active_constraints"]["active_pdf"] == "knowledge/AI Knowledge/report.pdf"
     assert main_context["active_constraints"]["active_pdf_pages"] == [3]
     assert main_context["active_object_handle_id"].startswith("source:pdf:")
@@ -103,6 +104,65 @@ def test_assistant_commit_uses_context_state_writeback_for_file_work_objects(tmp
     assert state.context_slots.active_object_handle_id == "source:dataset:employees"
     assert state.context_slots.active_result_handle_id == "result:structured:employees:top5"
     assert state.context_slots.active_subset_handle_id == "subset:selection:employees:top5"
+
+
+def test_history_refresh_preserves_bound_pdf_followup_slots(tmp_path: Path) -> None:
+    facade = MemoryFacade(tmp_path)
+    session_id = "session-pdf-history-refresh"
+    pdf_path = "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+
+    facade.refresh_session_memory_from_context_state(
+        session_id,
+        {
+            "active_goal": "第四页如果要给业务负责人看，应该重点看哪几句？",
+            "active_work_item": "pdf",
+            "active_binding_identity": pdf_path.lower(),
+            "active_object_handle_id": "source:pdf:ai-governance",
+            "active_result_handle_id": "result:pdf_answer:turn7",
+            "active_subset_handle_id": "subset:pdf_pages:p4",
+            "followup_mode": "task_ref",
+            "followup_binding_key": "active_pdf",
+            "followup_target_task_id": "result:pdf_answer:turn7",
+            "active_constraints": {
+                "active_pdf": pdf_path,
+                "active_pdf_mode": "page",
+                "active_pdf_pages": [4],
+                "source_kind": "pdf",
+            },
+        },
+        task_summaries=[
+            {
+                "task_id": "result:pdf_answer:turn7",
+                "query": "第四页如果要给业务负责人看，应该重点看哪几句？",
+                "summary": "第四页重点看三句。",
+                "task_kind": "pdf",
+                "key_points": [
+                    f"pdf={pdf_path}",
+                    "pdf_mode=page",
+                    "pdf_pages=4",
+                ],
+            }
+        ],
+    )
+
+    facade.refresh_session_memory(
+        session_id,
+        [
+            {"role": "user", "content": f"现在打开 {pdf_path}，给我一个全文总览。"},
+            {"role": "assistant", "content": "已定位与当前问题最相关的页面。"},
+            {"role": "user", "content": "第四页如果要给业务负责人看，应该重点看哪几句？"},
+            {"role": "assistant", "content": "第四页重点看三句。"},
+            {"role": "user", "content": "把这份 PDF 的核心结论压成三条行动建议。"},
+        ],
+    )
+
+    state = facade.session_memory.manager(session_id).load_state()
+    assert state.context_slots.active_pdf == pdf_path
+    assert state.context_slots.active_pdf_mode == "page"
+    assert state.context_slots.active_pdf_pages == [4]
+    assert state.context_slots.active_binding_kind == "active_pdf"
+    assert state.context_slots.active_binding_owner_task_id == "result:pdf_answer:turn7"
+    assert state.context_slots.active_result_handle_id == "result:pdf_answer:turn7"
 
 
 class _SessionManager:

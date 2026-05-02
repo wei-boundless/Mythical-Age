@@ -19,7 +19,10 @@ def _clear_settings_cache():
     config.get_settings.cache_clear()
 
 
-def test_settings_expose_llm_timeout_and_retry_controls(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_expose_llm_timeout_and_retry_controls(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    runtime_path = tmp_path / "config.json"
+    runtime_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(config, "_runtime_config_path", lambda: runtime_path)
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setenv("LLM_MAX_RETRIES", "0")
 
@@ -46,6 +49,33 @@ def test_settings_resolve_cross_provider_llm_fallback(monkeypatch: pytest.Monkey
     assert settings.llm_fallback_model == "qwen3.5-plus"
     assert settings.llm_fallback_api_key == "bailian-key"
     assert settings.llm_fallback_base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+def test_provider_specific_llm_model_takes_precedence_over_global_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "DeepSeek-V4-Flash")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+
+    settings = config.get_settings()
+
+    assert settings.llm_provider == "deepseek"
+    assert settings.llm_model == "deepseek-v4-flash"
+
+
+def test_provider_specific_fallback_model_takes_precedence_over_global_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-chat")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "bailian")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "glm-5")
+    monkeypatch.setenv("BAILIAN_MODEL", "qwen3.5-plus")
+    monkeypatch.setenv("BAILIAN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+
+    settings = config.get_settings()
+
+    assert settings.llm_fallback_provider == "bailian"
+    assert settings.llm_fallback_model == "qwen3.5-plus"
 
 
 def test_runtime_override_exposes_llm_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

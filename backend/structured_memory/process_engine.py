@@ -47,6 +47,40 @@ ENGLISH_CONVENTION_MARKERS = (
     "default to",
 )
 
+PDF_FOLLOWUP_REFERENTS = (
+    "这份 pdf",
+    "这个 pdf",
+    "这份报告",
+    "这个报告",
+    "这份文档",
+    "这个文档",
+    "这份文件",
+    "这个文件",
+    "核心结论",
+    "行动建议",
+    "第",
+    "页",
+    "这一页",
+    "那一页",
+    "这一部分",
+    "那一部分",
+)
+DATASET_FOLLOWUP_REFERENTS = (
+    "这个表",
+    "这张表",
+    "这个数据",
+    "这些数据",
+    "数据集",
+    "表格",
+    "继续分析",
+    "汇总",
+    "统计",
+    "排名",
+    "排行",
+    "前",
+    "top",
+)
+
 class ProcessStateEngine:
     """Owns process-state assembly from a reconciled understanding snapshot."""
 
@@ -387,6 +421,16 @@ class ProcessStateEngine:
             active_pdf_section=context_slots.active_pdf_section,
             active_pdf_pages=list(context_slots.active_pdf_pages),
             active_dataset=context_slots.active_dataset,
+            active_binding_kind=context_slots.active_binding_kind,
+            active_binding_identity=context_slots.active_binding_identity,
+            active_binding_owner_task_id=context_slots.active_binding_owner_task_id,
+            active_object_handle_id=context_slots.active_object_handle_id,
+            active_result_handle_id=context_slots.active_result_handle_id,
+            active_subset_handle_id=context_slots.active_subset_handle_id,
+            committed_pdf=context_slots.committed_pdf,
+            committed_pdf_owner_task_id=context_slots.committed_pdf_owner_task_id,
+            committed_dataset=context_slots.committed_dataset,
+            committed_dataset_owner_task_id=context_slots.committed_dataset_owner_task_id,
             active_entity=context_slots.active_entity,
             active_rule=context_slots.active_rule,
         )
@@ -569,6 +613,44 @@ class ProcessStateEngine:
             getattr(previous_slots, "committed_dataset_owner_task_id", "")
             or (previous_slots.active_binding_owner_task_id if previous_slots.active_dataset else "")
         ).strip()
+        previous_active_pdf = normalize_storage_text(getattr(previous_slots, "active_pdf", "")).strip()
+        previous_active_dataset = normalize_storage_text(getattr(previous_slots, "active_dataset", "")).strip()
+        latest_turn = turn_trace[-1] if turn_trace else None
+        latest_is_followup = bool(
+            latest_turn is not None
+            and latest_turn.role == "user"
+            and latest_turn.turn_type in {"followup_request", "goal_request"}
+            and not task_switch
+        )
+        restored_pdf_from_previous = False
+        if not active_pdf and latest_is_followup and previous_active_pdf and _looks_like_bound_pdf_followup(active_goal):
+            active_pdf = previous_active_pdf
+            restored_pdf_from_previous = True
+            if not active_pdf_mode:
+                active_pdf_mode = normalize_storage_text(getattr(previous_slots, "active_pdf_mode", "")).strip()
+            if not active_pdf_section:
+                active_pdf_section = normalize_storage_text(getattr(previous_slots, "active_pdf_section", "")).strip()
+            if not active_pdf_pages:
+                active_pdf_pages = list(getattr(previous_slots, "active_pdf_pages", []) or [])
+        if (
+            not active_dataset
+            and latest_is_followup
+            and previous_active_dataset
+            and _looks_like_bound_dataset_followup(active_goal)
+        ):
+            active_dataset = previous_active_dataset
+        if restored_pdf_from_previous:
+            explicit_page_scope = bool(re.search(r"第\s*\d+\s*页", active_goal) or re.search(r"page\s*\d+", normalize_storage_text(active_goal).lower()))
+            explicit_section_scope = bool(
+                re.search(r"第\s*[一二三四五六七八九十百千两零\d]+\s*(?:部分|章|节)", active_goal)
+                or any(marker in active_goal for marker in ("这一部分", "那一部分", "这一章", "那一章", "这一节", "那一节"))
+            )
+            if not explicit_page_scope and not explicit_section_scope:
+                active_pdf_mode = normalize_storage_text(getattr(previous_slots, "active_pdf_mode", "")).strip() or active_pdf_mode
+                active_pdf_section = (
+                    normalize_storage_text(getattr(previous_slots, "active_pdf_section", "")).strip() or active_pdf_section
+                )
+                active_pdf_pages = list(getattr(previous_slots, "active_pdf_pages", []) or active_pdf_pages)
 
         active_entity = self._infer_active_entity(
             active_goal,
@@ -596,12 +678,53 @@ class ProcessStateEngine:
         if not active_dataset:
             committed_dataset_owner_task_id = previous_committed_dataset_owner_task_id
 
+        active_binding_kind = ""
+        active_binding_identity = ""
+        active_binding_owner_task_id = ""
+        active_object_handle_id = ""
+        active_result_handle_id = ""
+        active_subset_handle_id = ""
+        if active_pdf:
+            active_binding_kind = "active_pdf"
+            active_binding_identity = _binding_identity(active_pdf)
+            active_binding_owner_task_id = (
+                previous_slots.active_binding_owner_task_id
+                if active_pdf == previous_active_pdf
+                else committed_pdf_owner_task_id
+            )
+            active_object_handle_id = previous_slots.active_object_handle_id if active_pdf == previous_active_pdf else ""
+            active_result_handle_id = previous_slots.active_result_handle_id if active_pdf == previous_active_pdf else ""
+            active_subset_handle_id = previous_slots.active_subset_handle_id if active_pdf == previous_active_pdf else ""
+        elif active_dataset:
+            active_binding_kind = "active_dataset"
+            active_binding_identity = _binding_identity(active_dataset)
+            active_binding_owner_task_id = (
+                previous_slots.active_binding_owner_task_id
+                if active_dataset == previous_active_dataset
+                else committed_dataset_owner_task_id
+            )
+            active_object_handle_id = (
+                previous_slots.active_object_handle_id if active_dataset == previous_active_dataset else ""
+            )
+            active_result_handle_id = (
+                previous_slots.active_result_handle_id if active_dataset == previous_active_dataset else ""
+            )
+            active_subset_handle_id = (
+                previous_slots.active_subset_handle_id if active_dataset == previous_active_dataset else ""
+            )
+
         return ContextSlots(
             active_pdf=active_pdf,
             active_pdf_mode=active_pdf_mode if active_pdf else "",
             active_pdf_section=active_pdf_section if active_pdf else "",
             active_pdf_pages=active_pdf_pages if active_pdf else [],
             active_dataset=active_dataset,
+            active_binding_kind=active_binding_kind,
+            active_binding_identity=active_binding_identity,
+            active_binding_owner_task_id=active_binding_owner_task_id,
+            active_object_handle_id=active_object_handle_id,
+            active_result_handle_id=active_result_handle_id,
+            active_subset_handle_id=active_subset_handle_id,
             committed_pdf=committed_pdf,
             committed_pdf_owner_task_id=committed_pdf_owner_task_id,
             committed_dataset=committed_dataset,
@@ -1081,3 +1204,17 @@ class ProcessStateEngine:
             if needle and needle in lowered:
                 return True
         return False
+
+
+def _looks_like_bound_pdf_followup(text: str) -> bool:
+    normalized = normalize_storage_text(text).lower()
+    return any(marker in normalized for marker in PDF_FOLLOWUP_REFERENTS)
+
+
+def _looks_like_bound_dataset_followup(text: str) -> bool:
+    normalized = normalize_storage_text(text).lower()
+    return any(marker in normalized for marker in DATASET_FOLLOWUP_REFERENTS)
+
+
+def _binding_identity(value: str) -> str:
+    return normalize_storage_text(value).replace("\\", "/").strip().lower()

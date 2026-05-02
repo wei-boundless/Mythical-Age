@@ -153,6 +153,10 @@ def analyze_task_understanding(
         active_bindings=active_bindings,
     )
 
+    direct_realtime = _build_direct_weather_task(normalized, signals) or _build_direct_gold_task(normalized, signals)
+    if direct_realtime is not None:
+        return direct_realtime
+
     if signals.mixed_direct_capabilities:
         return _build_bounded_lookup_task(
             message=normalized,
@@ -169,8 +173,6 @@ def analyze_task_understanding(
         or _build_direct_pdf_task(normalized, signals)
         or _build_direct_workspace_read_task(normalized, signals)
         or _build_direct_workspace_search_task(normalized, signals)
-        or _build_direct_weather_task(normalized, signals)
-        or _build_direct_gold_task(normalized, signals)
         or _build_direct_web_task(normalized, signals)
         or _build_direct_faq_task(normalized, signals)
         or _build_direct_knowledge_task(normalized, signals)
