@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from context_management import ContextResolver
 from tasks.contract_builder import build_task_runtime_contract
 from understanding import analyze_memory_intent
 from understanding.query_understanding import analyze_query_understanding
@@ -44,6 +45,13 @@ class AgentRuntimeChainAssembler:
             skill_registry=self.skill_registry,
             tool_registry=self.tool_registry,
         )
+        current_turn_context = ContextResolver().resolve(
+            session_id=session_id,
+            task_id=task_id,
+            user_message=message,
+            memory_runtime_view=memory_payload,
+            query_understanding=asdict(query_understanding),
+        )
         skill_frame = _resolve_skill_frame(self.skill_registry, query_understanding)
         task_operation = build_task_runtime_contract(
             session_id=session_id,
@@ -53,6 +61,7 @@ class AgentRuntimeChainAssembler:
             memory_runtime_view=memory_payload,
             context_policy_result=context_payload,
             query_understanding=asdict(query_understanding),
+            current_turn_context=current_turn_context.to_dict(),
             active_skill=_skill_frame_payload(skill_frame),
             runtime_required_operations=_operation_ids_for_runtime(
                 query_understanding=query_understanding,
@@ -63,6 +72,7 @@ class AgentRuntimeChainAssembler:
         return {
             "memory_runtime_view": memory_payload,
             "context_policy_result": context_payload,
+            "current_turn_context": current_turn_context.to_dict(),
             "task_operation": task_operation,
             "status": "runtime",
             "runtime_executable": True,
@@ -156,6 +166,13 @@ def _active_bindings_from_memory_payload(memory_payload: dict[str, Any]) -> dict
         value = context_slots.get(key)
         if value not in ("", [], {}, None):
             result[key] = value
+    bundle_refs = list(state_snapshot.get("bundle_result_refs") or [])
+    if bundle_refs:
+        result["bundle_result_refs"] = [
+            dict(item)
+            for item in bundle_refs
+            if isinstance(item, dict)
+        ]
     for key in ("active_object_handle_id", "active_result_handle_id", "active_subset_handle_id"):
         value = active_handles.get(key) or context_slots.get(key)
         if value not in ("", [], {}, None):

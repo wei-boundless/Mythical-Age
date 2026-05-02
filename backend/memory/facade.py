@@ -89,12 +89,14 @@ class MemoryFacade:
         main_context: Any,
         *,
         task_summaries: list[Any] | None = None,
+        bundle_summaries: list[Any] | None = None,
         corrections: list[str] | None = None,
     ) -> str:
         return self.session_memory.refresh_from_context_state(
             session_id,
             main_context,
             task_summaries=task_summaries,
+            bundle_summaries=bundle_summaries,
             corrections=corrections,
         )
 

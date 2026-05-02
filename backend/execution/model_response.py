@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from orchestration import RuntimeDirective, build_blocked_runtime_commit_gate
-from output_boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
+from output_boundary.boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
 from runtime.model_runtime import stringify_content
 
 class ModelResponseRuntimeExecutor:
@@ -55,6 +55,8 @@ class ModelResponseRuntimeExecutor:
             response = await invoker(model_messages)
         raw_content = stringify_content(getattr(response, "content", response))
         tool_calls = _normalize_tool_calls(getattr(response, "tool_calls", None))
+        additional_kwargs = dict(getattr(response, "additional_kwargs", {}) or {})
+        reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
         if tool_calls:
             for tool_call in tool_calls:
                 tool_name = str(tool_call.get("name") or "")
@@ -66,6 +68,7 @@ class ModelResponseRuntimeExecutor:
                     "operation_id": operation_id,
                     "directive_ref": directive.directive_id,
                     "assistant_content": raw_content,
+                    "assistant_additional_kwargs": {"reasoning_content": reasoning_content} if reasoning_content else {},
                 }
             return
         output_boundary = AssistantOutputBoundary()

@@ -55,6 +55,11 @@ class StateMemoryStoreAdapter:
             task_state=_object_to_dict(task_state),
             context_slots=context_slots,
             active_handles={key: _clean(value) for key, value in active_handles.items()},
+            bundle_result_refs=tuple(
+                dict(item)
+                for item in list(getattr(state, "bundle_result_refs", []) or [])
+                if isinstance(item, dict)
+            ),
             operation_refs=tuple(_clean(item) for item in getattr(state, "current_result_refs", []) or [] if _clean(item)),
             next_step=tuple(_clean(item) for item in getattr(state, "next_step", []) or [] if _clean(item)),
             updated_at=_clean(getattr(state, "updated_at", "")),
@@ -128,6 +133,26 @@ class StateMemoryStoreAdapter:
                 )
             )
 
+        for item in snapshot.bundle_result_refs:
+            if not isinstance(item, dict):
+                continue
+            ordinal = _safe_int(item.get("ordinal"))
+            task_id = _clean(item.get("task_id"))
+            if ordinal <= 0 or not task_id:
+                continue
+            candidates.append(
+                StateMemoryRestoreCandidate(
+                    candidate_id=f"state-restore:{snapshot.session_id}:bundle:{ordinal}",
+                    restore_kind="bundle_ref",
+                    value=dict(item),
+                    source=f"{snapshot.source}.bundle_result_refs",
+                    owner_task_id=task_id,
+                    observed_at=snapshot.updated_at,
+                    confidence=0.82,
+                    metadata={"ordinal": ordinal, "task_kind": _clean(item.get("task_kind"))},
+                )
+            )
+
         if snapshot.flow_state:
             flow_id = _clean(snapshot.flow_state.get("flow_id"))
             if flow_id:
@@ -161,17 +186,23 @@ class StateMemoryStoreAdapter:
     def context_candidates(self, session_id: str) -> tuple[MemoryContextCandidate, ...]:
         snapshot = self.load_snapshot(session_id)
         preview_parts = []
-        if snapshot.active_goal:
-            preview_parts.append(f"active_goal: {snapshot.active_goal}")
-        if snapshot.next_step:
-            preview_parts.append(f"next_step: {'; '.join(snapshot.next_step[:2])}")
+        file_signal_count = 0
         for key in ("committed_pdf", "committed_dataset", "active_pdf", "active_dataset"):
             value = _clean(snapshot.context_slots.get(key))
             if value:
-                preview_parts.append(f"{key}: {value}")
+                file_signal_count += 1
+        if _clean(snapshot.context_slots.get("active_pdf")) or _clean(snapshot.context_slots.get("committed_pdf")):
+            preview_parts.append("当前有一个 PDF 工作对象可继续处理。")
+        if _clean(snapshot.context_slots.get("active_dataset")) or _clean(snapshot.context_slots.get("committed_dataset")):
+            preview_parts.append("当前有一个表格/数据集工作对象可继续处理。")
         for key, value in snapshot.active_handles.items():
             if value:
-                preview_parts.append(f"{key}: {value}")
+                preview_parts.append("当前有一个已完成的分析结果可继续展开。")
+                break
+        if snapshot.bundle_result_refs:
+            preview_parts.append(f"上一轮包含 {len(snapshot.bundle_result_refs)} 个子任务结果，可按序号继续处理。")
+        if snapshot.next_step and not preview_parts:
+            preview_parts.append("当前有一个未完成的会话流程可继续推进。")
         preview = "\n".join(preview_parts).strip()
         if not preview:
             return ()
@@ -190,6 +221,7 @@ class StateMemoryStoreAdapter:
                 requires_verification_before_use=False,
                 metadata={
                     "restore_candidate_count": len(self.restore_candidates_from_snapshot(snapshot)),
+                    "file_signal_count": file_signal_count,
                     "updated_at": snapshot.updated_at,
                 },
             ),
@@ -222,3 +254,10 @@ def _object_to_dict(value: Any) -> dict[str, Any]:
         for key, item in payload.items()
         if item not in ("", [], {}, None)
     }
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0

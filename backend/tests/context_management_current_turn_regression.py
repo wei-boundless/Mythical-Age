@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+from context_management import ContextResolver
+
+
+def test_context_resolver_builds_bundle_items_for_compound_request() -> None:
+    resolver = ContextResolver()
+    context = resolver.resolve(
+        session_id="session-1",
+        task_id="task-1",
+        user_message="先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。",
+        memory_runtime_view={
+            "state_snapshot": {
+                "context_slots": {
+                    "active_pdf": "knowledge/AI Knowledge/report.pdf",
+                    "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                }
+            }
+        },
+        query_understanding={
+            "intent": "multi_capability_request",
+            "confidence": 0.9,
+            "structural_signals": {
+                "explicit_dataset_path": "knowledge/E-commerce Data/inventory.xlsx",
+                "bound_pdf_path": "knowledge/AI Knowledge/report.pdf",
+            },
+        },
+    )
+
+    assert context.execution_mode == "bundle"
+    assert context.bundle_item_count == 3
+    assert [item.required_tool for item in context.bundle_items] == [
+        "pdf_analysis",
+        "structured_data_analysis",
+        "get_weather",
+    ]
+
+
+def test_context_resolver_prefers_explicit_input_over_state_binding() -> None:
+    resolver = ContextResolver()
+    context = resolver.resolve(
+        session_id="session-2",
+        task_id="task-2",
+        user_message="看 employees.xlsx 的薪资前五。",
+        memory_runtime_view={
+            "state_snapshot": {
+                "context_slots": {
+                    "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                }
+            }
+        },
+        query_understanding={
+            "intent": "structured_dataset_query",
+            "confidence": 0.92,
+            "structural_signals": {
+                "explicit_dataset_path": "knowledge/E-commerce Data/employees.xlsx",
+            },
+        },
+    )
+
+    assert context.resolved_bindings
+    assert context.resolved_bindings[0].metadata["path"] == "knowledge/E-commerce Data/employees.xlsx"
+    assert context.resolved_bindings[0].source == "explicit_user_input"
+
+
+def test_context_resolver_binds_ordinal_followup_to_previous_bundle_item() -> None:
+    resolver = ContextResolver()
+    context = resolver.resolve(
+        session_id="session-3",
+        task_id="task-3",
+        user_message="只展开第二个子任务。",
+        memory_runtime_view={
+            "state_snapshot": {
+                "context_slots": {
+                    "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                },
+                "bundle_result_refs": [
+                    {
+                        "ordinal": 1,
+                        "task_id": "result:pdf:a",
+                        "task_kind": "pdf",
+                        "capability_kind": "pdf",
+                        "query": "总结 PDF 第三页",
+                        "summary": "第三页摘要",
+                    },
+                    {
+                        "ordinal": 2,
+                        "task_id": "bundle:2:inventory",
+                        "task_kind": "structured_data",
+                        "capability_kind": "structured_data",
+                        "required_tool": "structured_data_analysis",
+                        "query": "inventory.xlsx 最缺货的前三个仓库",
+                        "summary": "深圳仓、广州仓、成都仓缺货最突出。",
+                    },
+                ],
+            }
+        },
+        query_understanding={
+            "intent": "structured_dataset_query",
+            "confidence": 0.91,
+            "structural_signals": {
+                "bound_dataset_path": "knowledge/E-commerce Data/inventory.xlsx",
+            },
+        },
+    )
+
+    assert context.intent == "bundle_followup"
+    assert context.explicit_inputs["ordinal_followup"] == [2]
+    assert context.resolved_bindings[0].binding_kind == "task_ref"
+    assert context.resolved_bindings[0].metadata["ordinal"] == 2
+    assert context.resolved_bindings[0].metadata["task_kind"] == "structured_data"

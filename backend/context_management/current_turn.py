@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
+
+
+ExecutionMode = Literal["single", "bundle"]
+BindingKind = Literal["source_file", "result", "subset", "task_ref"]
+BindingSource = Literal["explicit_user_input", "session_state", "task_summary", "restore_candidate"]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedBinding:
+    binding_id: str
+    binding_kind: BindingKind
+    identity: str = ""
+    file_kind: str = ""
+    source_handle_id: str = ""
+    result_handle_id: str = ""
+    subset_handle_id: str = ""
+    owner_task_id: str = ""
+    confidence: float = 0.0
+    source: BindingSource = "session_state"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class BundleItem:
+    item_id: str
+    ordinal: int
+    user_text: str
+    capability_kind: str = ""
+    required_tool: str = ""
+    target_binding: ResolvedBinding | None = None
+    output_requirement: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["target_binding"] = self.target_binding.to_dict() if self.target_binding is not None else None
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class CurrentTurnContext:
+    session_id: str
+    task_id: str
+    user_message: str
+    intent: str = ""
+    execution_mode: ExecutionMode = "single"
+    explicit_inputs: dict[str, Any] = field(default_factory=dict)
+    resolved_bindings: tuple[ResolvedBinding, ...] = ()
+    bundle_items: tuple[BundleItem, ...] = ()
+    restore_candidates_used: tuple[str, ...] = ()
+    unresolved_ambiguities: tuple[str, ...] = ()
+    confidence: float = 0.0
+    authority: str = "context.current_turn"
+
+    def __post_init__(self) -> None:
+        if self.authority != "context.current_turn":
+            raise ValueError("CurrentTurnContext authority must be context.current_turn")
+
+    @property
+    def bundle_item_count(self) -> int:
+        return len(self.bundle_items)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["resolved_bindings"] = [item.to_dict() for item in self.resolved_bindings]
+        payload["bundle_items"] = [item.to_dict() for item in self.bundle_items]
+        payload["restore_candidates_used"] = list(self.restore_candidates_used)
+        payload["unresolved_ambiguities"] = list(self.unresolved_ambiguities)
+        return payload
+

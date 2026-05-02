@@ -9,6 +9,12 @@ __all__ = [
     "ContextController",
     "ContextControllerResult",
     "ContextPackage",
+    "ContextProjection",
+    "ContextResolver",
+    "CurrentTurnContext",
+    "BundleItem",
+    "ResolvedBinding",
+    "projection_from_bound_answer",
 ]
 
 
@@ -37,5 +43,29 @@ def __getattr__(name: str) -> Any:
 
         return ContextController
 
-    raise AttributeError(name)
+    if name in {"CurrentTurnContext", "BundleItem", "ResolvedBinding"}:
+        from .current_turn import BundleItem, CurrentTurnContext, ResolvedBinding
 
+        mapping = {
+            "CurrentTurnContext": CurrentTurnContext,
+            "BundleItem": BundleItem,
+            "ResolvedBinding": ResolvedBinding,
+        }
+        return mapping[name]
+
+    if name == "ContextResolver":
+        from .resolver import ContextResolver
+
+        return ContextResolver
+
+    if name == "ContextProjection":
+        from .projection import ContextProjection
+
+        return ContextProjection
+
+    if name == "projection_from_bound_answer":
+        from .projection import projection_from_bound_answer
+
+        return projection_from_bound_answer
+
+    raise AttributeError(name)

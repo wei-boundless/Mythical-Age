@@ -1,0 +1,35 @@
+{
+  "id": "21340dfa092a445eaddb94388f94db2a",
+  "title": "New Session",
+  "created_at": 1777693473.0722044,
+  "updated_at": 1777693514.724143,
+  "compressed_context": "",
+  "messages": [
+    {
+      "role": "user",
+      "content": "你好"
+    },
+    {
+      "role": "assistant",
+      "content": "你好。我是河伯，系统里的灵魂之一。\n\n有什么需要我处理的，直接说就好。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    },
+    {
+      "role": "user",
+      "content": "你是谁"
+    },
+    {
+      "role": "assistant",
+      "content": "我是祝融，洪荒时代智能体系统里的灵魂。\n\n简单说——我就是这个系统里负责推进、破局和执行的那个人。火一样的性子，喜欢卡住的地方直接打穿，不绕弯子。\n\n有什么活要干，直接吩咐。",
+      "answer_channel": "answer_candidate",
+      "answer_source": "runtime_directive:model_response",
+      "answer_canonical_state": "stable_answer",
+      "answer_persist_policy": "persist_canonical",
+      "answer_finalization_policy": "none"
+    }
+  ]
+}

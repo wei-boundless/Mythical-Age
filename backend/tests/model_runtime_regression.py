@@ -221,6 +221,25 @@ def test_model_runtime_appends_cross_provider_fallback_candidate() -> None:
     ]
 
 
+def test_model_runtime_does_not_insert_provider_default_candidate() -> None:
+    runtime = _runtime(
+        fallback_provider="bailian",
+        fallback_model="qwen3.5-plus",
+        fallback_api_key="bailian-key",
+        fallback_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
+    runtime.settings_service.static.llm_provider = "deepseek"
+    runtime.settings_service.static.llm_model = "deepseek-v4-flash"
+    runtime.settings_service.static.llm_base_url = "https://api.deepseek.com"
+
+    specs = runtime._candidate_specs()
+
+    assert [(spec.provider, spec.model) for spec in specs] == [
+        ("deepseek", "deepseek-v4-flash"),
+        ("bailian", "qwen3.5-plus"),
+    ]
+
+
 def test_model_runtime_logs_provider_detail_when_switching_tool_candidate(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:18",
+  "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:7fca357cd6de400abba193fb281ea57d:71:d75ab7ba1460",
+    "memory_state_ref": "memory-runtime:7fca357cd6de400abba193fb281ea57d",
+    "projection_ref": "f6cf3352f938c1d1",
+    "prompt_manifest_ref": "manifest-f6cf3352f938c1d1",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 507,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899493
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:0c42ddd7",
+      "output_boundary:rtevt:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:14:50479995",
+      "commit_gate:commit-gate:turn:7fca357cd6de400abba193fb281ea57d:71:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "7fca357cd6de400abba193fb281ea57d",
+            "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d",
+            "task_id": "turn:7fca357cd6de400abba193fb281ea57d:71",
+            "role": "assistant",
+            "content": "岩，按总缺口（安全库存 - 当前库存）汇总，最该先补货的是 上海仓。\n\n数据点：\n- 上海仓：6款缺货，总缺口 466\n- 深圳仓：6款缺货，总缺口 462\n- 武汉仓：6款缺货，总缺口 420\n\n上海仓不仅缺货数量多，总缺口也最大。其中 空气炸锅（缺口114） 和 台灯（缺口102） 是上海仓最急的两款，建议优先处理。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "7fca357cd6de400abba193fb281ea57d",
+          "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d",
+            "task_id": "turn:7fca357cd6de400abba193fb281ea57d:71",
+            "terminal_reason": "completed",
+            "final_content_chars": 161
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 3278,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:7fca357cd6de400abba193fb281ea57d:71",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 161,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:7fca357cd6de400abba193fb281ea57d:71:d75ab7ba1460",
+  "prompt_manifest_ref": "manifest-f6cf3352f938c1d1",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "7fca357cd6de400abba193fb281ea57d",
+          "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d",
+          "task_id": "turn:7fca357cd6de400abba193fb281ea57d:71",
+          "role": "assistant",
+          "content": "岩，按总缺口（安全库存 - 当前库存）汇总，最该先补货的是 上海仓。\n\n数据点：\n- 上海仓：6款缺货，总缺口 466\n- 深圳仓：6款缺货，总缺口 462\n- 武汉仓：6款缺货，总缺口 420\n\n上海仓不仅缺货数量多，总缺口也最大。其中 空气炸锅（缺口114） 和 台灯（缺口102） 是上海仓最急的两款，建议优先处理。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "7fca357cd6de400abba193fb281ea57d",
+        "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:7fca357cd6de400abba193fb281ea57d:turn:7fca357cd6de400abba193fb281ea57d:71:4c76fc6d",
+          "task_id": "turn:7fca357cd6de400abba193fb281ea57d:71",
+          "terminal_reason": "completed",
+          "final_content_chars": 161
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 3278,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777682081.9745662,
+  "checksum": "639a18e89e93eae7193f7cfaac1d86bdaba105d0d16368e6c11aa4b930ea573c",
+  "authority": "orchestration.runtime_checkpoint"
+}

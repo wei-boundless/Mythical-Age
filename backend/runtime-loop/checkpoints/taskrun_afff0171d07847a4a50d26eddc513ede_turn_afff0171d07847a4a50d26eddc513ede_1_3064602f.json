@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:19",
+  "task_run_id": "taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f",
+  "event_offset": 19,
+  "loop_state": {
+    "task_run_id": "taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:afff0171d07847a4a50d26eddc513ede:1:087f58f148a3",
+    "memory_state_ref": "memory-runtime:afff0171d07847a4a50d26eddc513ede",
+    "projection_ref": "e9075b70f0bf9df0",
+    "prompt_manifest_ref": "manifest-e9075b70f0bf9df0",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 113,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899887
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:674bc1ba",
+      "output_boundary:rtevt:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:15:a001264c",
+      "commit_gate:commit-gate:turn:afff0171d07847a4a50d26eddc513ede:1:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "afff0171d07847a4a50d26eddc513ede",
+            "task_run_id": "taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f",
+            "task_id": "turn:afff0171d07847a4a50d26eddc513ede:1",
+            "role": "assistant",
+            "content": "你之后问复杂问题，我会先给结论，再展开解释。\n\n理由有三层，都在当前生效的设定里：\n\n1. 当前风格明文写了：先说结论，再补充必要的理由和依据。证据够了就直接表态，不要为了显得稳而把明显有倾向的结论讲得过于中性。\n\n2. 你之前已经提过这个要求，并且已经作为长期记忆记录下来了——\"复杂问题先给结论，再展开解释\"，同时可以直接称呼你\"岩\"。\n\n3. 当前运行的投影姿态是 result-first，也要求结果优先、直接执行，不需要再绕回去问确认。\n\n所以你下次扔一个复杂问题过来，我会直接把最核心的判断放在第一句，然后再展开说依据和边界条件。如果信息还不够做判断，我也会先给当前最稳妥的处理方向，而不是停在\"不好说\"上。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "afff0171d07847a4a50d26eddc513ede",
+          "task_run_id": "taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f",
+            "task_id": "turn:afff0171d07847a4a50d26eddc513ede:1",
+            "terminal_reason": "completed",
+            "final_content_chars": 310
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 1556,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:afff0171d07847a4a50d26eddc513ede:1",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 310,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:afff0171d07847a4a50d26eddc513ede:1:087f58f148a3",
+  "prompt_manifest_ref": "manifest-e9075b70f0bf9df0",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "afff0171d07847a4a50d26eddc513ede",
+          "task_run_id": "taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f",
+          "task_id": "turn:afff0171d07847a4a50d26eddc513ede:1",
+          "role": "assistant",
+          "content": "你之后问复杂问题，我会先给结论，再展开解释。\n\n理由有三层，都在当前生效的设定里：\n\n1. 当前风格明文写了：先说结论，再补充必要的理由和依据。证据够了就直接表态，不要为了显得稳而把明显有倾向的结论讲得过于中性。\n\n2. 你之前已经提过这个要求，并且已经作为长期记忆记录下来了——\"复杂问题先给结论，再展开解释\"，同时可以直接称呼你\"岩\"。\n\n3. 当前运行的投影姿态是 result-first，也要求结果优先、直接执行，不需要再绕回去问确认。\n\n所以你下次扔一个复杂问题过来，我会直接把最核心的判断放在第一句，然后再展开说依据和边界条件。如果信息还不够做判断，我也会先给当前最稳妥的处理方向，而不是停在\"不好说\"上。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "afff0171d07847a4a50d26eddc513ede",
+        "task_run_id": "taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:afff0171d07847a4a50d26eddc513ede:turn:afff0171d07847a4a50d26eddc513ede:1:3064602f",
+          "task_id": "turn:afff0171d07847a4a50d26eddc513ede:1",
+          "terminal_reason": "completed",
+          "final_content_chars": 310
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 1556,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777692274.9013667,
+  "checksum": "7d79c3af2d53b922629dc88c928dcd335821abd4990a2a8d8a839caf2d17631f",
+  "authority": "orchestration.runtime_checkpoint"
+}

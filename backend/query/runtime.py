@@ -282,15 +282,21 @@ class QueryRuntime:
             for item in list(payload.get("task_summary_refs") or [])
             if isinstance(item, dict)
         ]
+        bundle_summary_refs = [
+            dict(item)
+            for item in list(payload.get("bundle_summary_refs") or [])
+            if isinstance(item, dict)
+        ]
         session_memory_chars = 0
         durable_saved_count = 0
         try:
-            if main_context or task_summary_refs:
+            if main_context or task_summary_refs or bundle_summary_refs:
                 session_memory_chars = len(
                     self.memory_facade.refresh_session_memory_from_context_state(
                         session_id,
                         main_context,
                         task_summaries=task_summary_refs,
+                        bundle_summaries=bundle_summary_refs,
                     )
                     or ""
                 )
@@ -306,7 +312,7 @@ class QueryRuntime:
             "appended_messages": appended,
             "session_memory_chars": session_memory_chars,
             "durable_saved_count": durable_saved_count,
-            "file_work_context_writeback": bool(main_context or task_summary_refs),
+            "file_work_context_writeback": bool(main_context or task_summary_refs or bundle_summary_refs),
         }
 
     async def _apply_assistant_message_commit_async(self, session_id: str, payload: dict[str, Any]):
@@ -332,15 +338,21 @@ class QueryRuntime:
             for item in list(payload.get("task_summary_refs") or [])
             if isinstance(item, dict)
         ]
+        bundle_summary_refs = [
+            dict(item)
+            for item in list(payload.get("bundle_summary_refs") or [])
+            if isinstance(item, dict)
+        ]
         session_memory_chars = 0
         durable_saved_count = 0
         try:
-            if main_context or task_summary_refs:
+            if main_context or task_summary_refs or bundle_summary_refs:
                 session_memory_chars = len(
                     self.memory_facade.refresh_session_memory_from_context_state(
                         session_id,
                         main_context,
                         task_summaries=task_summary_refs,
+                        bundle_summaries=bundle_summary_refs,
                     )
                     or ""
                 )
@@ -360,7 +372,7 @@ class QueryRuntime:
             "appended_messages": appended,
             "session_memory_chars": session_memory_chars,
             "durable_saved_count": durable_saved_count,
-            "file_work_context_writeback": bool(main_context or task_summary_refs),
+            "file_work_context_writeback": bool(main_context or task_summary_refs or bundle_summary_refs),
         }
 
     def _all_tool_instances(self) -> list[Any]:

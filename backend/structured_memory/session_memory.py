@@ -105,6 +105,7 @@ class SessionMemoryManager:
         self,
         main_context: Any,
         task_summaries: list[Any] | None = None,
+        bundle_summaries: list[Any] | None = None,
         corrections: list[str] | None = None,
         max_items: int = 6,
         *,
@@ -114,6 +115,7 @@ class SessionMemoryManager:
         state = self._build_state_from_context_state(
             main_context=main_context,
             task_summaries=task_summaries or [],
+            bundle_summaries=bundle_summaries or [],
             corrections=corrections or [],
             previous_state=previous_state,
             max_items=max_items,
@@ -183,14 +185,18 @@ class SessionMemoryManager:
         *,
         main_context: Any,
         task_summaries: list[Any],
+        bundle_summaries: list[Any],
         corrections: list[str],
         previous_state: DialogueState,
         max_items: int,
     ) -> DialogueState:
         active_goal = self._coerce_text(self._read_value(main_context, "active_goal"))
         normalized_task_summaries = self._normalize_projection_task_summaries(task_summaries)
+        normalized_bundle_summaries = self._normalize_bundle_summaries(bundle_summaries)
         if not active_goal and normalized_task_summaries:
             active_goal = normalized_task_summaries[0]["query"]
+        if not active_goal and normalized_bundle_summaries:
+            active_goal = "继续上一轮复合任务"
         if not active_goal:
             active_goal = previous_state.active_goal or "继续当前任务"
 
@@ -217,6 +223,7 @@ class SessionMemoryManager:
             active_goal=active_goal,
             active_work_item=active_work_item,
             normalized_task_summaries=normalized_task_summaries,
+            normalized_bundle_summaries=normalized_bundle_summaries,
             correction_items=correction_items,
             constraint_items=constraint_items,
             previous_state=previous_state,
@@ -266,6 +273,17 @@ class SessionMemoryManager:
         )
         current_result_refs = process_engine._dedupe_items(
             [item["summary"] for item in normalized_task_summaries if item["summary"]],
+            max_items=max_items,
+            max_chars=260,
+        )
+        bundle_result_refs = normalized_bundle_summaries or []
+        bundle_result_text_refs = [
+            f"子任务 {item.get('ordinal')}: {item.get('summary')}"
+            for item in bundle_result_refs
+            if item.get("ordinal") and item.get("summary")
+        ]
+        current_result_refs = process_engine._dedupe_items(
+            [*current_result_refs, *bundle_result_text_refs],
             max_items=max_items,
             max_chars=260,
         )
@@ -349,6 +367,7 @@ class SessionMemoryManager:
             errors_and_corrections=errors_and_corrections,
             decisions_and_learnings=decision_items,
             current_result_refs=current_result_refs,
+            bundle_result_refs=bundle_result_refs,
             historical_result_refs=historical_result_refs,
             key_results=current_result_refs,
             risk_flags=[],
@@ -379,6 +398,38 @@ class SessionMemoryManager:
             )
         return normalized
 
+    def _normalize_bundle_summaries(
+        self,
+        bundle_summaries: list[Any],
+    ) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for item in bundle_summaries:
+            if not isinstance(item, dict):
+                continue
+            ordinal = self._safe_int(self._read_value(item, "ordinal"))
+            task_id = self._coerce_text(self._read_value(item, "task_id"))
+            summary = self._coerce_task_summary_text(item)
+            query = self._coerce_text(self._read_value(item, "query"))
+            task_kind = self._coerce_text(self._read_value(item, "task_kind"))
+            capability_kind = self._coerce_text(self._read_value(item, "capability_kind"))
+            required_tool = self._coerce_text(self._read_value(item, "required_tool"))
+            key_points = self._coerce_text_list(self._read_value(item, "key_points"))
+            if ordinal <= 0 or (not task_id and not summary and not query):
+                continue
+            normalized.append(
+                {
+                    "ordinal": ordinal,
+                    "task_id": task_id or f"bundle:{ordinal}",
+                    "query": query,
+                    "summary": summary,
+                    "task_kind": task_kind,
+                    "capability_kind": capability_kind,
+                    "required_tool": required_tool,
+                    "key_points": key_points,
+                }
+            )
+        return sorted(normalized, key=lambda item: int(item.get("ordinal") or 0))
+
     def _build_constraint_items(
         self,
         active_constraints: dict[str, Any],
@@ -401,6 +452,7 @@ class SessionMemoryManager:
         active_goal: str,
         active_work_item: str,
         normalized_task_summaries: list[dict[str, str | list[str]]],
+        normalized_bundle_summaries: list[dict[str, Any]],
         correction_items: list[str],
         constraint_items: list[str],
         previous_state: DialogueState,
@@ -448,6 +500,23 @@ class SessionMemoryManager:
                     turn_type="result_delivery",
                     excerpt=self._shorten(summary_text, 180),
                     intent="result_delivery",
+                    modality=understanding.modality,
+                    target_object="",
+                    flow_hint="assistant_support",
+                    constraints=[],
+                )
+            )
+        for item in normalized_bundle_summaries:
+            summary_text = self._coerce_text(item.get("summary"))
+            ordinal = self._safe_int(item.get("ordinal"))
+            if ordinal <= 0 or not summary_text:
+                continue
+            turns.append(
+                TurnUnderstanding(
+                    role="assistant",
+                    turn_type="result_delivery",
+                    excerpt=self._shorten(f"子任务 {ordinal}: {summary_text}", 180),
+                    intent="bundle_result_delivery",
                     modality=understanding.modality,
                     target_object="",
                     flow_hint="assistant_support",
@@ -874,6 +943,12 @@ class SessionMemoryManager:
             if cleaned and cleaned not in deduped:
                 deduped.append(cleaned)
         return deduped
+
+    def _safe_int(self, value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
 
     def _ensure_view_files(self) -> None:
         if self.agent_view_path.exists():

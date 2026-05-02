@@ -15,7 +15,6 @@ try:
 except ImportError:  # pragma: no cover - optional dependency at runtime
     ChatDeepSeek = None
 
-from config import LLM_PROVIDER_DEFAULTS
 from runtime.settings import AppSettingsService
 
 if TYPE_CHECKING:
@@ -356,17 +355,7 @@ class ModelRuntime:
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
         )
-        default_model = LLM_PROVIDER_DEFAULTS.get(primary.provider, {}).get("model")
         specs = [primary]
-        if default_model and default_model != primary.model:
-            specs.append(
-                ModelSpec(
-                    provider=primary.provider,
-                    model=default_model,
-                    api_key=primary.api_key,
-                    base_url=primary.base_url,
-                )
-            )
         fallback_provider = getattr(settings, "llm_fallback_provider", None)
         fallback_model = getattr(settings, "llm_fallback_model", None)
         fallback_api_key = getattr(settings, "llm_fallback_api_key", None)

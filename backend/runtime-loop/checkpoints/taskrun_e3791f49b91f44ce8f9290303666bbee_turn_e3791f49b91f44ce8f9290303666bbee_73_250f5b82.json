@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:18",
+  "task_run_id": "taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82",
+  "event_offset": 18,
+  "loop_state": {
+    "task_run_id": "taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:e3791f49b91f44ce8f9290303666bbee:73:9fdb5a74c702",
+    "memory_state_ref": "memory-runtime:e3791f49b91f44ce8f9290303666bbee",
+    "projection_ref": "dbc09b43f1b1d2be",
+    "prompt_manifest_ref": "manifest-dbc09b43f1b1d2be",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 563,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899437
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:f4a47116",
+      "output_boundary:rtevt:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:14:10d5959e",
+      "commit_gate:commit-gate:turn:e3791f49b91f44ce8f9290303666bbee:73:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "e3791f49b91f44ce8f9290303666bbee",
+            "task_run_id": "taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82",
+            "task_id": "turn:e3791f49b91f44ce8f9290303666bbee:73",
+            "role": "assistant",
+            "content": "好，先给结论，再展开。\n\n---\n\n## 总结论\n\n今天覆盖了四条线程：主线策略已定调（治理从防风险切换到促落地）、运营数据已就绪但缺一块补充优先级排序、实时查询已完成可归档、长期记忆已更新三条。明天建议从 ops（库存补货优先级）重启，最快出 actionable 结果。\n\n---\n\n## 一、PDF — 2025年AI治理报告\n\n核心判断： 2025年全球AI治理重心从\"防范假设性的末日风险\"转向\"释放现实的产业潜能\"，治理必须成为竞争力的放大器，而不是刹车片。\n\n关键章节：\n- 第三页：封面，仅含标题\"回归现实主义\"\n- 第二部分（P35）：模型治理的两条硬约束——路径上争议管模型还是管应用；方法上必须用模型评测、红队测试等可落地的技术抓手\n\n已结合知识库三类风险（AI幻觉、安全漏洞、伦理衍生风险）得出的一句话判断：\n2025年AI治理的核心矛盾已从\"怎么防住三类风险\"变成\"怎么在风险已知的前提下释放产业潜能\"。\n\n---\n\n## 二、数据 — 运营侧\n\n### 库存（inventory.xlsx）\n- 总缺货 33 件，覆盖全部 6 个仓库\n- 缺货数前三：上海仓（6）、深圳仓（6）、武汉仓（6），并列第一\n- 按缺口深度排序：深圳仓（缺口 122）> 广州仓（120）> 成都仓（118）> 武汉仓（116）> 上海仓（114）> 北京仓（112）\n- 结论：深圳仓是当前最该优先补货的仓库——缺货数并列第一，且缺口深度（122）是六个仓库里最大的。\n\n### 员工（employees.xlsx）\n- 薪资前五：罗凯（运营·34,900）、唐琳（技术·34,800）、许晨（销售·34,550）、杨乐（产品·34,450）、朱敏（人力·34,200）\n- 五个部门各占一席，头部梯队非常紧凑（最大差距仅 700）\n\n### 运营摘要\n- 已整合输出，关联建议：运营部门的罗凯可优先对齐深圳仓补货根因。\n\n---\n\n## 三、实时 — 已查询数据（可归档）\n\n| 项目 | 结果 |\n|------|------|\n| 北京天气 | 阴天，17.9°C，北风 6.6 km/h（2026-05-02 08:45） |\n| 黄金价格 | XAU/USD 4,614.21 美元/盎司（Bloomberg） |\n\n值班提示已改写完成，可直接使用。\n\n---\n\n## 四、长期记忆（已记住，不覆盖临时上下文）\n\n共三条，后续持续生效：\n\n1. 复杂问题先给结论 — 先下判断，再展开解释。\n2. 称呼 — 回答时直接叫你岩。\n3. 信息不足处理 — 信息不足时先明确缺什么，不猜测补全。\n\n---\n\n### 明天重启建议\nops → doc → main，先用深圳仓的缺口深度锁定补货优先级，再推进架构改造计划文件读取，最后回到主线策略做执行落地。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "e3791f49b91f44ce8f9290303666bbee",
+          "task_run_id": "taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82",
+            "task_id": "turn:e3791f49b91f44ce8f9290303666bbee:73",
+            "terminal_reason": "completed",
+            "final_content_chars": 1184
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2928,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:e3791f49b91f44ce8f9290303666bbee:73",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 1184,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:e3791f49b91f44ce8f9290303666bbee:73:9fdb5a74c702",
+  "prompt_manifest_ref": "manifest-dbc09b43f1b1d2be",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "e3791f49b91f44ce8f9290303666bbee",
+          "task_run_id": "taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82",
+          "task_id": "turn:e3791f49b91f44ce8f9290303666bbee:73",
+          "role": "assistant",
+          "content": "好，先给结论，再展开。\n\n---\n\n## 总结论\n\n今天覆盖了四条线程：主线策略已定调（治理从防风险切换到促落地）、运营数据已就绪但缺一块补充优先级排序、实时查询已完成可归档、长期记忆已更新三条。明天建议从 ops（库存补货优先级）重启，最快出 actionable 结果。\n\n---\n\n## 一、PDF — 2025年AI治理报告\n\n核心判断： 2025年全球AI治理重心从\"防范假设性的末日风险\"转向\"释放现实的产业潜能\"，治理必须成为竞争力的放大器，而不是刹车片。\n\n关键章节：\n- 第三页：封面，仅含标题\"回归现实主义\"\n- 第二部分（P35）：模型治理的两条硬约束——路径上争议管模型还是管应用；方法上必须用模型评测、红队测试等可落地的技术抓手\n\n已结合知识库三类风险（AI幻觉、安全漏洞、伦理衍生风险）得出的一句话判断：\n2025年AI治理的核心矛盾已从\"怎么防住三类风险\"变成\"怎么在风险已知的前提下释放产业潜能\"。\n\n---\n\n## 二、数据 — 运营侧\n\n### 库存（inventory.xlsx）\n- 总缺货 33 件，覆盖全部 6 个仓库\n- 缺货数前三：上海仓（6）、深圳仓（6）、武汉仓（6），并列第一\n- 按缺口深度排序：深圳仓（缺口 122）> 广州仓（120）> 成都仓（118）> 武汉仓（116）> 上海仓（114）> 北京仓（112）\n- 结论：深圳仓是当前最该优先补货的仓库——缺货数并列第一，且缺口深度（122）是六个仓库里最大的。\n\n### 员工（employees.xlsx）\n- 薪资前五：罗凯（运营·34,900）、唐琳（技术·34,800）、许晨（销售·34,550）、杨乐（产品·34,450）、朱敏（人力·34,200）\n- 五个部门各占一席，头部梯队非常紧凑（最大差距仅 700）\n\n### 运营摘要\n- 已整合输出，关联建议：运营部门的罗凯可优先对齐深圳仓补货根因。\n\n---\n\n## 三、实时 — 已查询数据（可归档）\n\n| 项目 | 结果 |\n|------|------|\n| 北京天气 | 阴天，17.9°C，北风 6.6 km/h（2026-05-02 08:45） |\n| 黄金价格 | XAU/USD 4,614.21 美元/盎司（Bloomberg） |\n\n值班提示已改写完成，可直接使用。\n\n---\n\n## 四、长期记忆（已记住，不覆盖临时上下文）\n\n共三条，后续持续生效：\n\n1. 复杂问题先给结论 — 先下判断，再展开解释。\n2. 称呼 — 回答时直接叫你岩。\n3. 信息不足处理 — 信息不足时先明确缺什么，不猜测补全。\n\n---\n\n### 明天重启建议\nops → doc → main，先用深圳仓的缺口深度锁定补货优先级，再推进架构改造计划文件读取，最后回到主线策略做执行落地。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "e3791f49b91f44ce8f9290303666bbee",
+        "task_run_id": "taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:e3791f49b91f44ce8f9290303666bbee:turn:e3791f49b91f44ce8f9290303666bbee:73:250f5b82",
+          "task_id": "turn:e3791f49b91f44ce8f9290303666bbee:73",
+          "terminal_reason": "completed",
+          "final_content_chars": 1184
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2928,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777683506.6114862,
+  "checksum": "151d9308d6a33b1d8f62ed8ad57f48eeb753399789f0a7c6f083e5ca68264dd5",
+  "authority": "orchestration.runtime_checkpoint"
+}

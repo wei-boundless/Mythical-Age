@@ -14,6 +14,8 @@ from understanding.query_understanding import analyze_query_understanding
 from tasks import TaskCoordinator
 from orchestration import RuntimeActionRequest, RuntimeLoopLimits
 from orchestration.runtime_loop.task_run_loop import _direct_tool_answer_from_observation
+from orchestration.runtime_loop.observation_aggregator import ObservationAggregator
+from context_management.projection import projection_from_file_work
 from orchestration.runtime_loop.tool_adoption import build_tool_request_runtime_adoption
 from operations import ResourceDecision, ResourcePolicy, build_default_operation_registry
 
@@ -29,6 +31,9 @@ class _SettingsStub:
 class _MemoryFacadeStub:
     session_memory = SimpleNamespace(manager=lambda _session_id: SimpleNamespace(load_state=lambda: None))
 
+    def __init__(self, state_snapshot: dict[str, object] | None = None) -> None:
+        self._state_snapshot = dict(state_snapshot or {})
+
     def compact_history_for_query(self, _session_id, history):
         return history, {"pressure_level": "normal"}
 
@@ -38,11 +43,23 @@ class _MemoryFacadeStub:
     def build_context_package(self, *_args, **_kwargs):
         return None
 
+    def build_memory_context_package(self, *_args, **_kwargs):
+        return None
+
+    def build_memory_runtime_view(self, *_args, **_kwargs):
+        return {"state_snapshot": dict(self._state_snapshot)}
+
     def build_persistent_memory_block(self, *_args, **_kwargs):
         return ""
 
     def prefetch_relevant_notes(self, *_args, **_kwargs):
         return []
+
+    def refresh_session_memory(self, *_args, **_kwargs):
+        return ""
+
+    def commit_durable_memory_extraction(self, *_args, **_kwargs):
+        return 0
 
 
 class _ToolRuntimeStub:
@@ -108,6 +125,7 @@ class _ToolLoopModelRuntimeStub:
         self.calls = 0
         self.tool_enabled_calls = 0
         self.last_tools: list[object] = []
+        self.last_messages: list[object] = []
 
     async def invoke_messages(self, messages):
         self.calls += 1
@@ -116,16 +134,49 @@ class _ToolLoopModelRuntimeStub:
     async def invoke_messages_with_tools(self, messages, tools):
         self.calls += 1
         self.tool_enabled_calls += 1
+        self.last_messages = list(messages)
         self.last_tools = list(tools)
         if self.tool_enabled_calls > 1:
             return SimpleNamespace(content="summary after tools")
         return SimpleNamespace(
             content="",
+            additional_kwargs={"reasoning_content": "I should inspect the file first."},
             tool_calls=[
                 {
                     "id": f"tool-call-{self.calls}",
                     "name": "read_file",
                     "args": {"path": "backend/soul/agent_core/CORE.md"},
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _BoundAnswerModelRuntimeStub:
+    async def invoke_messages(self, messages):
+        return SimpleNamespace(content="这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。")
+
+
+class _RepeatingToolModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+
+    async def invoke_messages(self, messages):
+        return SimpleNamespace(content="summary")
+
+    async def invoke_messages_with_tools(self, messages, tools):
+        self.tool_enabled_calls += 1
+        return SimpleNamespace(
+            content="",
+            tool_calls=[
+                {
+                    "id": f"repeat-call-{self.tool_enabled_calls}",
+                    "name": "pdf_analysis",
+                    "args": {
+                        "query": "第二部分的约束重点是什么？",
+                        "path": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                        "mode": "section",
+                    },
                     "type": "tool_call",
                 }
             ],
@@ -200,6 +251,55 @@ def _build_tool_loop_runtime(tmp_path: Path) -> QueryRuntime:
         task_coordinator=TaskCoordinator(),
     )
     runtime.task_run_loop.limits = RuntimeLoopLimits(max_runtime_seconds=300.0, max_model_calls=3)
+    return runtime
+
+
+def _build_bound_answer_runtime() -> QueryRuntime:
+    memory_facade = _MemoryFacadeStub(
+        state_snapshot={
+            "context_slots": {
+                "active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "committed_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+            }
+        }
+    )
+    runtime = QueryRuntime(
+        base_dir=Path("."),
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=memory_facade,
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeStub(),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_BoundAnswerModelRuntimeStub(),
+        task_coordinator=TaskCoordinator(),
+    )
+    return runtime
+
+
+def _build_repeating_pdf_runtime(tmp_path: Path) -> QueryRuntime:
+    memory_facade = _MemoryFacadeStub(
+        state_snapshot={
+            "context_slots": {
+                "active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "committed_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+            }
+        }
+    )
+    runtime = QueryRuntime(
+        base_dir=tmp_path,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=memory_facade,
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_LoopToolRuntimeStub(Path.cwd()),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_RepeatingToolModelRuntimeStub(),
+        task_coordinator=TaskCoordinator(),
+    )
+    runtime.task_run_loop.limits = RuntimeLoopLimits(max_runtime_seconds=300.0, max_model_calls=8, max_turns=8)
     return runtime
 
 
@@ -413,6 +513,37 @@ def test_followup_after_tool_result_stays_tool_capable_until_final_answer(tmp_pa
     assert done_event["answer_source"] == "runtime_directive:model_response"
 
 
+def test_followup_replays_deepseek_reasoning_content_after_tool_result(tmp_path: Path) -> None:
+    runtime = _build_tool_loop_runtime(tmp_path)
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-deepseek-reasoning-roundtrip",
+                message="读取 backend/soul/agent_core/CORE.md 并总结",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    asyncio.run(_collect())
+
+    assistant_messages = [
+        message
+        for message in runtime.model_runtime.last_messages
+        if message.__class__.__name__ == "AIMessage"
+    ]
+    assert assistant_messages
+    assert (
+        assistant_messages[-1].additional_kwargs.get("reasoning_content")
+        == "I should inspect the file first."
+    )
+
+
 def test_pdf_canonical_tool_result_can_finalize_directly() -> None:
     answer = _direct_tool_answer_from_observation(
         user_message="打开这份 PDF，给我一个全文总览",
@@ -438,6 +569,118 @@ def test_pdf_canonical_tool_result_can_finalize_directly() -> None:
     assert answer["answer_source"] == "direct_tool.pdf_analysis"
     assert answer["answer_channel"] == "tool_visible_summary"
     assert "AI 治理正在从抽象风险转向现实产业落地" in answer["content"]
+
+
+def test_observation_aggregator_merges_multiple_tool_projections() -> None:
+    aggregator = ObservationAggregator()
+    pdf_projection = projection_from_file_work(
+        {
+            "active_work_item": "pdf",
+            "active_object_handle_id": "source:pdf:a",
+            "active_result_handle_id": "result:pdf:a",
+            "active_constraints": {"active_pdf": "knowledge/AI/report.pdf", "source_kind": "pdf"},
+        },
+        [{"task_id": "result:pdf:a", "query": "第三页", "summary": "第三页摘要", "task_kind": "pdf"}],
+    )
+    dataset_projection = projection_from_file_work(
+        {
+            "active_work_item": "structured_data",
+            "active_object_handle_id": "source:dataset:b",
+            "active_result_handle_id": "result:data:b",
+            "active_constraints": {"active_dataset": "knowledge/E-commerce Data/inventory.xlsx", "source_kind": "dataset"},
+        },
+        [{"task_id": "result:data:b", "query": "前三仓库", "summary": "前三仓库摘要", "task_kind": "structured_data"}],
+    )
+
+    aggregation = aggregator.add_projection(pdf_projection, tool_name="pdf_analysis")
+    aggregation = aggregator.add_projection(dataset_projection, tool_name="structured_data_analysis")
+
+    assert aggregation.is_compound is True
+    assert len(aggregation.projection.task_summary_refs) == 2
+    assert set(aggregation.tool_names) == {"pdf_analysis", "structured_data_analysis"}
+
+
+def test_bound_pdf_answer_writes_followup_context_without_new_tool_result() -> None:
+    runtime = _build_bound_answer_runtime()
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-bound-pdf-answer",
+                message="把这份 PDF 的结论压成三条行动建议。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    done_event = next(event for event in events if event["type"] == "done")
+
+    assert done_event["followup_mode"] == "binding_ref"
+    assert done_event["followup_target_task_id"]
+    assert done_event["main_context"]["active_constraints"]["active_pdf"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+    assert done_event["output_commit"]["file_work_context_writeback"] is True
+    assert done_event["task_summary_refs"]
+
+
+def test_repeated_pdf_tool_calls_force_loop_to_stop_before_budget_exhaustion(tmp_path: Path) -> None:
+    runtime = _build_repeating_pdf_runtime(tmp_path)
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-repeated-pdf-guard",
+                message="回到刚才 PDF，第二部分的约束重点是什么？",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    done_event = next(event for event in events if event["type"] == "done")
+
+    assert runtime.model_runtime.tool_enabled_calls <= 3
+    assert done_event["answer_fallback_reason"] != "runtime_budget_exhausted"
+    assert done_event["content"]
+    assert done_event["followup_mode"] == "binding_ref"
+
+
+def test_bundle_answer_projection_creates_ordinal_refs_for_model_synthesized_parts() -> None:
+    from context_management.projection import projection_from_bundle_answer
+
+    projection = projection_from_bundle_answer(
+        content=(
+            "### 一、PDF 第三页总结\n第三页是封面。\n\n"
+            "---\n\n"
+            "### 二、inventory.xlsx 最缺货的前三个仓库\n深圳仓、广州仓、成都仓最需要补货。\n\n"
+            "---\n\n"
+            "### 三、北京天气\n北京阴天。"
+        ),
+        bundle_items=[
+            {"ordinal": 1, "user_text": "总结 PDF 第三页", "capability_kind": "pdf", "required_tool": "pdf_analysis"},
+            {
+                "ordinal": 2,
+                "user_text": "inventory.xlsx 最缺货的前三个仓库",
+                "capability_kind": "structured_data",
+                "required_tool": "structured_data_analysis",
+            },
+            {"ordinal": 3, "user_text": "补一句北京天气", "capability_kind": "weather", "required_tool": "get_weather"},
+        ],
+    )
+
+    assert projection.main_context["followup_mode"] == "bundle_ref"
+    assert len(projection.bundle_summary_refs) == 3
+    assert projection.bundle_summary_refs[1]["ordinal"] == 2
+    assert "深圳仓" in projection.bundle_summary_refs[1]["summary"]
+    assert projection.bundle_summary_refs[1]["required_tool"] == "structured_data_analysis"
 
 
 def test_realtime_weather_intent_overrides_bound_dataset_followup() -> None:

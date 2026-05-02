@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:19",
+  "task_run_id": "taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82",
+  "event_offset": 19,
+  "loop_state": {
+    "task_run_id": "taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:fdf91b649465453da66b08f920908163:5:5a6b4f1f994f",
+    "memory_state_ref": "memory-runtime:fdf91b649465453da66b08f920908163",
+    "projection_ref": "8ae8a8af104ed3c2",
+    "prompt_manifest_ref": "manifest-8ae8a8af104ed3c2",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 10,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899990
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:b5796a64",
+      "output_boundary:rtevt:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:15:fe39c85e",
+      "commit_gate:commit-gate:turn:fdf91b649465453da66b08f920908163:5:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "fdf91b649465453da66b08f920908163",
+            "task_run_id": "taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82",
+            "task_id": "turn:fdf91b649465453da66b08f920908163:5",
+            "role": "assistant",
+            "content": "我是祝融。\n\n抱歉，刚才两次回答都搞混了，一个说河伯、一个说玄女，这对你来说肯定很困惑。系统的灵魂身份是固定的——我这边是祝融，另外四个是句芒、河伯、四岳、玄女。\n\n这次是确定的。有什么需要推进的事，你直接说。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "fdf91b649465453da66b08f920908163",
+          "task_run_id": "taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82",
+            "task_id": "turn:fdf91b649465453da66b08f920908163:5",
+            "terminal_reason": "completed",
+            "final_content_chars": 105
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 485,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:fdf91b649465453da66b08f920908163:5",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 105,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:fdf91b649465453da66b08f920908163:5:5a6b4f1f994f",
+  "prompt_manifest_ref": "manifest-8ae8a8af104ed3c2",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "fdf91b649465453da66b08f920908163",
+          "task_run_id": "taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82",
+          "task_id": "turn:fdf91b649465453da66b08f920908163:5",
+          "role": "assistant",
+          "content": "我是祝融。\n\n抱歉，刚才两次回答都搞混了，一个说河伯、一个说玄女，这对你来说肯定很困惑。系统的灵魂身份是固定的——我这边是祝融，另外四个是句芒、河伯、四岳、玄女。\n\n这次是确定的。有什么需要推进的事，你直接说。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "fdf91b649465453da66b08f920908163",
+        "task_run_id": "taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:fdf91b649465453da66b08f920908163:turn:fdf91b649465453da66b08f920908163:5:c814ad82",
+          "task_id": "turn:fdf91b649465453da66b08f920908163:5",
+          "terminal_reason": "completed",
+          "final_content_chars": 105
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 485,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777693095.9471395,
+  "checksum": "b669722ef0a96c85b1528aa282cb1a51d42186c5cc77cc9869e158aadf932d62",
+  "authority": "orchestration.runtime_checkpoint"
+}

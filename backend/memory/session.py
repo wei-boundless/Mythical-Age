@@ -64,11 +64,13 @@ class SessionMemoryLayer:
         main_context: Any,
         *,
         task_summaries: list[Any] | None = None,
+        bundle_summaries: list[Any] | None = None,
         corrections: list[str] | None = None,
     ) -> str:
         return self.manager(session_id).update_from_context_state(
             main_context,
             task_summaries=task_summaries,
+            bundle_summaries=bundle_summaries,
             corrections=corrections,
         )
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
+from typing import Any
 
 from .models import utc_now_iso
 
@@ -80,6 +81,7 @@ class ProcessState:
     errors_and_corrections: list[str] = field(default_factory=list)
     decisions_and_learnings: list[str] = field(default_factory=list)
     current_result_refs: list[str] = field(default_factory=list)
+    bundle_result_refs: list[dict[str, Any]] = field(default_factory=list)
     historical_result_refs: list[str] = field(default_factory=list)
     key_results: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
@@ -248,6 +250,11 @@ class ProcessState:
                 str(item)
                 for item in list(payload.get("current_result_refs", payload.get("key_results", [])) or [])
                 if str(item).strip()
+            ],
+            bundle_result_refs=[
+                dict(item)
+                for item in list(payload.get("bundle_result_refs", []) or [])
+                if isinstance(item, dict)
             ],
             historical_result_refs=[
                 str(item)

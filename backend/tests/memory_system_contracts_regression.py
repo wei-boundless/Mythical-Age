@@ -69,7 +69,7 @@ def test_state_memory_context_candidate_is_layered_and_non_authoritative(tmp_pat
     assert candidate.memory_layer == "state"
     assert candidate.authority == "candidate_only"
     assert candidate.can_override_current_turn is False
-    assert "committed_dataset: data/orders.csv" in candidate.rendered_preview
+    assert "表格/数据集工作对象" in candidate.rendered_preview
 
 
 def test_memory_facade_exposes_state_memory_preview_without_committing(tmp_path) -> None:

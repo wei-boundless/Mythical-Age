@@ -317,8 +317,10 @@ def _build_direct_dataset_task(message: str, signals: TaskSignals) -> TaskUnders
         and not signals.explicit_workspace_path
         and _looks_like_dataset_followup_request(message.lower())
     )
+    bundle_followup_request = _looks_like_bundle_followup_request(message.lower())
     if not signals.explicit_dataset_path and not signals.business_dataset_request and not followup_dataset_request:
-        return None
+        if not (bundle_followup_request and signals.bound_dataset_path):
+            return None
     parameters: dict[str, Any] = {
         "query": message,
     }
@@ -326,6 +328,8 @@ def _build_direct_dataset_task(message: str, signals: TaskSignals) -> TaskUnders
         reasons = ["explicit_dataset_anchor"]
     elif followup_dataset_request:
         reasons = ["bound_dataset_followup"]
+    elif bundle_followup_request:
+        reasons = ["bundle_subtask_followup"]
     else:
         reasons = ["business_dataset_intent"]
     if signals.explicit_dataset_path:
@@ -344,7 +348,7 @@ def _build_direct_dataset_task(message: str, signals: TaskSignals) -> TaskUnders
         execution_posture="direct_tool",
         direct_route_reason=reasons[0],
         should_skip_rag=True,
-        confidence=0.96 if signals.explicit_dataset_path else 0.91 if followup_dataset_request else 0.86,
+        confidence=0.96 if signals.explicit_dataset_path else 0.91 if (followup_dataset_request or bundle_followup_request) else 0.86,
         reasons=reasons,
         structural_signals=signals.to_dict(),
     )
@@ -970,3 +974,16 @@ def _looks_like_pdf_followup_request(lowered: str) -> bool:
         "展开一下",
     )
     return _contains_any(lowered, pdf_markers) or bool(PAGE_REFERENCE_PATTERN.search(lowered)) or bool(SECTION_REFERENCE_PATTERN.search(lowered))
+
+
+def _looks_like_bundle_followup_request(lowered: str) -> bool:
+    markers = (
+        "子任务",
+        "展开第二个",
+        "展开第一个",
+        "展开第三个",
+        "第一个和第三个",
+        "压成一句话",
+        "只展开",
+    )
+    return _contains_any(lowered, markers)

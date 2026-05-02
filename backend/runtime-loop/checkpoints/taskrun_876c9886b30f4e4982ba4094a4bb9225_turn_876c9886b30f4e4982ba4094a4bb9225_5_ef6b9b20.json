@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:19",
+  "task_run_id": "taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20",
+  "event_offset": 19,
+  "loop_state": {
+    "task_run_id": "taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:876c9886b30f4e4982ba4094a4bb9225:5:d2512eef3ebe",
+    "memory_state_ref": "memory-runtime:876c9886b30f4e4982ba4094a4bb9225",
+    "projection_ref": "403fb5d09188789b",
+    "prompt_manifest_ref": "manifest-403fb5d09188789b",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 199,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899801
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:2dd9f8bd",
+      "output_boundary:rtevt:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:15:f30b6143",
+      "commit_gate:commit-gate:turn:876c9886b30f4e4982ba4094a4bb9225:5:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "876c9886b30f4e4982ba4094a4bb9225",
+            "task_run_id": "taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20",
+            "task_id": "turn:876c9886b30f4e4982ba4094a4bb9225:5",
+            "role": "assistant",
+            "content": "## 两次实时查询结论回顾\n\n1. 黄金价格查询\n- 现货黄金 XAU/USD 参考价：4,614.21 美元/盎司\n- 来源：Bloomberg Precious and Industrial Metals\n- 查询时间：2026-05-02\n\n2. 北京天气查询\n- 地点：北京，中国\n- 温度：19.9°C\n- 天气状况：阴天\n- 风速：6.6 km/h（东北风）\n- 观测时间：2026-05-02 10:00\n- 数据来源：Open-Meteo\n\n两者都是当日（2026-05-02）的实时数据，可直接作为当前参考使用。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "876c9886b30f4e4982ba4094a4bb9225",
+          "task_run_id": "taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20",
+            "task_id": "turn:876c9886b30f4e4982ba4094a4bb9225:5",
+            "terminal_reason": "completed",
+            "final_content_chars": 265
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2157,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:876c9886b30f4e4982ba4094a4bb9225:5",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 265,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:876c9886b30f4e4982ba4094a4bb9225:5:d2512eef3ebe",
+  "prompt_manifest_ref": "manifest-403fb5d09188789b",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "876c9886b30f4e4982ba4094a4bb9225",
+          "task_run_id": "taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20",
+          "task_id": "turn:876c9886b30f4e4982ba4094a4bb9225:5",
+          "role": "assistant",
+          "content": "## 两次实时查询结论回顾\n\n1. 黄金价格查询\n- 现货黄金 XAU/USD 参考价：4,614.21 美元/盎司\n- 来源：Bloomberg Precious and Industrial Metals\n- 查询时间：2026-05-02\n\n2. 北京天气查询\n- 地点：北京，中国\n- 温度：19.9°C\n- 天气状况：阴天\n- 风速：6.6 km/h（东北风）\n- 观测时间：2026-05-02 10:00\n- 数据来源：Open-Meteo\n\n两者都是当日（2026-05-02）的实时数据，可直接作为当前参考使用。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "876c9886b30f4e4982ba4094a4bb9225",
+        "task_run_id": "taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:876c9886b30f4e4982ba4094a4bb9225:turn:876c9886b30f4e4982ba4094a4bb9225:5:ef6b9b20",
+          "task_id": "turn:876c9886b30f4e4982ba4094a4bb9225:5",
+          "terminal_reason": "completed",
+          "final_content_chars": 265
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2157,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777687524.0138078,
+  "checksum": "45e372e28f6e03981733d9bae164bf70a5d413cd369c08af2ae9c6337ddcf871",
+  "authority": "orchestration.runtime_checkpoint"
+}

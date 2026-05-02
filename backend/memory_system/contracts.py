@@ -8,6 +8,7 @@ MemoryLayer = Literal["conversation", "state", "long_term"]
 BudgetClass = Literal["required", "preferred", "optional", "debug_only"]
 RestoreKind = Literal[
     "active_binding",
+    "bundle_ref",
     "context_slot",
     "flow_state",
     "task_state",
@@ -143,6 +144,7 @@ class StateMemorySnapshot:
     task_state: dict[str, Any] = field(default_factory=dict)
     context_slots: dict[str, Any] = field(default_factory=dict)
     active_handles: dict[str, str] = field(default_factory=dict)
+    bundle_result_refs: tuple[dict[str, Any], ...] = ()
     file_refs: tuple[StateMemoryFileRef, ...] = ()
     operation_refs: tuple[str, ...] = ()
     next_step: tuple[str, ...] = ()
@@ -151,6 +153,7 @@ class StateMemorySnapshot:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["bundle_result_refs"] = [dict(item) for item in self.bundle_result_refs]
         payload["file_refs"] = [item.to_dict() for item in self.file_refs]
         payload["operation_refs"] = list(self.operation_refs)
         payload["next_step"] = list(self.next_step)

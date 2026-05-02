@@ -27,6 +27,7 @@ def build_task_runtime_contract(
     memory_runtime_view: dict[str, Any] | None = None,
     context_policy_result: dict[str, Any] | None = None,
     query_understanding: dict[str, Any] | None = None,
+    current_turn_context: dict[str, Any] | None = None,
     active_skill: dict[str, Any] | None = None,
     runtime_required_operations: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, Any]:
@@ -113,7 +114,17 @@ def build_task_runtime_contract(
         skill_views=skill_views,
         resource_views=[],
     )
+    current_turn_payload = dict(current_turn_context or {})
     task_contract_payload = contract.to_dict()
+    if current_turn_payload:
+        task_contract_payload["execution_mode"] = _task_contract_execution_mode(current_turn_payload)
+        task_contract_payload["current_turn_context_ref"] = str(
+            current_turn_payload.get("authority") or "context.current_turn"
+        )
+        task_contract_payload["bindings"] = {
+            **dict(task_contract_payload.get("bindings") or {}),
+            "current_turn": current_turn_payload,
+        }
     operation_requirement_payload = operation_requirement.to_dict()
     task_prompt_contract_payload = task_prompt_contract.to_dict()
     prompt_manifest_payload = soul_runtime["prompt_manifest"]
@@ -136,6 +147,7 @@ def build_task_runtime_contract(
         "memory_runtime_view": dict(memory_runtime_view or {}),
         "context_policy_result": dict(context_policy_result or {}),
         "query_understanding": dict(query_understanding or {}),
+        "current_turn_context": current_turn_payload,
         "active_skill": active_skill_payload,
         "understanding_candidates": [candidate.to_dict() for candidate in understanding_candidates],
         "runtime_executable": True,
@@ -238,3 +250,10 @@ def _dedupe(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+
+
+def _task_contract_execution_mode(current_turn_context: dict[str, Any]) -> str:
+    mode = str(current_turn_context.get("execution_mode") or "").strip()
+    if mode == "bundle":
+        return "bundle_execution"
+    return "single_agent_runtime"

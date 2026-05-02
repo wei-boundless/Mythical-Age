@@ -444,6 +444,8 @@ def _runtime_operation_refs(events: list[dict[str, Any]]) -> list[str]:
 def _infer_plan_fields_from_runtime(events: list[dict[str, Any]]) -> dict[str, Any]:
     task_payload = _first_runtime_loop_payload(events, "task_contract_built")
     task_contract = dict(task_payload.get("task_contract") or {})
+    current_turn_payload = _first_runtime_loop_payload(events, "current_turn_context_resolved")
+    current_turn_context = dict(current_turn_payload.get("current_turn_context") or {})
     projection_payload = _first_runtime_loop_payload(events, "stage_projection_built")
     stage_projection = dict(projection_payload.get("stage_projection") or {})
     directive_operations = _runtime_operation_refs(events)
@@ -466,18 +468,28 @@ def _infer_plan_fields_from_runtime(events: list[dict[str, Any]]) -> dict[str, A
     elif "op.web_search" in directive_operations or "op.fetch_url" in directive_operations:
         route = "rag"
 
+    bundle_items = [
+        dict(item)
+        for item in list(current_turn_context.get("bundle_items") or [])
+        if isinstance(item, dict)
+    ]
+    execution_mode = str(task_contract.get("execution_mode") or "single_agent_runtime")
+    if current_turn_context and str(current_turn_context.get("execution_mode") or "") == "bundle":
+        execution_mode = "bundle_execution"
+
     return {
         "route": str(task_contract.get("route") or route),
         "tool": primary_tool,
         "worker": "",
         "skill": str(stage_projection.get("skill_ref") or task_contract.get("skill_name") or ""),
-        "execution_mode": str(task_contract.get("execution_mode") or "single_agent_runtime"),
-        "bundle_item_count": 0,
-        "subquery_count": 0,
+        "execution_mode": execution_mode,
+        "bundle_item_count": len(bundle_items),
+        "subquery_count": len(bundle_items),
         "tool_names": tool_names,
         "worker_names": [],
         "runtime_effective_route": route,
         "task_contract": task_contract,
+        "current_turn_context": current_turn_context,
         "stage_projection": stage_projection,
     }
 

@@ -10,8 +10,14 @@ from typing import Any, Callable
 from langchain_core.messages import AIMessage, ToolMessage
 
 from operations import OperationGate, build_default_operation_registry
-from output_boundary import AssistantOutputBoundary
+from output_boundary.boundary import AssistantOutputBoundary
 
+from context_management.projection import (
+    ContextProjection,
+    projection_from_bound_answer,
+    projection_from_bundle_answer,
+    projection_from_file_work,
+)
 from ..commit_gate import build_assistant_session_message_commit_decision, build_task_run_final_commit_decision
 from .action_request import (
     build_executor_error_observation,
@@ -24,10 +30,12 @@ from .event_log import RuntimeEventLog
 from .loop_control import RuntimeLoopLimits, check_runtime_loop_control
 from .model_adoption import build_model_response_runtime_adoption
 from .models import RuntimeLoopState, TaskRun
+from .observation_aggregator import ObservationAggregation, ObservationAggregator
 from .stage_projection import StageProjectionCycle
 from .state_index import RuntimeStateIndex
 from .trace_reader import RuntimeLoopTraceReader
 from .tool_adoption import build_tool_request_runtime_adoption
+from .tool_repetition_guard import ToolRepetitionGuard
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +77,16 @@ class TaskRunLoop:
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.limits = limits or RuntimeLoopLimits()
         self.tool_authorization_index = self._build_tool_authorization_index()
+
+    @staticmethod
+    def _apply_observation_aggregation(
+        aggregation: ObservationAggregation,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+        return (
+            dict(aggregation.projection.main_context),
+            [dict(item) for item in aggregation.projection.task_summary_refs],
+            [dict(item) for item in aggregation.projection.bundle_summary_refs],
+        )
 
     def list_session_traces(self, session_id: str) -> dict[str, Any]:
         return self.trace_reader.list_session_task_runs(session_id)
@@ -250,6 +268,19 @@ class TaskRunLoop:
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": task_event.to_dict()}
+        current_turn_context = dict(task_operation.get("current_turn_context") or {})
+        if current_turn_context:
+            current_turn_event = self.event_log.append(
+                state.task_run_id,
+                "current_turn_context_resolved",
+                payload={
+                    "current_turn_context": current_turn_context,
+                    "execution_mode": str(current_turn_context.get("execution_mode") or ""),
+                    "bundle_item_count": len(list(current_turn_context.get("bundle_items") or [])),
+                },
+                refs={"task_contract_ref": task_contract_ref},
+            )
+            yield {"type": "runtime_loop_event", "event": current_turn_event.to_dict()}
         memory_event = self.event_log.append(
             state.task_run_id,
             "memory_runtime_view_built",
@@ -486,10 +517,20 @@ class TaskRunLoop:
         result_refs: list[str] = []
         final_main_context: dict[str, Any] = {}
         final_task_summary_refs: list[dict[str, Any]] = []
+        final_bundle_summary_refs: list[dict[str, Any]] = []
+        observation_aggregator = ObservationAggregator()
+        current_bundle_items = [
+            dict(item)
+            for item in list(current_turn_context.get("bundle_items") or [])
+            if isinstance(item, dict)
+        ]
         pending_tool_calls: list[dict[str, Any]] = []
         assistant_tool_call_content = ""
+        assistant_tool_call_kwargs: dict[str, Any] = {}
         tool_messages: list[ToolMessage] = []
         tool_observation_count = 0
+        tool_repetition_guard = ToolRepetitionGuard()
+        repeated_tool_halt = False
         direct_tool_finalized = False
         async for event in model_response_executor.stream(
             user_message=user_message,
@@ -502,6 +543,9 @@ class TaskRunLoop:
                 if tool_call:
                     pending_tool_calls.append(tool_call)
                 assistant_tool_call_content = str(event.get("assistant_content") or assistant_tool_call_content)
+                event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
+                if event_kwargs:
+                    assistant_tool_call_kwargs.update(event_kwargs)
             runtime_events = await self._events_from_executor_event(
                 state.task_run_id,
                 task_id=task_id,
@@ -522,10 +566,25 @@ class TaskRunLoop:
                         projected_main_context, projected_task_summary_refs = _project_file_work_context_from_tool_observation(
                             observation_payload
                         )
-                        if projected_main_context:
-                            final_main_context = projected_main_context
-                        if projected_task_summary_refs:
-                            final_task_summary_refs = projected_task_summary_refs
+                        if projected_main_context or projected_task_summary_refs:
+                            projection = projection_from_file_work(
+                                projected_main_context,
+                                projected_task_summary_refs,
+                                bundle_items=current_bundle_items,
+                            )
+                            aggregation = observation_aggregator.add_projection(
+                                projection,
+                                tool_name=str(observation_payload.get("tool_name") or ""),
+                            )
+                            (
+                                final_main_context,
+                                final_task_summary_refs,
+                                final_bundle_summary_refs,
+                            ) = self._apply_observation_aggregation(aggregation)
+                        repeated_tool_halt = repeated_tool_halt or tool_repetition_guard.record(
+                            str(observation_payload.get("tool_name") or ""),
+                            dict(observation_payload.get("tool_args") or {}),
+                        )
                         tool_messages.append(
                             ToolMessage(
                                 content=str(observation_payload.get("result") or ""),
@@ -546,7 +605,7 @@ class TaskRunLoop:
                                 "answer_finalization_policy": direct_tool_answer_metadata["answer_finalization_policy"],
                                 "answer_fallback_reason": direct_tool_answer_metadata["answer_fallback_reason"],
                             }
-                            direct_tool_finalized = True
+                            direct_tool_finalized = len(pending_tool_calls) <= 1
                 elif runtime_event.event_type == "output_boundary_applied":
                     result_refs.append(f"output_boundary:{runtime_event.event_id}")
                 elif runtime_event.event_type == "commit_gate_checked":
@@ -575,10 +634,18 @@ class TaskRunLoop:
         turn_count = 1
         model_call_count = 1
         followup_messages: list[Any] = []
+        if len(pending_tool_calls) > 1 and terminal_reason == "completed":
+            direct_tool_finalized = False
+            final_content = ""
+            final_answer_metadata = {}
         if pending_tool_calls and tool_messages and terminal_reason == "completed" and not direct_tool_finalized:
             followup_messages = [
                 *list(context_snapshot.model_messages),
-                AIMessage(content=assistant_tool_call_content, tool_calls=pending_tool_calls),
+                AIMessage(
+                    content=assistant_tool_call_content,
+                    tool_calls=pending_tool_calls,
+                    additional_kwargs=assistant_tool_call_kwargs,
+                ),
                 *tool_messages,
             ]
         while followup_messages and terminal_reason == "completed":
@@ -640,6 +707,7 @@ class TaskRunLoop:
             yield {"type": "runtime_loop_event", "event": followup_event.to_dict()}
             next_pending_tool_calls: list[dict[str, Any]] = []
             next_assistant_tool_call_content = ""
+            next_assistant_tool_call_kwargs: dict[str, Any] = {}
             next_tool_messages: list[ToolMessage] = []
             async for event in model_response_executor.stream(
                 user_message=user_message,
@@ -654,6 +722,9 @@ class TaskRunLoop:
                     next_assistant_tool_call_content = str(
                         event.get("assistant_content") or next_assistant_tool_call_content
                     )
+                    event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
+                    if event_kwargs:
+                        next_assistant_tool_call_kwargs.update(event_kwargs)
                 runtime_events = await self._events_from_executor_event(
                     state.task_run_id,
                     task_id=task_id,
@@ -674,10 +745,25 @@ class TaskRunLoop:
                             projected_main_context, projected_task_summary_refs = _project_file_work_context_from_tool_observation(
                                 observation_payload
                             )
-                            if projected_main_context:
-                                final_main_context = projected_main_context
-                            if projected_task_summary_refs:
-                                final_task_summary_refs = projected_task_summary_refs
+                            if projected_main_context or projected_task_summary_refs:
+                                projection = projection_from_file_work(
+                                    projected_main_context,
+                                    projected_task_summary_refs,
+                                    bundle_items=current_bundle_items,
+                                )
+                                aggregation = observation_aggregator.add_projection(
+                                    projection,
+                                    tool_name=str(observation_payload.get("tool_name") or ""),
+                                )
+                            (
+                                final_main_context,
+                                final_task_summary_refs,
+                                final_bundle_summary_refs,
+                            ) = self._apply_observation_aggregation(observation_aggregator.snapshot())
+                            repeated_tool_halt = repeated_tool_halt or tool_repetition_guard.record(
+                                str(observation_payload.get("tool_name") or ""),
+                                dict(observation_payload.get("tool_args") or {}),
+                            )
                             next_tool_messages.append(
                                 ToolMessage(
                                     content=str(observation_payload.get("result") or ""),
@@ -709,11 +795,26 @@ class TaskRunLoop:
                 if event.get("type") != "done":
                     yield event
             if next_pending_tool_calls and next_tool_messages and terminal_reason == "completed":
+                if repeated_tool_halt and final_content:
+                    followup_messages = []
+                    break
+                if repeated_tool_halt:
+                    synthesized = _forced_tool_synthesis_answer(
+                        user_message=user_message,
+                        final_task_summary_refs=final_task_summary_refs,
+                        final_main_context=final_main_context,
+                    )
+                    if synthesized:
+                        final_content = synthesized
+                        final_answer_metadata = _forced_synthesis_answer_metadata(source="runtime_loop.repeated_tool_halt")
+                        followup_messages = []
+                        break
                 followup_messages = [
                     *followup_messages,
                     AIMessage(
                         content=next_assistant_tool_call_content,
                         tool_calls=next_pending_tool_calls,
+                        additional_kwargs=next_assistant_tool_call_kwargs,
                     ),
                     *next_tool_messages,
                 ]
@@ -726,6 +827,34 @@ class TaskRunLoop:
             terminal_reason=terminal_reason,
             diagnostics={"final_content_chars": len(final_content)},
         )
+        if final_content and not (final_main_context or final_task_summary_refs):
+            bound_projection = projection_from_bound_answer(
+                content=final_content,
+                current_turn_context=current_turn_context,
+                existing_task_summary_refs=final_task_summary_refs,
+                existing_main_context=final_main_context,
+            )
+            if bound_projection.main_context or bound_projection.task_summary_refs:
+                aggregation = observation_aggregator.add_projection(bound_projection, tool_name="bound_answer")
+                (
+                    final_main_context,
+                    final_task_summary_refs,
+                    final_bundle_summary_refs,
+                ) = self._apply_observation_aggregation(aggregation)
+        if current_bundle_items and final_content:
+            bundle_projection = projection_from_bundle_answer(
+                content=final_content,
+                bundle_items=current_bundle_items,
+                existing_task_summary_refs=final_task_summary_refs,
+                existing_main_context=final_main_context,
+            )
+            if bundle_projection.bundle_summary_refs:
+                aggregation = observation_aggregator.add_projection(bundle_projection, tool_name="bundle_answer")
+                (
+                    final_main_context,
+                    final_task_summary_refs,
+                    final_bundle_summary_refs,
+                ) = self._apply_observation_aggregation(aggregation)
         assistant_commit = build_assistant_session_message_commit_decision(
             session_id=session_id,
             task_run_id=terminal_state.task_run_id,
@@ -741,6 +870,8 @@ class TaskRunLoop:
                 assistant_payload["main_context"] = dict(final_main_context)
             if final_task_summary_refs:
                 assistant_payload["task_summary_refs"] = [dict(item) for item in final_task_summary_refs]
+            if final_bundle_summary_refs:
+                assistant_payload["bundle_summary_refs"] = [dict(item) for item in final_bundle_summary_refs]
             assistant_commit_result = assistant_message_committer(assistant_payload)
             if inspect.isawaitable(assistant_commit_result):
                 assistant_commit_result = await assistant_commit_result
@@ -792,6 +923,7 @@ class TaskRunLoop:
             "content": final_content,
             "main_context": dict(final_main_context),
             "task_summary_refs": [dict(item) for item in final_task_summary_refs],
+            "bundle_summary_refs": [dict(item) for item in final_bundle_summary_refs],
             "followup_mode": str(final_main_context.get("followup_mode") or ""),
             "followup_target_task_id": str(final_main_context.get("followup_target_task_id") or ""),
             "followup_target_task_ids": list(final_main_context.get("followup_target_task_ids") or []),
@@ -1146,6 +1278,17 @@ def _runtime_budget_exhausted_answer_metadata() -> dict[str, str]:
     }
 
 
+def _forced_synthesis_answer_metadata(*, source: str = "runtime_loop_synthesis") -> dict[str, str]:
+    return {
+        "answer_channel": "tool_visible_summary",
+        "answer_source": source,
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none",
+        "answer_fallback_reason": "",
+    }
+
+
 def _build_runtime_budget_exhausted_message(message: str = "", *, tool_observation_count: int = 0) -> str:
     reason = str(message or "").strip()
     if "max_runtime_seconds" in reason:
@@ -1165,6 +1308,38 @@ def _build_runtime_budget_exhausted_message(message: str = "", *, tool_observati
         f"{reason_text}，所以先停止继续调用工具。{evidence_text}，但模型还没有把这些结果收口成最终回答。"
         "请直接继续问“基于已读取内容总结”，我会从现有上下文继续收口。"
     )
+
+
+def _forced_tool_synthesis_answer(
+    *,
+    user_message: str,
+    final_task_summary_refs: list[dict[str, Any]],
+    final_main_context: dict[str, Any],
+) -> str:
+    if not final_task_summary_refs:
+        return ""
+    active_constraints = dict(final_main_context.get("active_constraints") or {})
+    source = str(active_constraints.get("active_pdf") or active_constraints.get("active_dataset") or "").strip()
+    summaries: list[str] = []
+    for item in final_task_summary_refs[-3:]:
+        summary = _clean_text(item.get("summary"))
+        if not summary:
+            continue
+        summaries.append(summary)
+    if not summaries:
+        return ""
+    if len(summaries) == 1:
+        body = summaries[0]
+    else:
+        body = "\n".join(f"{index}. {summary}" for index, summary in enumerate(summaries, start=1))
+    prefix = "基于已读取结果"
+    if source:
+        prefix += f"（{source}）"
+    if user_message:
+        prefix += "，"
+    else:
+        prefix += "："
+    return f"{prefix}{body}"
 
 
 def _direct_tool_answer_from_observation(

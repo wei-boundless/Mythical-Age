@@ -1,0 +1,241 @@
+{
+  "checkpoint_id": "rtchk:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:21",
+  "task_run_id": "taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463",
+  "event_offset": 21,
+  "loop_state": {
+    "task_run_id": "taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:26a464b429044dcab0244408bfbe984e:5:1227888b4fd6",
+    "memory_state_ref": "memory-runtime:26a464b429044dcab0244408bfbe984e",
+    "projection_ref": "dd83e55fed076747",
+    "prompt_manifest_ref": "manifest-dd83e55fed076747",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 103,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899897
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:1eedc0d2",
+      "commit_gate:commit-gate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "26a464b429044dcab0244408bfbe984e",
+            "task_run_id": "taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463",
+            "task_id": "turn:26a464b429044dcab0244408bfbe984e:5",
+            "role": "assistant",
+            "content": "数据源：inventory.xlsx 总行数：200 缺货商品数：33 库存紧张商品数：0 列名：['sku', 'product', 'category', 'warehouse', 'stock_on_hand', 'reorder_level', 'unit_cost', 'last_restock_date']",
+            "answer_channel": "tool_visible_summary",
+            "answer_source": "direct_tool.structured_data_analysis",
+            "answer_canonical_state": "tool_summary",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "26a464b429044dcab0244408bfbe984e",
+          "task_run_id": "taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463",
+            "task_id": "turn:26a464b429044dcab0244408bfbe984e:5",
+            "terminal_reason": "completed",
+            "final_content_chars": 160
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2065,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:26a464b429044dcab0244408bfbe984e:5",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 160,
+      "result_ref_count": 3
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:26a464b429044dcab0244408bfbe984e:5:1227888b4fd6",
+  "prompt_manifest_ref": "manifest-dd83e55fed076747",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "26a464b429044dcab0244408bfbe984e",
+          "task_run_id": "taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463",
+          "task_id": "turn:26a464b429044dcab0244408bfbe984e:5",
+          "role": "assistant",
+          "content": "数据源：inventory.xlsx 总行数：200 缺货商品数：33 库存紧张商品数：0 列名：['sku', 'product', 'category', 'warehouse', 'stock_on_hand', 'reorder_level', 'unit_cost', 'last_restock_date']",
+          "answer_channel": "tool_visible_summary",
+          "answer_source": "direct_tool.structured_data_analysis",
+          "answer_canonical_state": "tool_summary",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "26a464b429044dcab0244408bfbe984e",
+        "task_run_id": "taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:26a464b429044dcab0244408bfbe984e:turn:26a464b429044dcab0244408bfbe984e:5:1b865463",
+          "task_id": "turn:26a464b429044dcab0244408bfbe984e:5",
+          "terminal_reason": "completed",
+          "final_content_chars": 160
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2065,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777686130.9853604,
+  "checksum": "4e28f39e2d23ab57a297ac66687589742aceae1811b25a466719e1683ef09aa9",
+  "authority": "orchestration.runtime_checkpoint"
+}

@@ -1,0 +1,246 @@
+{
+  "checkpoint_id": "rtchk:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:36",
+  "task_run_id": "taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769",
+  "event_offset": 36,
+  "loop_state": {
+    "task_run_id": "taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769",
+    "status": "completed",
+    "turn_count": 2,
+    "step_count": 1,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:57891bd4c511481bb3bbed3db3b7162c:36:f655794635e4",
+    "memory_state_ref": "memory-runtime:57891bd4c511481bb3bbed3db3b7162c",
+    "projection_ref": "67c9a3e5e8004308",
+    "prompt_manifest_ref": "manifest-67c9a3e5e8004308",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 360,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899640
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:aa861b33",
+      "rtobs:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:1fe2ae88",
+      "rtobs:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:5e68de53",
+      "rtobs:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:6911c8f7",
+      "output_boundary:rtevt:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:32:f0344069",
+      "commit_gate:commit-gate:turn:57891bd4c511481bb3bbed3db3b7162c:36:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "57891bd4c511481bb3bbed3db3b7162c",
+            "task_run_id": "taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769",
+            "task_id": "turn:57891bd4c511481bb3bbed3db3b7162c:36",
+            "role": "assistant",
+            "content": "第三页是封面/扉页，几乎没有实质性正文内容。\n\n解析置信度仅0.11，只提取到一行标题文字——“回归现实主义——2025年AI治理报告”。这一页大概率是报告封面，包含标题、副标题、出版信息或视觉设计元素，工具没法从图片/排版中读出段落文本。\n\n如果要看干货，从P7开始读。\n\n---\n\n### 2. inventory.xlsx 最缺货的前三个仓库\n\n按缺货商品数量排名：\n\n| 排名 | 仓库 | 缺货商品数 |\n|------|------|-----------|\n| 1 | 上海仓 | 6个 |\n| 1 | 深圳仓 | 6个 |\n| 1 | 武汉仓 | 6个 |\n| 4 | 北京仓 | 5个 |\n| 4 | 成都仓 | 5个 |\n| 4 | 广州仓 | 5个 |\n\n前三：上海仓、深圳仓、武汉仓（并列各6个缺货SKU）。\n\n如果按缺货缺口严重程度看，深圳仓压力最大——单品缺口最大的两个都在深圳（儿童绘本缺口122、剃须刀缺口110）。\n\n---\n\n### 3. 北京天气\n\n21.2°C，阴天，东北风6.1km/h（观测时间 2026-05-02 11:00）。和两小时前比基本没变，一直阴着。\n\n---\n\n一句话值班提示： 封面页无实质内容；上海、深圳、武汉三仓缺货最严重需优先补货；北京阴天21°C，天气平静。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "57891bd4c511481bb3bbed3db3b7162c",
+          "task_run_id": "taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769",
+            "task_id": "turn:57891bd4c511481bb3bbed3db3b7162c:36",
+            "terminal_reason": "completed",
+            "final_content_chars": 564
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 3338,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:57891bd4c511481bb3bbed3db3b7162c:36",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 564,
+      "result_ref_count": 8
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:57891bd4c511481bb3bbed3db3b7162c:36:f655794635e4",
+  "prompt_manifest_ref": "manifest-67c9a3e5e8004308",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "57891bd4c511481bb3bbed3db3b7162c",
+          "task_run_id": "taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769",
+          "task_id": "turn:57891bd4c511481bb3bbed3db3b7162c:36",
+          "role": "assistant",
+          "content": "第三页是封面/扉页，几乎没有实质性正文内容。\n\n解析置信度仅0.11，只提取到一行标题文字——“回归现实主义——2025年AI治理报告”。这一页大概率是报告封面，包含标题、副标题、出版信息或视觉设计元素，工具没法从图片/排版中读出段落文本。\n\n如果要看干货，从P7开始读。\n\n---\n\n### 2. inventory.xlsx 最缺货的前三个仓库\n\n按缺货商品数量排名：\n\n| 排名 | 仓库 | 缺货商品数 |\n|------|------|-----------|\n| 1 | 上海仓 | 6个 |\n| 1 | 深圳仓 | 6个 |\n| 1 | 武汉仓 | 6个 |\n| 4 | 北京仓 | 5个 |\n| 4 | 成都仓 | 5个 |\n| 4 | 广州仓 | 5个 |\n\n前三：上海仓、深圳仓、武汉仓（并列各6个缺货SKU）。\n\n如果按缺货缺口严重程度看，深圳仓压力最大——单品缺口最大的两个都在深圳（儿童绘本缺口122、剃须刀缺口110）。\n\n---\n\n### 3. 北京天气\n\n21.2°C，阴天，东北风6.1km/h（观测时间 2026-05-02 11:00）。和两小时前比基本没变，一直阴着。\n\n---\n\n一句话值班提示： 封面页无实质内容；上海、深圳、武汉三仓缺货最严重需优先补货；北京阴天21°C，天气平静。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "57891bd4c511481bb3bbed3db3b7162c",
+        "task_run_id": "taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:57891bd4c511481bb3bbed3db3b7162c:turn:57891bd4c511481bb3bbed3db3b7162c:36:f33a0769",
+          "task_id": "turn:57891bd4c511481bb3bbed3db3b7162c:36",
+          "terminal_reason": "completed",
+          "final_content_chars": 564
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 3338,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777690924.771168,
+  "checksum": "66ea98ae03007dcbbc21eacc79157063879f4c1b02ce3e90804471b30f3d622b",
+  "authority": "orchestration.runtime_checkpoint"
+}

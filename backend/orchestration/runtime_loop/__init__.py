@@ -31,6 +31,7 @@ from .state_index import RuntimeStateIndex
 from .task_run_loop import TaskRunLoop, TaskRunLoopStartResult
 from .trace_reader import RuntimeLoopTraceReader
 from .tool_adoption import build_tool_request_runtime_adoption
+from .tool_repetition_guard import ToolRepetitionGuard
 
 __all__ = [
     "RuntimeCheckpoint",
@@ -59,6 +60,7 @@ __all__ = [
     "TaskRunLoopStartResult",
     "TaskRun",
     "TaskRunStatus",
+    "ToolRepetitionGuard",
     "build_executor_error_observation",
     "build_model_response_runtime_adoption",
     "build_model_response_observation",

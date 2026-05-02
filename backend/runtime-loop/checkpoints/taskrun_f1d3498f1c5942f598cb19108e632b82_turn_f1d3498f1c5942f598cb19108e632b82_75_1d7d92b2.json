@@ -1,0 +1,243 @@
+{
+  "checkpoint_id": "rtchk:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:19",
+  "task_run_id": "taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2",
+  "event_offset": 19,
+  "loop_state": {
+    "task_run_id": "taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:main",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:f1d3498f1c5942f598cb19108e632b82:75:f4132c7ca6a1",
+    "memory_state_ref": "memory-runtime:f1d3498f1c5942f598cb19108e632b82",
+    "projection_ref": "e4963d6279b68af0",
+    "prompt_manifest_ref": "manifest-e4963d6279b68af0",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 295,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899705
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:372ef124",
+      "output_boundary:rtevt:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:15:33533960",
+      "commit_gate:commit-gate:turn:f1d3498f1c5942f598cb19108e632b82:75:runtime-blocked",
+      "commit_gate:commit-gate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "f1d3498f1c5942f598cb19108e632b82",
+            "task_run_id": "taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2",
+            "task_id": "turn:f1d3498f1c5942f598cb19108e632b82:75",
+            "role": "assistant",
+            "content": "好，岩。整条工作流走下来，最容易踩歪的三个边界：\n\n### 边界一：信息不足时「停」与「推」的切换点\n\n最容易出错的不是缺信息本身，而是缺信息之后该停还是该推的判断。今天 PDF 第三页只扫到标题——如果我当时强行输出\"内容不重要所以跳过\"，就变成猜测；但如果每缺一点信息就卡住不前，所有线程都会停摆。这个边界靠的是：缺的是关键前提 → 停，缺的是非关键细节 → 基于已有依据继续推，并标注边界。\n\n### 边界二：多数据源之间「状态切换」的遗忘点\n\n库存、员工、PDF、实时查询四条线来回切，最容易犯的错是：切回来时忘了上次做到哪一步、当前数据源是什么。今天有过一次重复查询同一份员工表格的情况，好在数据一致没造成误判。实际风险在于——A 数据集的结果被误当成 B 数据集的结论输出。 比如把库存缺货的仓库名当作员工在哪缺人来讲。每次切数据源前先确认当前对象是谁，是最小防错动作。\n\n### 边界三：长期记忆与临时上下文「固化」的边界\n\n用户说\"我今天焦虑，但不是长期记忆\"——这就是在划边界。出错风险在于：把一次性状态记成了长期规则（比如把今天放缓节奏的要求永久化），或者反过来，已落地的长期规则在上下文切换中被遗忘（比如下次回来忘了要直接叫\"岩\"）。解决方式：长期落地的东西要有显式确认（今天的执行了），临时上下文要有时间标签或主动声明失效时间。\n\n---\n\n一句话：别在不该停的时候卡死，别在切换数据源时拿错对象，别把临时的锅扣成长期的灶。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "f1d3498f1c5942f598cb19108e632b82",
+          "task_run_id": "taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2",
+            "task_id": "turn:f1d3498f1c5942f598cb19108e632b82:75",
+            "terminal_reason": "completed",
+            "final_content_chars": 624
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 2597,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:f1d3498f1c5942f598cb19108e632b82:75",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "final_content_chars": 624,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:f1d3498f1c5942f598cb19108e632b82:75:f4132c7ca6a1",
+  "prompt_manifest_ref": "manifest-e4963d6279b68af0",
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "f1d3498f1c5942f598cb19108e632b82",
+          "task_run_id": "taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2",
+          "task_id": "turn:f1d3498f1c5942f598cb19108e632b82:75",
+          "role": "assistant",
+          "content": "好，岩。整条工作流走下来，最容易踩歪的三个边界：\n\n### 边界一：信息不足时「停」与「推」的切换点\n\n最容易出错的不是缺信息本身，而是缺信息之后该停还是该推的判断。今天 PDF 第三页只扫到标题——如果我当时强行输出\"内容不重要所以跳过\"，就变成猜测；但如果每缺一点信息就卡住不前，所有线程都会停摆。这个边界靠的是：缺的是关键前提 → 停，缺的是非关键细节 → 基于已有依据继续推，并标注边界。\n\n### 边界二：多数据源之间「状态切换」的遗忘点\n\n库存、员工、PDF、实时查询四条线来回切，最容易犯的错是：切回来时忘了上次做到哪一步、当前数据源是什么。今天有过一次重复查询同一份员工表格的情况，好在数据一致没造成误判。实际风险在于——A 数据集的结果被误当成 B 数据集的结论输出。 比如把库存缺货的仓库名当作员工在哪缺人来讲。每次切数据源前先确认当前对象是谁，是最小防错动作。\n\n### 边界三：长期记忆与临时上下文「固化」的边界\n\n用户说\"我今天焦虑，但不是长期记忆\"——这就是在划边界。出错风险在于：把一次性状态记成了长期规则（比如把今天放缓节奏的要求永久化），或者反过来，已落地的长期规则在上下文切换中被遗忘（比如下次回来忘了要直接叫\"岩\"）。解决方式：长期落地的东西要有显式确认（今天的执行了），临时上下文要有时间标签或主动声明失效时间。\n\n---\n\n一句话：别在不该停的时候卡死，别在切换数据源时拿错对象，别把临时的锅扣成长期的灶。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "f1d3498f1c5942f598cb19108e632b82",
+        "task_run_id": "taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:f1d3498f1c5942f598cb19108e632b82:turn:f1d3498f1c5942f598cb19108e632b82:75:1d7d92b2",
+          "task_id": "turn:f1d3498f1c5942f598cb19108e632b82:75",
+          "terminal_reason": "completed",
+          "final_content_chars": 624
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 2597,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777686213.765117,
+  "checksum": "ea829e3cb9d560882ddc3b9e83f44e4f965a2d2db2911d656c82cd4a721c6231",
+  "authority": "orchestration.runtime_checkpoint"
+}
