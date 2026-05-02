@@ -8,6 +8,9 @@ from typing import Any
 from .agent_models import AgentCapabilityProfile, AgentDescriptor
 
 
+AGENT_PROFILE_TYPES = {"main_agent", "system_management_agent", "worker_sub_agent"}
+
+
 def _storage_root(base_dir: Path) -> Path:
     return base_dir / "storage" / "operations"
 
@@ -34,7 +37,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             agent_id="agent:main",
             display_name="主 Agent",
             owner_system="task_system",
-            profile_type="primary",
+            profile_type="main_agent",
             lifecycle_state="system_builtin",
             default_soul_id="active",
             default_projection_template_id="primary_agent_default",
@@ -49,7 +52,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             agent_id="agent:health:maintainer",
             display_name="玄女健康管家",
             owner_system="health_system",
-            profile_type="sub_agent",
+            profile_type="system_management_agent",
             lifecycle_state="enabled",
             default_soul_id="xuannv",
             default_projection_template_id="xuannv__health_maintainer",
@@ -147,7 +150,11 @@ class AgentRegistry:
 
     def list_agents(self) -> list[AgentDescriptor]:
         payload = _read_json(self.agents_path, {"agents": [item.to_dict() for item in default_agent_descriptors()]})
-        return [_agent_from_dict(item) for item in list(payload.get("agents") or []) if isinstance(item, dict)]
+        raw_agents = [item for item in list(payload.get("agents") or []) if isinstance(item, dict)]
+        migrated = [_migrate_agent_payload(item) for item in raw_agents]
+        if migrated != raw_agents:
+            _write_json(self.agents_path, {"agents": migrated})
+        return [_agent_from_dict(item) for item in migrated]
 
     def list_capabilities(self) -> list[AgentCapabilityProfile]:
         payload = _read_json(
@@ -181,6 +188,51 @@ class AgentRegistry:
         _write_json(self.agents_path, {"agents": [item.to_dict() for item in agents]})
         return updated
 
+    def upsert_agent(
+        self,
+        *,
+        agent_id: str,
+        display_name: str,
+        owner_system: str,
+        profile_type: str = "worker_sub_agent",
+        lifecycle_state: str = "enabled",
+        default_soul_id: str = "",
+        default_projection_template_id: str = "",
+        governance_status: str = "task_managed",
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentDescriptor:
+        target = str(agent_id or "").strip()
+        if not target.startswith("agent:"):
+            raise ValueError("agent_id must start with agent:")
+        normalized_profile_type = _normalize_profile_type(profile_type)
+        if normalized_profile_type not in AGENT_PROFILE_TYPES:
+            raise ValueError("unsupported profile_type")
+        if lifecycle_state not in {"enabled", "disabled", "draft", "system_builtin"}:
+            raise ValueError("unsupported lifecycle_state")
+        current = self.get_agent(target)
+        if current is not None and current.lifecycle_state == "system_builtin":
+            raise PermissionError("system builtin agent cannot be edited here")
+        timestamp = time.time()
+        updated = AgentDescriptor(
+            agent_id=target,
+            display_name=str(display_name or target).strip() or target,
+            owner_system=str(owner_system or "task_system").strip() or "task_system",
+            profile_type=normalized_profile_type,
+            lifecycle_state=lifecycle_state,
+            default_soul_id=str(default_soul_id or "").strip(),
+            default_projection_template_id=str(default_projection_template_id or "").strip(),
+            created_at=current.created_at if current is not None else timestamp,
+            updated_at=timestamp,
+            governance_status=governance_status,
+            deletable=current.deletable if current is not None else "archive_only",
+            disable_allowed=current.disable_allowed if current is not None else True,
+            metadata=dict(metadata or current.metadata if current is not None else metadata or {}),
+        )
+        agents = [item for item in self.list_agents() if item.agent_id != target]
+        agents.append(updated)
+        _write_json(self.agents_path, {"agents": [item.to_dict() for item in agents]})
+        return updated
+
     def build_catalog(self) -> dict[str, Any]:
         agents = self.list_agents()
         capabilities = self.list_capabilities()
@@ -198,10 +250,32 @@ class AgentRegistry:
             "summary": {
                 "agent_count": len(agents),
                 "enabled_agent_count": sum(1 for item in agents if item.lifecycle_state in {"enabled", "system_builtin"}),
-                "sub_agent_count": sum(1 for item in agents if item.profile_type == "sub_agent"),
+                "main_agent_count": sum(1 for item in agents if item.profile_type == "main_agent"),
+                "system_management_agent_count": sum(1 for item in agents if item.profile_type == "system_management_agent"),
+                "worker_sub_agent_count": sum(1 for item in agents if item.profile_type == "worker_sub_agent"),
                 "system_builtin_count": sum(1 for item in agents if item.lifecycle_state == "system_builtin"),
             },
         }
+
+
+def _normalize_profile_type(value: str) -> str:
+    normalized = str(value or "worker_sub_agent").strip()
+    return normalized if normalized in AGENT_PROFILE_TYPES else "worker_sub_agent"
+
+
+def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    current = str(payload.get("profile_type") or "")
+    normalized = _normalize_profile_type(current)
+    if normalized == "worker_sub_agent":
+        agent_id = str(payload.get("agent_id") or "")
+        owner_system = str(payload.get("owner_system") or "")
+        if agent_id == "agent:main":
+            normalized = "main_agent"
+        elif owner_system and owner_system != "task_system":
+            normalized = "system_management_agent"
+    if current == normalized:
+        return payload
+    return {**payload, "profile_type": normalized}
 
 
 def _agent_from_dict(payload: dict[str, Any]) -> AgentDescriptor:
@@ -209,7 +283,7 @@ def _agent_from_dict(payload: dict[str, Any]) -> AgentDescriptor:
         agent_id=str(payload.get("agent_id") or ""),
         display_name=str(payload.get("display_name") or ""),
         owner_system=str(payload.get("owner_system") or ""),
-        profile_type=str(payload.get("profile_type") or "sub_agent"),
+        profile_type=_normalize_profile_type(str(payload.get("profile_type") or "worker_sub_agent")),
         lifecycle_state=str(payload.get("lifecycle_state") or "disabled"),
         default_soul_id=str(payload.get("default_soul_id") or ""),
         default_projection_template_id=str(payload.get("default_projection_template_id") or ""),

@@ -316,14 +316,150 @@ export type HarnessMap = {
   link_contract: Record<string, string>;
 };
 
+export type AgentTaskConnectionProfile = {
+  profile_id: string;
+  agent_id: string;
+  agent_profile_id: string;
+  owner_system: string;
+  profile_type: string;
+  lifecycle_state: string;
+  task_family_refs: string[];
+  available_task_modes: string[];
+  flow_refs: string[];
+  binding_refs: string[];
+  projection_template_refs: string[];
+  skill_workflow_refs: string[];
+  topology_refs: string[];
+  default_flow_ref: string;
+  default_projection_template_ref: string;
+  default_skill_workflow_ref: string;
+  default_runtime_lane_hint: string;
+  validation_state: string;
+  blocked_reasons: string[];
+  diagnostics: Record<string, unknown>;
+};
+
+export type TaskSystemAgentUpsertPayload = {
+  agent_id: string;
+  display_name: string;
+  owner_system?: string;
+  profile_type?: string;
+  lifecycle_state?: string;
+  default_soul_id?: string;
+  default_projection_template_id?: string;
+  governance_status?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskSystemFlowUpsertPayload = {
+  flow_id: string;
+  task_family: string;
+  task_mode: string;
+  title: string;
+  input_contract_id?: string;
+  output_contract_id?: string;
+  default_agent_id: string;
+  default_workflow_id?: string;
+  default_projection_template_id?: string;
+  default_runtime_lane?: string;
+  default_memory_scope?: string;
+  enabled?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type GeneralTaskProfile = {
+  profile_id: string;
+  title: string;
+  default_agent_id: string;
+  default_workflow_id: string;
+  default_projection_template_id: string;
+  input_contract_id: string;
+  output_contract_id: string;
+  conversation_entry_policy: string;
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskAssignment = {
+  task_id: string;
+  task_title: string;
+  task_kind: string;
+  task_family: string;
+  task_mode: string;
+  flow_id: string;
+  default_agent_id: string;
+  participant_agent_ids: string[];
+  workflow_id: string;
+  workflow_file_ref: string;
+  projection_template_id: string;
+  input_contract_id: string;
+  output_contract_id: string;
+  task_structure: Record<string, unknown>;
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type AgentTaskCarryingProfile = {
+  agent_id: string;
+  display_name: string;
+  profile_type: string;
+  owner_system: string;
+  lifecycle_state: string;
+  carried_general_task_refs: string[];
+  carried_specific_task_refs: string[];
+  workflow_refs: string[];
+  projection_template_refs: string[];
+  validation_state: string;
+  blocked_reasons: string[];
+  diagnostics: Record<string, unknown>;
+};
+
+export type TaskConnectionDiagnosticIssue = {
+  object_id: string;
+  object_type: string;
+  reason: string;
+  field: string;
+  value?: string;
+  severity: string;
+};
+
+export type GeneralTaskProfileUpsertPayload = GeneralTaskProfile;
+
+export type TaskAssignmentUpsertPayload = TaskAssignment;
+
+export type TaskAgentConnectionOverview = {
+  authority: string;
+  profiles: AgentTaskConnectionProfile[];
+  summary: {
+    profile_count: number;
+    invalid_profile_count: number;
+    task_family_count: number;
+    topology_count: number;
+  };
+  diagnostics: Record<string, unknown>;
+};
+
 export type TaskSystemOverview = {
   authority: string;
   summary: Record<string, number>;
   agents: Array<Record<string, unknown>>;
+  general_task_profiles?: GeneralTaskProfile[];
+  task_assignments?: TaskAssignment[];
   flows: Array<Record<string, unknown>>;
   bindings: Array<Record<string, unknown>>;
   coordination_tasks: Array<Record<string, unknown>>;
   topology_templates: Array<Record<string, unknown>>;
+  agent_task_connections?: TaskAgentConnectionOverview;
+  agent_carrying_profiles?: {
+    authority: string;
+    profiles: AgentTaskCarryingProfile[];
+    summary: Record<string, number>;
+  };
+  connection_diagnostics?: {
+    authority: string;
+    issues: TaskConnectionDiagnosticIssue[];
+    summary: Record<string, number>;
+  };
   link_permission_matrix: {
     authority: string;
     rows: Array<Record<string, unknown>>;
@@ -355,6 +491,9 @@ export type HealthSystemOverview = {
   issues: HealthIssue[];
   agent_runs: HealthAgentRun[];
   problem_nodes: HealthProblemNode[];
+  commands?: HealthManagementCommand[];
+  reports?: HealthReport[];
+  health_test_runs?: HealthTestRun[];
 };
 
 export type HealthWorkbenchInboxItem = {
@@ -514,6 +653,103 @@ export type HealthTraceReport = {
   prompt_manifest_ref: string;
   projection_ref: string;
   task_run_trace: Record<string, unknown>;
+};
+
+export type HealthManagementCommand = {
+  command_id: string;
+  command_type: string;
+  initiator_type: "user" | "agent" | "system" | "test_system" | string;
+  initiator_ref: string;
+  requested_by: string;
+  source: string;
+  conversation_session_ref: string;
+  target_scope: string;
+  target_ref: string;
+  task_mode: string;
+  payload: Record<string, unknown>;
+  status: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type HealthManagementReceipt = {
+  receipt_id: string;
+  command_ref: string;
+  accepted: boolean;
+  status: string;
+  health_issue_ref: string;
+  health_run_ref: string;
+  test_run_ref: string;
+  report_ref: string;
+  blocked_reasons: string[];
+  diagnostics: Record<string, unknown>;
+  created_at: number;
+};
+
+export type HealthReport = {
+  report_id: string;
+  report_type: string;
+  issue_ref: string;
+  command_ref: string;
+  agent_run_ref: string;
+  test_run_ref: string;
+  evidence_refs: string[];
+  verdict: string;
+  severity: string;
+  summary: string;
+  recommended_actions: string[];
+  created_at: number;
+};
+
+export type HealthAgentConversationSession = {
+  session_id: string;
+  agent_id: string;
+  agent_profile_id: string;
+  projection_template_id: string;
+  skill_workflow_id: string;
+  runtime_lane: string;
+  active_issue_ref: string;
+  active_run_ref: string;
+  command_refs: string[];
+  status: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type HealthAgentConversationMessage = {
+  message_id: string;
+  session_id: string;
+  role: "user" | "assistant" | "system" | string;
+  content: string;
+  command_ref?: string;
+  receipt_ref?: string;
+  report_ref?: string;
+  created_at: number;
+};
+
+export type HealthCommandResponse = {
+  authority: string;
+  command: HealthManagementCommand;
+  receipt: HealthManagementReceipt;
+  report?: HealthReport;
+  issue?: HealthIssue;
+  run_result?: Record<string, unknown>;
+  health_test_run?: HealthTestRun;
+};
+
+export type HealthTestRun = {
+  health_test_run_id: string;
+  command_ref: string;
+  test_system_run_ref: string;
+  profile: string;
+  scenario_refs: string[];
+  status: string;
+  verdict: string;
+  artifact_refs: string[];
+  issue_refs: string[];
+  report_refs: string[];
+  started_at: number;
+  finished_at: number;
 };
 
 export type HealthAgentRunPreview = {
@@ -1733,12 +1969,99 @@ export async function getTaskSystemOverview() {
   return request<TaskSystemOverview>("/tasks/overview");
 }
 
+export async function upsertTaskSystemAgent(agentId: string, payload: TaskSystemAgentUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/agents/${encodeURIComponent(agentId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemFlow(flowId: string, payload: TaskSystemFlowUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/flows/${encodeURIComponent(flowId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemGeneralProfile(profileId: string, payload: GeneralTaskProfileUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/general-profiles/${encodeURIComponent(profileId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemAssignment(taskId: string, payload: TaskAssignmentUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/specific-assignments/${encodeURIComponent(taskId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function getHealthSystemOverview() {
   return request<HealthSystemOverview>("/health-system/overview");
 }
 
 export async function getHealthWorkbenchOverview() {
   return request<HealthWorkbenchOverview>("/health-workbench/overview");
+}
+
+export async function createHealthAgentConversationSession(payload: {
+  active_issue_ref?: string;
+  active_run_ref?: string;
+}) {
+  return request<{
+    authority: string;
+    session: HealthAgentConversationSession;
+    messages: HealthAgentConversationMessage[];
+  }>("/health-system/conversation-sessions", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function sendHealthAgentConversationMessage(
+  sessionId: string,
+  payload: {
+    role?: "user" | "assistant" | "system" | string;
+    content: string;
+    command_ref?: string;
+    receipt_ref?: string;
+    report_ref?: string;
+  }
+) {
+  return request<{
+    authority: string;
+    message: HealthAgentConversationMessage;
+  }>(`/health-system/conversation-sessions/${encodeURIComponent(sessionId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function createHealthManagementCommand(payload: {
+  command_type: string;
+  initiator_type: "user" | "agent" | "system" | "test_system" | string;
+  initiator_ref?: string;
+  requested_by?: string;
+  source?: string;
+  conversation_session_ref?: string;
+  target_scope?: string;
+  target_ref?: string;
+  task_mode?: string;
+  payload?: Record<string, unknown>;
+}) {
+  return request<HealthCommandResponse>("/health-system/commands", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getHealthManagementReceipt(receiptId: string) {
+  return request<HealthManagementReceipt>(`/health-system/receipts/${encodeURIComponent(receiptId)}`);
+}
+
+export async function listHealthReports() {
+  return request<{ authority: string; reports: HealthReport[] }>("/health-system/reports");
 }
 
 export async function createHealthIssue(payload: {
@@ -1774,20 +2097,6 @@ export async function previewHealthAgentRun(issueId: string, taskMode = "issue_t
     {
       method: "POST",
       body: JSON.stringify({ task_mode: taskMode })
-    }
-  );
-}
-
-export async function startHealthAgentRun(issueId: string, taskMode = "issue_triage", sessionId = "health-system") {
-  return request<HealthAgentRunStart>(
-    `/health-system/issues/${encodeURIComponent(issueId)}/agent-runs`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        task_mode: taskMode,
-        session_id: sessionId,
-        source: "health_system_workspace"
-      })
     }
   );
 }

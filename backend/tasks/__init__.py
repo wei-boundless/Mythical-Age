@@ -6,6 +6,9 @@ from typing import Any
 
 
 __all__ = [
+    "GeneralTaskProfile",
+    "TaskAssignment",
+    "AgentTaskCarryingProfile",
     "ProjectionRequirement",
     "SkillRuntimeView",
     "TaskSpec",
@@ -22,6 +25,7 @@ __all__ = [
     "TaskDefinition",
     "TaskFlowDefinition",
     "TaskAgentBinding",
+    "AgentTaskConnectionProfile",
     "TaskFlowRegistry",
     "TaskStepBlueprint",
     "StepInputBinding",
@@ -53,10 +57,24 @@ def __getattr__(name: str) -> Any:
         from tasks.definitions import TaskDefinition
 
         return TaskDefinition
-    if name in {"TaskFlowDefinition", "TaskAgentBinding"}:
-        from tasks.flow_models import TaskAgentBinding, TaskFlowDefinition
+    if name in {"TaskFlowDefinition", "TaskAgentBinding", "AgentTaskConnectionProfile", "GeneralTaskProfile", "TaskAssignment", "AgentTaskCarryingProfile"}:
+        from tasks.flow_models import (
+            AgentTaskCarryingProfile,
+            AgentTaskConnectionProfile,
+            GeneralTaskProfile,
+            TaskAgentBinding,
+            TaskAssignment,
+            TaskFlowDefinition,
+        )
 
-        return {"TaskFlowDefinition": TaskFlowDefinition, "TaskAgentBinding": TaskAgentBinding}[name]
+        return {
+            "GeneralTaskProfile": GeneralTaskProfile,
+            "TaskAssignment": TaskAssignment,
+            "AgentTaskCarryingProfile": AgentTaskCarryingProfile,
+            "TaskFlowDefinition": TaskFlowDefinition,
+            "TaskAgentBinding": TaskAgentBinding,
+            "AgentTaskConnectionProfile": AgentTaskConnectionProfile,
+        }[name]
     if name == "TaskFlowRegistry":
         from tasks.flow_registry import TaskFlowRegistry
 

@@ -32,6 +32,7 @@ import { HealthTraceTimeline } from "@/components/health/HealthTraceTimeline";
 import {
   cancelTestRun,
   createHealthIssue,
+  createHealthManagementCommand,
   createManagedTestCase,
   deleteManagedTestCase,
   getHarnessMap,
@@ -46,7 +47,6 @@ import {
   listLongScenarios,
   listTestProfiles,
   listTestRuns,
-  startHealthAgentRun,
   startTestRun,
   type HarnessMap,
   type HarnessMapCase,
@@ -757,9 +757,17 @@ export function HealthSystemView() {
     setError("");
     setNotice("");
     try {
-      const payload = await startHealthAgentRun(issue.issue_id);
-      const run = payload.health_agent_run as HealthAgentRun | undefined;
-      setNotice(`健康子 Agent 已返回：${payload.status}`);
+      const payload = await createHealthManagementCommand({
+        command_type: "analyze_trace",
+        initiator_type: "user",
+        source: "health_system_native_workbench",
+        target_scope: "health_issue",
+        target_ref: issue.issue_id,
+        task_mode: "issue_triage"
+      });
+      const runResult = (payload.run_result ?? {}) as Record<string, unknown>;
+      const run = runResult.health_agent_run as HealthAgentRun | undefined;
+      setNotice(`健康子 Agent 已返回：${payload.receipt.status}`);
       const [nextOverview, nextWorkbench] = await Promise.all([getHealthSystemOverview(), getHealthWorkbenchOverview()]);
       setOverview(nextOverview);
       setWorkbench(nextWorkbench);
@@ -2384,7 +2392,6 @@ export function HealthSystemView() {
       ) : null}
 
       <HealthAgentDock
-        onAnalyzeIssue={() => void runHealthAgent()}
         onExplainRun={explainSelectedHealthRun}
         onOpenReport={openSelectedTechnicalReport}
         running={!!runningIssueId}

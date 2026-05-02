@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from health_system import HealthRegistry
+from test_system import test_system_service
 
 router = APIRouter()
 
@@ -35,10 +36,157 @@ class HealthIssueCreateRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class HealthManagementCommandRequest(BaseModel):
+    command_type: str
+    initiator_type: str = Field(default="user")
+    initiator_ref: str = Field(default="")
+    requested_by: str = Field(default="")
+    source: str = Field(default="health_system.api")
+    conversation_session_ref: str = Field(default="")
+    target_scope: str = Field(default="")
+    target_ref: str = Field(default="")
+    task_mode: str = Field(default="")
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class HealthAgentConversationSessionCreateRequest(BaseModel):
+    active_issue_ref: str = Field(default="")
+    active_run_ref: str = Field(default="")
+
+
+class HealthAgentConversationMessageCreateRequest(BaseModel):
+    role: str = Field(default="user")
+    content: str
+    command_ref: str = Field(default="")
+    receipt_ref: str = Field(default="")
+    report_ref: str = Field(default="")
+
+
 @router.get("/health-system/overview")
 async def health_system_overview() -> dict[str, Any]:
     runtime = require_runtime()
     return HealthRegistry(runtime.base_dir).build_overview()
+
+
+@router.get("/health-system/commands")
+async def health_system_commands() -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = HealthRegistry(runtime.base_dir)
+    return {"authority": "health_system.commands", "commands": [item.to_dict() for item in registry.list_commands()]}
+
+
+@router.post("/health-system/commands")
+async def health_system_submit_command(payload: HealthManagementCommandRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return await HealthRegistry(runtime.base_dir).submit_command(
+            payload.model_dump(),
+            task_run_loop=runtime.query_runtime.task_run_loop,
+            model_response_executor=runtime.query_runtime.model_response_executor,
+            test_system_service=test_system_service,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/health-system/commands/{command_id}")
+async def health_system_command(command_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    command = HealthRegistry(runtime.base_dir).get_command(command_id)
+    if command is None:
+        raise HTTPException(status_code=404, detail="Unknown health command")
+    return command.to_dict()
+
+
+@router.get("/health-system/receipts/{receipt_id}")
+async def health_system_receipt(receipt_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    receipt = HealthRegistry(runtime.base_dir).get_receipt(receipt_id)
+    if receipt is None:
+        raise HTTPException(status_code=404, detail="Unknown health receipt")
+    return receipt.to_dict()
+
+
+@router.get("/health-system/reports")
+async def health_system_reports() -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = HealthRegistry(runtime.base_dir)
+    return {"authority": "health_system.reports", "reports": [item.to_dict() for item in registry.list_reports()]}
+
+
+@router.get("/health-system/reports/{report_id}")
+async def health_system_report(report_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    report = HealthRegistry(runtime.base_dir).get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Unknown health report")
+    return report.to_dict()
+
+
+@router.get("/health-system/test-scenarios")
+async def health_system_test_scenarios() -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = HealthRegistry(runtime.base_dir)
+    return {
+        "authority": "health_system.test_scenarios",
+        "scenarios": registry.list_health_test_scenarios(),
+    }
+
+
+@router.get("/health-system/test-runs")
+async def health_system_test_runs() -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = HealthRegistry(runtime.base_dir)
+    return {
+        "authority": "health_system.test_runs",
+        "health_test_runs": [item.to_dict() for item in registry.list_health_test_runs()],
+    }
+
+
+@router.post("/health-system/conversation-sessions")
+async def health_system_create_conversation_session(
+    payload: HealthAgentConversationSessionCreateRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    session = HealthRegistry(runtime.base_dir).create_conversation_session(payload.model_dump())
+    return {
+        "authority": "health_system.agent_conversation_session",
+        "session": session.to_dict(),
+        "messages": [],
+    }
+
+
+@router.get("/health-system/conversation-sessions/{session_id}")
+async def health_system_conversation_session(session_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = HealthRegistry(runtime.base_dir)
+    session = registry.get_conversation_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Unknown health conversation session")
+    return {
+        "authority": "health_system.agent_conversation_session",
+        "session": session.to_dict(),
+        "messages": [item.to_dict() for item in registry.list_conversation_messages(session_id)],
+    }
+
+
+@router.post("/health-system/conversation-sessions/{session_id}/messages")
+async def health_system_append_conversation_message(
+    session_id: str,
+    payload: HealthAgentConversationMessageCreateRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = HealthRegistry(runtime.base_dir)
+    try:
+        message = registry.append_conversation_message(session_id, payload.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown health conversation session") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "authority": "health_system.agent_conversation_message",
+        "message": message.to_dict(),
+    }
 
 
 @router.get("/health-system/issues")
@@ -51,11 +199,22 @@ async def health_system_issues() -> dict[str, Any]:
 @router.post("/health-system/issues")
 async def health_system_create_issue(payload: HealthIssueCreateRequest) -> dict[str, Any]:
     runtime = require_runtime()
+    registry = HealthRegistry(runtime.base_dir)
     try:
-        issue = HealthRegistry(runtime.base_dir).create_issue(payload.model_dump())
+        response = await registry.submit_command(
+            {
+                "command_type": "report_issue",
+                "initiator_type": "user",
+                "source": "health_system.issues_compat_api",
+                "payload": payload.model_dump(),
+            },
+            task_run_loop=runtime.query_runtime.task_run_loop,
+            model_response_executor=runtime.query_runtime.model_response_executor,
+            test_system_service=test_system_service,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return issue.to_dict()
+    return dict(response.get("issue") or {})
 
 
 @router.get("/health-system/issues/{issue_id}")
@@ -116,13 +275,20 @@ async def health_system_agent_run_preview(issue_id: str, payload: HealthAgentRun
 async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunStartRequest) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        return await HealthRegistry(runtime.base_dir).execute_agent_run(
-            issue_id=issue_id,
-            task_mode=payload.task_mode,
-            session_id=payload.session_id,
-            source=payload.source,
+        response = await HealthRegistry(runtime.base_dir).submit_command(
+            {
+                "command_type": "analyze_trace",
+                "initiator_type": "user",
+                "source": payload.source or "health_system.agent_runs_compat_api",
+                "conversation_session_ref": payload.session_id,
+                "target_scope": "health_issue",
+                "target_ref": issue_id,
+                "task_mode": payload.task_mode,
+            },
             task_run_loop=runtime.query_runtime.task_run_loop,
             model_response_executor=runtime.query_runtime.model_response_executor,
+            test_system_service=test_system_service,
         )
+        return dict(response.get("run_result") or response)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown health issue or task mode") from exc

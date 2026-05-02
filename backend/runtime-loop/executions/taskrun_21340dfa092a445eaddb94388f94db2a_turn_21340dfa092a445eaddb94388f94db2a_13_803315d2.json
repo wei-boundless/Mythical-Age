@@ -1,0 +1,41 @@
+{
+  "task_run_id": "taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:13:803315d2",
+  "updated_at": 1777751863.6580946,
+  "records": [
+    {
+      "execution_id": "rtexec:taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:13:803315d2:7ab38753",
+      "task_run_id": "taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:13:803315d2",
+      "step_id": "step.answer",
+      "request_ref": "rtact:taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:13:803315d2:48aeb329",
+      "directive_ref": "runtime-directive:turn:21340dfa092a445eaddb94388f94db2a:13:tool:rtact:taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:13:803315d2:48aeb329",
+      "operation_id": "op.search_knowledge",
+      "executor_type": "tool",
+      "request_fingerprint": "c5c4a83c871932a0771e3f64333a9cd27c2b4d913a73e615d265b5d6004b78e5",
+      "idempotency_token": "a3fca9fd6d4114cb9403a4fec9e8ee900dd6d27df68ae26ff77344f8fd9f139b",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:13:803315d2:7ab38753",
+      "result_payload": {
+        "tool_name": "search_knowledge",
+        "tool_call_id": "call_00_XpfqpnylMOc0Cax6M1lu1742",
+        "tool_args": {
+          "query": "工具列表 能力配置 为何只有一个工具 工具访问限制",
+          "top_k": 3
+        },
+        "result": "No relevant knowledge documents found.",
+        "result_chars": 38,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777751861.3285065,
+      "updated_at": 1777751863.6520195,
+      "diagnostics": {
+        "tool_name": "search_knowledge",
+        "directive_ref": "runtime-directive:turn:21340dfa092a445eaddb94388f94db2a:13:tool:rtact:taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:13:803315d2:48aeb329"
+      },
+      "authority": "orchestration.operation_execution_record"
+    }
+  ],
+  "latest_execution_id": "rtexec:taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:13:803315d2:7ab38753"
+}
