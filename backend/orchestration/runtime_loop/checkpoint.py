@@ -21,6 +21,9 @@ class RuntimeCheckpoint:
     loop_state: RuntimeLoopState
     context_snapshot_ref: str = ""
     prompt_manifest_ref: str = ""
+    execution_refs: tuple[str, ...] = ()
+    execution_state_ref: str = ""
+    execution_summary: dict[str, Any] = field(default_factory=dict)
     approval_state: dict[str, Any] = field(default_factory=dict)
     commit_state: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
@@ -49,7 +52,15 @@ class RuntimeCheckpointStore:
         self.checkpoint_dir = self.root_dir / "checkpoints"
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    def write(self, state: RuntimeLoopState, *, event_offset: int) -> RuntimeCheckpoint:
+    def write(
+        self,
+        state: RuntimeLoopState,
+        *,
+        event_offset: int,
+        execution_refs: tuple[str, ...] = (),
+        execution_state_ref: str = "",
+        execution_summary: dict[str, Any] | None = None,
+    ) -> RuntimeCheckpoint:
         created_at = time.time()
         checkpoint_id = f"rtchk:{state.task_run_id}:{event_offset}"
         checkpoint = RuntimeCheckpoint(
@@ -59,10 +70,19 @@ class RuntimeCheckpointStore:
             loop_state=state,
             context_snapshot_ref=state.context_snapshot_ref,
             prompt_manifest_ref=state.prompt_manifest_ref,
+            execution_refs=tuple(execution_refs),
+            execution_state_ref=str(execution_state_ref or ""),
+            execution_summary=dict(execution_summary or {}),
             approval_state=dict(state.pending_approval_state),
             commit_state=dict(state.commit_state),
             created_at=created_at,
-            checksum=_checksum(state.to_dict(), event_offset=event_offset),
+            checksum=_checksum(
+                state.to_dict(),
+                event_offset=event_offset,
+                execution_refs=tuple(execution_refs),
+                execution_state_ref=str(execution_state_ref or ""),
+                execution_summary=dict(execution_summary or {}),
+            ),
         )
         self._atomic_write(self._checkpoint_path(state.task_run_id), checkpoint.to_dict())
         return checkpoint
@@ -105,6 +125,9 @@ class RuntimeCheckpointStore:
             loop_state=state,
             context_snapshot_ref=str(payload.get("context_snapshot_ref") or ""),
             prompt_manifest_ref=str(payload.get("prompt_manifest_ref") or ""),
+            execution_refs=tuple(payload.get("execution_refs") or ()),
+            execution_state_ref=str(payload.get("execution_state_ref") or ""),
+            execution_summary=dict(payload.get("execution_summary") or {}),
             approval_state=dict(payload.get("approval_state") or {}),
             commit_state=dict(payload.get("commit_state") or {}),
             created_at=float(payload.get("created_at") or 0.0),
@@ -122,8 +145,25 @@ class RuntimeCheckpointStore:
         tmp.replace(path)
 
 
-def _checksum(payload: dict[str, Any], *, event_offset: int) -> str:
-    raw = json.dumps({"event_offset": event_offset, "state": payload}, ensure_ascii=False, sort_keys=True)
+def _checksum(
+    payload: dict[str, Any],
+    *,
+    event_offset: int,
+    execution_refs: tuple[str, ...] = (),
+    execution_state_ref: str = "",
+    execution_summary: dict[str, Any] | None = None,
+) -> str:
+    raw = json.dumps(
+        {
+            "event_offset": event_offset,
+            "state": payload,
+            "execution_refs": list(execution_refs),
+            "execution_state_ref": str(execution_state_ref or ""),
+            "execution_summary": dict(execution_summary or {}),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

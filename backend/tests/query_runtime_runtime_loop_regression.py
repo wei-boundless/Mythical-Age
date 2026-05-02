@@ -416,6 +416,24 @@ def test_astream_executes_only_model_response_runtime_directive() -> None:
     task_contract_payload = dict(dict(task_contract_event["event"]).get("payload", {}) or {})
     task_result = dict(done_event.get("task_result") or {})
     task_run_ledger = dict(done_event.get("task_run_ledger") or {})
+    step_entered_events = [
+        event
+        for event in events
+        if event["type"] == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "step_entered"
+    ]
+    step_completed_events = [
+        event
+        for event in events
+        if event["type"] == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "step_completed"
+    ]
+    ledger_events = [
+        event
+        for event in events
+        if event["type"] == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "task_run_ledger_updated"
+    ]
     assert task_contract_payload["task_spec"]["task_spec_ref"] == task_contract_payload["task_contract"]["task_spec_ref"]
     assert task_contract_payload["task_run_ledger"]["task_spec_ref"] == task_contract_payload["task_spec"]["task_spec_ref"]
     assert task_result["authority"] == "task_system.task_result"
@@ -424,6 +442,12 @@ def test_astream_executes_only_model_response_runtime_directive() -> None:
     assert task_result["requested_outputs"] == ["final_answer"]
     assert task_run_ledger["authority"] == "task_system.task_run_ledger"
     assert task_run_ledger["task_spec_ref"] == task_result["task_spec_ref"]
+    assert step_entered_events
+    assert step_completed_events
+    assert ledger_events
+    assert dict(step_entered_events[0]["event"]["payload"]["step_run"])["status"] == "running"
+    assert dict(step_completed_events[-1]["event"]["payload"]["step_run"])["status"] == "completed"
+    assert dict(ledger_events[-1]["event"]["payload"]["task_run_ledger"])["status"] == "completed"
     assert any(step["status"] == "completed" for step in task_result["step_runs"])
     assert done_event["task_result_commit"]["commit_candidate"]["payload"]["task_result"]["result_id"] == task_result["result_id"]
 
@@ -491,6 +515,44 @@ def test_astream_keeps_hidden_and_unrequested_tools_out_of_model_lane(tmp_path: 
     assert "pdf_analysis" not in tool_names
     assert "op.shell" not in directive_event["resource_policy"]["allowed_operations"]
     assert "op.python_repl" not in directive_event["resource_policy"]["allowed_operations"]
+
+
+def test_runtime_trace_includes_execution_records_and_checkpoint_summary(tmp_path: Path) -> None:
+    runtime = _build_tool_loop_runtime(tmp_path)
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-trace-execution",
+                message="读取 backend/soul/agent_core/CORE.md 并总结",
+                history=[],
+            )
+        ):
+            events.append(event)
+        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        task_run_id = str(dict(started["task_run"]).get("task_run_id") or "")
+        return events, task_run_id
+
+    events, task_run_id = asyncio.run(_collect())
+    trace = runtime.task_run_loop.get_trace(task_run_id)
+
+    assert trace is not None
+    event_types = [str(item.get("event_type") or "") for item in list(trace.get("events") or [])]
+    latest_checkpoint = dict(trace.get("latest_checkpoint") or {})
+
+    assert "execution_record_created" in event_types
+    assert "execution_dispatch_started" in event_types
+    assert "execution_result_recorded" in event_types
+    assert dict(latest_checkpoint.get("execution_summary") or {}).get("execution_count", 0) >= 1
+    assert list(latest_checkpoint.get("execution_refs") or [])
+    assert not any(
+        str(dict(event.get("event") or {}).get("event_type") or "") == "replay_guard_triggered"
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    )
 
 
 def test_followup_after_tool_result_stays_tool_capable_until_final_answer(tmp_path: Path) -> None:
@@ -684,20 +746,42 @@ def test_bundle_answer_projection_creates_ordinal_refs_for_model_synthesized_par
             "### 三、北京天气\n北京阴天。"
         ),
         bundle_items=[
-            {"ordinal": 1, "user_text": "总结 PDF 第三页", "capability_kind": "pdf", "required_tool": "pdf_analysis"},
             {
+                "bundle_id": "bundle:task-bundle",
+                "item_id": "bundle:task-bundle:item:1",
+                "ordinal": 1,
+                "user_text": "总结 PDF 第三页",
+                "template_id": "template.pdf.document_analysis",
+                "capability_kind": "pdf",
+                "required_tool": "pdf_analysis",
+            },
+            {
+                "bundle_id": "bundle:task-bundle",
+                "item_id": "bundle:task-bundle:item:2",
                 "ordinal": 2,
                 "user_text": "inventory.xlsx 最缺货的前三个仓库",
+                "template_id": "template.data.structured_analysis",
                 "capability_kind": "structured_data",
                 "required_tool": "structured_data_analysis",
             },
-            {"ordinal": 3, "user_text": "补一句北京天气", "capability_kind": "weather", "required_tool": "get_weather"},
+            {
+                "bundle_id": "bundle:task-bundle",
+                "item_id": "bundle:task-bundle:item:3",
+                "ordinal": 3,
+                "user_text": "补一句北京天气",
+                "template_id": "template.capability.direct_tool",
+                "capability_kind": "weather",
+                "required_tool": "get_weather",
+            },
         ],
     )
 
     assert projection.main_context["followup_mode"] == "bundle_ref"
     assert len(projection.bundle_summary_refs) == 3
     assert projection.bundle_summary_refs[1]["ordinal"] == 2
+    assert projection.bundle_summary_refs[1]["bundle_id"] == "bundle:task-bundle"
+    assert projection.bundle_summary_refs[1]["item_id"] == "bundle:task-bundle:item:2"
+    assert projection.bundle_summary_refs[1]["template_id"] == "template.data.structured_analysis"
     assert "深圳仓" in projection.bundle_summary_refs[1]["summary"]
     assert projection.bundle_summary_refs[1]["required_tool"] == "structured_data_analysis"
 

@@ -38,15 +38,29 @@ class ContextResolver:
         if bundle_bindings:
             bindings = [*bundle_bindings, *bindings]
         bundle_items = self._bundle_items(
+            task_id=task_id,
             user_message=user_message,
             explicit_inputs=explicit_inputs,
             bindings=bindings,
+            bundle_bindings=bundle_bindings,
         )
+        bundle_id = _bundle_id_for_context(task_id=task_id, bundle_items=bundle_items, bundle_bindings=bundle_bindings)
         execution_mode = "bundle" if len(bundle_items) > 1 else "single"
         intent = str(understanding.get("intent") or "")
         if bundle_bindings:
             explicit_inputs["ordinal_followup"] = ordinal_followups
             intent = "bundle_followup"
+        followup_target_refs = tuple(
+            _dedupe_text(
+                [
+                    *(item.followup_target_ref for item in bundle_items if str(item.followup_target_ref or "").strip()),
+                    *(
+                        str(binding.result_handle_id or binding.owner_task_id or binding.identity or "").strip()
+                        for binding in bundle_bindings
+                    ),
+                ]
+            )
+        )
         restore_candidate_refs = tuple(
             str(item.get("candidate_id") or "")
             for item in list(memory_view.get("restore_candidates") or [])
@@ -58,9 +72,11 @@ class ContextResolver:
             user_message=user_message,
             intent=intent,
             execution_mode=execution_mode,
+            bundle_id=bundle_id,
             explicit_inputs=explicit_inputs,
             resolved_bindings=tuple(bindings),
             bundle_items=tuple(bundle_items),
+            followup_target_refs=followup_target_refs,
             restore_candidates_used=restore_candidate_refs,
             confidence=float(understanding.get("confidence") or 0.0),
         )
@@ -218,12 +234,15 @@ class ContextResolver:
                     confidence=0.9,
                     source="session_state",
                     metadata={
+                        "bundle_id": str(ref.get("bundle_id") or "").strip(),
+                        "item_id": str(ref.get("item_id") or "").strip(),
                         "ordinal": ordinal,
                         "query": str(ref.get("query") or "").strip(),
                         "summary": str(ref.get("summary") or "").strip(),
                         "task_kind": task_kind,
                         "capability_kind": str(ref.get("capability_kind") or "").strip(),
                         "required_tool": str(ref.get("required_tool") or "").strip(),
+                        "template_id": str(ref.get("template_id") or _template_id_for_capability(str(ref.get("capability_kind") or "").strip())).strip(),
                         "key_points": list(ref.get("key_points") or []),
                     },
                 )
@@ -233,13 +252,19 @@ class ContextResolver:
     def _bundle_items(
         self,
         *,
+        task_id: str,
         user_message: str,
         explicit_inputs: dict[str, Any],
         bindings: list[ResolvedBinding],
+        bundle_bindings: list[ResolvedBinding],
     ) -> list[BundleItem]:
+        followup_items = _bundle_items_from_followup_bindings(task_id=task_id, bindings=bundle_bindings)
+        if followup_items:
+            return followup_items
         message = str(user_message or "").strip()
         if not _looks_compound(message):
             return []
+        bundle_id = f"bundle:{task_id}"
         parts = [part.strip(" ，,；;") for part in _ORDER_SPLIT_RE.split(message) if part.strip(" ，,；;")]
         items: list[BundleItem] = []
         for part in parts:
@@ -247,16 +272,28 @@ class ContextResolver:
             if not capability:
                 continue
             binding = _binding_for_capability(capability, bindings)
+            template_id = _template_id_for_capability(capability)
+            target_ref = ""
+            if binding is not None:
+                target_ref = str(binding.result_handle_id or binding.source_handle_id or binding.identity or "").strip()
             items.append(
                 BundleItem(
-                    item_id=f"bundle:{len(items) + 1}:{_slug(part)}",
+                    item_id=f"{bundle_id}:item:{len(items) + 1}",
                     ordinal=len(items) + 1,
                     user_text=part,
+                    bundle_id=bundle_id,
+                    template_id=template_id,
                     capability_kind=capability,
                     required_tool=tool,
+                    requested_outputs=tuple(_requested_outputs_for_capability(capability)),
+                    inherited_binding_refs=tuple(
+                        _dedupe_text([binding.binding_id] if binding is not None and binding.binding_id else [])
+                    ),
+                    followup_target_ref=target_ref,
+                    target_ref=target_ref,
                     target_binding=binding,
                     output_requirement="answer_part",
-                    metadata={"source": "compound_user_message"},
+                    metadata={"source": "compound_user_message", "bundle_id": bundle_id},
                 )
             )
         return items if len(items) > 1 else []
@@ -291,11 +328,62 @@ def _capability_for_text(text: str) -> tuple[str, str]:
     return "", ""
 
 
+def _template_id_for_capability(capability: str) -> str:
+    mapping = {
+        "pdf": "template.pdf.document_analysis",
+        "structured_data": "template.data.structured_analysis",
+        "weather": "template.capability.direct_tool",
+        "gold_price": "template.capability.direct_tool",
+    }
+    return mapping.get(str(capability or "").strip(), "template.chat.general_response")
+
+
+def _requested_outputs_for_capability(capability: str) -> list[str]:
+    if capability in {"pdf", "structured_data"}:
+        return ["final_answer", "task_summary_refs"]
+    return ["final_answer"]
+
+
 def _binding_for_capability(capability: str, bindings: list[ResolvedBinding]) -> ResolvedBinding | None:
     desired = "pdf" if capability == "pdf" else "dataset" if capability == "structured_data" else ""
     if not desired:
         return None
     return next((item for item in bindings if item.file_kind == desired), None)
+
+
+def _bundle_items_from_followup_bindings(*, task_id: str, bindings: list[ResolvedBinding]) -> list[BundleItem]:
+    items: list[BundleItem] = []
+    for binding in bindings:
+        if binding.binding_kind != "task_ref":
+            continue
+        metadata = dict(binding.metadata or {})
+        capability = str(metadata.get("capability_kind") or "").strip()
+        required_tool = str(metadata.get("required_tool") or "").strip()
+        user_text = str(metadata.get("query") or metadata.get("summary") or binding.identity or "").strip()
+        bundle_id = str(metadata.get("bundle_id") or f"bundle:{task_id}").strip()
+        ordinal = _safe_int(metadata.get("ordinal"))
+        item_id = str(metadata.get("item_id") or f"{bundle_id}:item:{ordinal or len(items) + 1}").strip()
+        template_id = str(metadata.get("template_id") or _template_id_for_capability(capability)).strip()
+        followup_target_ref = str(binding.result_handle_id or binding.owner_task_id or binding.identity or "").strip()
+        items.append(
+            BundleItem(
+                item_id=item_id,
+                ordinal=ordinal or len(items) + 1,
+                user_text=user_text,
+                bundle_id=bundle_id,
+                template_id=template_id,
+                capability_kind=capability,
+                required_tool=required_tool,
+                requested_outputs=tuple(_requested_outputs_for_capability(capability)),
+                inherited_binding_refs=(binding.binding_id,) if binding.binding_id else (),
+                followup_target_ref=followup_target_ref,
+                target_ref=followup_target_ref,
+                target_binding=binding,
+                output_requirement="answer_part",
+                metadata={"source": "bundle_followup_binding", **metadata},
+            )
+        )
+    return items
 
 
 def _dedupe_bindings(bindings: list[ResolvedBinding]) -> list[ResolvedBinding]:
@@ -306,6 +394,34 @@ def _dedupe_bindings(bindings: list[ResolvedBinding]) -> list[ResolvedBinding]:
         if key in seen:
             continue
         seen.add(key)
+        result.append(item)
+    return result
+
+
+def _bundle_id_for_context(
+    *,
+    task_id: str,
+    bundle_items: list[BundleItem],
+    bundle_bindings: list[ResolvedBinding],
+) -> str:
+    for item in bundle_items:
+        if str(item.bundle_id or "").strip():
+            return str(item.bundle_id or "").strip()
+    for binding in bundle_bindings:
+        bundle_id = str(dict(binding.metadata or {}).get("bundle_id") or "").strip()
+        if bundle_id:
+            return bundle_id
+    return f"bundle:{task_id}" if bundle_items else ""
+
+
+def _dedupe_text(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
         result.append(item)
     return result
 

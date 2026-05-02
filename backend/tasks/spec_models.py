@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .step_models import StepInputBinding
+
 
 @dataclass(frozen=True, slots=True)
 class TaskSpec:
@@ -15,7 +17,12 @@ class TaskSpec:
     bindings: dict[str, Any] = field(default_factory=dict)
     constraints: dict[str, Any] = field(default_factory=dict)
     current_turn_context_ref: str = ""
+    task_intent_ref: str = ""
+    template_match_ref: str = ""
+    bundle_spec_ref: str = ""
+    bundle_item_ref: str = ""
     requested_outputs: tuple[str, ...] = ()
+    step_input_bindings: tuple[StepInputBinding, ...] = ()
     selected_agent_id: str = "agent:main"
     selected_skill_ids: tuple[str, ...] = ()
     operation_requirement_ref: str = ""
@@ -31,5 +38,6 @@ class TaskSpec:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["requested_outputs"] = list(self.requested_outputs)
+        payload["step_input_bindings"] = [item.to_dict() for item in self.step_input_bindings]
         payload["selected_skill_ids"] = list(self.selected_skill_ids)
         return payload

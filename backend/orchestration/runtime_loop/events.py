@@ -32,6 +32,12 @@ RuntimeEventType = Literal[
     "approval_waiting",
     "approval_resumed",
     "recovery_attempted",
+    "execution_record_created",
+    "execution_dispatch_started",
+    "execution_result_recorded",
+    "execution_result_reused",
+    "replay_guard_triggered",
+    "recovery_replay_decided",
 ]
 
 

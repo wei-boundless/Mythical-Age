@@ -29,6 +29,7 @@ class RuntimeActionRequest:
     request_id: str
     task_run_id: str
     request_type: RuntimeActionRequestType
+    step_id: str = ""
     directive_ref: str = ""
     operation_id: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
@@ -121,8 +122,11 @@ def build_tool_result_observation(
     tool_args: dict[str, Any] | None = None,
     tool_call_id: str = "",
     truncated: bool = False,
+    execution_receipt: dict[str, Any] | None = None,
+    result_ref: str = "",
 ) -> RuntimeObservation:
     content = str(result or "")
+    receipt = dict(execution_receipt or {})
     return RuntimeObservation(
         observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         task_run_id=task_run_id,
@@ -138,19 +142,57 @@ def build_tool_result_observation(
             "result": content,
             "result_chars": len(content),
             "truncated": truncated,
+            "execution_receipt": receipt,
+            "execution_id": str(receipt.get("execution_id") or ""),
+            "result_ref": str(result_ref or receipt.get("result_ref") or ""),
         },
         needs_model_followup=True,
         created_at=time.time(),
     )
 
 
-def build_tool_action_request(task_run_id: str, event: dict[str, Any]) -> RuntimeActionRequest:
+def build_tool_execution_error_observation(
+    *,
+    task_run_id: str,
+    request_ref: str,
+    directive_ref: str,
+    tool_name: str,
+    error: str,
+    tool_args: dict[str, Any] | None = None,
+    tool_call_id: str = "",
+    execution_receipt: dict[str, Any] | None = None,
+) -> RuntimeObservation:
+    message = str(error or "").strip() or "tool_execution_failed"
+    receipt = dict(execution_receipt or {})
+    return RuntimeObservation(
+        observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        task_run_id=task_run_id,
+        observation_type="executor_error",
+        source=f"tool:{tool_name}",
+        request_ref=request_ref,
+        directive_ref=directive_ref,
+        content_chars=len(message),
+        payload={
+            "tool_name": str(tool_name or ""),
+            "tool_call_id": str(tool_call_id or ""),
+            "tool_args": dict(tool_args or {}),
+            "error": message,
+            "execution_receipt": receipt,
+            "execution_id": str(receipt.get("execution_id") or ""),
+        },
+        needs_model_followup=False,
+        created_at=time.time(),
+    )
+
+
+def build_tool_action_request(task_run_id: str, event: dict[str, Any], *, step_id: str = "") -> RuntimeActionRequest:
     payload = dict(event.get("tool_call") or event.get("payload") or {})
     tool_name = str(payload.get("tool_name") or payload.get("name") or event.get("tool_name") or "")
     return RuntimeActionRequest(
         request_id=f"rtact:{task_run_id}:{uuid.uuid4().hex[:8]}",
         task_run_id=task_run_id,
         request_type="tool_call",
+        step_id=str(step_id or ""),
         directive_ref=str(event.get("directive_ref") or ""),
         operation_id=str(event.get("operation_id") or ""),
         payload={

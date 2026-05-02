@@ -15,7 +15,10 @@ RUNTIME_STAGE_ORDER = (
     "operation_gate_checked",
     "executor_started",
     "tool_call_requested",
+    "execution_record_created",
+    "execution_dispatch_started",
     "tool_result_received",
+    "execution_result_recorded",
     "executor_observation_received",
     "output_boundary_applied",
     "commit_gate_checked",
@@ -37,6 +40,19 @@ def summarize_runtime_loop_trace(trace: dict[str, Any] | None) -> dict[str, Any]
     gate_events = [item for item in events if str(item.get("event_type") or "") == "operation_gate_checked"]
     tool_call_events = [item for item in events if str(item.get("event_type") or "") == "tool_call_requested"]
     tool_result_events = [item for item in events if str(item.get("event_type") or "") == "tool_result_received"]
+    execution_events = [
+        item
+        for item in events
+        if str(item.get("event_type") or "")
+        in {
+            "execution_record_created",
+            "execution_dispatch_started",
+            "execution_result_recorded",
+            "execution_result_reused",
+            "replay_guard_triggered",
+            "recovery_replay_decided",
+        }
+    ]
     commit_events = [item for item in events if str(item.get("event_type") or "") == "commit_gate_checked"]
     terminal = next((item for item in reversed(events) if str(item.get("event_type") or "") == "loop_terminal"), {})
     terminal_summary = _summary(terminal)
@@ -58,6 +74,15 @@ def summarize_runtime_loop_trace(trace: dict[str, Any] | None) -> dict[str, Any]
             "result_count": len(tool_result_events),
             "requested": [_summary(item).get("tool_name") for item in tool_call_events if _summary(item).get("tool_name")],
             "pairing_ok": len(tool_call_events) == len(tool_result_events),
+        },
+        "executions": {
+            "event_count": len(execution_events),
+            "reused_count": sum(
+                1 for item in execution_events if str(item.get("event_type") or "") == "execution_result_reused"
+            ),
+            "suppressed_count": sum(
+                1 for item in execution_events if str(item.get("event_type") or "") == "replay_guard_triggered"
+            ),
         },
         "commits": {
             "check_count": len(commit_events),
@@ -111,6 +136,7 @@ def _empty_summary() -> dict[str, Any]:
         "event_type_counts": {},
         "operation_gate": {"check_count": 0, "allowed_count": 0, "denied_count": 0, "operations": []},
         "tools": {"call_count": 0, "result_count": 0, "requested": [], "pairing_ok": True},
+        "executions": {"event_count": 0, "reused_count": 0, "suppressed_count": 0},
         "commits": {
             "check_count": 0,
             "assistant_session_write_allowed": False,

@@ -9,6 +9,10 @@ __all__ = [
     "ProjectionRequirement",
     "SkillRuntimeView",
     "TaskSpec",
+    "TaskIntentContract",
+    "TemplateMatchResult",
+    "BundleSpec",
+    "BundleItemSpec",
     "TaskBindingRecord",
     "TaskBindings",
     "TaskConstraints",
@@ -20,6 +24,7 @@ __all__ = [
     "TaskAgentBinding",
     "TaskFlowRegistry",
     "TaskStepBlueprint",
+    "StepInputBinding",
     "TaskTemplate",
     "TaskTemplateRegistry",
     "TaskValidationRule",
@@ -96,10 +101,10 @@ def __getattr__(name: str) -> Any:
         from tasks.models import TaskEvent, TaskRecord
 
         return {"TaskEvent": TaskEvent, "TaskRecord": TaskRecord}[name]
-    if name in {"TaskStepBlueprint"}:
-        from tasks.step_models import TaskStepBlueprint
+    if name in {"TaskStepBlueprint", "StepInputBinding"}:
+        from tasks.step_models import StepInputBinding, TaskStepBlueprint
 
-        return TaskStepBlueprint
+        return {"TaskStepBlueprint": TaskStepBlueprint, "StepInputBinding": StepInputBinding}[name]
     if name in {"TaskTemplate", "TaskValidationRule"}:
         from tasks.template_models import TaskTemplate, TaskValidationRule
 
@@ -108,6 +113,20 @@ def __getattr__(name: str) -> Any:
         from tasks.spec_models import TaskSpec
 
         return TaskSpec
+    if name in {"TaskIntentContract", "TemplateMatchResult"}:
+        from tasks.match_contracts import TaskIntentContract, TemplateMatchResult
+
+        return {
+            "TaskIntentContract": TaskIntentContract,
+            "TemplateMatchResult": TemplateMatchResult,
+        }[name]
+    if name in {"BundleSpec", "BundleItemSpec"}:
+        from tasks.bundle_models import BundleItemSpec, BundleSpec
+
+        return {
+            "BundleSpec": BundleSpec,
+            "BundleItemSpec": BundleItemSpec,
+        }[name]
     if name == "build_task_runtime_contract":
         from tasks.contract_builder import build_task_runtime_contract
 

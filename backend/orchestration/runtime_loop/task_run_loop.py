@@ -11,10 +11,28 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from operations import OperationGate, build_default_operation_registry
 from output_boundary.boundary import AssistantOutputBoundary
-from tasks.run_models import TaskResult, TaskRunLedger, TaskStepRun, build_task_run_ledger
+from tasks.run_models import (
+    TaskRunLedger,
+    TaskStepRun,
+    advance_task_run_ledger,
+    build_task_run_ledger,
+    complete_task_run_step,
+    current_task_step_run,
+    fail_task_run_step,
+    find_task_step_run,
+    next_pending_step_run,
+    project_task_result_from_ledger,
+    skip_task_run_step,
+    start_task_run_step,
+    step_supports_operation,
+    task_run_step_count,
+    task_run_terminal_status,
+    terminalize_task_run_ledger,
+)
 from tasks.spec_models import TaskSpec
-from tasks.step_models import TaskStepBlueprint
+from tasks.step_models import StepInputBinding, TaskStepBlueprint
 from tasks.template_models import TaskTemplate, TaskValidationRule
+from tools.authorization import resolve_tool_operation_id
 
 from context_management.projection import (
     ContextProjection,
@@ -27,9 +45,18 @@ from .action_request import (
     build_executor_error_observation,
     build_model_response_observation,
     build_tool_action_request,
+    build_tool_result_observation,
 )
 from .checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from .context_manager import RuntimeContextManager
+from .execution_record import (
+    OperationExecutionRecord,
+    RuntimeExecutionStore,
+    build_execution_receipt,
+    build_idempotency_token,
+    build_request_fingerprint,
+    derive_replay_policy,
+)
 from .event_log import RuntimeEventLog
 from .loop_control import RuntimeLoopLimits, check_runtime_loop_control
 from .model_adoption import build_model_response_runtime_adoption
@@ -76,6 +103,7 @@ class TaskRunLoop:
         self.root_dir = Path(root_dir)
         self.event_log = RuntimeEventLog(self.root_dir)
         self.checkpoints = RuntimeCheckpointStore(self.root_dir)
+        self.execution_store = RuntimeExecutionStore(self.root_dir)
         self.state_index = RuntimeStateIndex(self.root_dir)
         self.trace_reader = RuntimeLoopTraceReader(self.state_index, self.event_log, self.checkpoints)
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
@@ -172,7 +200,13 @@ class TaskRunLoop:
                 **dict(diagnostics or {}),
             },
         )
-        checkpoint = self.checkpoints.write(state, event_offset=iteration.offset)
+        checkpoint = self.checkpoints.write(
+            state,
+            event_offset=iteration.offset,
+            execution_refs=(),
+            execution_state_ref="",
+            execution_summary=self.execution_store.build_summary(task_run_id),
+        )
         checkpoint_event = self.event_log.append(
             task_run_id,
             "checkpoint_written",
@@ -180,6 +214,7 @@ class TaskRunLoop:
                 "checkpoint_id": checkpoint.checkpoint_id,
                 "event_offset": checkpoint.event_offset,
                 "checksum": checkpoint.checksum,
+                "execution_summary": checkpoint.execution_summary,
             },
             refs={"checkpoint_ref": checkpoint.checkpoint_id},
         )
@@ -261,7 +296,10 @@ class TaskRunLoop:
         )
         task_operation = dict(chain_runtime.get("task_operation") or {})
         task_contract = dict(task_operation.get("task_contract") or {})
+        task_intent_contract = dict(task_operation.get("task_intent_contract") or {})
+        template_match = dict(task_operation.get("template_match") or {})
         selected_template_payload = dict(task_operation.get("selected_template") or {})
+        bundle_spec_payload = dict(task_operation.get("bundle_spec") or {})
         task_spec_payload = dict(task_operation.get("task_spec") or {})
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
@@ -273,24 +311,55 @@ class TaskRunLoop:
             task_spec_payload=task_spec_payload,
             selected_template_payload=selected_template_payload,
         )
+        if runtime_task_ledger is not None:
+            runtime_task_ledger = start_task_run_step(
+                runtime_task_ledger,
+                started_at=time.time(),
+                diagnostics={"transition_reason": "task_contract_built"},
+            )
         task_event = self.event_log.append(
             state.task_run_id,
             "task_contract_built",
             payload={
                 "task_contract": task_contract,
+                "task_intent_contract": task_intent_contract,
+                "template_match": template_match,
                 "selected_template": selected_template_payload,
+                "bundle_spec": bundle_spec_payload,
                 "task_spec": task_spec_payload,
                 "task_run_ledger": runtime_task_ledger.to_dict() if runtime_task_ledger is not None else {},
                 "source": source,
             },
             refs={
                 "task_contract_ref": task_contract_ref,
+                "task_intent_ref": str(task_intent_contract.get("task_intent_id") or ""),
+                "template_match_ref": str(template_match.get("match_id") or ""),
                 "task_template_id": str(selected_template_payload.get("template_id") or ""),
                 "task_spec_ref": str(task_spec_payload.get("task_spec_ref") or ""),
+                "bundle_spec_ref": str(bundle_spec_payload.get("bundle_id") or ""),
                 "task_run_ledger_ref": runtime_task_ledger.ledger_id if runtime_task_ledger is not None else "",
             },
         )
         yield {"type": "runtime_loop_event", "event": task_event.to_dict()}
+        if runtime_task_ledger is not None:
+            current_step = current_task_step_run(runtime_task_ledger)
+            if current_step is not None:
+                step_event = self._record_task_run_step_event(
+                    state.task_run_id,
+                    event_type="step_entered",
+                    step_run=current_step,
+                    ledger=runtime_task_ledger,
+                    reason="task_contract_built",
+                    refs={"task_contract_ref": task_contract_ref},
+                )
+                yield {"type": "runtime_loop_event", "event": step_event.to_dict()}
+                ledger_event = self._record_task_run_ledger_updated(
+                    state.task_run_id,
+                    ledger=runtime_task_ledger,
+                    reason="task_contract_built",
+                    refs={"task_contract_ref": task_contract_ref},
+                )
+                yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
         current_turn_context = dict(task_operation.get("current_turn_context") or {})
         if current_turn_context:
             current_turn_event = self.event_log.append(
@@ -299,7 +368,9 @@ class TaskRunLoop:
                 payload={
                     "current_turn_context": current_turn_context,
                     "execution_mode": str(current_turn_context.get("execution_mode") or ""),
+                    "bundle_id": str(current_turn_context.get("bundle_id") or ""),
                     "bundle_item_count": len(list(current_turn_context.get("bundle_items") or [])),
+                    "followup_target_count": len(list(current_turn_context.get("followup_target_refs") or [])),
                 },
                 refs={"task_contract_ref": task_contract_ref},
             )
@@ -375,7 +446,7 @@ class TaskRunLoop:
             status="running",
             transition="start",
             turn_count=1,
-            step_count=0,
+            step_count=task_run_step_count(runtime_task_ledger),
             current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else "",
             agent_id=state.agent_id,
             agent_profile_id=state.agent_profile_id,
@@ -429,6 +500,39 @@ class TaskRunLoop:
                 "answer_channel": "orchestration_fail_closed",
                 "answer_source": "runtime_loop_control",
             }
+            if runtime_task_ledger is not None and current_task_step_run(runtime_task_ledger) is not None:
+                active_step = current_task_step_run(runtime_task_ledger)
+                runtime_task_ledger = fail_task_run_step(
+                    runtime_task_ledger,
+                    step_id=active_step.step_id if active_step is not None else None,
+                    completed_at=time.time(),
+                    failure_reason=control_decision.reason,
+                    diagnostics={"transition_reason": "runtime_loop_control"},
+                )
+                failed_step = current_task_step_run(runtime_task_ledger)
+                if failed_step is not None:
+                    step_failed_event = self._record_task_run_step_event(
+                        state.task_run_id,
+                        event_type="step_failed",
+                        step_run=failed_step,
+                        ledger=runtime_task_ledger,
+                        reason="runtime_loop_control",
+                    )
+                    yield {"type": "runtime_loop_event", "event": step_failed_event.to_dict()}
+                ledger_event = self._record_task_run_ledger_updated(
+                    state.task_run_id,
+                    ledger=runtime_task_ledger,
+                    reason="runtime_loop_control",
+                    diagnostics={"terminal_reason": control_decision.reason},
+                )
+                yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                state = self._state_with_task_run_ledger(
+                    state,
+                    runtime_task_ledger,
+                    diagnostics={"last_step_transition": "runtime_loop_control"},
+                )
+                checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
             terminal_state = state.with_status(
                 "failed",
                 transition="stop_after_final_output",
@@ -505,6 +609,41 @@ class TaskRunLoop:
                 "answer_source": "operation_gate",
             }
             yield error_event
+            if runtime_task_ledger is not None and current_task_step_run(runtime_task_ledger) is not None:
+                active_step = current_task_step_run(runtime_task_ledger)
+                runtime_task_ledger = fail_task_run_step(
+                    runtime_task_ledger,
+                    step_id=active_step.step_id if active_step is not None else None,
+                    completed_at=time.time(),
+                    failure_reason="blocked_by_gate",
+                    diagnostics={"transition_reason": "operation_gate", "operation_id": gate_result.operation_id},
+                )
+                failed_step = current_task_step_run(runtime_task_ledger)
+                if failed_step is not None:
+                    step_failed_event = self._record_task_run_step_event(
+                        state.task_run_id,
+                        event_type="step_failed",
+                        step_run=failed_step,
+                        ledger=runtime_task_ledger,
+                        reason="operation_gate",
+                        refs={"operation_id": gate_result.operation_id},
+                    )
+                    yield {"type": "runtime_loop_event", "event": step_failed_event.to_dict()}
+                ledger_event = self._record_task_run_ledger_updated(
+                    state.task_run_id,
+                    ledger=runtime_task_ledger,
+                    reason="operation_gate",
+                    refs={"operation_id": gate_result.operation_id},
+                    diagnostics={"terminal_reason": "blocked_by_gate"},
+                )
+                yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                state = self._state_with_task_run_ledger(
+                    state,
+                    runtime_task_ledger,
+                    diagnostics={"last_step_transition": "operation_gate"},
+                )
+                checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
             terminal_state = state.with_status(
                 "blocked",
                 transition="stop_after_final_output",
@@ -548,11 +687,9 @@ class TaskRunLoop:
         final_task_summary_refs: list[dict[str, Any]] = []
         final_bundle_summary_refs: list[dict[str, Any]] = []
         observation_aggregator = ObservationAggregator()
-        current_bundle_items = [
-            dict(item)
-            for item in list(current_turn_context.get("bundle_items") or [])
-            if isinstance(item, dict)
-        ]
+        current_bundle_items = _bundle_items_from_runtime_contract(
+            task_spec_payload=task_spec_payload,
+        )
         pending_tool_calls: list[dict[str, Any]] = []
         assistant_tool_call_content = ""
         assistant_tool_call_kwargs: dict[str, Any] = {}
@@ -581,12 +718,84 @@ class TaskRunLoop:
                 task_id=task_id,
                 task_operation=task_operation,
                 adopted_resource_policy=resource_policy,
+                current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else state.current_step_id,
                 runtime_context_manager=runtime_context_manager,
                 tool_runtime_executor=tool_runtime_executor,
                 event=event,
             )
             for runtime_event in runtime_events:
-                if runtime_event.event_type == "executor_observation_received":
+                if runtime_event.event_type == "tool_call_requested":
+                    operation_id = str(runtime_event.refs.get("operation_id") or "")
+                    current_step = current_task_step_run(runtime_task_ledger)
+                    next_step = next_pending_step_run(
+                        runtime_task_ledger,
+                        start_after_step_id=current_step.step_id if current_step is not None else "",
+                    )
+                    if (
+                        runtime_task_ledger is not None
+                        and current_step is not None
+                        and current_step.status == "running"
+                        and current_step.executor_type == "model"
+                        and current_step.step_kind == "understand"
+                        and next_step is not None
+                    ):
+                        runtime_task_ledger = complete_task_run_step(
+                            runtime_task_ledger,
+                            step_id=current_step.step_id,
+                            completed_at=time.time(),
+                            output_refs=(str(runtime_event.refs.get("action_request_ref") or runtime_event.event_id),),
+                            executor_ref=operation_id or current_step.executor_ref,
+                            diagnostics={
+                                "transition_reason": "tool_call_requested",
+                                "operation_id": operation_id,
+                            },
+                        )
+                        completed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
+                        if completed_step is not None:
+                            step_completed_event = self._record_task_run_step_event(
+                                state.task_run_id,
+                                event_type="step_completed",
+                                step_run=completed_step,
+                                ledger=runtime_task_ledger,
+                                reason="tool_call_requested",
+                                refs={"operation_id": operation_id},
+                            )
+                            yield {"type": "runtime_loop_event", "event": step_completed_event.to_dict()}
+                        runtime_task_ledger = advance_task_run_ledger(
+                            runtime_task_ledger,
+                            started_at=time.time(),
+                            diagnostics={
+                                "transition_reason": "tool_call_requested",
+                                "operation_id": operation_id,
+                            },
+                        )
+                        entered_step = current_task_step_run(runtime_task_ledger)
+                        ledger_event = self._record_task_run_ledger_updated(
+                            state.task_run_id,
+                            ledger=runtime_task_ledger,
+                            reason="tool_call_requested",
+                            refs={"operation_id": operation_id},
+                        )
+                        yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                        if entered_step is not None and entered_step.step_id != current_step.step_id:
+                            step_entered_event = self._record_task_run_step_event(
+                                state.task_run_id,
+                                event_type="step_entered",
+                                step_run=entered_step,
+                                ledger=runtime_task_ledger,
+                                reason="tool_call_requested",
+                                refs={"operation_id": operation_id},
+                            )
+                            yield {"type": "runtime_loop_event", "event": step_entered_event.to_dict()}
+                        state = self._state_with_task_run_ledger(
+                            state,
+                            runtime_task_ledger,
+                            result_refs=result_refs,
+                            diagnostics={"last_step_transition": "tool_call_requested"},
+                        )
+                        checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                        yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                elif runtime_event.event_type == "executor_observation_received":
                     observation_ref = str(runtime_event.refs.get("observation_ref") or runtime_event.event_id)
                     result_refs.append(observation_ref)
                     observation = dict(runtime_event.payload.get("observation") or {})
@@ -644,6 +853,166 @@ class TaskRunLoop:
                                 "answer_fallback_reason": direct_tool_answer_metadata["answer_fallback_reason"],
                             }
                             direct_tool_finalized = len(pending_tool_calls) <= 1 and not current_bundle_items
+                        operation_id = resolve_tool_operation_id(
+                            str(observation_payload.get("tool_name") or ""),
+                            definitions_by_name=self.tool_authorization_index.definitions_by_name,
+                        )
+                        current_step = current_task_step_run(runtime_task_ledger)
+                        if (
+                            runtime_task_ledger is not None
+                            and current_step is not None
+                            and current_step.status == "running"
+                            and current_step.executor_type in {"tool", "worker", "agent"}
+                            and step_supports_operation(current_step, operation_id)
+                        ):
+                            runtime_task_ledger = complete_task_run_step(
+                                runtime_task_ledger,
+                                step_id=current_step.step_id,
+                                completed_at=time.time(),
+                                observation_refs=(observation_ref,),
+                                output_refs=(observation_ref,),
+                                step_result_ref=observation_ref,
+                                executor_ref=str(observation_payload.get("tool_name") or operation_id),
+                                diagnostics={
+                                    "transition_reason": "tool_result_received",
+                                    "operation_id": operation_id,
+                                },
+                            )
+                            completed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
+                            if completed_step is not None:
+                                step_completed_event = self._record_task_run_step_event(
+                                    state.task_run_id,
+                                    event_type="step_completed",
+                                    step_run=completed_step,
+                                    ledger=runtime_task_ledger,
+                                    reason="tool_result_received",
+                                    refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                                )
+                                yield {"type": "runtime_loop_event", "event": step_completed_event.to_dict()}
+                            runtime_task_ledger = advance_task_run_ledger(
+                                runtime_task_ledger,
+                                started_at=time.time(),
+                                diagnostics={
+                                    "transition_reason": "tool_result_received",
+                                    "operation_id": operation_id,
+                                },
+                            )
+                            ledger_event = self._record_task_run_ledger_updated(
+                                state.task_run_id,
+                                ledger=runtime_task_ledger,
+                                reason="tool_result_received",
+                                refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                            )
+                            yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                            entered_step = current_task_step_run(runtime_task_ledger)
+                            if entered_step is not None and entered_step.step_id != current_step.step_id:
+                                step_entered_event = self._record_task_run_step_event(
+                                    state.task_run_id,
+                                    event_type="step_entered",
+                                    step_run=entered_step,
+                                    ledger=runtime_task_ledger,
+                                    reason="tool_result_received",
+                                    refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                                )
+                                yield {"type": "runtime_loop_event", "event": step_entered_event.to_dict()}
+                            state = self._state_with_task_run_ledger(
+                                state,
+                                runtime_task_ledger,
+                                result_refs=result_refs,
+                                diagnostics={"last_step_transition": "tool_result_received"},
+                            )
+                            checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                            yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                    elif observation.get("observation_type") == "executor_error":
+                        terminal_reason = "executor_failed"
+                        current_step = current_task_step_run(runtime_task_ledger)
+                        if (
+                            runtime_task_ledger is not None
+                            and current_step is not None
+                            and current_step.status == "running"
+                            and current_step.executor_type in {"tool", "worker", "agent"}
+                        ):
+                            error_text = str(dict(observation.get("payload") or {}).get("error") or "executor_failed")
+                            runtime_task_ledger = fail_task_run_step(
+                                runtime_task_ledger,
+                                step_id=current_step.step_id,
+                                completed_at=time.time(),
+                                failure_reason=error_text,
+                                observation_refs=(observation_ref,),
+                                output_refs=(observation_ref,),
+                                step_result_ref=observation_ref,
+                                executor_ref=str(observation.get("source") or current_step.executor_ref),
+                                diagnostics={"transition_reason": "executor_error_observation"},
+                            )
+                            failed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
+                            if failed_step is not None:
+                                step_failed_event = self._record_task_run_step_event(
+                                    state.task_run_id,
+                                    event_type="step_failed",
+                                    step_run=failed_step,
+                                    ledger=runtime_task_ledger,
+                                    reason="executor_error_observation",
+                                    refs={"observation_ref": observation_ref},
+                                )
+                                yield {"type": "runtime_loop_event", "event": step_failed_event.to_dict()}
+                            ledger_event = self._record_task_run_ledger_updated(
+                                state.task_run_id,
+                                ledger=runtime_task_ledger,
+                                reason="executor_error_observation",
+                                refs={"observation_ref": observation_ref},
+                                diagnostics={"terminal_reason": "executor_failed"},
+                            )
+                            yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                            state = self._state_with_task_run_ledger(
+                                state,
+                                runtime_task_ledger,
+                                result_refs=result_refs,
+                                diagnostics={"last_step_transition": "executor_error_observation"},
+                            )
+                            checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                            yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                elif runtime_event.event_type == "loop_error":
+                    terminal_reason = "executor_failed"
+                    current_step = current_task_step_run(runtime_task_ledger)
+                    if (
+                        runtime_task_ledger is not None
+                        and current_step is not None
+                        and current_step.status == "running"
+                        and current_step.executor_type in {"tool", "worker", "agent"}
+                    ):
+                        error_text = str(runtime_event.payload.get("error") or "executor_failed")
+                        runtime_task_ledger = fail_task_run_step(
+                            runtime_task_ledger,
+                            step_id=current_step.step_id,
+                            completed_at=time.time(),
+                            failure_reason=error_text,
+                            diagnostics={"transition_reason": "loop_error"},
+                        )
+                        failed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
+                        if failed_step is not None:
+                            step_failed_event = self._record_task_run_step_event(
+                                state.task_run_id,
+                                event_type="step_failed",
+                                step_run=failed_step,
+                                ledger=runtime_task_ledger,
+                                reason="loop_error",
+                            )
+                            yield {"type": "runtime_loop_event", "event": step_failed_event.to_dict()}
+                        ledger_event = self._record_task_run_ledger_updated(
+                            state.task_run_id,
+                            ledger=runtime_task_ledger,
+                            reason="loop_error",
+                            diagnostics={"terminal_reason": "executor_failed"},
+                        )
+                        yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                        state = self._state_with_task_run_ledger(
+                            state,
+                            runtime_task_ledger,
+                            result_refs=result_refs,
+                            diagnostics={"last_step_transition": "loop_error"},
+                        )
+                        checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                        yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
                 elif runtime_event.event_type == "output_boundary_applied":
                     result_refs.append(f"output_boundary:{runtime_event.event_id}")
                 elif runtime_event.event_type == "commit_gate_checked":
@@ -694,7 +1063,8 @@ class TaskRunLoop:
                 status="running",
                 transition="continue_after_tool_result",
                 turn_count=turn_count,
-                step_count=max(0, turn_count - 1),
+                step_count=task_run_step_count(runtime_task_ledger),
+                current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else state.current_step_id,
                 agent_id=state.agent_id,
                 agent_profile_id=state.agent_profile_id,
                 runtime_lane=state.runtime_lane,
@@ -741,11 +1111,17 @@ class TaskRunLoop:
                 payload={
                     "transition": "continue_after_tool_result",
                     "turn_count": turn_count,
-                    "step_count": max(0, turn_count - 1),
+                    "step_count": task_run_step_count(runtime_task_ledger),
                     "tool_result_count": len([item for item in followup_messages if isinstance(item, ToolMessage)]),
                 },
             )
             yield {"type": "runtime_loop_event", "event": followup_event.to_dict()}
+            state = self._state_with_task_run_ledger(
+                state,
+                runtime_task_ledger,
+                transition="continue_after_tool_result",
+                result_refs=result_refs,
+            )
             next_pending_tool_calls: list[dict[str, Any]] = []
             next_assistant_tool_call_content = ""
             next_assistant_tool_call_kwargs: dict[str, Any] = {}
@@ -768,12 +1144,13 @@ class TaskRunLoop:
                         next_assistant_tool_call_kwargs.update(event_kwargs)
                 runtime_events = await self._events_from_executor_event(
                     state.task_run_id,
-                    task_id=task_id,
-                    task_operation=task_operation,
-                    adopted_resource_policy=resource_policy,
-                    runtime_context_manager=runtime_context_manager,
-                    tool_runtime_executor=tool_runtime_executor,
-                    event=event,
+                task_id=task_id,
+                task_operation=task_operation,
+                adopted_resource_policy=resource_policy,
+                current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else state.current_step_id,
+                runtime_context_manager=runtime_context_manager,
+                tool_runtime_executor=tool_runtime_executor,
+                event=event,
                 )
                 for runtime_event in runtime_events:
                     if runtime_event.event_type == "executor_observation_received":
@@ -819,6 +1196,166 @@ class TaskRunLoop:
                                     tool_call_id=str(observation_payload.get("tool_call_id") or observation_ref),
                                 )
                             )
+                            operation_id = resolve_tool_operation_id(
+                                str(observation_payload.get("tool_name") or ""),
+                                definitions_by_name=self.tool_authorization_index.definitions_by_name,
+                            )
+                            current_step = current_task_step_run(runtime_task_ledger)
+                            if (
+                                runtime_task_ledger is not None
+                                and current_step is not None
+                                and current_step.status == "running"
+                                and current_step.executor_type in {"tool", "worker", "agent"}
+                                and step_supports_operation(current_step, operation_id)
+                            ):
+                                runtime_task_ledger = complete_task_run_step(
+                                    runtime_task_ledger,
+                                    step_id=current_step.step_id,
+                                    completed_at=time.time(),
+                                    observation_refs=(observation_ref,),
+                                    output_refs=(observation_ref,),
+                                    step_result_ref=observation_ref,
+                                    executor_ref=str(observation_payload.get("tool_name") or operation_id),
+                                    diagnostics={
+                                        "transition_reason": "tool_result_received",
+                                        "operation_id": operation_id,
+                                    },
+                                )
+                                completed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
+                                if completed_step is not None:
+                                    step_completed_event = self._record_task_run_step_event(
+                                        state.task_run_id,
+                                        event_type="step_completed",
+                                        step_run=completed_step,
+                                        ledger=runtime_task_ledger,
+                                        reason="tool_result_received",
+                                        refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                                    )
+                                    yield {"type": "runtime_loop_event", "event": step_completed_event.to_dict()}
+                                runtime_task_ledger = advance_task_run_ledger(
+                                    runtime_task_ledger,
+                                    started_at=time.time(),
+                                    diagnostics={
+                                        "transition_reason": "tool_result_received",
+                                        "operation_id": operation_id,
+                                    },
+                                )
+                                ledger_event = self._record_task_run_ledger_updated(
+                                    state.task_run_id,
+                                    ledger=runtime_task_ledger,
+                                    reason="tool_result_received",
+                                    refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                                )
+                                yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                                entered_step = current_task_step_run(runtime_task_ledger)
+                                if entered_step is not None and entered_step.step_id != current_step.step_id:
+                                    step_entered_event = self._record_task_run_step_event(
+                                        state.task_run_id,
+                                        event_type="step_entered",
+                                        step_run=entered_step,
+                                        ledger=runtime_task_ledger,
+                                        reason="tool_result_received",
+                                        refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                                    )
+                                    yield {"type": "runtime_loop_event", "event": step_entered_event.to_dict()}
+                                state = self._state_with_task_run_ledger(
+                                    state,
+                                    runtime_task_ledger,
+                                    result_refs=result_refs,
+                                    diagnostics={"last_step_transition": "tool_result_received"},
+                                )
+                                checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                                yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                        elif observation.get("observation_type") == "executor_error":
+                            terminal_reason = "executor_failed"
+                            current_step = current_task_step_run(runtime_task_ledger)
+                            if (
+                                runtime_task_ledger is not None
+                                and current_step is not None
+                                and current_step.status == "running"
+                                and current_step.executor_type in {"tool", "worker", "agent"}
+                            ):
+                                error_text = str(dict(observation.get("payload") or {}).get("error") or "executor_failed")
+                                runtime_task_ledger = fail_task_run_step(
+                                    runtime_task_ledger,
+                                    step_id=current_step.step_id,
+                                    completed_at=time.time(),
+                                    failure_reason=error_text,
+                                    observation_refs=(observation_ref,),
+                                    output_refs=(observation_ref,),
+                                    step_result_ref=observation_ref,
+                                    executor_ref=str(observation.get("source") or current_step.executor_ref),
+                                    diagnostics={"transition_reason": "executor_error_observation"},
+                                )
+                                failed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
+                                if failed_step is not None:
+                                    step_failed_event = self._record_task_run_step_event(
+                                        state.task_run_id,
+                                        event_type="step_failed",
+                                        step_run=failed_step,
+                                        ledger=runtime_task_ledger,
+                                        reason="executor_error_observation",
+                                        refs={"observation_ref": observation_ref},
+                                    )
+                                    yield {"type": "runtime_loop_event", "event": step_failed_event.to_dict()}
+                                ledger_event = self._record_task_run_ledger_updated(
+                                    state.task_run_id,
+                                    ledger=runtime_task_ledger,
+                                    reason="executor_error_observation",
+                                    refs={"observation_ref": observation_ref},
+                                    diagnostics={"terminal_reason": "executor_failed"},
+                                )
+                                yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                                state = self._state_with_task_run_ledger(
+                                    state,
+                                    runtime_task_ledger,
+                                    result_refs=result_refs,
+                                    diagnostics={"last_step_transition": "executor_error_observation"},
+                                )
+                                checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                                yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                    elif runtime_event.event_type == "loop_error":
+                        terminal_reason = "executor_failed"
+                        current_step = current_task_step_run(runtime_task_ledger)
+                        if (
+                            runtime_task_ledger is not None
+                            and current_step is not None
+                            and current_step.status == "running"
+                            and current_step.executor_type in {"tool", "worker", "agent"}
+                        ):
+                            error_text = str(runtime_event.payload.get("error") or "executor_failed")
+                            runtime_task_ledger = fail_task_run_step(
+                                runtime_task_ledger,
+                                step_id=current_step.step_id,
+                                completed_at=time.time(),
+                                failure_reason=error_text,
+                                diagnostics={"transition_reason": "loop_error"},
+                            )
+                            failed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
+                            if failed_step is not None:
+                                step_failed_event = self._record_task_run_step_event(
+                                    state.task_run_id,
+                                    event_type="step_failed",
+                                    step_run=failed_step,
+                                    ledger=runtime_task_ledger,
+                                    reason="loop_error",
+                                )
+                                yield {"type": "runtime_loop_event", "event": step_failed_event.to_dict()}
+                            ledger_event = self._record_task_run_ledger_updated(
+                                state.task_run_id,
+                                ledger=runtime_task_ledger,
+                                reason="loop_error",
+                                diagnostics={"terminal_reason": "executor_failed"},
+                            )
+                            yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                            state = self._state_with_task_run_ledger(
+                                state,
+                                runtime_task_ledger,
+                                result_refs=result_refs,
+                                diagnostics={"last_step_transition": "loop_error"},
+                            )
+                            checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                            yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
                     elif runtime_event.event_type == "output_boundary_applied":
                         result_refs.append(f"output_boundary:{runtime_event.event_id}")
                     elif runtime_event.event_type == "commit_gate_checked":
@@ -912,27 +1449,73 @@ class TaskRunLoop:
             content=final_content,
             **final_answer_metadata,
         )
-        task_result = _build_runtime_task_result(
-            task_run_id=terminal_state.task_run_id,
-            task_id=task_id,
-            task_spec_payload=task_spec_payload,
-            selected_template_payload=selected_template_payload,
-            result_refs=result_refs,
+        output_refs = [
+            item["task_id"]
+            for item in final_task_summary_refs
+            if str(item.get("task_id") or "").strip()
+        ]
+        output_refs.extend(
+            item["task_id"]
+            for item in final_bundle_summary_refs
+            if str(item.get("task_id") or "").strip()
+        )
+        final_task_run_ledger, ledger_transitions = _finalize_runtime_task_run_ledger(
+            ledger=runtime_task_ledger,
             terminal_reason=terminal_reason,
             final_content=final_content,
-            final_answer_metadata=final_answer_metadata,
-            final_main_context=final_main_context,
-            final_task_summary_refs=final_task_summary_refs,
-            final_bundle_summary_refs=final_bundle_summary_refs,
-            tool_observation_count=tool_observation_count,
+            output_refs=tuple(_dedupe_refs([*result_refs, *output_refs])),
         )
-        final_task_run_ledger = _build_final_task_run_ledger(
-            task_run_id=terminal_state.task_run_id,
-            task_contract_ref=task_contract_ref,
-            task_spec_payload=task_spec_payload,
-            selected_template_payload=selected_template_payload,
-            task_result=task_result,
-            terminal_reason=terminal_reason,
+        if final_task_run_ledger is not None:
+            for transition in ledger_transitions:
+                step_run = transition["step_run"]
+                step_event = self._record_task_run_step_event(
+                    terminal_state.task_run_id,
+                    event_type=transition["event_type"],
+                    step_run=step_run,
+                    ledger=final_task_run_ledger,
+                    reason=transition["reason"],
+                    diagnostics=dict(transition.get("diagnostics") or {}),
+                )
+                yield {"type": "runtime_loop_event", "event": step_event.to_dict()}
+            ledger_event = self._record_task_run_ledger_updated(
+                terminal_state.task_run_id,
+                ledger=final_task_run_ledger,
+                reason="terminal_projection",
+                diagnostics={"terminal_reason": terminal_reason},
+            )
+            yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+            terminal_state = self._state_with_task_run_ledger(
+                terminal_state,
+                final_task_run_ledger,
+                result_refs=result_refs,
+                diagnostics={"last_step_transition": "terminal_projection"},
+            )
+            checkpoint_event = self._write_checkpoint_event(terminal_state, event_offset=ledger_event.offset)
+            yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+        task_result = (
+            project_task_result_from_ledger(
+                final_task_run_ledger,
+                result_id=f"taskresult:{terminal_state.task_run_id}",
+                status="completed" if terminal_reason == "completed" else "failed",
+                terminal_reason=terminal_reason,
+                result_refs=tuple(_dedupe_refs(result_refs)),
+                output_refs=tuple(_dedupe_refs(output_refs)),
+                final_outputs={
+                    "final_answer": final_content,
+                    "main_context": dict(final_main_context),
+                    "task_summary_refs": [dict(item) for item in final_task_summary_refs],
+                    "bundle_summary_refs": [dict(item) for item in final_bundle_summary_refs],
+                    "answer_metadata": dict(final_answer_metadata),
+                },
+                diagnostics={
+                    "tool_observation_count": int(tool_observation_count or 0),
+                    "final_content_chars": len(str(final_content or "")),
+                    "bundle_result_count": len(final_bundle_summary_refs),
+                    "task_summary_count": len(final_task_summary_refs),
+                },
+            )
+            if final_task_run_ledger is not None
+            else None
         )
         if final_task_run_ledger is not None and final_task_run_ledger.ledger_id not in result_refs:
             result_refs.append(final_task_run_ledger.ledger_id)
@@ -1027,7 +1610,7 @@ class TaskRunLoop:
             task_run_id=terminal_state.task_run_id,
             status=terminal_state.status,
             turn_count=turn_count,
-            step_count=max(0, turn_count - 1),
+            step_count=task_run_step_count(final_task_run_ledger),
             current_step_id=final_task_run_ledger.current_step_id if final_task_run_ledger is not None else terminal_state.current_step_id,
             agent_id=terminal_state.agent_id,
             agent_profile_id=terminal_state.agent_profile_id,
@@ -1119,7 +1702,16 @@ class TaskRunLoop:
         )
 
     def _write_checkpoint_event(self, state: RuntimeLoopState, *, event_offset: int):
-        checkpoint = self.checkpoints.write(state, event_offset=event_offset)
+        execution_summary = self.execution_store.build_summary(state.task_run_id)
+        execution_refs = tuple(str(item) for item in list(execution_summary.get("execution_refs") or []))
+        execution_state_ref = str(execution_summary.get("latest_execution_id") or "")
+        checkpoint = self.checkpoints.write(
+            state,
+            event_offset=event_offset,
+            execution_refs=execution_refs,
+            execution_state_ref=execution_state_ref,
+            execution_summary=execution_summary,
+        )
         return self.event_log.append(
             state.task_run_id,
             "checkpoint_written",
@@ -1127,9 +1719,251 @@ class TaskRunLoop:
                 "checkpoint_id": checkpoint.checkpoint_id,
                 "event_offset": checkpoint.event_offset,
                 "checksum": checkpoint.checksum,
+                "execution_summary": execution_summary,
             },
             refs={"checkpoint_ref": checkpoint.checkpoint_id},
         )
+
+    def _state_with_task_run_ledger(
+        self,
+        state: RuntimeLoopState,
+        ledger: TaskRunLedger | None,
+        *,
+        transition: str | None = None,
+        task_result_ref: str | None = None,
+        result_refs: list[str] | tuple[str, ...] | None = None,
+        status: str | None = None,
+        terminal_reason: str | None = None,
+        diagnostics: dict[str, Any] | None = None,
+        commit_state: dict[str, Any] | None = None,
+    ) -> RuntimeLoopState:
+        merged_diagnostics = dict(state.diagnostics)
+        if diagnostics:
+            merged_diagnostics.update(diagnostics)
+        return RuntimeLoopState(
+            task_run_id=state.task_run_id,
+            status=status or state.status,
+            turn_count=state.turn_count,
+            step_count=task_run_step_count(ledger),
+            current_step_id=ledger.current_step_id if ledger is not None else state.current_step_id,
+            agent_id=state.agent_id,
+            agent_profile_id=state.agent_profile_id,
+            runtime_lane=state.runtime_lane,
+            task_agent_binding_ref=state.task_agent_binding_ref,
+            task_template_id=ledger.template_id if ledger is not None else state.task_template_id,
+            task_spec_ref=ledger.task_spec_ref if ledger is not None else state.task_spec_ref,
+            task_result_ref=task_result_ref if task_result_ref is not None else state.task_result_ref,
+            skill_workflow_ref=state.skill_workflow_ref,
+            health_issue_ref=state.health_issue_ref,
+            transition=transition or state.transition,
+            terminal_reason=terminal_reason if terminal_reason is not None else state.terminal_reason,
+            messages_ref=state.messages_ref,
+            context_snapshot_ref=state.context_snapshot_ref,
+            memory_state_ref=state.memory_state_ref,
+            projection_ref=state.projection_ref,
+            prompt_manifest_ref=state.prompt_manifest_ref,
+            pending_action_requests=state.pending_action_requests,
+            pending_approval_state=state.pending_approval_state,
+            denial_tracking_state=state.denial_tracking_state,
+            token_pressure=state.token_pressure,
+            compaction_state=state.compaction_state,
+            result_refs=tuple(result_refs) if result_refs is not None else state.result_refs,
+            commit_state=dict(commit_state or state.commit_state),
+            diagnostics=merged_diagnostics,
+        )
+
+    def _record_task_run_step_event(
+        self,
+        task_run_id: str,
+        *,
+        event_type: str,
+        step_run: TaskStepRun,
+        ledger: TaskRunLedger,
+        reason: str,
+        refs: dict[str, str] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+    ):
+        payload = {
+            "step_run": step_run.to_dict(),
+            "task_run_ledger": ledger.to_dict(),
+            "reason": reason,
+        }
+        if diagnostics:
+            payload["diagnostics"] = dict(diagnostics)
+        return self.event_log.append(
+            task_run_id,
+            event_type,
+            payload=payload,
+            refs={
+                "task_run_ledger_ref": ledger.ledger_id,
+                "task_step_ref": step_run.step_id,
+                **dict(refs or {}),
+            },
+        )
+
+    def _record_task_run_ledger_updated(
+        self,
+        task_run_id: str,
+        *,
+        ledger: TaskRunLedger,
+        reason: str,
+        refs: dict[str, str] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+    ):
+        payload = {
+            "task_run_ledger": ledger.to_dict(),
+            "reason": reason,
+        }
+        if diagnostics:
+            payload["diagnostics"] = dict(diagnostics)
+        return self.event_log.append(
+            task_run_id,
+            "task_run_ledger_updated",
+            payload=payload,
+            refs={
+                "task_run_ledger_ref": ledger.ledger_id,
+                "current_step_id": str(ledger.current_step_id or ""),
+                **dict(refs or {}),
+            },
+        )
+
+    def _record_execution_event(
+        self,
+        task_run_id: str,
+        *,
+        event_type: str,
+        record: OperationExecutionRecord,
+        reason: str,
+        refs: dict[str, str] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+    ):
+        payload = {
+            "execution_record": record.to_dict(),
+            "reason": reason,
+        }
+        if diagnostics:
+            payload["diagnostics"] = dict(diagnostics)
+        return self.event_log.append(
+            task_run_id,
+            event_type,
+            payload=payload,
+            refs={
+                "execution_ref": record.execution_id,
+                "action_request_ref": record.request_ref,
+                "directive_ref": record.directive_ref,
+                "operation_id": record.operation_id,
+                "task_step_ref": record.step_id,
+                **dict(refs or {}),
+            },
+        )
+
+    def _prepare_tool_execution(
+        self,
+        *,
+        task_run_id: str,
+        step_id: str,
+        action_request: Any,
+        directive_ref: str,
+        operation_id: str,
+        descriptor: Any,
+        tool_name: str,
+    ) -> tuple[OperationExecutionRecord, list[Any], str]:
+        request_fingerprint = build_request_fingerprint(
+            step_id=step_id,
+            operation_id=operation_id,
+            payload=dict(action_request.payload or {}),
+        )
+        idempotency_token = build_idempotency_token(
+            task_run_id=task_run_id,
+            step_id=step_id,
+            operation_id=operation_id,
+            request_fingerprint=request_fingerprint,
+        )
+        replay_policy = derive_replay_policy(descriptor)
+        existing = self.execution_store.find_by_fingerprint(
+            task_run_id=task_run_id,
+            step_id=step_id,
+            operation_id=operation_id,
+            request_fingerprint=request_fingerprint,
+        )
+        record = self.execution_store.create_record(
+            task_run_id=task_run_id,
+            step_id=step_id,
+            action_request=action_request,
+            directive_ref=directive_ref,
+            operation_id=operation_id,
+            executor_type="tool",
+            replay_policy=replay_policy,
+            request_fingerprint=request_fingerprint,
+            idempotency_token=idempotency_token,
+            diagnostics={"tool_name": tool_name},
+        )
+        events = [
+            self._record_execution_event(
+                task_run_id,
+                event_type="execution_record_created",
+                record=record,
+                reason="tool_call_requested",
+            )
+        ]
+        if existing is None or existing.execution_id == record.execution_id:
+            return record, events, "dispatch"
+        if replay_policy == "reuse_completed_result" and existing.status in {"completed", "reused_completed_result"}:
+            record = self.execution_store.mark_reused(
+                record,
+                result_ref=existing.result_ref,
+                result_payload=dict(existing.result_payload or {}),
+                diagnostics={"source_execution_id": existing.execution_id},
+            )
+            events.append(
+                self._record_execution_event(
+                    task_run_id,
+                    event_type="recovery_replay_decided",
+                    record=record,
+                    reason="reuse_completed_result",
+                    diagnostics={"source_execution_id": existing.execution_id},
+                )
+            )
+            events.append(
+                self._record_execution_event(
+                    task_run_id,
+                    event_type="execution_result_reused",
+                    record=record,
+                    reason="reuse_completed_result",
+                    diagnostics={"source_execution_id": existing.execution_id},
+                )
+            )
+            return record, events, "reuse_completed_result"
+        if replay_policy in {"deny_auto_replay", "manual_recovery_required"} and existing.status in {
+            "completed",
+            "dispatched",
+            "reused_completed_result",
+        }:
+            record = self.execution_store.mark_replay_suppressed(
+                record,
+                error="replay_denied",
+                diagnostics={"source_execution_id": existing.execution_id},
+            )
+            events.append(
+                self._record_execution_event(
+                    task_run_id,
+                    event_type="recovery_replay_decided",
+                    record=record,
+                    reason="deny_auto_replay",
+                    diagnostics={"source_execution_id": existing.execution_id},
+                )
+            )
+            events.append(
+                self._record_execution_event(
+                    task_run_id,
+                    event_type="replay_guard_triggered",
+                    record=record,
+                    reason="deny_auto_replay",
+                    diagnostics={"source_execution_id": existing.execution_id},
+                )
+            )
+            return record, events, "deny_auto_replay"
+        return record, events, "dispatch"
 
     def _tool_instances_for_resource_policy(self, tool_instances: list[Any] | None, resource_policy: Any) -> list[Any]:
         from tools.authorization import build_authorized_tool_set
@@ -1162,6 +1996,7 @@ class TaskRunLoop:
         task_id: str,
         task_operation: dict[str, Any],
         adopted_resource_policy: Any,
+        current_step_id: str,
         runtime_context_manager: RuntimeContextManager,
         tool_runtime_executor: Any | None,
         event: dict[str, Any],
@@ -1214,7 +2049,7 @@ class TaskRunLoop:
         if event_type == "tool_call_requested":
             from tools.authorization import resolve_tool_operation_id
 
-            action_request = build_tool_action_request(task_run_id, event)
+            action_request = build_tool_action_request(task_run_id, event, step_id=current_step_id)
             requested_event = self.event_log.append(
                 task_run_id,
                 "tool_call_requested",
@@ -1276,43 +2111,153 @@ class TaskRunLoop:
             )
             events = [requested_event, directive_event, gate_event]
             if gate_result.allowed and tool_runtime_executor is not None:
+                step_id = str(current_step_id or action_request.step_id or "")
+                tool_name = str(action_request.payload.get("tool_name") or "")
+                execution_record, execution_events, execution_decision = self._prepare_tool_execution(
+                    task_run_id=task_run_id,
+                    step_id=step_id,
+                    action_request=action_request,
+                    directive_ref=tool_directive.directive_id,
+                    operation_id=operation_id,
+                    descriptor=descriptor,
+                    tool_name=tool_name,
+                )
+                events.extend(execution_events)
+                if execution_decision == "reuse_completed_result":
+                    reused_payload = dict(execution_record.result_payload or {})
+                    reused_observation = build_tool_result_observation(
+                        task_run_id=task_run_id,
+                        request_ref=action_request.request_id,
+                        directive_ref=tool_directive.directive_id,
+                        tool_name=str(reused_payload.get("tool_name") or tool_name),
+                        tool_call_id=str(
+                            reused_payload.get("tool_call_id")
+                            or dict(action_request.payload.get("tool_call") or {}).get("id")
+                            or action_request.request_id
+                        ),
+                        tool_args=dict(reused_payload.get("tool_args") or dict(action_request.payload.get("tool_call") or {}).get("args") or {}),
+                        result=reused_payload.get("result") or "",
+                        truncated=bool(reused_payload.get("truncated") is True),
+                        execution_receipt=build_execution_receipt(
+                            execution_record,
+                            reused_previous_result=True,
+                        ).to_dict(),
+                        result_ref=str(execution_record.result_ref or ""),
+                    )
+                    context_record = runtime_context_manager.record_observation(reused_observation)
+                    tool_result_event = self.event_log.append(
+                        task_run_id,
+                        "tool_result_received",
+                        payload={
+                            "observation": reused_observation.to_dict(),
+                            "context_record": context_record.to_dict(),
+                        },
+                        refs={
+                            "action_request_ref": action_request.request_id,
+                            "directive_ref": tool_directive.directive_id,
+                            "observation_ref": reused_observation.observation_id,
+                            "execution_ref": execution_record.execution_id,
+                        },
+                    )
+                    observation_event = self.event_log.append(
+                        task_run_id,
+                        "executor_observation_received",
+                        payload={
+                            "observation": reused_observation.to_dict(),
+                            "context_record": context_record.to_dict(),
+                            "source": reused_observation.source,
+                            "content_chars": reused_observation.content_chars,
+                        },
+                        refs={
+                            "action_request_ref": action_request.request_id,
+                            "directive_ref": tool_directive.directive_id,
+                            "observation_ref": reused_observation.observation_id,
+                            "execution_ref": execution_record.execution_id,
+                        },
+                    )
+                    events.extend([tool_result_event, observation_event])
+                    return events
+                if execution_decision == "deny_auto_replay":
+                    error_message = "Tool execution replay denied because the operation is not replay-safe."
+                    error_event = self.event_log.append(
+                        task_run_id,
+                        "loop_error",
+                        payload={
+                            "error": error_message,
+                            "answer_source": "runtime_execution_replay_guard",
+                            "execution_record": execution_record.to_dict(),
+                        },
+                        refs={
+                            "action_request_ref": action_request.request_id,
+                            "directive_ref": tool_directive.directive_id,
+                            "execution_ref": execution_record.execution_id,
+                            "operation_id": operation_id,
+                        },
+                    )
+                    events.append(error_event)
+                    return events
+                dispatch_event = self._record_execution_event(
+                    task_run_id,
+                    event_type="execution_dispatch_started",
+                    record=execution_record,
+                    reason="tool_dispatch_started",
+                )
+                events.append(dispatch_event)
                 max_chars = int(dict(gate_result.diagnostics or {}).get("max_result_size_chars") or 0)
-                observation = await tool_runtime_executor.run(
+                execution_outcome = await tool_runtime_executor.run(
                     task_run_id=task_run_id,
                     action_request=action_request,
                     directive=tool_directive,
+                    execution_record=execution_record,
+                    execution_store=self.execution_store,
                     max_result_size_chars=max_chars,
                 )
-                context_record = runtime_context_manager.record_observation(observation)
-                tool_result_event = self.event_log.append(
-                    task_run_id,
-                    "tool_result_received",
-                    payload={
-                        "observation": observation.to_dict(),
-                        "context_record": context_record.to_dict(),
-                    },
-                    refs={
-                        "action_request_ref": action_request.request_id,
-                        "directive_ref": tool_directive.directive_id,
-                        "observation_ref": observation.observation_id,
-                    },
-                )
-                observation_event = self.event_log.append(
-                    task_run_id,
-                    "executor_observation_received",
-                    payload={
-                        "observation": observation.to_dict(),
-                        "context_record": context_record.to_dict(),
-                        "source": observation.source,
-                        "content_chars": observation.content_chars,
-                    },
-                    refs={
-                        "action_request_ref": action_request.request_id,
-                        "directive_ref": tool_directive.directive_id,
-                        "observation_ref": observation.observation_id,
-                    },
-                )
-                events.extend([tool_result_event, observation_event])
+                final_record = execution_outcome.get("execution_record")
+                if isinstance(final_record, OperationExecutionRecord):
+                    events.append(
+                        self._record_execution_event(
+                            task_run_id,
+                            event_type="execution_result_recorded",
+                            record=final_record,
+                            reason="tool_execution_finished",
+                        )
+                    )
+                observation = execution_outcome.get("observation")
+                if observation is not None:
+                    context_record = runtime_context_manager.record_observation(observation)
+                    if observation.observation_type == "tool_result":
+                        tool_result_event = self.event_log.append(
+                            task_run_id,
+                            "tool_result_received",
+                            payload={
+                                "observation": observation.to_dict(),
+                                "context_record": context_record.to_dict(),
+                            },
+                            refs={
+                                "action_request_ref": action_request.request_id,
+                                "directive_ref": tool_directive.directive_id,
+                                "observation_ref": observation.observation_id,
+                                "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
+                            },
+                        )
+                        events.append(tool_result_event)
+                    observation_event = self.event_log.append(
+                        task_run_id,
+                        "executor_observation_received",
+                        payload={
+                            "observation": observation.to_dict(),
+                            "context_record": context_record.to_dict(),
+                            "source": observation.source,
+                            "content_chars": observation.content_chars,
+                        },
+                        refs={
+                            "action_request_ref": action_request.request_id,
+                            "directive_ref": tool_directive.directive_id,
+                            "observation_ref": observation.observation_id,
+                            "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
+                        },
+                    )
+                    events.append(observation_event)
             return events
         if event_type == "output_boundary":
             return [
@@ -1374,174 +2319,154 @@ def _build_initial_task_run_ledger(
     )
 
 
-def _build_final_task_run_ledger(
+def _finalize_runtime_task_run_ledger(
     *,
-    task_run_id: str,
-    task_contract_ref: str,
-    task_spec_payload: dict[str, Any],
-    selected_template_payload: dict[str, Any],
-    task_result: TaskResult | None,
-    terminal_reason: str,
-) -> TaskRunLedger | None:
-    task_spec = _task_spec_from_payload(task_spec_payload)
-    selected_template = _task_template_from_payload(selected_template_payload)
-    if task_spec is None or selected_template is None:
-        return None
-    step_runs = _final_step_runs(
-        selected_template=selected_template,
-        task_result=task_result,
-        terminal_reason=terminal_reason,
-    )
-    current_step_id = ""
-    if terminal_reason != "completed":
-        pending_step = next((item.step_id for item in step_runs if item.status == "running"), "")
-        current_step_id = pending_step
-    return build_task_run_ledger(
-        task_run_id=task_run_id,
-        task_contract_ref=task_contract_ref,
-        task_spec=task_spec,
-        selected_template=selected_template,
-        status="completed" if terminal_reason == "completed" else "failed",
-        current_step_id=current_step_id,
-        step_runs=step_runs,
-        diagnostics={
-            "terminal_reason": terminal_reason,
-            "step_count": len(step_runs),
-        },
-    )
-
-
-def _build_runtime_task_result(
-    *,
-    task_run_id: str,
-    task_id: str,
-    task_spec_payload: dict[str, Any],
-    selected_template_payload: dict[str, Any],
-    result_refs: list[str],
+    ledger: TaskRunLedger | None,
     terminal_reason: str,
     final_content: str,
-    final_answer_metadata: dict[str, Any],
-    final_main_context: dict[str, Any],
-    final_task_summary_refs: list[dict[str, Any]],
-    final_bundle_summary_refs: list[dict[str, Any]],
-    tool_observation_count: int,
-) -> TaskResult | None:
-    task_spec = _task_spec_from_payload(task_spec_payload)
-    selected_template = _task_template_from_payload(selected_template_payload)
-    if task_spec is None or selected_template is None:
-        return None
-    output_refs = [
-        item["task_id"]
-        for item in final_task_summary_refs
-        if str(item.get("task_id") or "").strip()
-    ]
-    output_refs.extend(
-        item["task_id"]
-        for item in final_bundle_summary_refs
-        if str(item.get("task_id") or "").strip()
-    )
-    step_runs = _final_step_runs(
-        selected_template=selected_template,
-        task_result=None,
-        terminal_reason=terminal_reason,
-        has_final_content=bool(str(final_content or "").strip()),
-        has_tool_observation=tool_observation_count > 0,
-        result_refs=result_refs,
-    )
-    return TaskResult(
-        result_id=f"taskresult:{task_run_id}",
-        task_run_id=task_run_id,
-        task_id=task_id,
-        task_spec_ref=task_spec.task_spec_ref,
-        template_id=selected_template.template_id,
-        status="completed" if terminal_reason == "completed" else "failed",
-        terminal_reason=terminal_reason,
-        requested_outputs=tuple(task_spec.requested_outputs),
-        result_refs=tuple(_dedupe_refs(result_refs)),
-        output_refs=tuple(_dedupe_refs(output_refs)),
-        step_runs=step_runs,
-        final_outputs={
-            "final_answer": final_content,
-            "main_context": dict(final_main_context),
-            "task_summary_refs": [dict(item) for item in final_task_summary_refs],
-            "bundle_summary_refs": [dict(item) for item in final_bundle_summary_refs],
-            "answer_metadata": dict(final_answer_metadata),
-        },
-        refs={
-            "task_spec_ref": task_spec.task_spec_ref,
-            "template_id": selected_template.template_id,
-        },
-        diagnostics={
-            "tool_observation_count": int(tool_observation_count or 0),
-            "final_content_chars": len(str(final_content or "")),
-            "bundle_result_count": len(final_bundle_summary_refs),
-            "task_summary_count": len(final_task_summary_refs),
-        },
-    )
-
-
-def _final_step_runs(
-    *,
-    selected_template: TaskTemplate,
-    task_result: TaskResult | None,
-    terminal_reason: str,
-    has_final_content: bool | None = None,
-    has_tool_observation: bool | None = None,
-    result_refs: list[str] | None = None,
-) -> tuple[TaskStepRun, ...]:
-    if task_result is not None:
-        has_final_content = bool(str(dict(task_result.final_outputs).get("final_answer") or "").strip())
-        has_tool_observation = bool(task_result.diagnostics.get("tool_observation_count"))
-        result_refs = list(task_result.result_refs)
-    final_answer_present = bool(has_final_content)
-    tool_observed = bool(has_tool_observation)
-    refs = tuple(_dedupe_refs(list(result_refs or [])))
-    step_runs: list[TaskStepRun] = []
-    first_tool_completed = False
-    first_any_completed = False
-    finalizer_indexes = [
-        index
-        for index, blueprint in enumerate(selected_template.step_blueprints)
-        if blueprint.step_kind == "finalize" or blueprint.executor_type == "model"
-    ]
-    finalizer_index = finalizer_indexes[-1] if finalizer_indexes else -1
-    for index, blueprint in enumerate(selected_template.step_blueprints):
-        status = "pending"
-        observation_refs: tuple[str, ...] = ()
-        output_refs: tuple[str, ...] = ()
-        if finalizer_index == index and final_answer_present:
-            status = "completed"
-            output_refs = refs
-        elif tool_observed and blueprint.executor_type in {"tool", "worker", "agent"} and not first_tool_completed:
-            status = "completed"
-            observation_refs = refs
-            output_refs = refs
-            first_tool_completed = True
-        elif (tool_observed or final_answer_present) and not first_any_completed:
-            status = "completed"
-            output_refs = refs
-            first_any_completed = True
-        elif terminal_reason != "completed" and index == 0 and not (tool_observed or final_answer_present):
-            status = "running"
-        step_runs.append(
-            TaskStepRun(
-                step_id=blueprint.step_id,
-                title=blueprint.title,
-                step_kind=blueprint.step_kind,
-                executor_type=blueprint.executor_type,
-                status=status,
-                required_operations=tuple(blueprint.required_operations),
-                optional_operations=tuple(blueprint.optional_operations),
-                input_refs=tuple(blueprint.input_refs),
-                output_contract_id=blueprint.output_contract_id,
-                stop_policy=blueprint.stop_policy,
-                observation_refs=observation_refs,
-                output_refs=output_refs,
-            )
+    output_refs: tuple[str, ...],
+) -> tuple[TaskRunLedger | None, list[dict[str, Any]]]:
+    if ledger is None:
+        return None, []
+    transitions: list[dict[str, Any]] = []
+    finalized = ledger
+    if terminal_reason == "completed":
+        while True:
+            current_step = current_task_step_run(finalized)
+            if (
+                current_step is not None
+                and current_step.status == "running"
+                and current_step.stop_policy == "allow_unverified_completion"
+                and current_step.executor_type in {"tool", "worker", "agent"}
+            ):
+                finalized = skip_task_run_step(
+                    finalized,
+                    step_id=current_step.step_id,
+                    completed_at=time.time(),
+                    diagnostics={"transition_reason": "allow_unverified_completion"},
+                )
+                skipped_step = find_task_step_run(finalized, current_step.step_id)
+                if skipped_step is not None:
+                    transitions.append(
+                        {
+                            "event_type": "step_skipped",
+                            "step_run": skipped_step,
+                            "reason": "allow_unverified_completion",
+                        }
+                    )
+                    continue
+            if current_step is None:
+                next_step = next_pending_step_run(finalized)
+                if next_step is None:
+                    break
+                if next_step.stop_policy == "allow_unverified_completion":
+                    finalized = skip_task_run_step(
+                        finalized,
+                        step_id=next_step.step_id,
+                        completed_at=time.time(),
+                        diagnostics={"transition_reason": "allow_unverified_completion"},
+                    )
+                    skipped_step = find_task_step_run(finalized, next_step.step_id)
+                    if skipped_step is not None:
+                        transitions.append(
+                            {
+                                "event_type": "step_skipped",
+                                "step_run": skipped_step,
+                                "reason": "allow_unverified_completion",
+                            }
+                        )
+                    continue
+                if final_content and next_step.executor_type == "model":
+                    finalized = start_task_run_step(
+                        finalized,
+                        step_id=next_step.step_id,
+                        started_at=time.time(),
+                        diagnostics={"transition_reason": "terminal_finalize"},
+                    )
+                    entered_step = current_task_step_run(finalized)
+                    if entered_step is not None:
+                        transitions.append(
+                            {
+                                "event_type": "step_entered",
+                                "step_run": entered_step,
+                                "reason": "terminal_finalize",
+                            }
+                        )
+                    continue
+                break
+            if current_step.status == "pending" and final_content and current_step.executor_type == "model":
+                finalized = start_task_run_step(
+                    finalized,
+                    step_id=current_step.step_id,
+                    started_at=time.time(),
+                    diagnostics={"transition_reason": "terminal_finalize"},
+                )
+                entered_step = current_task_step_run(finalized)
+                if entered_step is not None:
+                    transitions.append(
+                        {
+                            "event_type": "step_entered",
+                            "step_run": entered_step,
+                            "reason": "terminal_finalize",
+                        }
+                    )
+                continue
+            if final_content:
+                finalized = complete_task_run_step(
+                    finalized,
+                    step_id=current_step.step_id,
+                    completed_at=time.time(),
+                    output_refs=output_refs,
+                    step_result_ref=output_refs[0] if output_refs else "",
+                    executor_ref=current_step.executor_ref,
+                    diagnostics={"transition_reason": "terminal_finalize"},
+                )
+                completed_step = find_task_step_run(finalized, current_step.step_id)
+                if completed_step is not None:
+                    transitions.append(
+                        {
+                            "event_type": "step_completed",
+                            "step_run": completed_step,
+                            "reason": "terminal_finalize",
+                        }
+                    )
+                continue
+            break
+        finalized = terminalize_task_run_ledger(
+            finalized,
+            status="completed",
+            current_step_id="",
+            diagnostics={"terminal_reason": terminal_reason},
         )
-        if status == "completed" and blueprint.executor_type not in {"tool", "worker", "agent"}:
-            first_any_completed = True
-    return tuple(step_runs)
+        return finalized, transitions
+
+    current_step = current_task_step_run(finalized)
+    if current_step is not None and current_step.status == "running":
+        finalized = fail_task_run_step(
+            finalized,
+            step_id=current_step.step_id,
+            completed_at=time.time(),
+            failure_reason=terminal_reason,
+            output_refs=output_refs,
+            step_result_ref=output_refs[0] if output_refs else "",
+            diagnostics={"transition_reason": "terminal_failure"},
+        )
+        failed_step = find_task_step_run(finalized, current_step.step_id)
+        if failed_step is not None:
+            transitions.append(
+                {
+                    "event_type": "step_failed",
+                    "step_run": failed_step,
+                    "reason": "terminal_failure",
+                }
+            )
+    finalized = terminalize_task_run_ledger(
+        finalized,
+        status=task_run_terminal_status(terminal_reason),
+        current_step_id=finalized.current_step_id,
+        diagnostics={"terminal_reason": terminal_reason},
+    )
+    return finalized, transitions
 
 
 def _task_spec_from_payload(payload: dict[str, Any]) -> TaskSpec | None:
@@ -1558,7 +2483,15 @@ def _task_spec_from_payload(payload: dict[str, Any]) -> TaskSpec | None:
             bindings=dict(payload.get("bindings") or {}),
             constraints=dict(payload.get("constraints") or {}),
             current_turn_context_ref=str(payload.get("current_turn_context_ref") or ""),
+            task_intent_ref=str(payload.get("task_intent_ref") or ""),
+            template_match_ref=str(payload.get("template_match_ref") or ""),
+            bundle_spec_ref=str(payload.get("bundle_spec_ref") or ""),
+            bundle_item_ref=str(payload.get("bundle_item_ref") or ""),
             requested_outputs=tuple(str(item) for item in list(payload.get("requested_outputs") or [])),
+            step_input_bindings=tuple(
+                _step_input_binding_from_payload(item)
+                for item in list(payload.get("step_input_bindings") or [])
+            ),
             selected_agent_id=str(payload.get("selected_agent_id") or "agent:main"),
             selected_skill_ids=tuple(str(item) for item in list(payload.get("selected_skill_ids") or [])),
             operation_requirement_ref=str(payload.get("operation_requirement_ref") or ""),
@@ -1609,6 +2542,37 @@ def _task_step_blueprint_from_payload(payload: Any) -> TaskStepBlueprint:
         stop_policy=str(data.get("stop_policy") or "on_success"),
         retry_policy=dict(data.get("retry_policy") or {}),
     )
+
+
+def _step_input_binding_from_payload(payload: Any) -> StepInputBinding:
+    data = dict(payload or {})
+    return StepInputBinding(
+        step_id=str(data.get("step_id") or ""),
+        input_refs=tuple(str(item) for item in list(data.get("input_refs") or [])),
+        inherited_parent_refs=tuple(str(item) for item in list(data.get("inherited_parent_refs") or [])),
+        private_state_refs=tuple(str(item) for item in list(data.get("private_state_refs") or [])),
+        output_writebacks=dict(data.get("output_writebacks") or {}),
+        binding_policy=str(data.get("binding_policy") or "inherit_parent_context"),
+    )
+
+
+def _bundle_items_from_runtime_contract(
+    *,
+    task_spec_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    bundle_spec = dict(dict(task_spec_payload.get("inputs") or {}).get("bundle_spec") or {})
+    bundle_spec_items = [
+        dict(item)
+        for item in list(bundle_spec.get("items") or [])
+        if isinstance(item, dict)
+    ]
+    return [
+        {
+            **item,
+            "bundle_id": str(bundle_spec.get("bundle_id") or item.get("bundle_id") or ""),
+        }
+        for item in bundle_spec_items
+    ]
 
 
 def _task_validation_rule_from_payload(payload: Any) -> TaskValidationRule:

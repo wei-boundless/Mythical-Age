@@ -5,6 +5,7 @@ from .action_request import (
     RuntimeObservationType,
     build_executor_error_observation,
     build_model_response_observation,
+    build_tool_execution_error_observation,
     build_tool_result_observation,
     build_tool_action_request,
 )
@@ -17,6 +18,16 @@ from .context_manager import (
 )
 from .event_log import RuntimeEventLog
 from .events import RuntimeEvent, RuntimeEventType
+from .execution_record import (
+    ExecutionReceipt,
+    OperationExecutionRecord,
+    ReplayPolicy,
+    RuntimeExecutionStore,
+    build_execution_receipt,
+    build_idempotency_token,
+    build_request_fingerprint,
+    derive_replay_policy,
+)
 from .loop_control import RuntimeLoopControlDecision, RuntimeLoopLimits, check_runtime_loop_control
 from .model_adoption import build_model_response_runtime_adoption
 from .models import (
@@ -36,6 +47,7 @@ from .tool_repetition_guard import ToolRepetitionGuard
 __all__ = [
     "RuntimeCheckpoint",
     "RuntimeCheckpointStore",
+    "RuntimeExecutionStore",
     "RuntimeActionRequest",
     "RuntimeActionRequestType",
     "RuntimeContextManager",
@@ -50,6 +62,9 @@ __all__ = [
     "RuntimeLoopLimits",
     "RuntimeObservation",
     "RuntimeObservationType",
+    "ReplayPolicy",
+    "ExecutionReceipt",
+    "OperationExecutionRecord",
     "RuntimeStateIndex",
     "RuntimeLoopTraceReader",
     "RuntimeTerminalReason",
@@ -62,10 +77,15 @@ __all__ = [
     "TaskRunStatus",
     "ToolRepetitionGuard",
     "build_executor_error_observation",
+    "build_execution_receipt",
+    "build_idempotency_token",
     "build_model_response_runtime_adoption",
     "build_model_response_observation",
     "build_tool_result_observation",
+    "build_tool_execution_error_observation",
     "build_tool_request_runtime_adoption",
     "build_tool_action_request",
+    "build_request_fingerprint",
+    "derive_replay_policy",
     "check_runtime_loop_control",
 ]

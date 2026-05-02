@@ -24,6 +24,11 @@ def test_search_task_runtime_contract_keeps_resources_out_of_prompt() -> None:
     assert runtime["selected_template"]["template_id"] == "template.search.information_search"
     assert runtime["task_spec"]["template_id"] == "template.search.information_search"
     assert runtime["task_spec"]["task_spec_ref"] == runtime["task_contract"]["task_spec_ref"]
+    assert runtime["task_intent_contract"]["authority"] == "task_system.task_intent_contract"
+    assert runtime["template_match"]["authority"] == "task_system.template_match"
+    assert runtime["task_spec"]["task_intent_ref"] == runtime["task_intent_contract"]["task_intent_id"]
+    assert runtime["task_spec"]["template_match_ref"] == runtime["template_match"]["match_id"]
+    assert runtime["task_spec"]["step_input_bindings"]
 
 
 def test_local_read_summary_runtime_contract_does_not_default_to_web_search() -> None:
@@ -190,4 +195,9 @@ def test_bundle_runtime_contract_exposes_task_spec_and_bundle_template() -> None
     assert runtime["task_contract"]["selected_template_id"] == "template.bundle.multi_capability"
     assert runtime["task_spec"]["template_id"] == "template.bundle.multi_capability"
     assert runtime["task_spec"]["task_spec_ref"] == runtime["task_contract"]["task_spec_ref"]
-    assert len(runtime["task_spec"]["inputs"]["bundle_items"]) == 3
+    assert runtime["bundle_spec"]["authority"] == "task_system.bundle_spec"
+    assert runtime["task_spec"]["bundle_spec_ref"] == runtime["bundle_spec"]["bundle_id"]
+    assert len(runtime["bundle_spec"]["items"]) == 3
+    assert runtime["bundle_spec"]["items"][0]["template_id"] == "template.pdf.document_analysis"
+    assert runtime["task_spec"]["step_input_bindings"][0]["input_refs"] == ["input.bundle_spec"]
+    assert "bundle_items" not in runtime["task_spec"]["inputs"]

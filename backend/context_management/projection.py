@@ -104,10 +104,13 @@ def projection_from_bundle_answer(
         refs.append(
             {
                 "task_id": task_id,
+                "bundle_id": str(item.get("bundle_id") or "").strip(),
+                "item_id": str(item.get("item_id") or "").strip(),
                 "ordinal": ordinal,
                 "query": query,
                 "summary": _compact(summary, 420),
                 "task_kind": task_kind,
+                "template_id": str(item.get("template_id") or "").strip(),
                 "capability_kind": capability,
                 "required_tool": str(item.get("required_tool") or "").strip(),
                 "source": "bundle_answer_projection",
@@ -119,6 +122,7 @@ def projection_from_bundle_answer(
         main_context["active_work_item"] = "bundle"
         main_context["followup_mode"] = "bundle_ref"
         main_context["followup_resolution_source"] = "bundle_answer_projection"
+        main_context["active_bundle_id"] = str(refs[0].get("bundle_id") or "").strip()
         main_context["followup_target_task_ids"] = [str(item.get("task_id") or "") for item in refs if item.get("task_id")]
         main_context["active_constraints"] = {
             **dict(main_context.get("active_constraints") or {}),
@@ -296,10 +300,13 @@ def _bundle_refs_from_summaries(
             {
                 **summary,
                 "task_id": str(summary.get("task_id") or f"bundle:{item.get('ordinal')}:{_slug(item.get('user_text'))}"),
+                "bundle_id": str(item.get("bundle_id") or "").strip(),
+                "item_id": str(item.get("item_id") or "").strip(),
                 "ordinal": _safe_int(item.get("ordinal")),
                 "query": str(summary.get("query") or item.get("user_text") or "").strip(),
                 "summary": str(summary.get("summary") or item.get("user_text") or "").strip(),
                 "task_kind": task_kind,
+                "template_id": str(item.get("template_id") or "").strip(),
                 "capability_kind": capability,
                 "required_tool": str(item.get("required_tool") or "").strip(),
                 "source": str(summary.get("source") or "tool_projection"),

@@ -5,6 +5,7 @@ from typing import Any
 
 from operations import AgentRegistry, build_default_operation_registry
 
+from .match_contracts import TaskIntentContract, TemplateMatchResult
 from .definitions import TaskDefinition
 from .step_models import TaskStepBlueprint
 from .template_models import TaskTemplate, TaskValidationRule
@@ -368,68 +369,243 @@ class TaskTemplateRegistry:
         target = str(template_id or "").strip()
         return next((item for item in self.list_templates() if item.template_id == target), None)
 
-    def select_template(
+    def build_task_intent_contract(
         self,
         *,
+        session_id: str,
+        task_id: str,
         user_goal: str,
         query_understanding: dict[str, Any] | None = None,
         current_turn_context: dict[str, Any] | None = None,
-        definitions: list[TaskDefinition] | None = None,
-    ) -> TaskTemplate:
-        templates = {item.template_id: item for item in self.list_templates()}
+    ) -> TaskIntentContract:
         understanding = dict(query_understanding or {})
         current_turn = dict(current_turn_context or {})
         explicit_inputs = dict(current_turn.get("explicit_inputs") or {})
+        bundle_items = [
+            dict(item)
+            for item in list(current_turn.get("bundle_items") or [])
+            if isinstance(item, dict)
+        ]
+        resolved_bindings = [
+            dict(item)
+            for item in list(current_turn.get("resolved_bindings") or [])
+            if isinstance(item, dict)
+        ]
+        capability_requests = _dedupe(
+            [
+                *[
+                    str(item or "").strip()
+                    for item in list(understanding.get("capability_requests") or [])
+                    if str(item or "").strip()
+                ],
+                *[
+                    str(item or "").strip()
+                    for item in list(explicit_inputs.get("capability_requests") or [])
+                    if str(item or "").strip()
+                ],
+            ]
+        )
+        candidate_template_ids = _intent_candidate_template_ids(
+            explicit_inputs=explicit_inputs,
+            bundle_items=bundle_items,
+            resolved_bindings=resolved_bindings,
+            capability_requests=capability_requests,
+            user_goal=user_goal,
+            query_understanding=understanding,
+            current_turn_context=current_turn,
+        )
+        followup_target_refs = _dedupe(
+            [
+                *[
+                    str(item.get("followup_target_ref") or item.get("target_ref") or "").strip()
+                    for item in bundle_items
+                    if isinstance(item, dict)
+                ],
+                *[
+                    str(item or "").strip()
+                    for item in list(current_turn.get("followup_target_refs") or [])
+                    if str(item or "").strip()
+                ],
+            ]
+        )
+        requested_outputs = _intent_requested_outputs(
+            explicit_inputs=explicit_inputs,
+            bundle_items=bundle_items,
+            capability_requests=capability_requests,
+            current_turn_context=current_turn,
+        )
+        execution_intent = _execution_intent_from_context(
+            current_turn_context=current_turn,
+            bundle_items=bundle_items,
+        )
+        return TaskIntentContract(
+            task_intent_id=f"task-intent:{session_id}:{task_id}",
+            session_id=session_id,
+            task_id=task_id,
+            user_goal=user_goal,
+            intent_kind=str(current_turn.get("intent") or understanding.get("intent") or ""),
+            execution_intent=execution_intent,
+            requested_outputs=tuple(requested_outputs),
+            explicit_inputs=explicit_inputs,
+            source_binding_refs=tuple(
+                _dedupe(
+                    [
+                        str(item.get("binding_id") or "").strip()
+                        for item in resolved_bindings
+                        if str(item.get("binding_id") or "").strip()
+                    ]
+                )
+            ),
+            followup_target_refs=tuple(followup_target_refs),
+            capability_requests=tuple(capability_requests),
+            candidate_template_ids=tuple(candidate_template_ids),
+            diagnostics={
+                "execution_mode": str(current_turn.get("execution_mode") or "single"),
+                "bundle_item_count": len(bundle_items),
+                "route_hint": str(understanding.get("route_hint") or ""),
+                "preferred_skill": str(understanding.get("preferred_skill") or ""),
+                "source_kind": str(understanding.get("source_kind") or ""),
+                "modality": str(understanding.get("modality") or ""),
+            },
+        )
+
+    def match_template(
+        self,
+        *,
+        task_intent_contract: TaskIntentContract,
+        query_understanding: dict[str, Any] | None = None,
+        current_turn_context: dict[str, Any] | None = None,
+        definitions: list[TaskDefinition] | None = None,
+    ) -> TemplateMatchResult:
+        templates = {item.template_id: item for item in self.list_templates()}
+        understanding = dict(query_understanding or {})
+        current_turn = dict(current_turn_context or {})
+        explicit_inputs = dict(task_intent_contract.explicit_inputs or {})
         definition_ids = {
             str(item.definition_id or "").strip()
             for item in list(definitions or [])
             if isinstance(item, TaskDefinition)
-        }
-        candidate_tools = {
-            str(item or "").strip()
-            for item in list(understanding.get("candidate_tools") or [])
-            if str(item or "").strip()
-        }
-        capability_requests = {
-            str(item or "").strip()
-            for item in list(understanding.get("capability_requests") or [])
-            if str(item or "").strip()
         }
         route_hint = str(understanding.get("route_hint") or "").strip()
         execution_posture = str(understanding.get("execution_posture") or "").strip()
         preferred_skill = str(understanding.get("preferred_skill") or "").strip()
         source_kind = str(understanding.get("source_kind") or "").strip()
         modality = str(understanding.get("modality") or "").strip()
-        execution_mode = str(current_turn.get("execution_mode") or "").strip()
-        lowered_goal = str(user_goal or "").lower()
+        lowered_goal = str(task_intent_contract.user_goal or "").lower()
+        capability_requests = set(task_intent_contract.capability_requests)
+        explicit_template_id = str(explicit_inputs.get("explicit_template_id") or "").strip()
 
-        if execution_mode == "bundle":
-            return templates["template.bundle.multi_capability"]
-        if "flow.health.issue_triage" in lowered_goal or "health_issue" in capability_requests:
-            return templates["template.health.issue_triage"]
-        if execution_posture == "direct_rag" or route_hint == "rag" or preferred_skill == "rag-skill":
-            return templates["template.rag.knowledge_answer"]
-        if modality == "pdf" or "document_analysis" in capability_requests or explicit_inputs.get("explicit_pdf_path") or explicit_inputs.get("bound_pdf_path"):
-            return templates["template.pdf.document_analysis"]
-        if (
-            modality == "table"
-            or source_kind == "dataset"
-            or "dataset_analysis" in capability_requests
-            or explicit_inputs.get("explicit_dataset_path")
-            or explicit_inputs.get("bound_dataset_path")
-        ):
-            return templates["template.data.structured_analysis"]
-        if execution_posture == "direct_tool" or route_hint == "tool":
-            return templates["template.capability.direct_tool"]
-        if route_hint == "search" or "task.information_search" in definition_ids:
-            return templates["template.search.information_search"]
-        if _looks_like_light_web_game(lowered_goal):
-            return templates["template.dev.light_web_game"]
-        if source_kind == "workspace" or "task.task_execution" in definition_ids or "task.local_material_read" in definition_ids:
-            return templates["template.dev.workspace_patch"]
-        if candidate_tools & {"read_file", "search_files", "search_text"}:
-            return templates["template.dev.workspace_patch"]
-        return templates["template.chat.general_response"]
+        match_source = "heuristic_fallback"
+        match_reasons: list[str] = []
+        template_id = ""
+
+        if explicit_template_id and explicit_template_id in templates:
+            template_id = explicit_template_id
+            match_source = "explicit_template"
+            match_reasons.append("explicit_template_id")
+        elif task_intent_contract.execution_intent == "bundle_task":
+            template_id = "template.bundle.multi_capability"
+            match_source = "binding_contract"
+            match_reasons.append("bundle_execution_mode")
+        elif task_intent_contract.candidate_template_ids:
+            for candidate_template_id in task_intent_contract.candidate_template_ids:
+                if candidate_template_id in templates:
+                    template_id = candidate_template_id
+                    match_source = "binding_contract"
+                    match_reasons.append(f"candidate_template:{candidate_template_id}")
+                    break
+        elif "flow.health.issue_triage" in lowered_goal or "health_issue" in capability_requests:
+            template_id = "template.health.issue_triage"
+            match_source = "capability_contract"
+            match_reasons.append("health_issue_capability")
+        elif execution_posture == "direct_rag" or route_hint == "rag" or preferred_skill == "rag-skill":
+            template_id = "template.rag.knowledge_answer"
+            match_source = "capability_contract"
+            match_reasons.append("rag_execution_posture")
+        elif route_hint == "search" or "task.information_search" in definition_ids:
+            template_id = "template.search.information_search"
+            match_source = "capability_contract"
+            match_reasons.append("search_route_hint")
+        elif execution_posture == "direct_tool" or route_hint == "tool":
+            template_id = "template.capability.direct_tool"
+            match_source = "capability_contract"
+            match_reasons.append("direct_tool_route")
+        elif _looks_like_light_web_game(lowered_goal):
+            template_id = "template.dev.light_web_game"
+            match_source = "heuristic_fallback"
+            match_reasons.append("light_web_game_phrase")
+        elif source_kind == "workspace" or "task.task_execution" in definition_ids or "task.local_material_read" in definition_ids:
+            template_id = "template.dev.workspace_patch"
+            match_source = "binding_contract"
+            match_reasons.append("workspace_source_kind")
+
+        if not template_id:
+            if modality == "pdf" or explicit_inputs.get("explicit_pdf_path") or explicit_inputs.get("bound_pdf_path"):
+                template_id = "template.pdf.document_analysis"
+                match_source = "binding_contract"
+                match_reasons.append("pdf_binding")
+            elif (
+                modality == "table"
+                or source_kind == "dataset"
+                or explicit_inputs.get("explicit_dataset_path")
+                or explicit_inputs.get("bound_dataset_path")
+            ):
+                template_id = "template.data.structured_analysis"
+                match_source = "binding_contract"
+                match_reasons.append("dataset_binding")
+
+        if not template_id:
+            template_id = "template.chat.general_response"
+            match_reasons.append("fallback_general_response")
+
+        selected_template = templates[template_id]
+        return TemplateMatchResult(
+            match_id=f"template-match:{task_intent_contract.task_id}",
+            task_intent_ref=task_intent_contract.task_intent_id,
+            template_id=selected_template.template_id,
+            match_source=match_source,
+            match_reasons=tuple(match_reasons),
+            fallback_used=match_source == "heuristic_fallback",
+            capability_contract=tuple(task_intent_contract.capability_requests),
+            output_contract=tuple(task_intent_contract.requested_outputs),
+            diagnostics={
+                "definition_ids": sorted(definition_ids),
+                "route_hint": route_hint,
+                "execution_posture": execution_posture,
+                "preferred_skill": preferred_skill,
+                "source_kind": source_kind,
+                "modality": modality,
+                "current_turn_execution_mode": str(current_turn.get("execution_mode") or ""),
+            },
+        )
+
+    def select_template(
+        self,
+        *,
+        session_id: str = "",
+        task_id: str = "",
+        user_goal: str,
+        query_understanding: dict[str, Any] | None = None,
+        current_turn_context: dict[str, Any] | None = None,
+        definitions: list[TaskDefinition] | None = None,
+    ) -> TaskTemplate:
+        task_intent_contract = self.build_task_intent_contract(
+            session_id=session_id or "session",
+            task_id=task_id or "task",
+            user_goal=user_goal,
+            query_understanding=query_understanding,
+            current_turn_context=current_turn_context,
+        )
+        match = self.match_template(
+            task_intent_contract=task_intent_contract,
+            query_understanding=query_understanding,
+            current_turn_context=current_turn_context,
+            definitions=definitions,
+        )
+        template = self.get_template(match.template_id)
+        if template is None:
+            raise ValueError(f"Unknown template selected: {match.template_id}")
+        return template
 
     def build_validation_matrix(self) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
@@ -491,3 +667,108 @@ class TaskTemplateRegistry:
 
 def _looks_like_light_web_game(text: str) -> bool:
     return any(token in text for token in ("贪吃蛇", "小游戏", "game", "snake", "html5 game", "web game"))
+
+
+def _execution_intent_from_context(
+    *,
+    current_turn_context: dict[str, Any],
+    bundle_items: list[dict[str, Any]],
+) -> str:
+    execution_mode = str(current_turn_context.get("execution_mode") or "").strip()
+    if execution_mode == "bundle" or len(bundle_items) > 1:
+        return "bundle_task"
+    if str(current_turn_context.get("intent") or "") == "bundle_followup" and bundle_items:
+        return "bundle_followup_item"
+    return "single_task"
+
+
+def _intent_requested_outputs(
+    *,
+    explicit_inputs: dict[str, Any],
+    bundle_items: list[dict[str, Any]],
+    capability_requests: list[str],
+    current_turn_context: dict[str, Any],
+) -> list[str]:
+    explicit_outputs = [
+        str(item or "").strip()
+        for item in list(explicit_inputs.get("requested_outputs") or [])
+        if str(item or "").strip()
+    ]
+    if explicit_outputs:
+        return explicit_outputs
+    if len(bundle_items) > 1 or str(current_turn_context.get("execution_mode") or "") == "bundle":
+        return ["final_answer", "bundle_result_refs"]
+    if bundle_items:
+        item_outputs = [
+            str(item or "").strip()
+            for item in list(bundle_items[0].get("requested_outputs") or [])
+            if str(item or "").strip()
+        ]
+        if item_outputs:
+            return item_outputs
+    if "document_analysis" in capability_requests:
+        return ["final_answer", "task_summary_refs"]
+    if "dataset_analysis" in capability_requests:
+        return ["final_answer", "task_summary_refs"]
+    return ["final_answer"]
+
+
+def _intent_candidate_template_ids(
+    *,
+    explicit_inputs: dict[str, Any],
+    bundle_items: list[dict[str, Any]],
+    resolved_bindings: list[dict[str, Any]],
+    capability_requests: list[str],
+    user_goal: str,
+    query_understanding: dict[str, Any],
+    current_turn_context: dict[str, Any],
+) -> list[str]:
+    candidates: list[str] = []
+    explicit_template_id = str(explicit_inputs.get("explicit_template_id") or "").strip()
+    if explicit_template_id:
+        candidates.append(explicit_template_id)
+    execution_mode = str(current_turn_context.get("execution_mode") or "").strip()
+    if execution_mode == "bundle" or len(bundle_items) > 1:
+        candidates.append("template.bundle.multi_capability")
+    if len(bundle_items) == 1:
+        item_template = str(bundle_items[0].get("template_id") or "").strip()
+        if item_template:
+            candidates.append(item_template)
+    if explicit_inputs.get("explicit_pdf_path") or explicit_inputs.get("bound_pdf_path"):
+        candidates.append("template.pdf.document_analysis")
+    if explicit_inputs.get("explicit_dataset_path") or explicit_inputs.get("bound_dataset_path"):
+        candidates.append("template.data.structured_analysis")
+    binding_file_kinds = {
+        str(item.get("file_kind") or "").strip()
+        for item in resolved_bindings
+        if str(item.get("binding_kind") or "").strip() == "source_file"
+    }
+    if "pdf" in binding_file_kinds:
+        candidates.append("template.pdf.document_analysis")
+    if "dataset" in binding_file_kinds:
+        candidates.append("template.data.structured_analysis")
+    for request in capability_requests:
+        if request in {"document_analysis", "pdf"}:
+            candidates.append("template.pdf.document_analysis")
+        if request in {"dataset_analysis", "structured_data"}:
+            candidates.append("template.data.structured_analysis")
+        if request in {"weather", "gold_price"}:
+            candidates.append("template.capability.direct_tool")
+    if _looks_like_light_web_game(str(user_goal or "").lower()):
+        candidates.append("template.dev.light_web_game")
+    source_kind = str(query_understanding.get("source_kind") or "").strip()
+    if source_kind == "workspace":
+        candidates.append("template.dev.workspace_patch")
+    return _dedupe(candidates)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result

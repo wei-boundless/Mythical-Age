@@ -32,14 +32,22 @@ class BundleItem:
     item_id: str
     ordinal: int
     user_text: str
+    bundle_id: str = ""
+    template_id: str = ""
     capability_kind: str = ""
     required_tool: str = ""
+    requested_outputs: tuple[str, ...] = ()
+    inherited_binding_refs: tuple[str, ...] = ()
+    followup_target_ref: str = ""
+    target_ref: str = ""
     target_binding: ResolvedBinding | None = None
     output_requirement: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["requested_outputs"] = list(self.requested_outputs)
+        payload["inherited_binding_refs"] = list(self.inherited_binding_refs)
         payload["target_binding"] = self.target_binding.to_dict() if self.target_binding is not None else None
         return payload
 
@@ -51,9 +59,11 @@ class CurrentTurnContext:
     user_message: str
     intent: str = ""
     execution_mode: ExecutionMode = "single"
+    bundle_id: str = ""
     explicit_inputs: dict[str, Any] = field(default_factory=dict)
     resolved_bindings: tuple[ResolvedBinding, ...] = ()
     bundle_items: tuple[BundleItem, ...] = ()
+    followup_target_refs: tuple[str, ...] = ()
     restore_candidates_used: tuple[str, ...] = ()
     unresolved_ambiguities: tuple[str, ...] = ()
     confidence: float = 0.0
@@ -71,7 +81,7 @@ class CurrentTurnContext:
         payload = asdict(self)
         payload["resolved_bindings"] = [item.to_dict() for item in self.resolved_bindings]
         payload["bundle_items"] = [item.to_dict() for item in self.bundle_items]
+        payload["followup_target_refs"] = list(self.followup_target_refs)
         payload["restore_candidates_used"] = list(self.restore_candidates_used)
         payload["unresolved_ambiguities"] = list(self.unresolved_ambiguities)
         return payload
-

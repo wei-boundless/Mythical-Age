@@ -29,11 +29,15 @@ def test_context_resolver_builds_bundle_items_for_compound_request() -> None:
 
     assert context.execution_mode == "bundle"
     assert context.bundle_item_count == 3
+    assert context.bundle_id == "bundle:task-1"
     assert [item.required_tool for item in context.bundle_items] == [
         "pdf_analysis",
         "structured_data_analysis",
         "get_weather",
     ]
+    assert context.bundle_items[0].template_id == "template.pdf.document_analysis"
+    assert context.bundle_items[0].item_id == "bundle:task-1:item:1"
+    assert context.bundle_items[1].template_id == "template.data.structured_analysis"
 
 
 def test_context_resolver_prefers_explicit_input_over_state_binding() -> None:
@@ -141,3 +145,5 @@ def test_context_resolver_binds_ordinal_followup_to_previous_bundle_item() -> No
     assert context.resolved_bindings[0].binding_kind == "task_ref"
     assert context.resolved_bindings[0].metadata["ordinal"] == 2
     assert context.resolved_bindings[0].metadata["task_kind"] == "structured_data"
+    assert context.bundle_items[0].template_id == "template.data.structured_analysis"
+    assert context.followup_target_refs == ("bundle:2:inventory",)

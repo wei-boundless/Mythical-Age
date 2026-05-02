@@ -221,6 +221,55 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "execution_state": str(request_payload.get("execution_state") or ""),
             }
         )
+    elif event_type in {
+        "execution_record_created",
+        "execution_dispatch_started",
+        "execution_result_recorded",
+        "execution_result_reused",
+        "replay_guard_triggered",
+        "recovery_replay_decided",
+    }:
+        record = dict(payload.get("execution_record") or {})
+        summary.update(
+            {
+                "execution_id": str(record.get("execution_id") or ""),
+                "step_id": str(record.get("step_id") or ""),
+                "operation_id": str(record.get("operation_id") or ""),
+                "status": str(record.get("status") or ""),
+                "replay_policy": str(record.get("replay_policy") or ""),
+                "request_ref": str(record.get("request_ref") or ""),
+                "result_ref": str(record.get("result_ref") or ""),
+                "reason": str(payload.get("reason") or ""),
+            }
+        )
+    elif event_type in {"step_entered", "step_completed", "step_failed", "step_skipped"}:
+        step_run = dict(payload.get("step_run") or {})
+        summary.update(
+            {
+                "step_id": str(step_run.get("step_id") or ""),
+                "step_kind": str(step_run.get("step_kind") or ""),
+                "executor_type": str(step_run.get("executor_type") or ""),
+                "status": str(step_run.get("status") or ""),
+                "attempt_count": int(step_run.get("attempt_count") or 0),
+                "failure_reason": str(step_run.get("failure_reason") or ""),
+                "reason": str(payload.get("reason") or ""),
+            }
+        )
+    elif event_type == "task_run_ledger_updated":
+        ledger = dict(payload.get("task_run_ledger") or {})
+        step_runs = list(ledger.get("step_runs") or [])
+        summary.update(
+            {
+                "ledger_id": str(ledger.get("ledger_id") or ""),
+                "status": str(ledger.get("status") or ""),
+                "current_step_id": str(ledger.get("current_step_id") or ""),
+                "step_count": len(step_runs),
+                "completed_step_count": sum(
+                    1 for item in step_runs if str(dict(item).get("status") or "") in {"completed", "failed", "skipped"}
+                ),
+                "reason": str(payload.get("reason") or ""),
+            }
+        )
     elif event_type == "commit_gate_checked":
         decision = dict(payload.get("commit_decision") or payload.get("commit_gate") or {})
         candidate_payload = dict(dict(decision.get("commit_candidate") or {}).get("payload") or {})
@@ -245,6 +294,18 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "task_result_ref": str(task_result.get("result_id") or ""),
                 "template_id": str(task_result.get("template_id") or ""),
                 "requested_outputs": list(task_result.get("requested_outputs") or []),
+            }
+        )
+    elif event_type == "checkpoint_written":
+        execution_summary = dict(payload.get("execution_summary") or {})
+        summary.update(
+            {
+                "checkpoint_id": str(payload.get("checkpoint_id") or ""),
+                "event_offset": int(payload.get("event_offset") or 0),
+                "execution_count": int(execution_summary.get("execution_count") or 0),
+                "completed_count": int(execution_summary.get("completed_count") or 0),
+                "reused_count": int(execution_summary.get("reused_count") or 0),
+                "suppressed_count": int(execution_summary.get("suppressed_count") or 0),
             }
         )
     return summary
