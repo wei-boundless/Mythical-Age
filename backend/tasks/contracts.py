@@ -10,9 +10,11 @@ class TaskContract:
     session_id: str
     user_goal: str
     source: str = "user_request"
+    template_id: str = ""
     task_family: str = "unknown"
     task_mode: str = "unknown"
     parent_task_id: str = ""
+    task_spec_ref: str = ""
     bindings: dict[str, Any] = field(default_factory=dict)
     constraints: dict[str, Any] = field(default_factory=dict)
     requested_outputs: tuple[str, ...] = ()
@@ -31,14 +33,18 @@ def build_task_contract(
     session_id: str,
     user_goal: str,
     source: str = "runtime",
+    template_id: str = "",
     task_family: str = "unknown",
     task_mode: str = "unknown",
+    task_spec_ref: str = "",
 ) -> TaskContract:
     return TaskContract(
         task_id=task_id,
         session_id=session_id,
         user_goal=user_goal,
         source=source,
+        template_id=template_id,
         task_family=task_family,
         task_mode=task_mode,
+        task_spec_ref=task_spec_ref,
     )

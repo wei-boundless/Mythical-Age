@@ -8,7 +8,7 @@ from memory.mutation_planner import DurableMutationPlanner
 from memory.store_writer import DurableStoreWriter
 from memory.write_agent import DurableWriteExtractorAgent
 from memory.write_models import DurableExtractionBundle
-from understanding import evaluate_memory_write
+from understanding.memory_policy import evaluate_memory_write
 
 from .memory_manager import MemoryManager
 from .models import MemoryNote, Message

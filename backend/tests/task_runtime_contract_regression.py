@@ -21,6 +21,9 @@ def test_search_task_runtime_contract_keeps_resources_out_of_prompt() -> None:
     assert runtime["task_prompt_contract"]["guardrail_section"] == ""
     assert runtime["task_prompt_contract"]["metadata"]["runtime_directive_enabled"] is True
     assert runtime["task_prompt_contract"]["metadata"]["runtime_executable"] is True
+    assert runtime["selected_template"]["template_id"] == "template.search.information_search"
+    assert runtime["task_spec"]["template_id"] == "template.search.information_search"
+    assert runtime["task_spec"]["task_spec_ref"] == runtime["task_contract"]["task_spec_ref"]
 
 
 def test_local_read_summary_runtime_contract_does_not_default_to_web_search() -> None:
@@ -34,6 +37,8 @@ def test_local_read_summary_runtime_contract_does_not_default_to_web_search() ->
 
     assert {"op.read_file", "op.search_files", "op.search_text"} <= operations
     assert "op.web_search" not in operations
+    assert runtime["selected_template"]["template_id"] == "template.dev.workspace_patch"
+    assert runtime["task_spec"]["selected_agent_id"] == "agent:main"
 
 
 def test_visible_prompt_feedback_stays_current_context_only_without_local_read_tools() -> None:
@@ -50,6 +55,7 @@ def test_visible_prompt_feedback_stays_current_context_only_without_local_read_t
     assert "op.read_file" not in operations
     assert "op.search_files" not in operations
     assert "op.search_text" not in operations
+    assert runtime["task_spec"]["requested_outputs"] == ["final_answer"]
 
 
 def test_explicit_local_path_still_requests_local_read_operations() -> None:
@@ -63,6 +69,7 @@ def test_explicit_local_path_still_requests_local_read_operations() -> None:
 
     assert runtime["definitions"][0]["definition_id"] == "task.local_material_read"
     assert {"op.read_file", "op.search_files", "op.search_text"} <= operations
+    assert runtime["selected_template"]["template_id"] == "template.dev.workspace_patch"
 
 
 def test_modify_then_review_runtime_contract_requests_edit_without_exposing_resource_prompt() -> None:
@@ -79,6 +86,7 @@ def test_modify_then_review_runtime_contract_requests_edit_without_exposing_reso
     assert runtime["task_prompt_contract"]["guardrail_section"] == ""
     assert "resource_section" not in manifest_sections
     assert "guardrail_section" not in manifest_sections
+    assert runtime["selected_template"]["template_id"] == "template.dev.workspace_patch"
 
 
 def test_task_runtime_contract_api_returns_runtime_contract() -> None:
@@ -93,6 +101,7 @@ def test_task_runtime_contract_api_returns_runtime_contract() -> None:
     assert runtime["status"] == "runtime"
     assert runtime["runtime_executable"] is True
     assert runtime["task_prompt_contract"]["metadata"]["runtime_directive_enabled"] is True
+    assert runtime["task_spec"]["operation_requirement_ref"].startswith("opreq:")
 
 
 def test_direct_tool_runtime_contract_does_not_fall_back_to_request_intake() -> None:
@@ -121,6 +130,7 @@ def test_direct_tool_runtime_contract_does_not_fall_back_to_request_intake() -> 
     assert "No execution is performed." not in task_section
     assert "execute the relevant capability" in output_section
     assert "op.model_response" in operations
+    assert runtime["selected_template"]["template_id"] == "template.capability.direct_tool"
 
 
 def test_direct_rag_runtime_contract_does_not_fall_back_to_request_intake() -> None:
@@ -145,3 +155,39 @@ def test_direct_rag_runtime_contract_does_not_fall_back_to_request_intake() -> N
     assert "task.request_intake" not in definition_ids
     assert definition_ids[0] == "task.knowledge_retrieval"
     assert "No execution is performed." not in task_section
+    assert runtime["selected_template"]["template_id"] == "template.rag.knowledge_answer"
+
+
+def test_bundle_runtime_contract_exposes_task_spec_and_bundle_template() -> None:
+    runtime = build_task_runtime_contract(
+        session_id="session-bundle",
+        task_id="task-bundle",
+        user_goal="先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "execution_mode": "bundle",
+            "explicit_inputs": {
+                "bound_pdf_path": "knowledge/AI Knowledge/report.pdf",
+                "explicit_dataset_path": "knowledge/E-commerce Data/inventory.xlsx",
+            },
+            "bundle_items": [
+                {"ordinal": 1, "user_text": "总结 PDF 第三页", "capability_kind": "pdf", "required_tool": "pdf_analysis"},
+                {"ordinal": 2, "user_text": "inventory.xlsx 最缺货的前三个仓库", "capability_kind": "structured_data", "required_tool": "structured_data_analysis"},
+                {"ordinal": 3, "user_text": "补一句北京天气", "capability_kind": "weather", "required_tool": "get_weather"},
+            ],
+            "resolved_bindings": [
+                {"binding_kind": "source_file", "file_kind": "pdf", "metadata": {"path": "knowledge/AI Knowledge/report.pdf"}},
+                {"binding_kind": "source_file", "file_kind": "dataset", "metadata": {"path": "knowledge/E-commerce Data/inventory.xlsx"}},
+            ],
+        },
+        query_understanding={
+            "intent": "multi_capability_request",
+            "candidate_tools": ["pdf_analysis", "structured_data_analysis", "get_weather"],
+        },
+    )
+
+    assert runtime["selected_template"]["template_id"] == "template.bundle.multi_capability"
+    assert runtime["task_contract"]["selected_template_id"] == "template.bundle.multi_capability"
+    assert runtime["task_spec"]["template_id"] == "template.bundle.multi_capability"
+    assert runtime["task_spec"]["task_spec_ref"] == runtime["task_contract"]["task_spec_ref"]
+    assert len(runtime["task_spec"]["inputs"]["bundle_items"]) == 3

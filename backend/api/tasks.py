@@ -4,7 +4,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from tasks import TaskFlowRegistry, build_task_runtime_contract
+from tasks import TaskFlowRegistry, TaskTemplateRegistry, build_task_runtime_contract
 
 router = APIRouter()
 
@@ -40,6 +40,19 @@ async def task_system_agent_bindings() -> dict[str, object]:
     runtime = require_runtime()
     registry = TaskFlowRegistry(runtime.base_dir)
     return {"authority": "task_system.agent_bindings", "bindings": [item.to_dict() for item in registry.list_bindings()]}
+
+
+@router.get("/tasks/templates")
+async def task_system_templates() -> dict[str, object]:
+    runtime = require_runtime()
+    registry = TaskTemplateRegistry(runtime.base_dir)
+    return {"authority": "task_system.templates", "templates": [item.to_dict() for item in registry.list_templates()]}
+
+
+@router.get("/tasks/template-validation-matrix")
+async def task_system_template_validation_matrix() -> dict[str, object]:
+    runtime = require_runtime()
+    return TaskTemplateRegistry(runtime.base_dir).build_validation_matrix()
 
 
 @router.get("/tasks/link-permission-matrix")

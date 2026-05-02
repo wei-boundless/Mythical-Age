@@ -11,6 +11,10 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from operations import OperationGate, build_default_operation_registry
 from output_boundary.boundary import AssistantOutputBoundary
+from tasks.run_models import TaskResult, TaskRunLedger, TaskStepRun, build_task_run_ledger
+from tasks.spec_models import TaskSpec
+from tasks.step_models import TaskStepBlueprint
+from tasks.template_models import TaskTemplate, TaskValidationRule
 
 from context_management.projection import (
     ContextProjection,
@@ -155,6 +159,9 @@ class TaskRunLoop:
             agent_profile_id=agent_profile_id,
             runtime_lane=runtime_lane,
             task_agent_binding_ref=task_agent_binding_ref,
+            task_template_id="",
+            task_spec_ref="",
+            task_result_ref="",
             skill_workflow_ref=skill_workflow_ref,
             health_issue_ref=health_issue_ref,
             diagnostics={
@@ -254,18 +261,34 @@ class TaskRunLoop:
         )
         task_operation = dict(chain_runtime.get("task_operation") or {})
         task_contract = dict(task_operation.get("task_contract") or {})
+        selected_template_payload = dict(task_operation.get("selected_template") or {})
+        task_spec_payload = dict(task_operation.get("task_spec") or {})
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
 
         task_contract_ref = str(task_contract.get("task_id") or task_id)
+        runtime_task_ledger = _build_initial_task_run_ledger(
+            task_run_id=state.task_run_id,
+            task_contract_ref=task_contract_ref,
+            task_spec_payload=task_spec_payload,
+            selected_template_payload=selected_template_payload,
+        )
         task_event = self.event_log.append(
             state.task_run_id,
             "task_contract_built",
             payload={
                 "task_contract": task_contract,
+                "selected_template": selected_template_payload,
+                "task_spec": task_spec_payload,
+                "task_run_ledger": runtime_task_ledger.to_dict() if runtime_task_ledger is not None else {},
                 "source": source,
             },
-            refs={"task_contract_ref": task_contract_ref},
+            refs={
+                "task_contract_ref": task_contract_ref,
+                "task_template_id": str(selected_template_payload.get("template_id") or ""),
+                "task_spec_ref": str(task_spec_payload.get("task_spec_ref") or ""),
+                "task_run_ledger_ref": runtime_task_ledger.ledger_id if runtime_task_ledger is not None else "",
+            },
         )
         yield {"type": "runtime_loop_event", "event": task_event.to_dict()}
         current_turn_context = dict(task_operation.get("current_turn_context") or {})
@@ -353,10 +376,14 @@ class TaskRunLoop:
             transition="start",
             turn_count=1,
             step_count=0,
+            current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else "",
             agent_id=state.agent_id,
             agent_profile_id=state.agent_profile_id,
             runtime_lane=state.runtime_lane,
             task_agent_binding_ref=state.task_agent_binding_ref,
+            task_template_id=str(selected_template_payload.get("template_id") or ""),
+            task_spec_ref=str(task_spec_payload.get("task_spec_ref") or ""),
+            task_result_ref="",
             skill_workflow_ref=state.skill_workflow_ref,
             health_issue_ref=state.health_issue_ref,
             memory_state_ref=str(memory_view.get("view_id") or ""),
@@ -372,6 +399,8 @@ class TaskRunLoop:
                 "stage_projection_cycle_applied": True,
                 "context_invariant_checked": True,
                 "context_needs_compaction": invariant_report.needs_compaction,
+                "task_template_id": str(selected_template_payload.get("template_id") or ""),
+                "task_spec_ref": str(task_spec_payload.get("task_spec_ref") or ""),
             },
         )
         checkpoint = self._write_checkpoint_event(state, event_offset=invariant_event.offset)
@@ -529,6 +558,7 @@ class TaskRunLoop:
         assistant_tool_call_kwargs: dict[str, Any] = {}
         tool_messages: list[ToolMessage] = []
         tool_observation_count = 0
+        executed_bundle_ordinals: list[int] = []
         tool_repetition_guard = ToolRepetitionGuard()
         repeated_tool_halt = False
         direct_tool_finalized = False
@@ -563,6 +593,14 @@ class TaskRunLoop:
                     if observation.get("observation_type") == "tool_result":
                         tool_observation_count += 1
                         observation_payload = dict(observation.get("payload") or {})
+                        matched_ordinal = _match_bundle_ordinal_for_tool_observation(
+                            bundle_items=current_bundle_items,
+                            tool_name=str(observation_payload.get("tool_name") or ""),
+                            tool_args=dict(observation_payload.get("tool_args") or {}),
+                            executed_ordinals=executed_bundle_ordinals,
+                        )
+                        if matched_ordinal > 0 and matched_ordinal not in executed_bundle_ordinals:
+                            executed_bundle_ordinals.append(matched_ordinal)
                         projected_main_context, projected_task_summary_refs = _project_file_work_context_from_tool_observation(
                             observation_payload
                         )
@@ -605,7 +643,7 @@ class TaskRunLoop:
                                 "answer_finalization_policy": direct_tool_answer_metadata["answer_finalization_policy"],
                                 "answer_fallback_reason": direct_tool_answer_metadata["answer_fallback_reason"],
                             }
-                            direct_tool_finalized = len(pending_tool_calls) <= 1
+                            direct_tool_finalized = len(pending_tool_calls) <= 1 and not current_bundle_items
                 elif runtime_event.event_type == "output_boundary_applied":
                     result_refs.append(f"output_boundary:{runtime_event.event_id}")
                 elif runtime_event.event_type == "commit_gate_checked":
@@ -661,6 +699,9 @@ class TaskRunLoop:
                 agent_profile_id=state.agent_profile_id,
                 runtime_lane=state.runtime_lane,
                 task_agent_binding_ref=state.task_agent_binding_ref,
+                task_template_id=state.task_template_id,
+                task_spec_ref=state.task_spec_ref,
+                task_result_ref=state.task_result_ref,
                 skill_workflow_ref=state.skill_workflow_ref,
                 health_issue_ref=state.health_issue_ref,
                 memory_state_ref=state.memory_state_ref,
@@ -742,6 +783,14 @@ class TaskRunLoop:
                         if observation.get("observation_type") == "tool_result":
                             tool_observation_count += 1
                             observation_payload = dict(observation.get("payload") or {})
+                            matched_ordinal = _match_bundle_ordinal_for_tool_observation(
+                                bundle_items=current_bundle_items,
+                                tool_name=str(observation_payload.get("tool_name") or ""),
+                                tool_args=dict(observation_payload.get("tool_args") or {}),
+                                executed_ordinals=executed_bundle_ordinals,
+                            )
+                            if matched_ordinal > 0 and matched_ordinal not in executed_bundle_ordinals:
+                                executed_bundle_ordinals.append(matched_ordinal)
                             projected_main_context, projected_task_summary_refs = _project_file_work_context_from_tool_observation(
                                 observation_payload
                             )
@@ -847,6 +896,7 @@ class TaskRunLoop:
                 bundle_items=current_bundle_items,
                 existing_task_summary_refs=final_task_summary_refs,
                 existing_main_context=final_main_context,
+                executed_ordinals=executed_bundle_ordinals,
             )
             if bundle_projection.bundle_summary_refs:
                 aggregation = observation_aggregator.add_projection(bundle_projection, tool_name="bundle_answer")
@@ -862,6 +912,32 @@ class TaskRunLoop:
             content=final_content,
             **final_answer_metadata,
         )
+        task_result = _build_runtime_task_result(
+            task_run_id=terminal_state.task_run_id,
+            task_id=task_id,
+            task_spec_payload=task_spec_payload,
+            selected_template_payload=selected_template_payload,
+            result_refs=result_refs,
+            terminal_reason=terminal_reason,
+            final_content=final_content,
+            final_answer_metadata=final_answer_metadata,
+            final_main_context=final_main_context,
+            final_task_summary_refs=final_task_summary_refs,
+            final_bundle_summary_refs=final_bundle_summary_refs,
+            tool_observation_count=tool_observation_count,
+        )
+        final_task_run_ledger = _build_final_task_run_ledger(
+            task_run_id=terminal_state.task_run_id,
+            task_contract_ref=task_contract_ref,
+            task_spec_payload=task_spec_payload,
+            selected_template_payload=selected_template_payload,
+            task_result=task_result,
+            terminal_reason=terminal_reason,
+        )
+        if final_task_run_ledger is not None and final_task_run_ledger.ledger_id not in result_refs:
+            result_refs.append(final_task_run_ledger.ledger_id)
+        if task_result is not None and task_result.result_id not in result_refs:
+            result_refs.append(task_result.result_id)
         assistant_commit_applied = False
         assistant_commit_result: Any = None
         if assistant_commit.commit_allowed and assistant_message_committer is not None:
@@ -903,8 +979,11 @@ class TaskRunLoop:
         final_commit = build_task_run_final_commit_decision(
             task_run_id=terminal_state.task_run_id,
             task_id=task_id,
+            task_spec_ref=task_result.task_spec_ref if task_result is not None else "",
+            template_id=task_result.template_id if task_result is not None else "",
             terminal_reason=terminal_state.terminal_reason,
             final_content_chars=len(final_content),
+            task_result=task_result.to_dict() if task_result is not None else None,
         )
         commit_event = self.event_log.append(
             terminal_state.task_run_id,
@@ -932,6 +1011,8 @@ class TaskRunLoop:
             "terminal_reason": terminal_reason,
             "commit_gate": assistant_commit.to_dict(),
             "task_result_commit": final_commit.to_dict(),
+            "task_run_ledger": final_task_run_ledger.to_dict() if final_task_run_ledger is not None else {},
+            "task_result": task_result.to_dict() if task_result is not None else {},
             "output_commit": {
                 "state": "committed" if assistant_commit_applied else "not_applied",
                 "assistant_commit_applied": assistant_commit_applied,
@@ -947,11 +1028,14 @@ class TaskRunLoop:
             status=terminal_state.status,
             turn_count=turn_count,
             step_count=max(0, turn_count - 1),
-            current_step_id=terminal_state.current_step_id,
+            current_step_id=final_task_run_ledger.current_step_id if final_task_run_ledger is not None else terminal_state.current_step_id,
             agent_id=terminal_state.agent_id,
             agent_profile_id=terminal_state.agent_profile_id,
             runtime_lane=terminal_state.runtime_lane,
             task_agent_binding_ref=terminal_state.task_agent_binding_ref,
+            task_template_id=final_task_run_ledger.template_id if final_task_run_ledger is not None else terminal_state.task_template_id,
+            task_spec_ref=final_task_run_ledger.task_spec_ref if final_task_run_ledger is not None else terminal_state.task_spec_ref,
+            task_result_ref=task_result.result_id if task_result is not None else "",
             skill_workflow_ref=terminal_state.skill_workflow_ref,
             health_issue_ref=terminal_state.health_issue_ref,
             transition=terminal_state.transition,
@@ -971,6 +1055,8 @@ class TaskRunLoop:
                 "assistant_session_message": assistant_commit.to_dict(),
                 "assistant_session_write_applied": assistant_commit_applied,
                 "task_result_final": final_commit.to_dict(),
+                "task_run_ledger": final_task_run_ledger.to_dict() if final_task_run_ledger is not None else {},
+                "task_result": task_result.to_dict() if task_result is not None else {},
                 "assistant_session_write_allowed": assistant_commit.commit_allowed,
                 **memory_commit_state,
                 "artifact_write_allowed": False,
@@ -987,6 +1073,7 @@ class TaskRunLoop:
                 "terminal_reason": terminal_state.terminal_reason,
                 "status": terminal_state.status,
                 "final_content_chars": len(final_content),
+                "task_result": task_result.to_dict() if task_result is not None else {},
             },
         )
         yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
@@ -1265,6 +1352,287 @@ class TaskRunLoop:
                 )
             ]
         return []
+
+
+def _build_initial_task_run_ledger(
+    *,
+    task_run_id: str,
+    task_contract_ref: str,
+    task_spec_payload: dict[str, Any],
+    selected_template_payload: dict[str, Any],
+) -> TaskRunLedger | None:
+    task_spec = _task_spec_from_payload(task_spec_payload)
+    selected_template = _task_template_from_payload(selected_template_payload)
+    if task_spec is None or selected_template is None:
+        return None
+    return build_task_run_ledger(
+        task_run_id=task_run_id,
+        task_contract_ref=task_contract_ref,
+        task_spec=task_spec,
+        selected_template=selected_template,
+        status="running",
+    )
+
+
+def _build_final_task_run_ledger(
+    *,
+    task_run_id: str,
+    task_contract_ref: str,
+    task_spec_payload: dict[str, Any],
+    selected_template_payload: dict[str, Any],
+    task_result: TaskResult | None,
+    terminal_reason: str,
+) -> TaskRunLedger | None:
+    task_spec = _task_spec_from_payload(task_spec_payload)
+    selected_template = _task_template_from_payload(selected_template_payload)
+    if task_spec is None or selected_template is None:
+        return None
+    step_runs = _final_step_runs(
+        selected_template=selected_template,
+        task_result=task_result,
+        terminal_reason=terminal_reason,
+    )
+    current_step_id = ""
+    if terminal_reason != "completed":
+        pending_step = next((item.step_id for item in step_runs if item.status == "running"), "")
+        current_step_id = pending_step
+    return build_task_run_ledger(
+        task_run_id=task_run_id,
+        task_contract_ref=task_contract_ref,
+        task_spec=task_spec,
+        selected_template=selected_template,
+        status="completed" if terminal_reason == "completed" else "failed",
+        current_step_id=current_step_id,
+        step_runs=step_runs,
+        diagnostics={
+            "terminal_reason": terminal_reason,
+            "step_count": len(step_runs),
+        },
+    )
+
+
+def _build_runtime_task_result(
+    *,
+    task_run_id: str,
+    task_id: str,
+    task_spec_payload: dict[str, Any],
+    selected_template_payload: dict[str, Any],
+    result_refs: list[str],
+    terminal_reason: str,
+    final_content: str,
+    final_answer_metadata: dict[str, Any],
+    final_main_context: dict[str, Any],
+    final_task_summary_refs: list[dict[str, Any]],
+    final_bundle_summary_refs: list[dict[str, Any]],
+    tool_observation_count: int,
+) -> TaskResult | None:
+    task_spec = _task_spec_from_payload(task_spec_payload)
+    selected_template = _task_template_from_payload(selected_template_payload)
+    if task_spec is None or selected_template is None:
+        return None
+    output_refs = [
+        item["task_id"]
+        for item in final_task_summary_refs
+        if str(item.get("task_id") or "").strip()
+    ]
+    output_refs.extend(
+        item["task_id"]
+        for item in final_bundle_summary_refs
+        if str(item.get("task_id") or "").strip()
+    )
+    step_runs = _final_step_runs(
+        selected_template=selected_template,
+        task_result=None,
+        terminal_reason=terminal_reason,
+        has_final_content=bool(str(final_content or "").strip()),
+        has_tool_observation=tool_observation_count > 0,
+        result_refs=result_refs,
+    )
+    return TaskResult(
+        result_id=f"taskresult:{task_run_id}",
+        task_run_id=task_run_id,
+        task_id=task_id,
+        task_spec_ref=task_spec.task_spec_ref,
+        template_id=selected_template.template_id,
+        status="completed" if terminal_reason == "completed" else "failed",
+        terminal_reason=terminal_reason,
+        requested_outputs=tuple(task_spec.requested_outputs),
+        result_refs=tuple(_dedupe_refs(result_refs)),
+        output_refs=tuple(_dedupe_refs(output_refs)),
+        step_runs=step_runs,
+        final_outputs={
+            "final_answer": final_content,
+            "main_context": dict(final_main_context),
+            "task_summary_refs": [dict(item) for item in final_task_summary_refs],
+            "bundle_summary_refs": [dict(item) for item in final_bundle_summary_refs],
+            "answer_metadata": dict(final_answer_metadata),
+        },
+        refs={
+            "task_spec_ref": task_spec.task_spec_ref,
+            "template_id": selected_template.template_id,
+        },
+        diagnostics={
+            "tool_observation_count": int(tool_observation_count or 0),
+            "final_content_chars": len(str(final_content or "")),
+            "bundle_result_count": len(final_bundle_summary_refs),
+            "task_summary_count": len(final_task_summary_refs),
+        },
+    )
+
+
+def _final_step_runs(
+    *,
+    selected_template: TaskTemplate,
+    task_result: TaskResult | None,
+    terminal_reason: str,
+    has_final_content: bool | None = None,
+    has_tool_observation: bool | None = None,
+    result_refs: list[str] | None = None,
+) -> tuple[TaskStepRun, ...]:
+    if task_result is not None:
+        has_final_content = bool(str(dict(task_result.final_outputs).get("final_answer") or "").strip())
+        has_tool_observation = bool(task_result.diagnostics.get("tool_observation_count"))
+        result_refs = list(task_result.result_refs)
+    final_answer_present = bool(has_final_content)
+    tool_observed = bool(has_tool_observation)
+    refs = tuple(_dedupe_refs(list(result_refs or [])))
+    step_runs: list[TaskStepRun] = []
+    first_tool_completed = False
+    first_any_completed = False
+    finalizer_indexes = [
+        index
+        for index, blueprint in enumerate(selected_template.step_blueprints)
+        if blueprint.step_kind == "finalize" or blueprint.executor_type == "model"
+    ]
+    finalizer_index = finalizer_indexes[-1] if finalizer_indexes else -1
+    for index, blueprint in enumerate(selected_template.step_blueprints):
+        status = "pending"
+        observation_refs: tuple[str, ...] = ()
+        output_refs: tuple[str, ...] = ()
+        if finalizer_index == index and final_answer_present:
+            status = "completed"
+            output_refs = refs
+        elif tool_observed and blueprint.executor_type in {"tool", "worker", "agent"} and not first_tool_completed:
+            status = "completed"
+            observation_refs = refs
+            output_refs = refs
+            first_tool_completed = True
+        elif (tool_observed or final_answer_present) and not first_any_completed:
+            status = "completed"
+            output_refs = refs
+            first_any_completed = True
+        elif terminal_reason != "completed" and index == 0 and not (tool_observed or final_answer_present):
+            status = "running"
+        step_runs.append(
+            TaskStepRun(
+                step_id=blueprint.step_id,
+                title=blueprint.title,
+                step_kind=blueprint.step_kind,
+                executor_type=blueprint.executor_type,
+                status=status,
+                required_operations=tuple(blueprint.required_operations),
+                optional_operations=tuple(blueprint.optional_operations),
+                input_refs=tuple(blueprint.input_refs),
+                output_contract_id=blueprint.output_contract_id,
+                stop_policy=blueprint.stop_policy,
+                observation_refs=observation_refs,
+                output_refs=output_refs,
+            )
+        )
+        if status == "completed" and blueprint.executor_type not in {"tool", "worker", "agent"}:
+            first_any_completed = True
+    return tuple(step_runs)
+
+
+def _task_spec_from_payload(payload: dict[str, Any]) -> TaskSpec | None:
+    if not payload:
+        return None
+    try:
+        return TaskSpec(
+            task_id=str(payload.get("task_id") or ""),
+            task_spec_ref=str(payload.get("task_spec_ref") or ""),
+            template_id=str(payload.get("template_id") or ""),
+            session_id=str(payload.get("session_id") or ""),
+            user_goal=str(payload.get("user_goal") or ""),
+            inputs=dict(payload.get("inputs") or {}),
+            bindings=dict(payload.get("bindings") or {}),
+            constraints=dict(payload.get("constraints") or {}),
+            current_turn_context_ref=str(payload.get("current_turn_context_ref") or ""),
+            requested_outputs=tuple(str(item) for item in list(payload.get("requested_outputs") or [])),
+            selected_agent_id=str(payload.get("selected_agent_id") or "agent:main"),
+            selected_skill_ids=tuple(str(item) for item in list(payload.get("selected_skill_ids") or [])),
+            operation_requirement_ref=str(payload.get("operation_requirement_ref") or ""),
+            status=str(payload.get("status") or "selected"),
+        )
+    except ValueError:
+        return None
+
+
+def _task_template_from_payload(payload: dict[str, Any]) -> TaskTemplate | None:
+    if not payload:
+        return None
+    try:
+        return TaskTemplate(
+            template_id=str(payload.get("template_id") or ""),
+            title=str(payload.get("title") or ""),
+            description=str(payload.get("description") or ""),
+            task_family=str(payload.get("task_family") or ""),
+            task_mode=str(payload.get("task_mode") or ""),
+            input_schema=dict(payload.get("input_schema") or {}),
+            output_schema=dict(payload.get("output_schema") or {}),
+            default_agent_id=str(payload.get("default_agent_id") or "agent:main"),
+            allowed_agent_ids=tuple(str(item) for item in list(payload.get("allowed_agent_ids") or ["agent:main"])),
+            required_capability_tags=tuple(str(item) for item in list(payload.get("required_capability_tags") or [])),
+            required_operations=tuple(str(item) for item in list(payload.get("required_operations") or [])),
+            optional_operations=tuple(str(item) for item in list(payload.get("optional_operations") or [])),
+            step_blueprints=tuple(_task_step_blueprint_from_payload(item) for item in list(payload.get("step_blueprints") or [])),
+            validation_rules=tuple(_task_validation_rule_from_payload(item) for item in list(payload.get("validation_rules") or [])),
+            ui_manifest=dict(payload.get("ui_manifest") or {}),
+            enabled=bool(payload.get("enabled", True)),
+            metadata=dict(payload.get("metadata") or {}),
+        )
+    except ValueError:
+        return None
+
+
+def _task_step_blueprint_from_payload(payload: Any) -> TaskStepBlueprint:
+    data = dict(payload or {})
+    return TaskStepBlueprint(
+        step_id=str(data.get("step_id") or ""),
+        title=str(data.get("title") or ""),
+        step_kind=str(data.get("step_kind") or ""),
+        executor_type=str(data.get("executor_type") or ""),
+        required_operations=tuple(str(item) for item in list(data.get("required_operations") or [])),
+        optional_operations=tuple(str(item) for item in list(data.get("optional_operations") or [])),
+        input_refs=tuple(str(item) for item in list(data.get("input_refs") or [])),
+        output_contract_id=str(data.get("output_contract_id") or ""),
+        stop_policy=str(data.get("stop_policy") or "on_success"),
+        retry_policy=dict(data.get("retry_policy") or {}),
+    )
+
+
+def _task_validation_rule_from_payload(payload: Any) -> TaskValidationRule:
+    data = dict(payload or {})
+    return TaskValidationRule(
+        rule_id=str(data.get("rule_id") or ""),
+        title=str(data.get("title") or ""),
+        validation_kind=str(data.get("validation_kind") or ""),
+        severity=str(data.get("severity") or "warning"),
+        parameters=dict(data.get("parameters") or {}),
+        message=str(data.get("message") or ""),
+    )
+
+
+def _dedupe_refs(values: list[str]) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        refs.append(item)
+    return refs
 
 
 def _runtime_budget_exhausted_answer_metadata() -> dict[str, str]:
@@ -1686,3 +2054,43 @@ def _safe_int(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _match_bundle_ordinal_for_tool_observation(
+    *,
+    bundle_items: list[dict[str, Any]],
+    tool_name: str,
+    tool_args: dict[str, Any],
+    executed_ordinals: list[int],
+) -> int:
+    normalized_tool = str(tool_name or "").strip()
+    if not normalized_tool or not bundle_items:
+        return 0
+    normalized_path = str(tool_args.get("path") or "").strip()
+    normalized_query = str(tool_args.get("query") or "").strip().lower()
+    matching_items = [
+        dict(item)
+        for item in bundle_items
+        if str(item.get("required_tool") or "").strip() == normalized_tool
+    ]
+    if not matching_items:
+        return 0
+    if normalized_path:
+        for item in matching_items:
+            binding = item.get("target_binding")
+            if not isinstance(binding, dict):
+                continue
+            binding_path = str(dict(binding.get("metadata") or {}).get("path") or "").strip()
+            if binding_path and binding_path == normalized_path:
+                return _safe_int(item.get("ordinal"))
+    if normalized_query:
+        for item in matching_items:
+            user_text = str(item.get("user_text") or "").strip().lower()
+            if user_text and (user_text in normalized_query or normalized_query in user_text):
+                return _safe_int(item.get("ordinal"))
+    executed = {value for value in executed_ordinals if _safe_int(value) > 0}
+    for item in matching_items:
+        ordinal = _safe_int(item.get("ordinal"))
+        if ordinal > 0 and ordinal not in executed:
+            return ordinal
+    return _safe_int(matching_items[0].get("ordinal"))

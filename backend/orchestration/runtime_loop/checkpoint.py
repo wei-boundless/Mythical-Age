@@ -79,6 +79,9 @@ class RuntimeCheckpointStore:
             turn_count=int(state_payload.get("turn_count") or 0),
             step_count=int(state_payload.get("step_count") or 0),
             current_step_id=str(state_payload.get("current_step_id") or ""),
+            task_template_id=str(state_payload.get("task_template_id") or ""),
+            task_spec_ref=str(state_payload.get("task_spec_ref") or ""),
+            task_result_ref=str(state_payload.get("task_result_ref") or ""),
             transition=state_payload.get("transition", "start"),
             terminal_reason=state_payload.get("terminal_reason", ""),
             messages_ref=str(state_payload.get("messages_ref") or ""),
@@ -126,4 +129,3 @@ def _checksum(payload: dict[str, Any], *, event_offset: int) -> str:
 
 def _safe_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))
-

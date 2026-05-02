@@ -244,7 +244,7 @@ def _build_tool_loop_runtime(tmp_path: Path) -> QueryRuntime:
         session_manager=_SessionManagerStub(),
         memory_facade=_MemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
-        tool_runtime=_LoopToolRuntimeStub(Path.cwd()),
+        tool_runtime=_LoopToolRuntimeStub(BACKEND_DIR),
         skill_registry=_SkillRegistryStub(),
         permission_service=_PermissionStub(),
         model_runtime=_ToolLoopModelRuntimeStub(),
@@ -293,7 +293,7 @@ def _build_repeating_pdf_runtime(tmp_path: Path) -> QueryRuntime:
         session_manager=_SessionManagerStub(),
         memory_facade=memory_facade,
         retrieval_service=SimpleNamespace(),
-        tool_runtime=_LoopToolRuntimeStub(Path.cwd()),
+        tool_runtime=_LoopToolRuntimeStub(BACKEND_DIR),
         skill_registry=_SkillRegistryStub(),
         permission_service=_PermissionStub(),
         model_runtime=_RepeatingToolModelRuntimeStub(),
@@ -407,6 +407,25 @@ def test_astream_executes_only_model_response_runtime_directive() -> None:
     system_prompt = str(list(snapshot.get("model_messages") or [{}])[0].get("content") or "")
     assert "resource_section" not in system_prompt
     assert "guardrail_section" not in system_prompt
+    task_contract_event = next(
+        event
+        for event in events
+        if event["type"] == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
+    )
+    task_contract_payload = dict(dict(task_contract_event["event"]).get("payload", {}) or {})
+    task_result = dict(done_event.get("task_result") or {})
+    task_run_ledger = dict(done_event.get("task_run_ledger") or {})
+    assert task_contract_payload["task_spec"]["task_spec_ref"] == task_contract_payload["task_contract"]["task_spec_ref"]
+    assert task_contract_payload["task_run_ledger"]["task_spec_ref"] == task_contract_payload["task_spec"]["task_spec_ref"]
+    assert task_result["authority"] == "task_system.task_result"
+    assert task_result["task_spec_ref"] == task_contract_payload["task_spec"]["task_spec_ref"]
+    assert task_result["template_id"] == task_contract_payload["selected_template"]["template_id"]
+    assert task_result["requested_outputs"] == ["final_answer"]
+    assert task_run_ledger["authority"] == "task_system.task_run_ledger"
+    assert task_run_ledger["task_spec_ref"] == task_result["task_spec_ref"]
+    assert any(step["status"] == "completed" for step in task_result["step_runs"])
+    assert done_event["task_result_commit"]["commit_candidate"]["payload"]["task_result"]["result_id"] == task_result["result_id"]
 
 
 def test_astream_exposes_only_adopted_main_runtime_tools_to_model_lane(tmp_path: Path) -> None:
@@ -681,6 +700,69 @@ def test_bundle_answer_projection_creates_ordinal_refs_for_model_synthesized_par
     assert projection.bundle_summary_refs[1]["ordinal"] == 2
     assert "深圳仓" in projection.bundle_summary_refs[1]["summary"]
     assert projection.bundle_summary_refs[1]["required_tool"] == "structured_data_analysis"
+
+
+def test_bundle_answer_projection_only_projects_executed_ordinals() -> None:
+    from context_management.projection import projection_from_bundle_answer
+
+    projection = projection_from_bundle_answer(
+        content="第三页摘要。",
+        bundle_items=[
+            {"ordinal": 1, "user_text": "总结 PDF 第三页", "capability_kind": "pdf", "required_tool": "pdf_analysis"},
+            {
+                "ordinal": 2,
+                "user_text": "inventory.xlsx 最缺货的前三个仓库",
+                "capability_kind": "structured_data",
+                "required_tool": "structured_data_analysis",
+            },
+            {"ordinal": 3, "user_text": "补一句北京天气", "capability_kind": "weather", "required_tool": "get_weather"},
+        ],
+        existing_task_summary_refs=[
+            {"task_id": "result:pdf:a", "query": "第三页", "summary": "第三页摘要。", "task_kind": "pdf"}
+        ],
+        executed_ordinals=[1],
+    )
+
+    assert [item["ordinal"] for item in projection.bundle_summary_refs] == [1]
+    assert len(projection.task_summary_refs) == 2
+
+
+def test_file_work_projection_only_creates_bundle_refs_for_matching_items() -> None:
+    projection = projection_from_file_work(
+        {
+            "active_work_item": "pdf",
+            "active_object_handle_id": "source:pdf:a",
+            "active_result_handle_id": "result:pdf:a",
+            "active_constraints": {"active_pdf": "knowledge/AI/report.pdf", "source_kind": "pdf"},
+        },
+        [
+            {
+                "task_id": "result:pdf:a",
+                "query": "第三页",
+                "summary": "第三页摘要",
+                "task_kind": "pdf",
+                "key_points": ["pdf=knowledge/AI/report.pdf"],
+            }
+        ],
+        bundle_items=[
+            {
+                "ordinal": 1,
+                "user_text": "总结 PDF 第三页",
+                "capability_kind": "pdf",
+                "required_tool": "pdf_analysis",
+                "target_binding": {"file_kind": "pdf", "metadata": {"path": "knowledge/AI/report.pdf"}},
+            },
+            {
+                "ordinal": 2,
+                "user_text": "inventory.xlsx 最缺货的前三个仓库",
+                "capability_kind": "structured_data",
+                "required_tool": "structured_data_analysis",
+                "target_binding": {"file_kind": "dataset", "metadata": {"path": "knowledge/E-commerce Data/inventory.xlsx"}},
+            },
+        ],
+    )
+
+    assert [item["ordinal"] for item in projection.bundle_summary_refs] == [1]
 
 
 def test_realtime_weather_intent_overrides_bound_dataset_followup() -> None:

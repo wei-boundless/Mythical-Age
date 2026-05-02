@@ -103,6 +103,8 @@ class ContextResolver:
         bindings: list[ResolvedBinding] = []
         explicit_pdf = str(explicit_inputs.get("explicit_pdf_path") or "").strip()
         explicit_dataset = str(explicit_inputs.get("explicit_dataset_path") or "").strip()
+        bound_pdf = str(explicit_inputs.get("bound_pdf_path") or "").strip()
+        bound_dataset = str(explicit_inputs.get("bound_dataset_path") or "").strip()
         if explicit_pdf:
             bindings.append(
                 ResolvedBinding(
@@ -127,8 +129,30 @@ class ContextResolver:
                     metadata={"path": explicit_dataset},
                 )
             )
-        if bindings:
-            return bindings
+        if bound_pdf:
+            bindings.append(
+                ResolvedBinding(
+                    binding_id=f"binding:bound:pdf:{_slug(bound_pdf)}",
+                    binding_kind="source_file",
+                    identity=_identity(bound_pdf),
+                    file_kind="pdf",
+                    source="session_state",
+                    confidence=0.9,
+                    metadata={"path": bound_pdf, "slot_name": "bound_pdf_path"},
+                )
+            )
+        if bound_dataset:
+            bindings.append(
+                ResolvedBinding(
+                    binding_id=f"binding:bound:dataset:{_slug(bound_dataset)}",
+                    binding_kind="source_file",
+                    identity=_identity(bound_dataset),
+                    file_kind="dataset",
+                    source="session_state",
+                    confidence=0.9,
+                    metadata={"path": bound_dataset, "slot_name": "bound_dataset_path"},
+                )
+            )
 
         state_snapshot = dict(memory_runtime_view.get("state_snapshot") or {})
         context_slots = dict(state_snapshot.get("context_slots") or {})

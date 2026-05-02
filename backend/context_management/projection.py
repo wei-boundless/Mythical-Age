@@ -68,11 +68,14 @@ def projection_from_bundle_answer(
     bundle_items: list[dict[str, Any]] | None,
     existing_task_summary_refs: list[dict[str, Any]] | None = None,
     existing_main_context: dict[str, Any] | None = None,
+    executed_ordinals: list[int] | None = None,
 ) -> ContextProjection:
     items = [dict(item) for item in list(bundle_items or []) if isinstance(item, dict)]
     if not items:
         return ContextProjection()
     sections = _extract_answer_sections(content, len(items))
+    allowed_ordinals = {value for value in list(executed_ordinals or []) if _safe_int(value) > 0}
+    single_allowed_ordinal = next(iter(allowed_ordinals)) if len(allowed_ordinals) == 1 else 0
     existing_by_kind = {
         str(item.get("task_kind") or "").strip(): dict(item)
         for item in list(existing_task_summary_refs or [])
@@ -86,8 +89,17 @@ def projection_from_bundle_answer(
         capability = str(item.get("capability_kind") or "").strip()
         task_kind = _task_kind_from_capability(capability)
         existing = existing_by_kind.get(task_kind, {})
+        has_existing = bool(existing)
+        if allowed_ordinals and ordinal not in allowed_ordinals and not has_existing:
+            continue
+        if not allowed_ordinals and not has_existing and ordinal not in sections:
+            continue
         task_id = str(existing.get("task_id") or f"bundle:{ordinal}:{_slug(item.get('user_text') or capability)}").strip()
-        summary = str(existing.get("summary") or sections.get(ordinal) or item.get("user_text") or "").strip()
+        summary = str(existing.get("summary") or sections.get(ordinal) or "").strip()
+        if not summary and ordinal == single_allowed_ordinal:
+            summary = str(content or "").strip()
+        if not summary:
+            summary = str(item.get("user_text") or "").strip()
         query = str(existing.get("query") or item.get("user_text") or "").strip()
         refs.append(
             {
@@ -272,13 +284,14 @@ def _bundle_refs_from_summaries(
             (
                 dict(candidate)
                 for candidate in summaries
-                if str(candidate.get("task_kind") or "").strip() == task_kind
+                if _summary_matches_bundle_item(candidate, item, task_kind=task_kind)
                 and str(candidate.get("task_id") or "").strip() not in used_summary_ids
             ),
             {},
         )
-        if summary:
-            used_summary_ids.add(str(summary.get("task_id") or "").strip())
+        if not summary:
+            continue
+        used_summary_ids.add(str(summary.get("task_id") or "").strip())
         refs.append(
             {
                 **summary,
@@ -293,6 +306,30 @@ def _bundle_refs_from_summaries(
             }
         )
     return [item for item in refs if _safe_int(item.get("ordinal")) > 0]
+
+
+def _summary_matches_bundle_item(
+    summary: dict[str, Any],
+    bundle_item: dict[str, Any],
+    *,
+    task_kind: str,
+) -> bool:
+    if str(summary.get("task_kind") or "").strip() != task_kind:
+        return False
+    binding = bundle_item.get("target_binding")
+    if not isinstance(binding, dict):
+        return True
+    binding_metadata = dict(binding.get("metadata") or {})
+    binding_path = str(binding_metadata.get("path") or "").strip()
+    binding_kind = str(binding.get("file_kind") or "").strip()
+    if not binding_path or binding_kind not in {"pdf", "dataset"}:
+        return True
+    prefix = f"{binding_kind}="
+    for item in list(summary.get("key_points") or []):
+        text = str(item or "").strip()
+        if text.startswith(prefix) and text[len(prefix):].strip() == binding_path:
+            return True
+    return False
 
 
 def _extract_answer_sections(content: str, expected_count: int) -> dict[int, str]:

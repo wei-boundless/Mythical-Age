@@ -6,6 +6,7 @@ from typing import Any
 from operations import AgentRegistry
 
 from .flow_models import CoordinationTaskDefinition, TaskAgentBinding, TaskFlowDefinition, TopologyTemplate
+from .template_registry import TaskTemplateRegistry
 
 
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
@@ -104,6 +105,7 @@ class TaskFlowRegistry:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
         self.agent_registry = AgentRegistry(self.base_dir)
+        self.template_registry = TaskTemplateRegistry(self.base_dir)
 
     def list_flows(self) -> list[TaskFlowDefinition]:
         return list(default_task_flows())
@@ -183,6 +185,8 @@ class TaskFlowRegistry:
         flows = self.list_flows()
         bindings = self.list_bindings()
         coordination_tasks = self.list_coordination_tasks()
+        templates = self.template_registry.list_templates()
+        template_validation_matrix = self.template_registry.build_validation_matrix()
         invalid_bindings = [item for item in bindings if item.validation_state != "valid"]
         return {
             "authority": "task_system.overview",
@@ -191,12 +195,21 @@ class TaskFlowRegistry:
                 "visible_sub_agent_count": agent_catalog["summary"]["sub_agent_count"],
                 "task_flow_count": len(flows),
                 "enabled_task_flow_count": sum(1 for item in flows if item.enabled),
+                "task_template_count": len(templates),
+                "enabled_task_template_count": sum(1 for item in templates if item.enabled),
                 "coordination_task_count": len(coordination_tasks),
                 "invalid_binding_count": len(invalid_bindings),
+                "invalid_template_count": sum(
+                    1
+                    for item in list(template_validation_matrix.get("rows") or [])
+                    if str(item.get("validation_state") or "") != "valid"
+                ),
             },
             "agents": agent_catalog["agents"],
             "flows": [item.to_dict() for item in flows],
             "bindings": [item.to_dict() for item in bindings],
+            "templates": [item.to_dict() for item in templates],
+            "template_validation_matrix": template_validation_matrix,
             "coordination_tasks": [item.to_dict() for item in coordination_tasks],
             "topology_templates": [item.to_dict() for item in self.list_topology_templates()],
             "link_permission_matrix": self.build_link_permission_matrix(),

@@ -8,6 +8,7 @@ from typing import Any
 __all__ = [
     "ProjectionRequirement",
     "SkillRuntimeView",
+    "TaskSpec",
     "TaskBindingRecord",
     "TaskBindings",
     "TaskConstraints",
@@ -18,11 +19,18 @@ __all__ = [
     "TaskFlowDefinition",
     "TaskAgentBinding",
     "TaskFlowRegistry",
+    "TaskStepBlueprint",
+    "TaskTemplate",
+    "TaskTemplateRegistry",
+    "TaskValidationRule",
     "TaskEvent",
     "TaskPromptContract",
     "TaskRecord",
     "TaskResultRef",
+    "TaskResult",
     "TaskSummary",
+    "TaskRunLedger",
+    "TaskStepRun",
     "build_task_runtime_contract",
 ]
 
@@ -48,6 +56,10 @@ def __getattr__(name: str) -> Any:
         from tasks.flow_registry import TaskFlowRegistry
 
         return TaskFlowRegistry
+    if name == "TaskTemplateRegistry":
+        from tasks.template_registry import TaskTemplateRegistry
+
+        return TaskTemplateRegistry
     if name in {"TaskBindingRecord"}:
         from tasks.bindings import TaskBindingRecord
 
@@ -72,10 +84,30 @@ def __getattr__(name: str) -> Any:
             "TaskSummary": TaskSummary,
         }
         return mapping[name]
+    if name in {"TaskResult", "TaskRunLedger", "TaskStepRun"}:
+        from tasks.run_models import TaskResult, TaskRunLedger, TaskStepRun
+
+        return {
+            "TaskResult": TaskResult,
+            "TaskRunLedger": TaskRunLedger,
+            "TaskStepRun": TaskStepRun,
+        }[name]
     if name in {"TaskEvent", "TaskRecord"}:
         from tasks.models import TaskEvent, TaskRecord
 
         return {"TaskEvent": TaskEvent, "TaskRecord": TaskRecord}[name]
+    if name in {"TaskStepBlueprint"}:
+        from tasks.step_models import TaskStepBlueprint
+
+        return TaskStepBlueprint
+    if name in {"TaskTemplate", "TaskValidationRule"}:
+        from tasks.template_models import TaskTemplate, TaskValidationRule
+
+        return {"TaskTemplate": TaskTemplate, "TaskValidationRule": TaskValidationRule}[name]
+    if name == "TaskSpec":
+        from tasks.spec_models import TaskSpec
+
+        return TaskSpec
     if name == "build_task_runtime_contract":
         from tasks.contract_builder import build_task_runtime_contract
 

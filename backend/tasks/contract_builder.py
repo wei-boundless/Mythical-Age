@@ -4,7 +4,7 @@ from typing import Any
 
 from operations import RuntimeApprovalContext, build_operation_requirement
 from soul.projection import build_soul_runtime_view
-from understanding import build_understanding_candidates
+from understanding.candidate_layer import build_understanding_candidates
 
 from .bindings import default_task_binding, merge_task_bindings
 from .contracts import build_task_contract
@@ -15,6 +15,8 @@ from .runtime_contracts import (
     TaskPromptContract,
     skill_runtime_views_for_refs,
 )
+from .spec_models import TaskSpec
+from .template_registry import TaskTemplateRegistry
 
 
 def build_task_runtime_contract(
@@ -36,17 +38,27 @@ def build_task_runtime_contract(
         user_goal,
         query_understanding=query_understanding,
     )
+    current_turn_payload = dict(current_turn_context or {})
+    template_registry = TaskTemplateRegistry()
+    selected_template = template_registry.select_template(
+        user_goal=user_goal,
+        query_understanding=query_understanding,
+        current_turn_context=current_turn_payload,
+        definitions=definitions,
+    )
     bindings = [default_task_binding(definition) for definition in definitions]
     merged_binding = merge_task_bindings(bindings)
-    task_family = "+".join(_dedupe([definition.task_family for definition in definitions]))
-    task_mode = "+".join(definition.task_mode for definition in definitions)
+    task_family = str(selected_template.task_family or "") or "+".join(_dedupe([definition.task_family for definition in definitions]))
+    task_mode = str(selected_template.task_mode or "") or "+".join(definition.task_mode for definition in definitions)
     contract = build_task_contract(
         task_id=task_id,
         session_id=session_id,
         user_goal=user_goal,
         source=source,
+        template_id=selected_template.template_id,
         task_family=task_family,
         task_mode=task_mode,
+        task_spec_ref=f"taskspec:{task_id}",
     )
     skill_views = skill_runtime_views_for_refs(merged_binding.skill_scope)
     active_skill_payload = dict(active_skill or {})
@@ -64,6 +76,7 @@ def build_task_runtime_contract(
                 [
                     "op.model_response",
                     *runtime_operations,
+                    *list(selected_template.required_operations),
                     *[
                         operation
                         for definition in definitions
@@ -73,11 +86,27 @@ def build_task_runtime_contract(
             )
         ),
         skill_required_operations=tuple(
-            _dedupe([operation for skill in skill_views for operation in skill.required_operations])
+            _dedupe(
+                [
+                    *list(selected_template.optional_operations),
+                    *[operation for skill in skill_views for operation in skill.required_operations],
+                ]
+            )
         ),
         approval_policy=merged_binding.approval_policy,
         review_policy=merged_binding.review_policy,
-        reason="derived from TaskDefinition, TaskBinding, and SkillRuntimeView",
+        reason="derived from TaskTemplate, TaskDefinition, TaskBinding, and SkillRuntimeView",
+    )
+    task_spec = _build_task_spec(
+        task_id=task_id,
+        session_id=session_id,
+        user_goal=user_goal,
+        selected_template=selected_template,
+        definitions=definitions,
+        current_turn_context=current_turn_payload,
+        query_understanding=dict(query_understanding or {}),
+        operation_requirement_ref=operation_requirement.requirement_id,
+        active_skill=active_skill_payload,
     )
     projection_requirement = ProjectionRequirement(
         task_id=contract.task_id,
@@ -101,10 +130,10 @@ def build_task_runtime_contract(
             "runtime_directive_enabled": True,
             "runtime_executable": True,
             "section_sources": {
-                "task_section": "TaskContract/TaskDefinition",
+                "task_section": "TaskContract/TaskTemplate/TaskDefinition",
                 "method_section": "SkillRuntimeView",
                 "projection_section": "ProjectionRequirement",
-                "output_section": "TaskDefinition.output_contract",
+                "output_section": "TaskTemplate.output_schema + TaskDefinition.output_contract",
             },
         },
     )
@@ -114,7 +143,6 @@ def build_task_runtime_contract(
         skill_views=skill_views,
         resource_views=[],
     )
-    current_turn_payload = dict(current_turn_context or {})
     task_contract_payload = contract.to_dict()
     if current_turn_payload:
         task_contract_payload["execution_mode"] = _task_contract_execution_mode(current_turn_payload)
@@ -125,6 +153,8 @@ def build_task_runtime_contract(
             **dict(task_contract_payload.get("bindings") or {}),
             "current_turn": current_turn_payload,
         }
+    task_contract_payload["selected_template_id"] = selected_template.template_id
+    task_contract_payload["requested_outputs"] = list(task_spec.requested_outputs)
     operation_requirement_payload = operation_requirement.to_dict()
     task_prompt_contract_payload = task_prompt_contract.to_dict()
     prompt_manifest_payload = soul_runtime["prompt_manifest"]
@@ -135,6 +165,8 @@ def build_task_runtime_contract(
     return {
         "task_contract": task_contract_payload,
         "definitions": [definition.to_dict() for definition in definitions],
+        "selected_template": selected_template.to_dict(),
+        "task_spec": task_spec.to_dict(),
         "binding": merged_binding.to_dict(),
         "skill_runtime_views": [view.to_dict() for view in skill_views],
         "operation_requirement": operation_requirement_payload,
@@ -257,3 +289,69 @@ def _task_contract_execution_mode(current_turn_context: dict[str, Any]) -> str:
     if mode == "bundle":
         return "bundle_execution"
     return "single_agent_runtime"
+
+
+def _build_task_spec(
+    *,
+    task_id: str,
+    session_id: str,
+    user_goal: str,
+    selected_template,
+    definitions: list[Any],
+    current_turn_context: dict[str, Any],
+    query_understanding: dict[str, Any],
+    operation_requirement_ref: str,
+    active_skill: dict[str, Any],
+) -> TaskSpec:
+    explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+    resolved_bindings = [
+        dict(item)
+        for item in list(current_turn_context.get("resolved_bindings") or [])
+        if isinstance(item, dict)
+    ]
+    bundle_items = [
+        dict(item)
+        for item in list(current_turn_context.get("bundle_items") or [])
+        if isinstance(item, dict)
+    ]
+    requested_outputs = tuple(str(key) for key in dict(selected_template.output_schema or {}).keys()) or ("final_answer",)
+    selected_skill_ids = _dedupe(
+        [
+            *[
+                str(skill or "").strip()
+                for definition in definitions
+                for skill in list(getattr(definition, "default_skill_refs", ()) or ())
+                if str(skill or "").strip()
+            ],
+            str(active_skill.get("name") or "").strip(),
+        ]
+    )
+    return TaskSpec(
+        task_id=task_id,
+        task_spec_ref=f"taskspec:{task_id}",
+        template_id=selected_template.template_id,
+        session_id=session_id,
+        user_goal=user_goal,
+        inputs={
+            **explicit_inputs,
+            **({"bundle_items": bundle_items} if bundle_items else {}),
+        },
+        bindings={
+            "resolved_bindings": resolved_bindings,
+        },
+        constraints={
+            "intent": str(current_turn_context.get("intent") or query_understanding.get("intent") or ""),
+            "execution_mode": str(current_turn_context.get("execution_mode") or "single"),
+            "confidence": float(current_turn_context.get("confidence") or query_understanding.get("confidence") or 0.0),
+            "candidate_tools": [
+                str(item).strip()
+                for item in list(query_understanding.get("candidate_tools") or [])
+                if str(item).strip()
+            ],
+        },
+        current_turn_context_ref=str(current_turn_context.get("authority") or ""),
+        requested_outputs=requested_outputs,
+        selected_agent_id=str(selected_template.default_agent_id or "agent:main"),
+        selected_skill_ids=tuple(selected_skill_ids),
+        operation_requirement_ref=operation_requirement_ref,
+    )

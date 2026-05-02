@@ -89,6 +89,9 @@ class RuntimeLoopState:
     agent_profile_id: str = "main_interactive_agent"
     runtime_lane: str = "full_interactive"
     task_agent_binding_ref: str = ""
+    task_template_id: str = ""
+    task_spec_ref: str = ""
+    task_result_ref: str = ""
     skill_workflow_ref: str = ""
     health_issue_ref: str = ""
     transition: RuntimeTransition = "start"
@@ -143,6 +146,9 @@ class RuntimeLoopState:
             agent_profile_id=self.agent_profile_id,
             runtime_lane=self.runtime_lane,
             task_agent_binding_ref=self.task_agent_binding_ref,
+            task_template_id=self.task_template_id,
+            task_spec_ref=self.task_spec_ref,
+            task_result_ref=self.task_result_ref,
             skill_workflow_ref=self.skill_workflow_ref,
             health_issue_ref=self.health_issue_ref,
             transition=transition or self.transition,

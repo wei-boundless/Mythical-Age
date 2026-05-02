@@ -165,17 +165,25 @@ def build_task_run_final_commit_decision(
     task_id: str,
     terminal_reason: str,
     final_content_chars: int = 0,
+    task_spec_ref: str = "",
+    template_id: str = "",
+    task_result: dict[str, Any] | None = None,
     source: str = "orchestration.task_run_loop",
 ) -> RuntimeCommitGateDecision:
+    payload = {
+        "task_run_id": str(task_run_id or ""),
+        "task_id": str(task_id or ""),
+        "task_spec_ref": str(task_spec_ref or ""),
+        "template_id": str(template_id or ""),
+        "terminal_reason": str(terminal_reason or ""),
+        "final_content_chars": int(final_content_chars or 0),
+    }
+    if isinstance(task_result, dict) and task_result:
+        payload["task_result"] = dict(task_result)
     candidate = CommitCandidate(
         candidate_id=f"commit-candidate:{task_run_id}:task_result:final",
         commit_type="task_result",
-        payload={
-            "task_run_id": str(task_run_id or ""),
-            "task_id": str(task_id or ""),
-            "terminal_reason": str(terminal_reason or ""),
-            "final_content_chars": int(final_content_chars or 0),
-        },
+        payload=payload,
         producer="orchestration.runtime_commit_gate",
         allowed=True,
         reason="task_run_final_record_allowed",

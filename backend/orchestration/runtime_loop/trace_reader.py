@@ -140,10 +140,17 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
         )
     elif event_type == "task_contract_built":
         contract = dict(payload.get("task_contract") or {})
+        template = dict(payload.get("selected_template") or {})
+        task_spec = dict(payload.get("task_spec") or {})
+        task_run_ledger = dict(payload.get("task_run_ledger") or {})
         summary.update(
             {
                 "task_id": str(contract.get("task_id") or ""),
                 "session_id": str(contract.get("session_id") or ""),
+                "template_id": str(contract.get("template_id") or template.get("template_id") or ""),
+                "task_spec_ref": str(contract.get("task_spec_ref") or task_spec.get("task_spec_ref") or ""),
+                "requested_outputs": list(task_spec.get("requested_outputs") or []),
+                "step_count": len(list(task_run_ledger.get("step_runs") or [])),
                 "user_goal_chars": len(str(contract.get("user_goal") or "")),
                 "source": str(payload.get("source") or ""),
             }
@@ -216,20 +223,28 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
         )
     elif event_type == "commit_gate_checked":
         decision = dict(payload.get("commit_decision") or payload.get("commit_gate") or {})
+        candidate_payload = dict(dict(decision.get("commit_candidate") or {}).get("payload") or {})
+        task_result = dict(candidate_payload.get("task_result") or {})
         summary.update(
             {
                 "gate_id": str(decision.get("gate_id") or ""),
                 "commit_type": str(decision.get("commit_type") or ""),
                 "commit_allowed": bool(decision.get("commit_allowed") is True),
                 "reason": str(decision.get("reason") or ""),
+                "task_spec_ref": str(candidate_payload.get("task_spec_ref") or task_result.get("task_spec_ref") or ""),
+                "template_id": str(candidate_payload.get("template_id") or task_result.get("template_id") or ""),
             }
         )
     elif event_type == "loop_terminal":
+        task_result = dict(payload.get("task_result") or {})
         summary.update(
             {
                 "status": str(payload.get("status") or ""),
                 "terminal_reason": str(payload.get("terminal_reason") or ""),
                 "final_content_chars": int(payload.get("final_content_chars") or 0),
+                "task_result_ref": str(task_result.get("result_id") or ""),
+                "template_id": str(task_result.get("template_id") or ""),
+                "requested_outputs": list(task_result.get("requested_outputs") or []),
             }
         )
     return summary

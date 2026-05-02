@@ -63,6 +63,38 @@ def test_context_resolver_prefers_explicit_input_over_state_binding() -> None:
     assert context.resolved_bindings[0].source == "explicit_user_input"
 
 
+def test_context_resolver_keeps_bound_pdf_alongside_explicit_dataset() -> None:
+    resolver = ContextResolver()
+    context = resolver.resolve(
+        session_id="session-2b",
+        task_id="task-2b",
+        user_message="先总结 PDF 第三页，再看 employees.xlsx 的薪资前五。",
+        memory_runtime_view={
+            "state_snapshot": {
+                "context_slots": {
+                    "active_pdf": "knowledge/AI Knowledge/report.pdf",
+                    "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                }
+            }
+        },
+        query_understanding={
+            "intent": "multi_capability_request",
+            "confidence": 0.93,
+            "structural_signals": {
+                "explicit_dataset_path": "knowledge/E-commerce Data/employees.xlsx",
+                "bound_pdf_path": "knowledge/AI Knowledge/report.pdf",
+            },
+        },
+    )
+
+    paths = {
+        (binding.file_kind, binding.metadata.get("path"))
+        for binding in context.resolved_bindings
+    }
+    assert ("dataset", "knowledge/E-commerce Data/employees.xlsx") in paths
+    assert ("pdf", "knowledge/AI Knowledge/report.pdf") in paths
+
+
 def test_context_resolver_binds_ordinal_followup_to_previous_bundle_item() -> None:
     resolver = ContextResolver()
     context = resolver.resolve(
