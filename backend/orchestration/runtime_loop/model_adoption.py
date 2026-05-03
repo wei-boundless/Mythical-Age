@@ -114,6 +114,7 @@ def _build_runtime_decisions(
     requested = _requested_operations(task_operation)
     agent_allowed = _agent_allowed_operations(agent_runtime_profile)
     agent_blocked = _agent_blocked_operations(agent_runtime_profile)
+    approval_policy = _approval_policy(task_operation, agent_runtime_profile)
     decisions: list[ResourceDecision] = []
     for operation_id in requested:
         normalized_id = registry.normalize_id(operation_id) if registry is not None else operation_id
@@ -125,6 +126,7 @@ def _build_runtime_decisions(
                 agent_allowed=agent_allowed,
                 agent_blocked=agent_blocked,
                 approval_context=approval_context,
+                approval_policy=approval_policy,
             )
         )
     if not any(decision.operation_id == "op.model_response" for decision in decisions):
@@ -172,6 +174,7 @@ def _decide_runtime_operation(
     agent_allowed: set[str],
     agent_blocked: set[str],
     approval_context: RuntimeApprovalContext,
+    approval_policy: str,
 ) -> ResourceDecision:
     if operation_id in agent_blocked:
         return ResourceDecision(
@@ -200,6 +203,14 @@ def _decide_runtime_operation(
             decision="not_executable",
             reason="worker and agent operations are not exposed to the model as direct tools",
             risk_tags=descriptor.risk_tags,
+        )
+    if approval_policy == "task_bounded_write" and descriptor.operation_id in {"op.write_file", "op.edit_file"}:
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="allow",
+            reason="task-bounded workspace write allowed by explicit specific task contract",
+            risk_tags=descriptor.risk_tags,
+            diagnostics={"approval_policy": approval_policy},
         )
     if descriptor.requires_approval_by_default or descriptor.destructive:
         approval_available = bool(
@@ -232,11 +243,14 @@ def _decide_runtime_operation(
 
 
 def _approval_policy(task_operation: dict[str, Any], profile: AgentRuntimeProfile | None) -> str:
-    if profile is not None and profile.approval_policy:
-        return str(profile.approval_policy)
     requirement = dict(task_operation.get("operation_requirement") or {})
     metadata = dict(requirement.get("metadata") or {})
-    return str(metadata.get("approval_policy") or "default")
+    explicit_policy = str(metadata.get("approval_policy") or "").strip()
+    if explicit_policy and explicit_policy != "default":
+        return explicit_policy
+    if profile is not None and profile.approval_policy:
+        return str(profile.approval_policy)
+    return explicit_policy or "default"
 
 
 def _dedupe(values: list[Any] | tuple[Any, ...]) -> list[str]:

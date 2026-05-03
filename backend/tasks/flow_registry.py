@@ -23,6 +23,23 @@ from .workflow_registry import TaskWorkflowRegistry
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
     return (
         TaskFlowDefinition(
+            flow_id="flow.dev.light_web_game",
+            task_mode="light_web_game",
+            task_family="development",
+            title="轻量网页小游戏开发",
+            input_contract_id="LightWebGameTaskInput",
+            output_contract_id="LightWebGameResult",
+            default_agent_id="agent:0",
+            default_workflow_id="workflow.dev.light_web_game",
+            default_runtime_lane="game_delivery",
+            default_memory_scope="conversation_read_write",
+            metadata={
+                "task_resource": "light_web_game",
+                "template_id": "template.dev.light_web_game",
+                "task_id": "task.dev.light_web_game",
+            },
+        ),
+        TaskFlowDefinition(
             flow_id="flow.health.issue_triage",
             task_mode="issue_triage",
             task_family="health",
@@ -122,13 +139,17 @@ def default_general_task_profiles() -> tuple[GeneralTaskProfile, ...]:
             profile_id="general.conversation.default",
             title="通用对话任务",
             default_agent_id="agent:0",
-            default_workflow_id="",
+            default_workflow_id="workflow.general.main_conversation",
             default_projection_id="",
             input_contract_id="UserMessage",
             output_contract_id="AssistantFinalAnswer",
             conversation_entry_policy="user_dialogue_to_main_agent",
             enabled=True,
-            metadata={"managed_by": "task_system"},
+            metadata={
+                "managed_by": "task_system",
+                "default_specific_task_handoff": "task.dev.light_web_game",
+                "notes": "主会话默认保持通用承接，但允许稳定分流到已登记的开发类特定任务。",
+            },
         ),
     )
 
@@ -314,6 +335,9 @@ class TaskFlowRegistry:
             if not isinstance(item, dict):
                 continue
             assignments.append(_assignment_from_dict(item))
+        if not assignments:
+            assignments = [self._assignment_from_flow(flow) for flow in self.list_flows()]
+            _write_json(_assignments_path(self.base_dir), {"assignments": [item.to_dict() for item in assignments]})
         return assignments
 
     def get_general_task_profile(self, profile_id: str) -> GeneralTaskProfile | None:
@@ -389,8 +413,9 @@ class TaskFlowRegistry:
 
     def _assignment_from_flow(self, flow: TaskFlowDefinition) -> TaskAssignment:
         workflow = self.workflow_registry.get_workflow(flow.default_workflow_id)
+        task_id = str(flow.metadata.get("task_id") or f"task.{flow.task_family}.{flow.task_mode}").strip()
         return TaskAssignment(
-            task_id=f"task.{flow.task_family}.{flow.task_mode}",
+            task_id=task_id,
             task_title=flow.title,
             task_kind="specific_task",
             task_family=flow.task_family,
@@ -407,6 +432,7 @@ class TaskFlowRegistry:
                 "runtime_lane_hint": flow.default_runtime_lane,
                 "memory_scope_hint": flow.default_memory_scope,
                 "workflow_steps": [dict(item) for item in workflow.steps] if workflow is not None else [],
+                "task_resource_kind": str(flow.metadata.get("task_resource") or ""),
             },
             enabled=flow.enabled,
             metadata={**flow.metadata, "source_flow_id": flow.flow_id},

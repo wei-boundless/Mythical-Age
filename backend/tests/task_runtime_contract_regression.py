@@ -201,3 +201,29 @@ def test_bundle_runtime_contract_exposes_task_spec_and_bundle_template() -> None
     assert runtime["bundle_spec"]["items"][0]["template_id"] == "template.pdf.document_analysis"
     assert runtime["task_spec"]["step_input_bindings"][0]["input_refs"] == ["input.bundle_spec"]
     assert "bundle_items" not in runtime["task_spec"]["inputs"]
+
+
+def test_specific_light_web_game_task_contract_promotes_development_execution_shape() -> None:
+    runtime = build_task_runtime_contract(
+        session_id="session-game-contract",
+        task_id="task-game-contract",
+        user_goal="请生成一个可以直接运行的网页贪吃蛇小游戏。",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "selected_task_id": "task.dev.light_web_game",
+        },
+    )
+
+    definition_ids = [item["definition_id"] for item in runtime["definitions"]]
+    required_operations = set(runtime["operation_requirement"]["required_operations"])
+    optional_operations = set(runtime["operation_requirement"]["optional_operations"])
+    denied_operations = set(runtime["operation_requirement"]["denied_operations"])
+
+    assert runtime["registered_task"]["task_id"] == "task.dev.light_web_game"
+    assert runtime["selected_template"]["template_id"] == "template.dev.light_web_game"
+    assert definition_ids == ["task.task_execution", "task.inspection_and_correction"]
+    assert runtime["operation_requirement"]["metadata"]["approval_policy"] == "task_bounded_write"
+    assert {"op.edit_file", "op.read_file", "op.search_files"} <= required_operations
+    assert "op.write_file" in optional_operations
+    assert "op.edit_file" not in denied_operations
+    assert "op.write_file" not in denied_operations

@@ -1,0 +1,32 @@
+{
+  "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+  "updated_at": 1777798360.0131261,
+  "records": [
+    {
+      "execution_id": "rtexec:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:7ea093b0",
+      "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+      "step_id": "step.inspect_workspace",
+      "request_ref": "rtact:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:22e07d4b",
+      "directive_ref": "runtime-directive:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:tool:rtact:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:22e07d4b",
+      "operation_id": "op.search_files",
+      "executor_type": "tool",
+      "request_fingerprint": "c66469eebf80f30784199226b713ef8031cf6e31d3b4b13d63f077c510406da3",
+      "idempotency_token": "1601de9f2ea21abe794eeb0d3bebf030c3a59736ea1bf771345aa4a68a3573fd",
+      "replay_policy": "replay_read",
+      "status": "failed",
+      "side_effect_state": "unknown",
+      "result_ref": "",
+      "result_payload": {},
+      "attempt_count": 1,
+      "created_at": 1777798359.973864,
+      "updated_at": 1777798360.0070448,
+      "diagnostics": {
+        "tool_name": "search_files",
+        "directive_ref": "runtime-directive:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:tool:rtact:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:22e07d4b",
+        "error": "Tool execution failed: [WinError 5] 拒绝访问。"
+      },
+      "authority": "orchestration.operation_execution_record"
+    }
+  ],
+  "latest_execution_id": "rtexec:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:7ea093b0"
+}

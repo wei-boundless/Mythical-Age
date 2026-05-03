@@ -224,6 +224,18 @@ function isMainAgentCategory(category: string) {
   return category === "main_agent";
 }
 
+function preferredGeneralWorkflowId(workflows: TaskWorkflowRecord[]) {
+  return workflows.find((workflow) => workflow.workflow_id === "workflow.general.main_conversation")?.workflow_id
+    ?? workflows[0]?.workflow_id
+    ?? "";
+}
+
+function preferredGameWorkflowId(workflows: TaskWorkflowRecord[]) {
+  return workflows.find((workflow) => workflow.workflow_id === "workflow.dev.light_web_game")?.workflow_id
+    ?? workflows[0]?.workflow_id
+    ?? "workflow.dev.light_web_game";
+}
+
 function emptyGeneralTask(workflowId = "", projectionId = ""): GeneralTaskProfile {
   return {
     profile_id: "general.conversation.default",
@@ -241,29 +253,31 @@ function emptyGeneralTask(workflowId = "", projectionId = ""): GeneralTaskProfil
 
 function emptySpecificTask(workflowId = "", projectionId = ""): SpecificTaskDraft {
   return {
-    task_id: "task.custom.new_task",
-    task_title: "新特定任务",
+    task_id: "task.dev.light_web_game",
+    task_title: "轻量网页小游戏开发",
     task_kind: "specific_task",
-    task_family: "custom",
-    task_mode: "custom_task",
-    flow_id: "flow.custom.new_task",
+    task_family: "development",
+    task_mode: "light_web_game",
+    flow_id: "flow.dev.light_web_game",
     default_agent_id: "agent:0",
     participant_agent_ids: [],
-    workflow_id: workflowId,
-    workflow_file_ref: workflowId ? `workflow:${workflowId}` : "",
+    workflow_id: workflowId || "workflow.dev.light_web_game",
+    workflow_file_ref: `workflow:${workflowId || "workflow.dev.light_web_game"}`,
     projection_id: projectionId,
-    input_contract_id: "TaskInput",
-    output_contract_id: "TaskOutput",
+    input_contract_id: "LightWebGameTaskInput",
+    output_contract_id: "LightWebGameResult",
     task_structure: {
-      runtime_lane_hint: "",
-      memory_scope_hint: "",
-      trigger_signals: [],
-      notes: ""
+      runtime_lane_hint: "game_delivery",
+      memory_scope_hint: "conversation_read_write",
+      trigger_signals: ["小游戏", "web game", "snake", "canvas game"],
+      notes: "默认由主 Agent 承接，目标是交付可运行、可操作、可验证的轻量网页小游戏。",
+      workspace_target_hint: "frontend/public or standalone html file",
+      delivery_expectation: "playable_web_game"
     },
     enabled: true,
     metadata: { managed_by: "task_system_console" },
-    trigger_signals_text: "",
-    notes: ""
+    trigger_signals_text: "小游戏\nweb game\nsnake\ncanvas game",
+    notes: "默认由主 Agent 承接，目标是交付可运行、可操作、可验证的轻量网页小游戏。"
   };
 }
 
@@ -295,24 +309,27 @@ function workflowDraftFrom(workflow: TaskWorkflowRecord): WorkflowDraft {
 
 function emptyWorkflow(): WorkflowDraft {
   return workflowDraftFrom({
-    workflow_id: "workflow.custom.new_task",
-    title: "新任务工作流",
-    task_mode: "custom_task",
+    workflow_id: "workflow.dev.light_web_game",
+    title: "轻量网页小游戏工作流",
+    task_mode: "light_web_game",
     compatible_projection_ids: [],
-    visible_skill_ids: [],
+    visible_skill_ids: ["skill.implementation", "skill.review"],
     steps: [
-      { step_id: "understand", title: "理解任务输入" },
-      { step_id: "execute", title: "执行任务步骤" },
-      { step_id: "finalize", title: "形成任务输出" }
+      { step_id: "clarify_game_goal", title: "收束玩法目标与交互边界" },
+      { step_id: "inspect_workspace", title: "检查工作区与落点文件" },
+      { step_id: "design_runtime_shape", title: "定义状态、循环与渲染结构" },
+      { step_id: "build_game_artifact", title: "实现游戏文件与交互逻辑" },
+      { step_id: "verify_playability", title: "验证可启动、可操作、可结束" },
+      { step_id: "finalize_report", title: "输出真实结果与限制" }
     ],
-    input_boundary: "",
-    output_boundary: "",
-    stop_conditions: ["result_ready"],
-    required_evidence_refs: [],
-    output_contract_id: "TaskOutput",
-    prompt: "",
+    input_boundary: "Game goal, explicit workspace target, optional style hints, optional asset refs.",
+    output_boundary: "Playable web game artifact refs plus validation state and known limitations.",
+    stop_conditions: ["game_artifact_created", "playability_checked", "result_reported"],
+    required_evidence_refs: ["workspace_path", "artifact_refs"],
+    output_contract_id: "LightWebGameResult",
+    prompt: "优先交付轻量、可运行、可验证的网页小游戏。先收束玩法，再决定结构；如果无法完整验证，必须明确说明未验证部分。",
     enabled: true,
-    metadata: { managed_by: "task_system_console" }
+    metadata: { managed_by: "task_system_console", task_resource: "light_web_game" }
   });
 }
 
@@ -495,7 +512,7 @@ export function TaskSystemView() {
     if (selectedGeneralTask) {
       setGeneralDraft(selectedGeneralTask);
     } else {
-      setGeneralDraft(emptyGeneralTask(workflows[0]?.workflow_id ?? "", projections[0]?.projection_id ?? ""));
+      setGeneralDraft(emptyGeneralTask(preferredGeneralWorkflowId(workflows), projections[0]?.projection_id ?? ""));
     }
   }, [selectedGeneralTask, workflows, projections]);
 
@@ -503,7 +520,7 @@ export function TaskSystemView() {
     if (selectedSpecificTask) {
       setSpecificTaskDraft(specificTaskDraftFrom(selectedSpecificTask));
     } else {
-      setSpecificTaskDraft(emptySpecificTask(workflows[0]?.workflow_id ?? "", projections[0]?.projection_id ?? ""));
+      setSpecificTaskDraft(emptySpecificTask(preferredGameWorkflowId(workflows), projections[0]?.projection_id ?? ""));
     }
   }, [selectedSpecificTask, workflows, projections]);
 
@@ -681,7 +698,7 @@ export function TaskSystemView() {
   }
 
   function createSpecificTaskDraft() {
-    const draft = emptySpecificTask(workflows[0]?.workflow_id ?? "", projections[0]?.projection_id ?? "");
+    const draft = emptySpecificTask(preferredGameWorkflowId(workflows), projections[0]?.projection_id ?? "");
     setSelectedSpecificTaskId(draft.task_id);
     setSpecificTaskDraft(draft);
     setTaskWorkbenchTab("definition");

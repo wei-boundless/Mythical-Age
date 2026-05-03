@@ -91,7 +91,7 @@ def _run_rg(args: list[str], *, cwd: Path, timeout: float = 8.0) -> subprocess.C
             timeout=timeout,
             check=False,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
         return None
 
 

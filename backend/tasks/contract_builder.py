@@ -11,7 +11,7 @@ from understanding.candidate_layer import build_understanding_candidates
 from .bindings import default_task_binding, merge_task_bindings
 from .bundle_models import BundleItemSpec, BundleSpec
 from .contracts import build_task_contract
-from .definitions import select_runtime_task_definitions, select_task_definitions
+from .definitions import default_task_definitions, select_runtime_task_definitions
 from .flow_registry import TaskFlowRegistry
 from .runtime_contracts import (
     ProjectionRequirement,
@@ -69,12 +69,20 @@ def build_task_runtime_contract(
     selected_template = template_registry.get_template(template_match.template_id)
     if selected_template is None:
         raise ValueError(f"Unknown template selected: {template_match.template_id}")
+    definitions = _align_runtime_definitions(
+        definitions=definitions,
+        registered_task=registered_task,
+        selected_template=selected_template,
+    )
     bundle_spec = _build_bundle_spec(
         task_id=task_id,
         current_turn_context=current_turn_payload,
     )
     bindings = [default_task_binding(definition) for definition in definitions]
-    merged_binding = merge_task_bindings(bindings)
+    merged_binding = _align_task_binding_with_template(
+        merge_task_bindings(bindings),
+        selected_template=selected_template,
+    )
     task_family = _resolve_task_family(
         registered_task=registered_task,
         selected_template=selected_template,
@@ -128,7 +136,11 @@ def build_task_runtime_contract(
                 ]
             )
         ),
-        approval_policy=merged_binding.approval_policy,
+        approval_policy=_resolve_operation_approval_policy(
+            merged_binding=merged_binding,
+            selected_template=selected_template,
+            registered_task=registered_task,
+        ),
         review_policy=merged_binding.review_policy,
         reason="derived from TaskTemplate, TaskDefinition, TaskBinding, and SkillRuntimeView",
     )
@@ -670,6 +682,7 @@ def _resolve_registered_task(
                 "projection_id": assignment.projection_id,
                 "input_contract_id": assignment.input_contract_id,
                 "output_contract_id": assignment.output_contract_id,
+                "template_id": str((assignment.metadata or {}).get("template_id") or ""),
                 "metadata": dict(assignment.metadata or {}),
             }
     default_general_profile = next(
@@ -751,6 +764,77 @@ def _resolve_task_mode(
     return str(selected_template.task_mode or "") or "+".join(
         definition.task_mode for definition in definitions
     )
+
+
+def _align_runtime_definitions(
+    *,
+    definitions: list[Any],
+    registered_task: dict[str, Any] | None,
+    selected_template,
+) -> list[Any]:
+    if not registered_task or str(registered_task.get("task_type") or "") != "specific_task":
+        return definitions
+
+    template_id = str(getattr(selected_template, "template_id", "") or "")
+    task_mode = str((registered_task or {}).get("task_mode") or getattr(selected_template, "task_mode", "") or "")
+    definition_catalog = default_task_definitions()
+    if template_id in {"template.dev.workspace_patch", "template.dev.light_web_game"} or task_mode in {
+        "workspace_patch",
+        "light_web_game",
+    }:
+        return [
+            definition_catalog["task.task_execution"],
+            definition_catalog["task.inspection_and_correction"],
+        ]
+    return definitions
+
+
+def _align_task_binding_with_template(
+    binding,
+    *,
+    selected_template,
+):
+    template_operations = {
+        str(item).strip()
+        for item in [
+            *list(getattr(selected_template, "required_operations", ()) or ()),
+            *list(getattr(selected_template, "optional_operations", ()) or ()),
+        ]
+        if str(item).strip()
+    }
+    if not template_operations:
+        return binding
+    allowed_denied = tuple(
+        operation
+        for operation in tuple(binding.denied_operations or ())
+        if str(operation).strip() not in template_operations
+    )
+    if allowed_denied == tuple(binding.denied_operations or ()):
+        return binding
+    return type(binding)(
+        **{
+            **binding.to_dict(),
+            "skill_scope": tuple(binding.skill_scope or ()),
+            "denied_skills": tuple(binding.denied_skills or ()),
+            "operation_scope": tuple(binding.operation_scope or ()),
+            "denied_operations": allowed_denied,
+        }
+    )
+
+
+def _resolve_operation_approval_policy(
+    *,
+    merged_binding,
+    selected_template,
+    registered_task: dict[str, Any] | None,
+) -> str:
+    if (
+        registered_task
+        and str(registered_task.get("task_type") or "") == "specific_task"
+        and str(getattr(selected_template, "task_family", "") or "") == "development"
+    ):
+        return "task_bounded_write"
+    return str(merged_binding.approval_policy or "default")
 
 
 def _build_bundle_spec(

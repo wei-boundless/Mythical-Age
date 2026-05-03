@@ -10,6 +10,56 @@ from .workflow_models import TaskWorkflowBinding
 def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
     return (
         TaskWorkflowBinding(
+            workflow_id="workflow.general.main_conversation",
+            title="主会话通用工作流",
+            task_mode="general_task",
+            compatible_projection_ids=(),
+            visible_skill_ids=(),
+            steps=(
+                {"step_id": "understand_request", "title": "理解当前请求"},
+                {"step_id": "decide_route", "title": "判断是否直接回答或分流"},
+                {"step_id": "finalize_response", "title": "输出主会话结果"},
+            ),
+            input_boundary="User dialogue, active conversation context, explicit task refs when present.",
+            output_boundary="AssistantFinalAnswer or explicit handoff into a registered specific task.",
+            stop_conditions=("answer_ready", "specific_task_selected"),
+            required_evidence_refs=(),
+            output_contract_id="AssistantFinalAnswer",
+            prompt=(
+                "主会话默认承接通用任务。"
+                "只有在用户目标明显命中特定任务资源时，才切换到对应特定任务链路。"
+            ),
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "general_conversation"},
+        ),
+        TaskWorkflowBinding(
+            workflow_id="workflow.dev.light_web_game",
+            title="轻量网页小游戏工作流",
+            task_mode="light_web_game",
+            compatible_projection_ids=(),
+            visible_skill_ids=("skill.implementation", "skill.review"),
+            steps=(
+                {"step_id": "clarify_game_goal", "title": "收束玩法目标与交互边界"},
+                {"step_id": "inspect_workspace", "title": "检查工作区与落点文件"},
+                {"step_id": "design_runtime_shape", "title": "定义状态、循环与渲染结构"},
+                {"step_id": "build_game_artifact", "title": "实现游戏文件与交互逻辑"},
+                {"step_id": "verify_playability", "title": "验证可启动、可操作、可结束"},
+                {"step_id": "finalize_report", "title": "输出真实结果与限制"},
+            ),
+            input_boundary="Game goal, explicit workspace target, optional style hints, optional asset refs.",
+            output_boundary="Playable web game artifact refs plus validation state and known limitations.",
+            stop_conditions=("game_artifact_created", "playability_checked", "result_reported"),
+            required_evidence_refs=("workspace_path", "artifact_refs"),
+            output_contract_id="LightWebGameResult",
+            prompt=(
+                "优先做轻量、可运行、可验证的网页小游戏。"
+                "先收束玩法，再决定结构；不要堆砌无关特效；"
+                "如果无法完成完整验证，必须明确说明未验证部分。"
+            ),
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "light_web_game"},
+        ),
+        TaskWorkflowBinding(
             workflow_id="workflow.health.issue_triage",
             title="健康问题分诊工作流",
             task_mode="issue_triage",
@@ -210,5 +260,6 @@ class TaskWorkflowRegistry:
                 "workflow_count": len(workflows),
                 "enabled_workflow_count": sum(1 for item in workflows if item.enabled),
                 "health_workflow_count": sum(1 for item in workflows if item.workflow_id.startswith("workflow.health.")),
+                "development_workflow_count": sum(1 for item in workflows if item.workflow_id.startswith("workflow.dev.")),
             },
         }

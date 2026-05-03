@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>贪吃蛇 - Snake</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+  }
+  .game-wrapper {
+    text-align: center;
+  }
+  h1 {
+    color: #e94560;
+    font-size: 2rem;
+    margin-bottom: 8px;
+    letter-spacing: 4px;
+  }
+  .score-board {
+    color: #eee;
+    font-size: 1.1rem;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+  }
+  .score-board span { color: #f5c518; font-weight: bold; }
+  canvas {
+    border: 2px solid #e94560;
+    border-radius: 4px;
+    background: #16213e;
+    display: block;
+    margin: 0 auto;
+  }
+  .controls {
+    margin-top: 14px;
+    color: #888;
+    font-size: 0.9rem;
+  }
+  .controls kbd {
+    background: #333;
+    color: #eee;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 2px 7px;
+    margin: 0 2px;
+    font-family: inherit;
+  }
+  .restart-btn {
+    margin-top: 10px;
+    padding: 8px 28px;
+    font-size: 1rem;
+    background: #e94560;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 2px;
+    transition: background 0.2s;
+  }
+  .restart-btn:hover { background: #c73652; }
+  .gameover-overlay {
+    color: #e94560;
+    font-size: 1.3rem;
+    margin-top: 8px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="game-wrapper">
+  <h1>SNAKE</h1>
+  <div class="score-board">
+    得分: <span id="score">0</span>
+    最高: <span id="best">0</span>
+  </div>
+  <canvas id="canvas" width="400" height="400"></canvas>
+  <div class="gameover-overlay" id="gameover">游戏结束 — 按 R 或点击按钮重新开始</div>
+  <button class="restart-btn" id="restartBtn">重新开始</button>
+  <div class="controls">
+    <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> 移动 &nbsp;|&nbsp; <kbd>R</kbd> 重新开始
+  </div>
+</div>
+
+<script>
+(function () {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const gameoverEl = document.getElementById('gameover');
+  const restartBtn = document.getElementById('restartBtn');
+
+  const GRID = 20;          // 每格像素
+  const COLS = canvas.width / GRID;   // 20
+  const ROWS = canvas.height / GRID;  // 20
+
+  let snake, food, direction, nextDirection, score, best, gameLoop, gameRunning;
+
+  // --- 初始化 / 重置 ---
+  function init() {
+    // 蛇身：从中间偏左开始，初始长度 3
+    snake = [
+      { x: 8, y: 10 },
+      { x: 7, y: 10 },
+      { x: 6, y: 10 }
+    ];
+    direction = { x: 1, y: 0 };
+    nextDirection = { x: 1, y: 0 };
+    score = 0;
+    gameRunning = true;
+    gameoverEl.style.display = 'none';
+    updateScore();
+    placeFood();
+  }
+
+  function placeFood() {
+    const occupied = new Set(snake.map(s => s.x + ',' + s.y));
+    const free = [];
+    for (let x = 0; x < COLS; x++) {
+      for (let y = 0; y < ROWS; y++) {
+        if (!occupied.has(x + ',' + y)) free.push({ x, y });
+      }
+    }
+    if (free.length === 0) {
+      // 胜利（蛇填满整个网格）
+      endGame(true);
+      return;
+    }
+    food = free[Math.floor(Math.random() * free.length)];
+  }
+
+  // --- 主循环 ---
+  function step() {
+    if (!gameRunning) return;
+
+    // 应用方向（禁止反向）
+    if (
+      !(nextDirection.x === -direction.x && nextDirection.y === -direction.y &&
+        snake.length > 1)
+    ) {
+      direction = { ...nextDirection };
+    }
+
+    const head = {
+      x: snake[0].x + direction.x,
+      y: snake[0].y + direction.y
+    };
+
+    // 撞墙检测
+    if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
+      endGame(false);
+      return;
+    }
+
+    // 撞自己检测（排除尾部，因为尾部即将移走——除非吃到食物）
+    const willGrow = head.x === food.x && head.y === food.y;
+    const checkBody = willGrow ? snake : snake.slice(0, -1);
+    if (checkBody.some(s => s.x === head.x && s.y === head.y)) {
+      endGame(false);
+      return;
+    }
+
+    snake.unshift(head);
+
+    if (willGrow) {
+      score += 10;
+      updateScore();
+      placeFood();
+    } else {
+      snake.pop();
+    }
+
+    draw();
+  }
+
+  // --- 绘制 ---
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 网格线（淡）
+    ctx.strokeStyle = '#1e2d4a';
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x <= COLS; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * GRID, 0);
+      ctx.lineTo(x * GRID, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= ROWS; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * GRID);
+      ctx.lineTo(canvas.width, y * GRID);
+      ctx.stroke();
+    }
+
+    // 食物
+    ctx.fillStyle = '#f5c518';
+    ctx.beginPath();
+    ctx.arc(
+      food.x * GRID + GRID / 2,
+      food.y * GRID + GRID / 2,
+      GRID / 2 - 2,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
+
+    // 蛇身
+    snake.forEach((seg, i) => {
+      const alpha = 1 - i * 0.03;
+      ctx.fillStyle = i === 0
+        ? '#e94560'
+        : `rgba(46, 204, 113, ${Math.max(alpha, 0.3)})`;
+      ctx.fillRect(seg.x * GRID + 1, seg.y * GRID + 1, GRID - 2, GRID - 2);
+    });
+  }
+
+  // --- 结束 ---
+  function endGame(won) {
+    gameRunning = false;
+    clearInterval(gameLoop);
+    gameoverEl.style.display = 'block';
+    gameoverEl.textContent = won ? '你赢了！ 按 R 重新开始' : '游戏结束 — 按 R 或点击按钮重新开始';
+    if (score > best) {
+      best = score;
+      bestEl.textContent = best;
+      try { localStorage.setItem('snake_best', best); } catch (e) {}
+    }
+    // 画最后一帧不变
+  }
+
+  function updateScore() {
+    scoreEl.textContent = score;
+  }
+
+  function startGame() {
+    clearInterval(gameLoop);
+    init();
+    draw();
+    gameLoop = setInterval(step, 120);
+  }
+
+  // --- 事件 ---
+  window.addEventListener('keydown', function (e) {
+    if (!gameRunning && e.key === 'r') {
+      e.preventDefault();
+      startGame();
+      return;
+    }
+    if (!gameRunning) return;
+    switch (e.key) {
+      case 'ArrowUp':    e.preventDefault(); nextDirection = { x: 0, y: -1 }; break;
+      case 'ArrowDown':  e.preventDefault(); nextDirection = { x: 0, y: 1 };  break;
+      case 'ArrowLeft':  e.preventDefault(); nextDirection = { x: -1, y: 0 }; break;
+      case 'ArrowRight': e.preventDefault(); nextDirection = { x: 1, y: 0 };  break;
+      case 'r': case 'R': e.preventDefault(); startGame(); break;
+    }
+  });
+
+  restartBtn.addEventListener('click', startGame);
+
+  // --- 启动 ---
+  best = parseInt(localStorage.getItem('snake_best') || '0', 10) || 0;
+  bestEl.textContent = best;
+  startGame();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1128 @@
+{
+  "checkpoint_id": "rtchk:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:30",
+  "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+  "event_offset": 30,
+  "loop_state": {
+    "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+    "status": "failed",
+    "turn_count": 1,
+    "step_count": 1,
+    "current_step_id": "step.inspect_workspace",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.dev.light_web_game",
+    "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+    "task_result_ref": "taskresult:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "executor_failed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:6f64ee45f4f6",
+    "memory_state_ref": "memory-runtime:dfb810bb10ae49849d11f74cf46cf6f7",
+    "projection_ref": "3ac957512a76839a",
+    "prompt_manifest_ref": "manifest-3ac957512a76839a",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 109,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899891
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787",
+      "taskrun-ledger:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+      "taskresult:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+      "commit_gate:commit-gate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "dfb810bb10ae49849d11f74cf46cf6f7",
+            "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+            "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+            "role": "assistant",
+            "content": "",
+            "answer_channel": "",
+            "answer_source": "",
+            "answer_canonical_state": "",
+            "answer_persist_policy": "",
+            "answer_finalization_policy": "",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": false,
+          "reason": "empty_assistant_message_blocked",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "blocked",
+        "reason": "empty_assistant_message_blocked",
+        "commit_allowed": false,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "dfb810bb10ae49849d11f74cf46cf6f7",
+          "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+          "assistant_session_write_allowed": false,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": false,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+            "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+            "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+            "template_id": "template.dev.light_web_game",
+            "terminal_reason": "executor_failed",
+            "final_content_chars": 0,
+            "task_result": {
+              "result_id": "taskresult:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+              "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+              "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+              "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+              "template_id": "template.dev.light_web_game",
+              "status": "failed",
+              "terminal_reason": "executor_failed",
+              "requested_outputs": [
+                "final_answer",
+                "artifact_refs",
+                "validation_state"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+              ],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.inspect_workspace",
+                  "title": "检查工作区",
+                  "step_kind": "read",
+                  "executor_type": "tool",
+                  "status": "failed",
+                  "required_operations": [
+                    "op.read_file",
+                    "op.search_files"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "WorkspaceInspection",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [
+                    "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+                  ],
+                  "output_refs": [
+                    "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+                  ],
+                  "entered_at": 1777798353.4887035,
+                  "completed_at": 1777798360.0344899,
+                  "attempt_count": 1,
+                  "failure_reason": "Tool execution failed: [WinError 5] 拒绝访问。",
+                  "step_result_ref": "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787",
+                  "executor_ref": "tool:search_files",
+                  "diagnostics": {
+                    "transition_reason": "executor_error_observation"
+                  },
+                  "authority": "task_system.task_step_run"
+                },
+                {
+                  "step_id": "step.create_game_file",
+                  "title": "创建或修改游戏文件",
+                  "step_kind": "write",
+                  "executor_type": "tool",
+                  "status": "pending",
+                  "required_operations": [
+                    "op.edit_file"
+                  ],
+                  "optional_operations": [
+                    "op.write_file"
+                  ],
+                  "input_refs": [],
+                  "output_contract_id": "GameArtifact",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [],
+                  "entered_at": 0.0,
+                  "completed_at": 0.0,
+                  "attempt_count": 0,
+                  "failure_reason": "",
+                  "step_result_ref": "",
+                  "executor_ref": "",
+                  "diagnostics": {},
+                  "authority": "task_system.task_step_run"
+                },
+                {
+                  "step_id": "step.verify_artifact",
+                  "title": "验证产物",
+                  "step_kind": "verify",
+                  "executor_type": "worker",
+                  "status": "pending",
+                  "required_operations": [],
+                  "optional_operations": [
+                    "op.shell"
+                  ],
+                  "input_refs": [],
+                  "output_contract_id": "ArtifactVerification",
+                  "stop_policy": "allow_unverified_completion",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [],
+                  "entered_at": 0.0,
+                  "completed_at": 0.0,
+                  "attempt_count": 0,
+                  "failure_reason": "",
+                  "step_result_ref": "",
+                  "executor_ref": "",
+                  "diagnostics": {},
+                  "authority": "task_system.task_step_run"
+                },
+                {
+                  "step_id": "step.finalize_user_report",
+                  "title": "汇报真实结果",
+                  "step_kind": "finalize",
+                  "executor_type": "model",
+                  "status": "pending",
+                  "required_operations": [
+                    "op.model_response"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "AssistantFinalAnswer",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [],
+                  "entered_at": 0.0,
+                  "completed_at": 0.0,
+                  "attempt_count": 0,
+                  "failure_reason": "",
+                  "step_result_ref": "",
+                  "executor_ref": "",
+                  "diagnostics": {},
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {}
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+                "template_id": "template.dev.light_web_game"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+                "tool_observation_count": 0,
+                "final_content_chars": 0,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+        "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+        "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+        "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+        "template_id": "template.dev.light_web_game",
+        "status": "failed",
+        "current_step_id": "step.inspect_workspace",
+        "requested_outputs": [
+          "final_answer",
+          "artifact_refs",
+          "validation_state"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.inspect_workspace",
+            "title": "检查工作区",
+            "step_kind": "read",
+            "executor_type": "tool",
+            "status": "failed",
+            "required_operations": [
+              "op.read_file",
+              "op.search_files"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "WorkspaceInspection",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+            ],
+            "entered_at": 1777798353.4887035,
+            "completed_at": 1777798360.0344899,
+            "attempt_count": 1,
+            "failure_reason": "Tool execution failed: [WinError 5] 拒绝访问。",
+            "step_result_ref": "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787",
+            "executor_ref": "tool:search_files",
+            "diagnostics": {
+              "transition_reason": "executor_error_observation"
+            },
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.create_game_file",
+            "title": "创建或修改游戏文件",
+            "step_kind": "write",
+            "executor_type": "tool",
+            "status": "pending",
+            "required_operations": [
+              "op.edit_file"
+            ],
+            "optional_operations": [
+              "op.write_file"
+            ],
+            "input_refs": [],
+            "output_contract_id": "GameArtifact",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 0.0,
+            "completed_at": 0.0,
+            "attempt_count": 0,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {},
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.verify_artifact",
+            "title": "验证产物",
+            "step_kind": "verify",
+            "executor_type": "worker",
+            "status": "pending",
+            "required_operations": [],
+            "optional_operations": [
+              "op.shell"
+            ],
+            "input_refs": [],
+            "output_contract_id": "ArtifactVerification",
+            "stop_policy": "allow_unverified_completion",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 0.0,
+            "completed_at": 0.0,
+            "attempt_count": 0,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {},
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.finalize_user_report",
+            "title": "汇报真实结果",
+            "step_kind": "finalize",
+            "executor_type": "model",
+            "status": "pending",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "AssistantFinalAnswer",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 0.0,
+            "completed_at": 0.0,
+            "attempt_count": 0,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {},
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+          "template_id": "template.dev.light_web_game"
+        },
+        "diagnostics": {
+          "current_step_id": "step.inspect_workspace",
+          "terminal_reason": "executor_failed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+        "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+        "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+        "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+        "template_id": "template.dev.light_web_game",
+        "status": "failed",
+        "terminal_reason": "executor_failed",
+        "requested_outputs": [
+          "final_answer",
+          "artifact_refs",
+          "validation_state"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+        ],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.inspect_workspace",
+            "title": "检查工作区",
+            "step_kind": "read",
+            "executor_type": "tool",
+            "status": "failed",
+            "required_operations": [
+              "op.read_file",
+              "op.search_files"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "WorkspaceInspection",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+            ],
+            "entered_at": 1777798353.4887035,
+            "completed_at": 1777798360.0344899,
+            "attempt_count": 1,
+            "failure_reason": "Tool execution failed: [WinError 5] 拒绝访问。",
+            "step_result_ref": "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787",
+            "executor_ref": "tool:search_files",
+            "diagnostics": {
+              "transition_reason": "executor_error_observation"
+            },
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.create_game_file",
+            "title": "创建或修改游戏文件",
+            "step_kind": "write",
+            "executor_type": "tool",
+            "status": "pending",
+            "required_operations": [
+              "op.edit_file"
+            ],
+            "optional_operations": [
+              "op.write_file"
+            ],
+            "input_refs": [],
+            "output_contract_id": "GameArtifact",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 0.0,
+            "completed_at": 0.0,
+            "attempt_count": 0,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {},
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.verify_artifact",
+            "title": "验证产物",
+            "step_kind": "verify",
+            "executor_type": "worker",
+            "status": "pending",
+            "required_operations": [],
+            "optional_operations": [
+              "op.shell"
+            ],
+            "input_refs": [],
+            "output_contract_id": "ArtifactVerification",
+            "stop_policy": "allow_unverified_completion",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 0.0,
+            "completed_at": 0.0,
+            "attempt_count": 0,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {},
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.finalize_user_report",
+            "title": "汇报真实结果",
+            "step_kind": "finalize",
+            "executor_type": "model",
+            "status": "pending",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "AssistantFinalAnswer",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 0.0,
+            "completed_at": 0.0,
+            "attempt_count": 0,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {},
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {}
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+          "template_id": "template.dev.light_web_game"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+          "tool_observation_count": 0,
+          "final_content_chars": 0,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": false,
+      "memory_write_allowed": false,
+      "session_memory_refresh_applied": false,
+      "durable_memory_commit_applied": false,
+      "session_memory_chars": 0,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.dev.light_web_game",
+      "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+      "last_step_transition": "terminal_projection",
+      "final_content_chars": 0,
+      "result_ref_count": 5
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:6f64ee45f4f6",
+  "prompt_manifest_ref": "manifest-3ac957512a76839a",
+  "execution_refs": [
+    "rtexec:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:7ea093b0"
+  ],
+  "execution_state_ref": "rtexec:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:7ea093b0",
+  "execution_summary": {
+    "execution_count": 1,
+    "completed_count": 0,
+    "failed_count": 1,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [
+      "rtexec:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:7ea093b0"
+    ],
+    "latest_execution_id": "rtexec:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:7ea093b0"
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "dfb810bb10ae49849d11f74cf46cf6f7",
+          "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+          "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+          "role": "assistant",
+          "content": "",
+          "answer_channel": "",
+          "answer_source": "",
+          "answer_canonical_state": "",
+          "answer_persist_policy": "",
+          "answer_finalization_policy": "",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": false,
+        "reason": "empty_assistant_message_blocked",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "blocked",
+      "reason": "empty_assistant_message_blocked",
+      "commit_allowed": false,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "dfb810bb10ae49849d11f74cf46cf6f7",
+        "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+        "assistant_session_write_allowed": false,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": false,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+          "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+          "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+          "template_id": "template.dev.light_web_game",
+          "terminal_reason": "executor_failed",
+          "final_content_chars": 0,
+          "task_result": {
+            "result_id": "taskresult:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+            "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+            "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+            "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+            "template_id": "template.dev.light_web_game",
+            "status": "failed",
+            "terminal_reason": "executor_failed",
+            "requested_outputs": [
+              "final_answer",
+              "artifact_refs",
+              "validation_state"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+            ],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.inspect_workspace",
+                "title": "检查工作区",
+                "step_kind": "read",
+                "executor_type": "tool",
+                "status": "failed",
+                "required_operations": [
+                  "op.read_file",
+                  "op.search_files"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "WorkspaceInspection",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [
+                  "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+                ],
+                "output_refs": [
+                  "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+                ],
+                "entered_at": 1777798353.4887035,
+                "completed_at": 1777798360.0344899,
+                "attempt_count": 1,
+                "failure_reason": "Tool execution failed: [WinError 5] 拒绝访问。",
+                "step_result_ref": "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787",
+                "executor_ref": "tool:search_files",
+                "diagnostics": {
+                  "transition_reason": "executor_error_observation"
+                },
+                "authority": "task_system.task_step_run"
+              },
+              {
+                "step_id": "step.create_game_file",
+                "title": "创建或修改游戏文件",
+                "step_kind": "write",
+                "executor_type": "tool",
+                "status": "pending",
+                "required_operations": [
+                  "op.edit_file"
+                ],
+                "optional_operations": [
+                  "op.write_file"
+                ],
+                "input_refs": [],
+                "output_contract_id": "GameArtifact",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [],
+                "entered_at": 0.0,
+                "completed_at": 0.0,
+                "attempt_count": 0,
+                "failure_reason": "",
+                "step_result_ref": "",
+                "executor_ref": "",
+                "diagnostics": {},
+                "authority": "task_system.task_step_run"
+              },
+              {
+                "step_id": "step.verify_artifact",
+                "title": "验证产物",
+                "step_kind": "verify",
+                "executor_type": "worker",
+                "status": "pending",
+                "required_operations": [],
+                "optional_operations": [
+                  "op.shell"
+                ],
+                "input_refs": [],
+                "output_contract_id": "ArtifactVerification",
+                "stop_policy": "allow_unverified_completion",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [],
+                "entered_at": 0.0,
+                "completed_at": 0.0,
+                "attempt_count": 0,
+                "failure_reason": "",
+                "step_result_ref": "",
+                "executor_ref": "",
+                "diagnostics": {},
+                "authority": "task_system.task_step_run"
+              },
+              {
+                "step_id": "step.finalize_user_report",
+                "title": "汇报真实结果",
+                "step_kind": "finalize",
+                "executor_type": "model",
+                "status": "pending",
+                "required_operations": [
+                  "op.model_response"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "AssistantFinalAnswer",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [],
+                "entered_at": 0.0,
+                "completed_at": 0.0,
+                "attempt_count": 0,
+                "failure_reason": "",
+                "step_result_ref": "",
+                "executor_ref": "",
+                "diagnostics": {},
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {}
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+              "template_id": "template.dev.light_web_game"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+              "tool_observation_count": 0,
+              "final_content_chars": 0,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+      "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+      "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+      "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+      "template_id": "template.dev.light_web_game",
+      "status": "failed",
+      "current_step_id": "step.inspect_workspace",
+      "requested_outputs": [
+        "final_answer",
+        "artifact_refs",
+        "validation_state"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.inspect_workspace",
+          "title": "检查工作区",
+          "step_kind": "read",
+          "executor_type": "tool",
+          "status": "failed",
+          "required_operations": [
+            "op.read_file",
+            "op.search_files"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "WorkspaceInspection",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+          ],
+          "entered_at": 1777798353.4887035,
+          "completed_at": 1777798360.0344899,
+          "attempt_count": 1,
+          "failure_reason": "Tool execution failed: [WinError 5] 拒绝访问。",
+          "step_result_ref": "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787",
+          "executor_ref": "tool:search_files",
+          "diagnostics": {
+            "transition_reason": "executor_error_observation"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.create_game_file",
+          "title": "创建或修改游戏文件",
+          "step_kind": "write",
+          "executor_type": "tool",
+          "status": "pending",
+          "required_operations": [
+            "op.edit_file"
+          ],
+          "optional_operations": [
+            "op.write_file"
+          ],
+          "input_refs": [],
+          "output_contract_id": "GameArtifact",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {},
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.verify_artifact",
+          "title": "验证产物",
+          "step_kind": "verify",
+          "executor_type": "worker",
+          "status": "pending",
+          "required_operations": [],
+          "optional_operations": [
+            "op.shell"
+          ],
+          "input_refs": [],
+          "output_contract_id": "ArtifactVerification",
+          "stop_policy": "allow_unverified_completion",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {},
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.finalize_user_report",
+          "title": "汇报真实结果",
+          "step_kind": "finalize",
+          "executor_type": "model",
+          "status": "pending",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "AssistantFinalAnswer",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {},
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+        "template_id": "template.dev.light_web_game"
+      },
+      "diagnostics": {
+        "current_step_id": "step.inspect_workspace",
+        "terminal_reason": "executor_failed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+      "task_run_id": "taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+      "task_id": "turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+      "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+      "template_id": "template.dev.light_web_game",
+      "status": "failed",
+      "terminal_reason": "executor_failed",
+      "requested_outputs": [
+        "final_answer",
+        "artifact_refs",
+        "validation_state"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+      ],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.inspect_workspace",
+          "title": "检查工作区",
+          "step_kind": "read",
+          "executor_type": "tool",
+          "status": "failed",
+          "required_operations": [
+            "op.read_file",
+            "op.search_files"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "WorkspaceInspection",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787"
+          ],
+          "entered_at": 1777798353.4887035,
+          "completed_at": 1777798360.0344899,
+          "attempt_count": 1,
+          "failure_reason": "Tool execution failed: [WinError 5] 拒绝访问。",
+          "step_result_ref": "rtobs:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405:cb974787",
+          "executor_ref": "tool:search_files",
+          "diagnostics": {
+            "transition_reason": "executor_error_observation"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.create_game_file",
+          "title": "创建或修改游戏文件",
+          "step_kind": "write",
+          "executor_type": "tool",
+          "status": "pending",
+          "required_operations": [
+            "op.edit_file"
+          ],
+          "optional_operations": [
+            "op.write_file"
+          ],
+          "input_refs": [],
+          "output_contract_id": "GameArtifact",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {},
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.verify_artifact",
+          "title": "验证产物",
+          "step_kind": "verify",
+          "executor_type": "worker",
+          "status": "pending",
+          "required_operations": [],
+          "optional_operations": [
+            "op.shell"
+          ],
+          "input_refs": [],
+          "output_contract_id": "ArtifactVerification",
+          "stop_policy": "allow_unverified_completion",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {},
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.finalize_user_report",
+          "title": "汇报真实结果",
+          "step_kind": "finalize",
+          "executor_type": "model",
+          "status": "pending",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "AssistantFinalAnswer",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {},
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {}
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:turn:dfb810bb10ae49849d11f74cf46cf6f7:1",
+        "template_id": "template.dev.light_web_game"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:dfb810bb10ae49849d11f74cf46cf6f7:turn:dfb810bb10ae49849d11f74cf46cf6f7:1:2a005405",
+        "tool_observation_count": 0,
+        "final_content_chars": 0,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": false,
+    "memory_write_allowed": false,
+    "session_memory_refresh_applied": false,
+    "durable_memory_commit_applied": false,
+    "session_memory_chars": 0,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777798360.131462,
+  "checksum": "d2b78bdb27a5b06534afc1b929d1ad95b5273ae2f2febbef431ad1ba56c7e2fb",
+  "authority": "orchestration.runtime_checkpoint"
+}
