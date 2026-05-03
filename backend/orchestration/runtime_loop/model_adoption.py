@@ -30,6 +30,7 @@ def build_model_response_runtime_adoption(
     registry = operation_registry
     context = approval_context or RuntimeApprovalContext()
     task_contract = dict(task_operation.get("task_contract") or {})
+    task_execution_assembly = dict(task_operation.get("task_execution_assembly") or {})
     task_id = str(task_contract.get("task_id") or "task-runtime")
     policy_ref = f"respol:{task_id}:model-response:runtime"
     decisions = _build_runtime_decisions(
@@ -97,14 +98,15 @@ def build_model_response_runtime_adoption(
         executor_type="model",
         adopted_resource_policy_ref=policy_ref,
         operation_refs=operation_refs,
-        input_contract_ref=str(task_operation.get("task_prompt_contract", {}).get("contract_id") or ""),
-        output_contract_ref=str(task_operation.get("task_prompt_contract", {}).get("contract_id") or ""),
+        input_contract_ref=str(task_execution_assembly.get("input_contract_id") or task_contract.get("input_contract_id") or ""),
+        output_contract_ref=str(task_execution_assembly.get("output_contract_id") or task_contract.get("output_contract_id") or ""),
         execution_graph_ref=f"execgraph:{task_id}:runtime",
         runtime_executable=True,
         diagnostics={
             "directive_only_executor": True,
             "legacy_query_chain_removed": True,
             "adoption_owner": "TaskRunLoop",
+            "task_execution_assembly_ref": str(task_execution_assembly.get("assembly_id") or ""),
         },
     )
     return directive, resource_policy

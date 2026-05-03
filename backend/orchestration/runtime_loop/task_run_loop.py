@@ -304,6 +304,13 @@ class TaskRunLoop:
         selected_template_payload = dict(task_operation.get("selected_template") or {})
         bundle_spec_payload = dict(task_operation.get("bundle_spec") or {})
         task_spec_payload = dict(task_operation.get("task_spec") or {})
+        task_execution_assembly_payload = dict(task_operation.get("task_execution_assembly") or {})
+        task_projection_binding_payload = dict(task_operation.get("task_projection_binding") or {})
+        task_flow_contract_binding_payload = dict(task_operation.get("task_flow_contract_binding") or {})
+        task_agent_adoption_plan_payload = dict(task_operation.get("task_agent_adoption_plan") or {})
+        task_memory_request_profile_payload = dict(task_operation.get("task_memory_request_profile") or {})
+        task_communication_protocol_payload = dict(task_operation.get("task_communication_protocol") or {})
+        coordination_task_payload = dict(task_operation.get("coordination_task_record") or {})
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
 
@@ -330,6 +337,13 @@ class TaskRunLoop:
                 "selected_template": selected_template_payload,
                 "bundle_spec": bundle_spec_payload,
                 "task_spec": task_spec_payload,
+                "task_execution_assembly": task_execution_assembly_payload,
+                "task_projection_binding": task_projection_binding_payload,
+                "task_flow_contract_binding": task_flow_contract_binding_payload,
+                "task_agent_adoption_plan": task_agent_adoption_plan_payload,
+                "task_memory_request_profile": task_memory_request_profile_payload,
+                "task_communication_protocol": task_communication_protocol_payload,
+                "coordination_task_record": coordination_task_payload,
                 "task_run_ledger": runtime_task_ledger.to_dict() if runtime_task_ledger is not None else {},
                 "source": source,
             },
@@ -339,6 +353,13 @@ class TaskRunLoop:
                 "template_match_ref": str(template_match.get("match_id") or ""),
                 "task_template_id": str(selected_template_payload.get("template_id") or ""),
                 "task_spec_ref": str(task_spec_payload.get("task_spec_ref") or ""),
+                "task_execution_assembly_ref": str(task_execution_assembly_payload.get("assembly_id") or ""),
+                "task_projection_binding_ref": str(task_projection_binding_payload.get("binding_id") or ""),
+                "task_flow_contract_binding_ref": str(task_flow_contract_binding_payload.get("binding_id") or ""),
+                "task_agent_adoption_plan_ref": str(task_agent_adoption_plan_payload.get("plan_id") or ""),
+                "task_memory_request_profile_ref": str(task_memory_request_profile_payload.get("profile_id") or ""),
+                "task_communication_protocol_ref": str(task_communication_protocol_payload.get("protocol_id") or ""),
+                "coordination_task_ref": str(coordination_task_payload.get("coordination_task_id") or ""),
                 "bundle_spec_ref": str(bundle_spec_payload.get("bundle_id") or ""),
                 "task_run_ledger_ref": runtime_task_ledger.ledger_id if runtime_task_ledger is not None else "",
             },

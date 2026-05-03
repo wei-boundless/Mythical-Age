@@ -29,6 +29,7 @@ class GeneralTaskProfile:
     title: str
     default_agent_id: str
     default_workflow_id: str
+    entry_channel: str = "main_conversation"
     default_projection_id: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
@@ -63,6 +64,132 @@ class TaskAssignment:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["participant_agent_ids"] = list(self.participant_agent_ids)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class SpecificTaskRecord:
+    task_id: str
+    task_title: str
+    task_family: str
+    task_mode: str
+    description: str = ""
+    enabled: bool = True
+    input_contract_id: str = ""
+    output_contract_id: str = ""
+    acceptance_profile_id: str = ""
+    default_flow_contract_id: str = ""
+    default_workflow_id: str = ""
+    default_projection_policy: str = ""
+    task_policy: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class TaskProjectionBinding:
+    binding_id: str
+    task_id: str
+    projection_selection_mode: str = "task_default"
+    allowed_projection_ids: tuple[str, ...] = ()
+    default_projection_id: str = ""
+    projection_required: bool = False
+    notes: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.task_projection_binding"
+
+    def __post_init__(self) -> None:
+        if self.authority != "task_system.task_projection_binding":
+            raise ValueError("TaskProjectionBinding authority must be task_system.task_projection_binding")
+        if not self.binding_id:
+            raise ValueError("TaskProjectionBinding requires binding_id")
+        if not self.task_id:
+            raise ValueError("TaskProjectionBinding requires task_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["allowed_projection_ids"] = list(self.allowed_projection_ids)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class TaskFlowContractBinding:
+    binding_id: str
+    task_id: str
+    flow_contract_id: str
+    override_policy: str = "task_default"
+    verification_gate_profile: str = ""
+    fallback_policy: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.task_flow_contract_binding"
+
+    def __post_init__(self) -> None:
+        if self.authority != "task_system.task_flow_contract_binding":
+            raise ValueError("TaskFlowContractBinding authority must be task_system.task_flow_contract_binding")
+        if not self.binding_id:
+            raise ValueError("TaskFlowContractBinding requires binding_id")
+        if not self.task_id:
+            raise ValueError("TaskFlowContractBinding requires task_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class TaskAgentAdoptionPlan:
+    plan_id: str
+    task_id: str
+    adoption_mode: str
+    default_agent_id: str = "agent:0"
+    allowed_agent_categories: tuple[str, ...] = ()
+    allow_worker_agent_spawn: bool = False
+    worker_agent_blueprint_id: str = ""
+    worker_agent_naming_rule: str = ""
+    notes: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.task_agent_adoption_plan"
+
+    def __post_init__(self) -> None:
+        if self.authority != "task_system.task_agent_adoption_plan":
+            raise ValueError("TaskAgentAdoptionPlan authority must be task_system.task_agent_adoption_plan")
+        if not self.plan_id:
+            raise ValueError("TaskAgentAdoptionPlan requires plan_id")
+        if not self.task_id:
+            raise ValueError("TaskAgentAdoptionPlan requires task_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["allowed_agent_categories"] = list(self.allowed_agent_categories)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class TaskMemoryRequestProfile:
+    profile_id: str
+    task_id: str
+    requested_memory_layers: tuple[str, ...] = ()
+    requested_topics: tuple[str, ...] = ()
+    memory_priority: str = "normal"
+    writeback_policy: str = "task_default"
+    allow_long_term_memory: bool = False
+    memory_scope_hint: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.task_memory_request_profile"
+
+    def __post_init__(self) -> None:
+        if self.authority != "task_system.task_memory_request_profile":
+            raise ValueError("TaskMemoryRequestProfile authority must be task_system.task_memory_request_profile")
+        if not self.profile_id:
+            raise ValueError("TaskMemoryRequestProfile requires profile_id")
+        if not self.task_id:
+            raise ValueError("TaskMemoryRequestProfile requires task_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["requested_memory_layers"] = list(self.requested_memory_layers)
+        payload["requested_topics"] = list(self.requested_topics)
         return payload
 
 
@@ -134,6 +261,36 @@ class CoordinationTaskDefinition:
         payload = asdict(self)
         payload["participant_agent_ids"] = list(self.participant_agent_ids)
         payload["stop_conditions"] = list(self.stop_conditions)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCommunicationProtocol:
+    protocol_id: str
+    title: str
+    message_types: tuple[str, ...] = ()
+    payload_contracts: tuple[str, ...] = ()
+    signal_rules: tuple[str, ...] = ()
+    handoff_rules: tuple[str, ...] = ()
+    ack_policy: str = "explicit_ack"
+    timeout_policy: str = "fail_closed"
+    error_signal_policy: str = "raise_to_coordinator"
+    enabled: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "task_system.task_communication_protocol"
+
+    def __post_init__(self) -> None:
+        if self.authority != "task_system.task_communication_protocol":
+            raise ValueError("TaskCommunicationProtocol authority must be task_system.task_communication_protocol")
+        if not self.protocol_id:
+            raise ValueError("TaskCommunicationProtocol requires protocol_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["message_types"] = list(self.message_types)
+        payload["payload_contracts"] = list(self.payload_contracts)
+        payload["signal_rules"] = list(self.signal_rules)
+        payload["handoff_rules"] = list(self.handoff_rules)
         return payload
 
 

@@ -72,6 +72,17 @@ def test_task_system_overview_exposes_templates_and_validation_matrix(tmp_path) 
     payload = TaskFlowRegistry(tmp_path).build_overview()
 
     assert payload["summary"]["task_template_count"] >= 6
+    assert payload["summary"]["projection_binding_count"] >= 1
+    assert payload["summary"]["flow_contract_binding_count"] >= 1
+    assert payload["summary"]["adoption_plan_count"] >= 1
+    assert payload["summary"]["memory_request_profile_count"] >= 1
+    assert payload["summary"]["communication_protocol_count"] >= 1
     assert payload["templates"]
+    assert payload["specific_task_records"]
+    assert payload["projection_bindings"]
+    assert payload["flow_contract_bindings"]
+    assert payload["agent_adoption_plans"]
+    assert payload["memory_request_profiles"]
+    assert payload["communication_protocols"]
     assert payload["template_validation_matrix"]["authority"] == "task_system.template_validation_matrix"
     assert all("template_id" in row for row in payload["template_validation_matrix"]["rows"])

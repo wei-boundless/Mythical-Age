@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from api.tasks import TaskRuntimeContractRequest, task_runtime_contract
+from orchestration import AgentRuntimeRegistry
+from orchestration.runtime_loop.model_adoption import build_model_response_runtime_adoption
 from tasks import build_task_runtime_contract
 
 
@@ -26,6 +29,14 @@ def test_search_task_runtime_contract_keeps_resources_out_of_prompt() -> None:
     assert runtime["task_spec"]["task_spec_ref"] == runtime["task_contract"]["task_spec_ref"]
     assert runtime["task_intent_contract"]["authority"] == "task_system.task_intent_contract"
     assert runtime["template_match"]["authority"] == "task_system.template_match"
+    assert runtime["projection_selection"]["authority"] == "task_system.projection_selection_result"
+    assert runtime["task_execution_assembly"]["authority"] == "task_system.task_execution_assembly"
+    assert runtime["task_execution_assembly"]["task_spec_ref"] == runtime["task_spec"]["task_spec_ref"]
+    assert runtime["task_execution_assembly"]["operation_requirement_ref"] == runtime["operation_requirement"]["requirement_id"]
+    assert runtime["task_projection_binding"]["authority"] == "task_system.task_projection_binding"
+    assert runtime["task_flow_contract_binding"]["authority"] == "task_system.task_flow_contract_binding"
+    assert runtime["task_agent_adoption_plan"]["authority"] == "task_system.task_agent_adoption_plan"
+    assert runtime["task_memory_request_profile"]["authority"] == "task_system.task_memory_request_profile"
     assert runtime["task_spec"]["task_intent_ref"] == runtime["task_intent_contract"]["task_intent_id"]
     assert runtime["task_spec"]["template_match_ref"] == runtime["template_match"]["match_id"]
     assert runtime["task_spec"]["step_input_bindings"]
@@ -275,3 +286,77 @@ def test_specific_bounded_patch_contract_exposes_scoped_patch_safety_envelope() 
     assert safety_envelope["write_roots"] == ["frontend/src/components"]
     assert ".git" in safety_envelope["forbidden_paths"]
     assert {"op.read_file", "op.search_files", "op.search_text", "op.edit_file"} <= required_operations
+
+
+def test_runtime_contract_compat_projection_preserves_task_selection_without_projection_card() -> None:
+    runtime = build_task_runtime_contract(
+        session_id="session-explicit-projection",
+        task_id="task-explicit-projection",
+        user_goal="帮我联网搜索 Claude Code subagent 官方资料。",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "selected_projection_id": "projection.shadow.only",
+        },
+    )
+
+    projection_selection = runtime["projection_selection"]
+    projection_requirement = runtime["projection_requirement"]
+    prompt_metadata = runtime["task_prompt_contract"]["metadata"]
+
+    assert projection_selection["selection_source"] == "current_turn_context"
+    assert projection_selection["selected_projection_id"] == "projection.shadow.only"
+    assert projection_requirement["projection_id"] == "projection.shadow.only"
+    assert projection_requirement["role_type"] == projection_selection["role_type"]
+    assert projection_requirement["reason"] == "selected by current turn context"
+    assert "projection_prompt" not in projection_requirement or projection_requirement["projection_prompt"] == ""
+    assert "projection_title" not in projection_requirement or projection_requirement["projection_title"] == ""
+    assert prompt_metadata["projection_source"] == "current_turn_context"
+
+
+def test_specific_task_runtime_contract_exposes_formal_task_side_profiles() -> None:
+    runtime = build_task_runtime_contract(
+        session_id="session-specific-profiles",
+        task_id="task-specific-profiles",
+        user_goal="请生成一个可以直接运行的网页贪吃蛇小游戏。",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "selected_task_id": "task.dev.light_web_game",
+        },
+    )
+
+    specific_task_record = runtime["specific_task_record"]
+    adoption_plan = runtime["task_agent_adoption_plan"]
+    memory_request_profile = runtime["task_memory_request_profile"]
+    flow_contract_binding = runtime["task_flow_contract_binding"]
+    execution_assembly = runtime["task_execution_assembly"]
+
+    assert specific_task_record["task_id"] == "task.dev.light_web_game"
+    assert specific_task_record["default_flow_contract_id"] == "flow.dev.light_web_game"
+    assert adoption_plan["task_id"] == "task.dev.light_web_game"
+    assert adoption_plan["adoption_mode"] == "adopt_existing"
+    assert "long_term" in list(memory_request_profile["requested_memory_layers"])
+    assert flow_contract_binding["flow_contract_id"] == "flow.dev.light_web_game"
+    assert execution_assembly["agent_adoption_plan_ref"] == adoption_plan["plan_id"]
+    assert execution_assembly["memory_request_profile_ref"] == memory_request_profile["profile_id"]
+    assert execution_assembly["flow_contract_id"] == "flow.dev.light_web_game"
+
+
+def test_model_runtime_adoption_uses_task_execution_assembly_contract_refs() -> None:
+    runtime = build_task_runtime_contract(
+        session_id="session-model-adoption",
+        task_id="task-model-adoption",
+        user_goal="请生成一个可以直接运行的网页贪吃蛇小游戏。",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "selected_task_id": "task.dev.light_web_game",
+        },
+    )
+
+    directive, _policy = build_model_response_runtime_adoption(
+        runtime,
+        agent_runtime_profile=AgentRuntimeRegistry(Path(__file__).resolve().parents[1]).get_profile("agent:0"),
+    )
+
+    assert directive.input_contract_ref == "LightWebGameTaskInput"
+    assert directive.output_contract_ref == "LightWebGameResult"
+    assert directive.diagnostics["task_execution_assembly_ref"] == runtime["task_execution_assembly"]["assembly_id"]

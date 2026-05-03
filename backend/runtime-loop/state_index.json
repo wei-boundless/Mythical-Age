@@ -39408,6 +39408,43 @@
         "final_content_chars": 0
       },
       "authority": "orchestration.task_run"
+    },
+    "taskrun:36c0b973cc1e4561ab876e93f38a8313:turn:36c0b973cc1e4561ab876e93f38a8313:4:e9ea5cc7": {
+      "task_run_id": "taskrun:36c0b973cc1e4561ab876e93f38a8313:turn:36c0b973cc1e4561ab876e93f38a8313:4:e9ea5cc7",
+      "session_id": "36c0b973cc1e4561ab876e93f38a8313",
+      "task_id": "turn:36c0b973cc1e4561ab876e93f38a8313:4",
+      "task_contract_ref": "turn:36c0b973cc1e4561ab876e93f38a8313:4",
+      "owner_agent_seat_id": "main",
+      "agent_id": "agent:0",
+      "agent_profile_id": "main_interactive_agent",
+      "runtime_lane": "full_interactive",
+      "status": "completed",
+      "created_at": 1777834788.8597045,
+      "updated_at": 1777834802.4753973,
+      "latest_event_offset": 25,
+      "latest_checkpoint_ref": "rtchk:taskrun:36c0b973cc1e4561ab876e93f38a8313:turn:36c0b973cc1e4561ab876e93f38a8313:4:e9ea5cc7:24",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "runtime_lane": "full_interactive",
+        "task_agent_binding_ref": "",
+        "skill_workflow_ref": "",
+        "health_issue_ref": "",
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 300.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "runtime_channel": "single_agent_runtime",
+        "final_content_chars": 269
+      },
+      "authority": "orchestration.task_run"
     }
   },
   "sessions": {
@@ -40760,8 +40797,9 @@
     ],
     "36c0b973cc1e4561ab876e93f38a8313": [
       "taskrun:36c0b973cc1e4561ab876e93f38a8313:turn:36c0b973cc1e4561ab876e93f38a8313:1:897c6c39",
-      "taskrun:36c0b973cc1e4561ab876e93f38a8313:turn:36c0b973cc1e4561ab876e93f38a8313:3:f8cd4099"
+      "taskrun:36c0b973cc1e4561ab876e93f38a8313:turn:36c0b973cc1e4561ab876e93f38a8313:3:f8cd4099",
+      "taskrun:36c0b973cc1e4561ab876e93f38a8313:turn:36c0b973cc1e4561ab876e93f38a8313:4:e9ea5cc7"
     ]
   },
-  "updated_at": 1777828630.833447
+  "updated_at": 1777834802.5133958
 }

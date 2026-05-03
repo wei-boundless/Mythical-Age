@@ -64,13 +64,15 @@ def test_agent_runtime_chain_injects_active_skill_and_runtime_operations() -> No
     understanding = dict(task_operation.get("query_understanding") or {})
     operation_requirement = dict(task_operation.get("operation_requirement") or {})
     task_prompt_contract = dict(task_operation.get("task_prompt_contract") or {})
+    memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
 
     assert active_skill
     assert active_skill["name"] == "web-search"
     assert understanding["tool_name"] == "web_search"
     assert "op.web_search" in list(operation_requirement.get("required_operations") or [])
+    assert memory_request_profile["requested_memory_layers"] == ["conversation"]
     assert "OpenAI API 最新更新" in str(task_prompt_contract.get("task_section") or "")
-    assert "联网搜索" in str(task_prompt_contract.get("workflow_section") or "")
+    assert "Workflow ID: workflow.general.main_conversation" in str(task_prompt_contract.get("workflow_section") or "")
 
 
 def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:
@@ -91,6 +93,7 @@ def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:
     active_skill = dict(task_operation.get("active_skill") or {})
     understanding = dict(task_operation.get("query_understanding") or {})
     operation_requirement = dict(task_operation.get("operation_requirement") or {})
+    memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
 
     assert active_skill["name"] == "structured-data-analysis"
     assert understanding["tool_name"] == "structured_data_analysis"
@@ -100,3 +103,4 @@ def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:
     }
     assert "bound_dataset_followup" in list(understanding.get("reasons") or [])
     assert "op.structured_data_analysis" in list(operation_requirement.get("required_operations") or [])
+    assert "conversation" in list(memory_request_profile.get("requested_memory_layers") or [])

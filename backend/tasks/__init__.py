@@ -8,10 +8,18 @@ from typing import Any
 __all__ = [
     "GeneralTaskProfile",
     "TaskAssignment",
+    "SpecificTaskRecord",
     "AgentTaskCarryingProfile",
     "TaskWorkflowBinding",
+    "TaskProjectionBinding",
+    "TaskFlowContractBinding",
+    "TaskAgentAdoptionPlan",
+    "TaskMemoryRequestProfile",
+    "TaskCommunicationProtocol",
+    "ProjectionSelectionResult",
     "ProjectionRequirement",
     "SkillRuntimeView",
+    "TaskExecutionAssembly",
     "TaskSpec",
     "TaskIntentContract",
     "TemplateMatchResult",
@@ -42,6 +50,7 @@ __all__ = [
     "TaskSummary",
     "TaskRunLedger",
     "TaskStepRun",
+    "build_task_execution_assembly_bundle",
     "build_task_runtime_contract",
 ]
 
@@ -59,19 +68,44 @@ def __getattr__(name: str) -> Any:
         from tasks.definitions import TaskDefinition
 
         return TaskDefinition
-    if name in {"TaskFlowDefinition", "TaskAgentBinding", "AgentTaskConnectionProfile", "GeneralTaskProfile", "TaskAssignment", "AgentTaskCarryingProfile"}:
+    if name in {
+        "TaskFlowDefinition",
+        "TaskAgentBinding",
+        "AgentTaskConnectionProfile",
+        "GeneralTaskProfile",
+        "TaskAssignment",
+        "SpecificTaskRecord",
+        "TaskProjectionBinding",
+        "TaskFlowContractBinding",
+        "TaskAgentAdoptionPlan",
+        "TaskMemoryRequestProfile",
+        "TaskCommunicationProtocol",
+        "AgentTaskCarryingProfile",
+    }:
         from tasks.flow_models import (
             AgentTaskCarryingProfile,
             AgentTaskConnectionProfile,
             GeneralTaskProfile,
+            SpecificTaskRecord,
+            TaskAgentAdoptionPlan,
             TaskAgentBinding,
             TaskAssignment,
+            TaskCommunicationProtocol,
             TaskFlowDefinition,
+            TaskFlowContractBinding,
+            TaskMemoryRequestProfile,
+            TaskProjectionBinding,
         )
 
         return {
             "GeneralTaskProfile": GeneralTaskProfile,
             "TaskAssignment": TaskAssignment,
+            "SpecificTaskRecord": SpecificTaskRecord,
+            "TaskProjectionBinding": TaskProjectionBinding,
+            "TaskFlowContractBinding": TaskFlowContractBinding,
+            "TaskAgentAdoptionPlan": TaskAgentAdoptionPlan,
+            "TaskMemoryRequestProfile": TaskMemoryRequestProfile,
+            "TaskCommunicationProtocol": TaskCommunicationProtocol,
             "AgentTaskCarryingProfile": AgentTaskCarryingProfile,
             "TaskFlowDefinition": TaskFlowDefinition,
             "TaskAgentBinding": TaskAgentBinding,
@@ -148,6 +182,13 @@ def __getattr__(name: str) -> Any:
             "TaskIntentContract": TaskIntentContract,
             "TemplateMatchResult": TemplateMatchResult,
         }[name]
+    if name in {"ProjectionSelectionResult", "TaskExecutionAssembly"}:
+        from tasks.assembly_models import ProjectionSelectionResult, TaskExecutionAssembly
+
+        return {
+            "ProjectionSelectionResult": ProjectionSelectionResult,
+            "TaskExecutionAssembly": TaskExecutionAssembly,
+        }[name]
     if name in {"BundleSpec", "BundleItemSpec"}:
         from tasks.bundle_models import BundleItemSpec, BundleSpec
 
@@ -155,6 +196,10 @@ def __getattr__(name: str) -> Any:
             "BundleSpec": BundleSpec,
             "BundleItemSpec": BundleItemSpec,
         }[name]
+    if name == "build_task_execution_assembly_bundle":
+        from tasks.assembly_builder import build_task_execution_assembly_bundle
+
+        return build_task_execution_assembly_bundle
     if name == "build_task_runtime_contract":
         from tasks.contract_builder import build_task_runtime_contract
 

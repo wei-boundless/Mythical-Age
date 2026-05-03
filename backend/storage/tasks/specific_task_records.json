@@ -1,0 +1,360 @@
+{
+  "specific_task_records": [
+    {
+      "task_id": "task.dev.bounded_patch",
+      "task_title": "受限补丁开发任务",
+      "task_family": "development",
+      "task_mode": "bounded_patch",
+      "description": "受限补丁开发任务",
+      "enabled": true,
+      "input_contract_id": "WorkspacePatchTaskInput",
+      "output_contract_id": "AssistantFinalAnswer",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.dev.bounded_patch",
+      "default_workflow_id": "workflow.dev.bounded_patch",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "safety_class": "S2_bounded_patch",
+          "write_mode": "scoped_patch",
+          "default_write_roots": [],
+          "forbidden_paths": [
+            ".env",
+            ".env.local",
+            "storage",
+            "node_modules",
+            ".git"
+          ],
+          "verification_mode": "artifact_or_edit_proof"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "workspace_patch",
+          "memory_scope_hint": "conversation_read_write",
+          "workflow_steps": [
+            {
+              "step_id": "scope_patch_area",
+              "title": "锁定补丁范围与目标文件"
+            },
+            {
+              "step_id": "inspect_related_code",
+              "title": "阅读相关代码与依赖关系"
+            },
+            {
+              "step_id": "apply_scoped_patch",
+              "title": "在受限目录内实施补丁"
+            },
+            {
+              "step_id": "verify_changed_behavior",
+              "title": "验证变更结果与残余风险"
+            },
+            {
+              "step_id": "finalize_patch_report",
+              "title": "汇报修改内容与验证状态"
+            }
+          ],
+          "task_resource_kind": "bounded_patch"
+        }
+      },
+      "metadata": {
+        "task_resource": "bounded_patch",
+        "template_id": "template.dev.workspace_patch",
+        "task_id": "task.dev.bounded_patch",
+        "source_flow_id": "flow.dev.bounded_patch"
+      }
+    },
+    {
+      "task_id": "task.dev.light_web_game",
+      "task_title": "轻量网页小游戏开发",
+      "task_family": "development",
+      "task_mode": "light_web_game",
+      "description": "轻量网页小游戏开发",
+      "enabled": true,
+      "input_contract_id": "LightWebGameTaskInput",
+      "output_contract_id": "LightWebGameResult",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.dev.light_web_game",
+      "default_workflow_id": "workflow.dev.light_web_game",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "safety_class": "S1_bounded_artifact_write",
+          "write_mode": "bounded_create",
+          "default_write_roots": [
+            "frontend/public/games"
+          ],
+          "forbidden_paths": [
+            ".env",
+            ".env.local",
+            "storage",
+            "backend",
+            "node_modules",
+            ".git"
+          ],
+          "verification_mode": "artifact_refs_required"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "game_delivery",
+          "memory_scope_hint": "conversation_read_write",
+          "workflow_steps": [
+            {
+              "step_id": "clarify_game_goal",
+              "title": "收束玩法目标与交互边界"
+            },
+            {
+              "step_id": "inspect_workspace",
+              "title": "检查工作区与落点文件"
+            },
+            {
+              "step_id": "design_runtime_shape",
+              "title": "定义状态、循环与渲染结构"
+            },
+            {
+              "step_id": "build_game_artifact",
+              "title": "实现游戏文件与交互逻辑"
+            },
+            {
+              "step_id": "verify_playability",
+              "title": "验证可启动、可操作、可结束"
+            },
+            {
+              "step_id": "finalize_report",
+              "title": "输出真实结果与限制"
+            }
+          ],
+          "task_resource_kind": "light_web_game"
+        }
+      },
+      "metadata": {
+        "task_resource": "light_web_game",
+        "template_id": "template.dev.light_web_game",
+        "task_id": "task.dev.light_web_game",
+        "source_flow_id": "flow.dev.light_web_game"
+      }
+    },
+    {
+      "task_id": "task.dev.arcade_game_bundle",
+      "task_title": "复合网页小游戏包开发",
+      "task_family": "development",
+      "task_mode": "arcade_game_bundle",
+      "description": "复合网页小游戏包开发",
+      "enabled": true,
+      "input_contract_id": "ArcadeGameBundleTaskInput",
+      "output_contract_id": "LightWebGameResult",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.dev.arcade_game_bundle",
+      "default_workflow_id": "workflow.dev.arcade_game_bundle",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "safety_class": "S1_bounded_artifact_write",
+          "write_mode": "bounded_create",
+          "default_write_roots": [
+            "frontend/public/games"
+          ],
+          "forbidden_paths": [
+            ".env",
+            ".env.local",
+            "storage",
+            "backend",
+            "node_modules",
+            ".git"
+          ],
+          "verification_mode": "artifact_refs_required"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "game_delivery",
+          "memory_scope_hint": "conversation_read_write",
+          "workflow_steps": [
+            {
+              "step_id": "scope_target_root",
+              "title": "锁定目标目录与入口形式"
+            },
+            {
+              "step_id": "inspect_existing_files",
+              "title": "检查现有文件与可复用资源"
+            },
+            {
+              "step_id": "design_bundle_structure",
+              "title": "设计 HTML/CSS/JS 结构"
+            },
+            {
+              "step_id": "implement_bundle_files",
+              "title": "生成多文件游戏产物"
+            },
+            {
+              "step_id": "verify_entry_relations",
+              "title": "验证入口与资源关系"
+            },
+            {
+              "step_id": "finalize_delivery",
+              "title": "输出产物路径与已知限制"
+            }
+          ],
+          "task_resource_kind": "arcade_game_bundle"
+        }
+      },
+      "metadata": {
+        "task_resource": "arcade_game_bundle",
+        "template_id": "template.dev.arcade_game_bundle",
+        "task_id": "task.dev.arcade_game_bundle",
+        "source_flow_id": "flow.dev.arcade_game_bundle"
+      }
+    },
+    {
+      "task_id": "task.health.issue_triage",
+      "task_title": "健康问题分诊",
+      "task_family": "health",
+      "task_mode": "issue_triage",
+      "description": "健康问题分诊",
+      "enabled": true,
+      "input_contract_id": "HealthIssue",
+      "output_contract_id": "HealthTriageResult",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.health.issue_triage",
+      "default_workflow_id": "workflow.health.issue_triage",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {},
+        "task_structure": {
+          "runtime_lane_hint": "health_issue_read",
+          "memory_scope_hint": "issue_local_readonly",
+          "workflow_steps": [
+            {
+              "step_id": "collect_refs",
+              "title": "收集问题证据引用"
+            },
+            {
+              "step_id": "classify_owner",
+              "title": "判断归属系统"
+            },
+            {
+              "step_id": "summarize_triage",
+              "title": "输出分诊结果"
+            }
+          ],
+          "task_resource_kind": ""
+        }
+      },
+      "metadata": {
+        "source_flow_id": "flow.health.issue_triage"
+      }
+    },
+    {
+      "task_id": "task.health.trace_analysis",
+      "task_title": "健康链路分析",
+      "task_family": "health",
+      "task_mode": "trace_analysis",
+      "description": "健康链路分析",
+      "enabled": true,
+      "input_contract_id": "HealthTrace",
+      "output_contract_id": "HealthTraceAnalysis",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.health.trace_analysis",
+      "default_workflow_id": "workflow.health.trace_analysis",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {},
+        "task_structure": {
+          "runtime_lane_hint": "health_trace_read",
+          "memory_scope_hint": "health_trace_readonly",
+          "workflow_steps": [
+            {
+              "step_id": "read_runtime_events",
+              "title": "读取运行事件"
+            },
+            {
+              "step_id": "locate_problem_node",
+              "title": "定位问题节点"
+            },
+            {
+              "step_id": "propose_fix_area",
+              "title": "提出修复范围"
+            }
+          ],
+          "task_resource_kind": ""
+        }
+      },
+      "metadata": {
+        "source_flow_id": "flow.health.trace_analysis"
+      }
+    },
+    {
+      "task_id": "task.health.case_draft",
+      "task_title": "复现用例草案",
+      "task_family": "health",
+      "task_mode": "case_draft",
+      "description": "复现用例草案",
+      "enabled": true,
+      "input_contract_id": "HealthIssue",
+      "output_contract_id": "HealthCaseDraftProposal",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.health.case_draft",
+      "default_workflow_id": "workflow.health.case_draft",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {},
+        "task_structure": {
+          "runtime_lane_hint": "case_draft_candidate",
+          "memory_scope_hint": "issue_local_readonly",
+          "workflow_steps": [
+            {
+              "step_id": "extract_trigger",
+              "title": "提取复现触发条件"
+            },
+            {
+              "step_id": "draft_assertions",
+              "title": "设计断言"
+            },
+            {
+              "step_id": "emit_case_draft",
+              "title": "输出用例草案"
+            }
+          ],
+          "task_resource_kind": ""
+        }
+      },
+      "metadata": {
+        "source_flow_id": "flow.health.case_draft"
+      }
+    },
+    {
+      "task_id": "task.health.fix_verification",
+      "task_title": "修复验证",
+      "task_family": "health",
+      "task_mode": "fix_verification",
+      "description": "修复验证",
+      "enabled": true,
+      "input_contract_id": "HealthIssueWithBeforeAfterTrace",
+      "output_contract_id": "HealthFixVerificationProposal",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.health.fix_verification",
+      "default_workflow_id": "workflow.health.fix_verification",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {},
+        "task_structure": {
+          "runtime_lane_hint": "fix_verification_candidate",
+          "memory_scope_hint": "health_trace_readonly",
+          "workflow_steps": [
+            {
+              "step_id": "compare_before_after",
+              "title": "比较修复前后链路"
+            },
+            {
+              "step_id": "verify_problem_node",
+              "title": "验证问题节点是否消失"
+            },
+            {
+              "step_id": "emit_verification",
+              "title": "输出验证建议"
+            }
+          ],
+          "task_resource_kind": ""
+        }
+      },
+      "metadata": {
+        "source_flow_id": "flow.health.fix_verification"
+      }
+    }
+  ]
+}

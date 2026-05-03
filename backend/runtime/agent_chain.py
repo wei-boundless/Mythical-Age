@@ -32,12 +32,6 @@ class AgentRuntimeChainAssembler:
             message=message,
             memory_intent=memory_intent,
         )
-        context_policy_result = self.build_context_policy_result(
-            session_id=session_id,
-            message=message,
-            memory_intent=memory_intent,
-        )
-        context_payload = _to_dict(context_policy_result)
         active_bindings = _active_bindings_from_memory_payload(memory_payload)
         query_understanding = analyze_query_understanding(
             message,
@@ -63,6 +57,7 @@ class AgentRuntimeChainAssembler:
                 }
             )
         skill_frame = _resolve_skill_frame(self.skill_registry, query_understanding)
+        context_payload: dict[str, Any] = {}
         task_operation = build_task_runtime_contract(
             session_id=session_id,
             task_id=task_id,
@@ -79,6 +74,22 @@ class AgentRuntimeChainAssembler:
                 tool_registry=self.tool_registry,
             ),
         )
+        memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
+        memory_payload = self.build_memory_runtime_view_payload(
+            session_id=session_id,
+            message=message,
+            memory_intent=memory_intent,
+            memory_request_profile=memory_request_profile,
+        )
+        context_policy_result = self.build_context_policy_result(
+            session_id=session_id,
+            message=message,
+            memory_intent=memory_intent,
+            memory_request_profile=memory_request_profile,
+        )
+        context_payload = _to_dict(context_policy_result)
+        task_operation["memory_runtime_view"] = memory_payload
+        task_operation["context_policy_result"] = context_payload
         return {
             "memory_runtime_view": memory_payload,
             "context_policy_result": context_payload,
@@ -94,6 +105,7 @@ class AgentRuntimeChainAssembler:
         session_id: str,
         message: str,
         memory_intent: Any,
+        memory_request_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         builder = getattr(self.memory_facade, "build_memory_runtime_view", None)
         if not callable(builder):
@@ -102,6 +114,7 @@ class AgentRuntimeChainAssembler:
             session_id=session_id,
             query=message,
             memory_intent=memory_intent,
+            memory_request_profile=memory_request_profile,
         )
         return _to_dict(view)
 
@@ -111,6 +124,7 @@ class AgentRuntimeChainAssembler:
         session_id: str,
         message: str | None,
         memory_intent: Any,
+        memory_request_profile: dict[str, Any] | None = None,
         relevant_memory_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
     ):
@@ -121,6 +135,7 @@ class AgentRuntimeChainAssembler:
             session_id=session_id,
             pending_user_message=message,
             memory_intent=memory_intent,
+            memory_request_profile=memory_request_profile,
             relevant_notes=relevant_memory_notes,
             retrieval_results=retrieval_results,
         )

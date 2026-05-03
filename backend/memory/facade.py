@@ -202,6 +202,7 @@ class MemoryFacade:
         session_id: str,
         query: str | None = None,
         memory_intent: Any | None = None,
+        memory_request_profile: dict[str, Any] | None = None,
         relevant_notes: list[Any] | None = None,
         note_limit: int = 5,
     ):
@@ -210,6 +211,7 @@ class MemoryFacade:
             session_id=session_id,
             query=query,
             memory_intent=memory_intent,
+            memory_request_profile=memory_request_profile,
             relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
@@ -220,6 +222,7 @@ class MemoryFacade:
         session_id: str,
         query: str | None = None,
         memory_intent: Any | None = None,
+        memory_request_profile: dict[str, Any] | None = None,
         relevant_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
@@ -232,6 +235,7 @@ class MemoryFacade:
             session_id=session_id,
             query=query,
             memory_intent=memory_intent,
+            memory_request_profile=memory_request_profile,
             relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
@@ -250,6 +254,7 @@ class MemoryFacade:
         session_id: str,
         pending_user_message: str | None = None,
         memory_intent: Any | None = None,
+        memory_request_profile: dict[str, Any] | None = None,
         relevant_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
@@ -258,6 +263,7 @@ class MemoryFacade:
             session_id=session_id,
             query=pending_user_message,
             memory_intent=memory_intent,
+            memory_request_profile=memory_request_profile,
             relevant_notes=relevant_notes,
             retrieval_results=retrieval_results,
             note_limit=note_limit,

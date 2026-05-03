@@ -64,15 +64,34 @@ def build_memory_runtime_view(
     session_id: str,
     query: str | None = None,
     memory_intent: Any | None = None,
+    memory_request_profile: dict[str, Any] | None = None,
     relevant_notes: list[Any] | None = None,
     note_limit: int = 5,
 ) -> MemoryRuntimeView:
+    profile = dict(memory_request_profile or {})
+    profile_provided = bool(profile)
+    requested_layers = {
+        str(item).strip()
+        for item in list(profile.get("requested_memory_layers") or [])
+        if str(item).strip()
+    }
+    allow_long_term = bool(profile.get("allow_long_term_memory", False)) or not profile_provided
+    requested_topics = [
+        str(item).strip()
+        for item in list(profile.get("requested_topics") or [])
+        if str(item).strip()
+    ]
+    effective_note_limit = int(note_limit or 5)
+    if requested_topics:
+        effective_note_limit = max(effective_note_limit, min(len(requested_topics) + 2, 8))
     conversation_snapshot = _call(memory_facade, "build_conversation_memory_snapshot", session_id)
     state_snapshot = _call(memory_facade, "build_state_memory_snapshot", session_id)
-    conversation_candidates = tuple(_call(memory_facade, "build_conversation_memory_context_candidates", session_id) or ())
-    state_candidates = tuple(_call(memory_facade, "build_state_memory_context_candidates", session_id) or ())
-    restore_candidates = tuple(_call(memory_facade, "build_state_memory_restore_candidates", session_id) or ())
-    long_term_records = tuple(_call_kwargs(memory_facade, "build_long_term_memory_records", limit=note_limit) or ())
+    conversation_candidates = tuple(_call(memory_facade, "build_conversation_memory_context_candidates", session_id) or ()) if not requested_layers or "conversation" in requested_layers else ()
+    state_candidates = tuple(_call(memory_facade, "build_state_memory_context_candidates", session_id) or ()) if not requested_layers or "state" in requested_layers else ()
+    restore_candidates = tuple(_call(memory_facade, "build_state_memory_restore_candidates", session_id) or ()) if not requested_layers or "state" in requested_layers else ()
+    long_term_records = tuple(
+        _call_kwargs(memory_facade, "build_long_term_memory_records", limit=effective_note_limit) or ()
+    ) if allow_long_term and ("long_term" in requested_layers or not requested_layers) else ()
     long_term_candidates = tuple(
         _call_kwargs(
             memory_facade,
@@ -81,10 +100,10 @@ def build_memory_runtime_view(
             query=query,
             memory_intent=memory_intent,
             relevant_notes=relevant_notes,
-            note_limit=note_limit,
+            note_limit=effective_note_limit,
         )
         or ()
-    )
+    ) if allow_long_term and ("long_term" in requested_layers or not requested_layers) else ()
     context_candidates = (*conversation_candidates, *state_candidates, *long_term_candidates)
     return MemoryRuntimeView(
         view_id=f"memory-runtime:{session_id or 'default'}",
@@ -104,6 +123,8 @@ def build_memory_runtime_view(
             "restore_candidate_count": len(restore_candidates),
             "long_term_record_count": len(long_term_records),
             "memory_write_allowed": False,
+            "requested_memory_layers": list(requested_layers),
+            "requested_topics": requested_topics,
         },
     )
 

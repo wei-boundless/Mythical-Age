@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionSelectionResult:
+    task_id: str
+    selected_projection_id: str = ""
+    role_type: str = ""
+    posture_tags: tuple[str, ...] = ()
+    selection_reason: str = ""
+    selection_source: str = ""
+    authority: str = "task_system.projection_selection_result"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.authority != "task_system.projection_selection_result":
+            raise ValueError("ProjectionSelectionResult authority must be task_system.projection_selection_result")
+        if not self.task_id:
+            raise ValueError("ProjectionSelectionResult requires task_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["posture_tags"] = list(self.posture_tags)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class TaskExecutionAssembly:
+    assembly_id: str
+    task_id: str
+    session_id: str
+    task_family: str
+    task_mode: str
+    task_kind: str = ""
+    task_intent_ref: str = ""
+    template_match_ref: str = ""
+    task_spec_ref: str = ""
+    bundle_spec_ref: str = ""
+    selected_agent_id: str = ""
+    workflow_id: str = ""
+    projection_selection_ref: str = ""
+    projection_binding_ref: str = ""
+    projection_id: str = ""
+    flow_contract_binding_ref: str = ""
+    flow_contract_id: str = ""
+    agent_adoption_plan_ref: str = ""
+    memory_request_profile_ref: str = ""
+    communication_protocol_ref: str = ""
+    coordination_task_ref: str = ""
+    topology_template_ref: str = ""
+    operation_requirement_ref: str = ""
+    input_contract_id: str = ""
+    output_contract_id: str = ""
+    safety_envelope: dict[str, Any] = field(default_factory=dict)
+    task_constraints: dict[str, Any] = field(default_factory=dict)
+    requested_outputs: tuple[str, ...] = ()
+    status: str = "assembled"
+    authority: str = "task_system.task_execution_assembly"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.authority != "task_system.task_execution_assembly":
+            raise ValueError("TaskExecutionAssembly authority must be task_system.task_execution_assembly")
+        if not self.assembly_id:
+            raise ValueError("TaskExecutionAssembly requires assembly_id")
+        if not self.task_id:
+            raise ValueError("TaskExecutionAssembly requires task_id")
+        if not self.session_id:
+            raise ValueError("TaskExecutionAssembly requires session_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["requested_outputs"] = list(self.requested_outputs)
+        return payload
