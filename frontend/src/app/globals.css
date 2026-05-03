@@ -11866,7 +11866,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .task-system-view {
-  gap: 1rem;
+  gap: 0.9rem;
 }
 
 .task-system-metrics {
@@ -11907,7 +11907,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-system-hero {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 0.75rem;
 }
 
 .task-system-hero--wide {
@@ -11931,24 +11931,26 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .task-system-hero article {
-  padding: 1rem;
+  min-height: 136px;
+  padding: 0.95rem 1rem;
 }
 
 .task-system-hero strong {
   display: block;
-  margin-top: 0.45rem;
+  margin-top: 0.35rem;
   color: var(--color-text);
-  font-size: 1.55rem;
+  font-size: 1.42rem;
+  line-height: 1.05;
 }
 
 .task-system-hero p,
 .task-system-section-head p,
 .task-system-agent-card__flows,
 .task-system-empty {
-  margin: 0.45rem 0 0;
+  margin: 0.35rem 0 0;
   color: var(--color-text-soft);
-  font-size: 0.84rem;
-  line-height: 1.58;
+  font-size: 0.82rem;
+  line-height: 1.52;
 }
 
 .task-system-layout {
@@ -11972,7 +11974,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.85rem;
+  gap: 0.7rem;
 }
 
 .task-system-switcher {
@@ -11987,6 +11989,10 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-system-switcher--four {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.task-system-switcher--five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .task-system-switcher__item {
@@ -12023,15 +12029,19 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-system-section-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 0.8rem;
+  gap: 0.75rem;
 }
 
 .task-system-section-head h3 {
   margin: 0;
   color: var(--color-text);
   font-size: 1rem;
+}
+
+.task-system-section-head p {
+  max-width: 42rem;
 }
 
 .task-system-summary-grid {
@@ -12075,8 +12085,8 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-system-control-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 0.28fr) minmax(0, 1fr) minmax(300px, 0.32fr);
-  gap: 1rem;
+  grid-template-columns: minmax(280px, 0.3fr) minmax(0, 1fr) minmax(320px, 0.34fr);
+  gap: 0.9rem;
   min-height: 0;
 }
 
@@ -12084,24 +12094,28 @@ html[data-soul="xuannv"] .soul-portrait__label {
   grid-template-columns: minmax(300px, 0.34fr) minmax(0, 1fr);
 }
 
+.task-system-control-grid--agents {
+  grid-template-columns: minmax(320px, 0.36fr) minmax(0, 0.64fr);
+}
+
 .task-system-control-panel {
   display: grid;
   align-content: start;
-  gap: 1rem;
+  gap: 0.9rem;
   min-height: 0;
   border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
   border-radius: var(--radius-block);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 38%),
     color-mix(in srgb, var(--color-panel-strong) 94%, transparent);
-  padding: 1rem;
+  padding: 0.95rem;
 }
 
 .task-system-agent-list,
 .task-system-flow-tabs,
 .task-system-reference {
   display: grid;
-  gap: 0.7rem;
+  gap: 0.6rem;
 }
 
 .task-system-agent-row,
@@ -12115,7 +12129,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
   background: rgba(255, 255, 255, 0.024);
   color: inherit;
   cursor: pointer;
-  padding: 0.8rem;
+  padding: 0.76rem 0.8rem;
   text-align: left;
 }
 
@@ -12184,6 +12198,13 @@ html[data-soul="xuannv"] .soul-portrait__label {
   white-space: nowrap;
 }
 
+.task-system-inline-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
 .task-system-agent-row small {
   color: var(--color-text-soft);
   font-size: 0.72rem;
@@ -12192,10 +12213,10 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-system-editor-head {
   display: grid;
   grid-template-columns: 2.8rem minmax(0, 1fr);
-  gap: 0.8rem;
+  gap: 0.75rem;
   align-items: start;
   border-bottom: 1px solid var(--color-border);
-  padding-bottom: 1rem;
+  padding-bottom: 0.9rem;
 }
 
 .task-system-editor-head > span {
@@ -12218,16 +12239,16 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-system-editor-head strong {
   display: block;
-  margin-top: 0.2rem;
+  margin-top: 0.16rem;
   color: var(--color-text);
-  font-size: 1.18rem;
+  font-size: 1.1rem;
 }
 
 .task-system-editor-head p {
-  margin: 0.35rem 0 0;
+  margin: 0.28rem 0 0;
   color: var(--color-text-soft);
-  font-size: 0.9rem;
-  line-height: 1.55;
+  font-size: 0.85rem;
+  line-height: 1.5;
 }
 
 .task-system-form-section {
@@ -12238,16 +12259,17 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-system-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
+  gap: 0.7rem;
 }
 
 .task-system-form-grid label {
   display: grid;
-  gap: 0.45rem;
+  align-content: start;
+  gap: 0.42rem;
   border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.026);
-  padding: 0.8rem;
+  padding: 0.72rem 0.78rem;
 }
 
 .task-system-form-grid label > span {
@@ -12256,14 +12278,30 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .task-system-form-grid input,
-.task-system-form-grid select {
+.task-system-form-grid select,
+.task-system-form-grid textarea {
   width: 100%;
   border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.18);
   color: var(--color-text);
   outline: none;
-  padding: 0.66rem 0.72rem;
+  padding: 0.62rem 0.7rem;
+}
+
+.task-system-form-grid textarea {
+  min-height: 96px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.task-system-form-grid--wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.task-system-form-grid__full {
+  grid-column: 1 / -1;
 }
 
 .task-system-checkbox {
@@ -12290,7 +12328,38 @@ html[data-soul="xuannv"] .soul-portrait__label {
   border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.026);
-  padding: 0.8rem;
+  padding: 0.76rem 0.8rem;
+}
+
+.task-system-map {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.task-system-map article {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.026);
+  padding: 0.9rem;
+}
+
+.task-system-map article svg {
+  color: var(--color-soul);
+}
+
+.task-system-map article strong {
+  color: var(--color-text);
+  font-size: 0.94rem;
+}
+
+.task-system-map article p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.55;
 }
 
 .task-system-reference h3 {
@@ -12314,11 +12383,23 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-system-agent-type-guide {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.7rem;
+  gap: 0.6rem;
 }
 
 .task-system-agent-type-guide__item {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.3rem 0.55rem;
+  text-align: left;
+}
+
+.task-system-agent-type-guide__item svg {
+  grid-row: span 2;
+  color: var(--color-soul);
+}
+
+.task-system-agent-type-guide__item p {
+  grid-column: 1 / -1;
 }
 
 .task-system-agent-type-guide__item--active {
@@ -12346,8 +12427,8 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-system-agent-card {
   display: grid;
-  gap: 0.9rem;
-  padding: 1rem;
+  gap: 0.7rem;
+  padding: 0.88rem 0.92rem;
   width: 100%;
   color: inherit;
   cursor: pointer;
@@ -12365,13 +12446,13 @@ html[data-soul="xuannv"] .soul-portrait__label {
   display: flex;
   align-items: start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .task-system-agent-card__head h4 {
   margin: 0;
   color: var(--color-text);
-  font-size: 1rem;
+  font-size: 0.95rem;
 }
 
 .task-system-agent-card__head > div > div {
@@ -12382,18 +12463,20 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .task-system-agent-card__head p {
-  margin: 0.35rem 0 0;
+  margin: 0.24rem 0 0;
 }
 
 .task-system-agent-card__flows {
-  border-radius: 16px;
+  display: grid;
+  gap: 0.18rem;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
-  padding: 0.7rem 0.85rem;
+  padding: 0.62rem 0.76rem;
 }
 
 .task-system-agent-group {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.55rem;
 }
 
 .task-system-agent-group__head {
@@ -12408,8 +12491,8 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-system-agent-card-grid,
 .task-system-chip-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
-  gap: 0.7rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.6rem;
 }
 
 .task-system-participant-grid {
@@ -12460,14 +12543,14 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-system-info-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.7rem;
+  gap: 0.6rem;
 }
 
 .task-system-info-block {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.28rem;
   border-radius: 18px;
-  padding: 0.8rem;
+  padding: 0.72rem 0.78rem;
 }
 
 .task-system-info-block span {
@@ -12607,7 +12690,55 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-system-empty {
   text-align: center;
-  padding: 1.2rem;
+  padding: 1rem;
+}
+
+@media (max-width: 1180px) {
+  .task-system-control-grid {
+    grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr);
+  }
+
+  .task-system-control-grid > :last-child {
+    grid-column: 1 / -1;
+  }
+
+  .task-system-control-grid--agents {
+    grid-template-columns: minmax(280px, 0.38fr) minmax(0, 0.62fr);
+  }
+
+  .task-system-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-system-switcher--five {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .task-system-map {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .task-system-agent-type-guide,
+  .task-system-info-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-system-control-grid--agents {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-system-switcher--five,
+  .task-system-switcher--four,
+  .task-system-form-grid,
+  .task-system-form-grid--wide,
+  .task-system-hero,
+  .task-system-hero--wide,
+  .task-system-control-grid,
+  .task-system-control-grid--two {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .task-system-badge {
@@ -12637,6 +12768,26 @@ html[data-soul="xuannv"] .soul-portrait__label {
   border-color: rgba(255, 140, 125, 0.4);
   background: rgba(255, 140, 125, 0.1);
   color: #ffc7be;
+}
+
+.orchestration-runtime-view .task-system-section-head h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.orchestration-runtime-view .task-system-agent-chip {
+  cursor: pointer;
+}
+
+.orchestration-runtime-view .task-system-agent-card__flows {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.orchestration-runtime-view .task-system-agent-card__flows b,
+.orchestration-runtime-view .task-system-agent-card__flows span {
+  overflow-wrap: anywhere;
 }
 
 .health-command-strip,

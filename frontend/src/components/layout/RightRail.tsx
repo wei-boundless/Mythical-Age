@@ -37,9 +37,9 @@ const railGroups = [
       },
       {
         icon: Network,
-        label: "编排系统",
-        description: "负责请求调度、路由决策与执行链编排",
-        view: "experiments"
+        label: "权限系统",
+        description: "管理 Agent runtime 的能力、权限和边界",
+        view: "orchestration"
       },
       {
         icon: BrainCircuit,

@@ -14,7 +14,7 @@ class TaskFlowDefinition:
     output_contract_id: str
     default_agent_id: str
     default_workflow_id: str
-    default_projection_template_id: str
+    default_projection_id: str
     default_runtime_lane: str
     default_memory_scope: str
     enabled: bool = True
@@ -30,7 +30,7 @@ class GeneralTaskProfile:
     title: str
     default_agent_id: str
     default_workflow_id: str
-    default_projection_template_id: str = ""
+    default_projection_id: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
     conversation_entry_policy: str = "user_dialogue_to_main_agent"
@@ -53,7 +53,7 @@ class TaskAssignment:
     participant_agent_ids: tuple[str, ...] = ()
     workflow_id: str = ""
     workflow_file_ref: str = ""
-    projection_template_id: str = ""
+    projection_id: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
     task_structure: dict[str, Any] = field(default_factory=dict)
@@ -74,8 +74,8 @@ class TaskAgentBinding:
     agent_id: str
     agent_profile_id: str
     runtime_lane: str
-    projection_template_id: str
-    skill_workflow_id: str
+    projection_id: str
+    workflow_id: str
     memory_scope: str
     output_contract_id: str
     resource_policy_ref: str = ""
@@ -96,7 +96,7 @@ class AgentTaskCarryingProfile:
     carried_general_task_refs: tuple[str, ...] = ()
     carried_specific_task_refs: tuple[str, ...] = ()
     workflow_refs: tuple[str, ...] = ()
-    projection_template_refs: tuple[str, ...] = ()
+    projection_refs: tuple[str, ...] = ()
     validation_state: str = "unchecked"
     blocked_reasons: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -107,7 +107,7 @@ class AgentTaskCarryingProfile:
             "carried_general_task_refs",
             "carried_specific_task_refs",
             "workflow_refs",
-            "projection_template_refs",
+            "projection_refs",
             "blocked_reasons",
         ):
             payload[key] = list(payload[key])
@@ -170,12 +170,12 @@ class AgentTaskConnectionProfile:
     available_task_modes: tuple[str, ...] = ()
     flow_refs: tuple[str, ...] = ()
     binding_refs: tuple[str, ...] = ()
-    projection_template_refs: tuple[str, ...] = ()
-    skill_workflow_refs: tuple[str, ...] = ()
+    projection_refs: tuple[str, ...] = ()
+    workflow_refs: tuple[str, ...] = ()
     topology_refs: tuple[str, ...] = ()
     default_flow_ref: str = ""
-    default_projection_template_ref: str = ""
-    default_skill_workflow_ref: str = ""
+    default_projection_ref: str = ""
+    default_workflow_ref: str = ""
     default_runtime_lane_hint: str = ""
     validation_state: str = "unchecked"
     blocked_reasons: tuple[str, ...] = ()
@@ -188,8 +188,8 @@ class AgentTaskConnectionProfile:
             "available_task_modes",
             "flow_refs",
             "binding_refs",
-            "projection_template_refs",
-            "skill_workflow_refs",
+            "projection_refs",
+            "workflow_refs",
             "topology_refs",
             "blocked_reasons",
         ):

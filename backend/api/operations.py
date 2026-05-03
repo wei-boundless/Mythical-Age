@@ -14,7 +14,6 @@ from capabilities import TOOL_TYPE_OPTIONS
 from capabilities import build_operation_catalog as build_capability_operation_catalog
 from capabilities import set_skill_allowed_tools, set_skill_prompt_view
 from config import runtime_config
-from skill_system import SkillWorkflowRegistry
 from operations import (
     AgentRegistry,
     RuntimeApprovalContext,
@@ -174,21 +173,6 @@ async def operation_catalog() -> dict[str, Any]:
     return build_operation_catalog()
 
 
-@router.get("/skills/workflows")
-async def skill_workflows() -> dict[str, Any]:
-    runtime = require_runtime()
-    return SkillWorkflowRegistry(runtime.base_dir).build_catalog()
-
-
-@router.get("/skills/workflows/{workflow_id}")
-async def skill_workflow_detail(workflow_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    workflow = SkillWorkflowRegistry(runtime.base_dir).get_workflow(workflow_id)
-    if workflow is None:
-        raise HTTPException(status_code=404, detail="Unknown skill workflow")
-    return workflow.to_dict()
-
-
 @router.get("/operations/agents")
 async def operation_agents() -> dict[str, Any]:
     runtime = require_runtime()
@@ -202,19 +186,7 @@ async def operation_agent_detail(agent_id: str) -> dict[str, Any]:
     agent = registry.get_agent(agent_id)
     if agent is None:
         raise HTTPException(status_code=404, detail="Unknown agent")
-    return {
-        "agent": agent.to_dict(),
-        "capability_profile": (registry.get_capability_profile(agent_id).to_dict() if registry.get_capability_profile(agent_id) else {}),
-    }
-
-
-@router.get("/operations/agents/{agent_id}/capability-profile")
-async def operation_agent_capability(agent_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    profile = AgentRegistry(runtime.base_dir).get_capability_profile(agent_id)
-    if profile is None:
-        raise HTTPException(status_code=404, detail="Unknown agent capability profile")
-    return profile.to_dict()
+    return {"agent": agent.to_dict()}
 
 
 @router.put("/operations/agents/{agent_id}/enabled")

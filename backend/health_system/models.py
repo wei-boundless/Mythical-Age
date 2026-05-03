@@ -136,8 +136,7 @@ class HealthAgentConversationSession:
     session_id: str
     agent_id: str
     agent_profile_id: str
-    projection_template_id: str
-    skill_workflow_id: str
+    workflow_id: str
     runtime_lane: str
     active_issue_ref: str = ""
     active_run_ref: str = ""

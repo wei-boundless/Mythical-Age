@@ -8,9 +8,8 @@ from typing import Any
 
 from orchestration import RuntimeDirective, RuntimeLoopState, build_task_run_final_commit_decision
 from operations import ResourceDecision, ResourcePolicy
-from soul.projection_instances import ProjectionInstanceRegistry
-from skill_system import SkillWorkflowRegistry
 from tasks.flow_registry import TaskFlowRegistry
+from tasks.workflow_registry import TaskWorkflowRegistry
 
 from .models import (
     HealthAgentConversationMessage,
@@ -59,7 +58,7 @@ def default_problem_nodes() -> tuple[ProblemNode, ...]:
             evidence_refs=("binding:flow.health.issue_triage:agent:health:maintainer",),
             diagnosis="样例节点：用于验证任务系统能展示绑定、权限和投影链路。",
             confidence=0.8,
-            suggested_action="检查 AgentCapabilityProfile 与任务流绑定是否一致。",
+            suggested_action="检查 AgentRuntimeProfile 与任务流绑定是否一致。",
         ),
     )
 
@@ -76,8 +75,8 @@ def default_health_agent_runs(now: float | None = None) -> tuple[HealthAgentRun,
             runtime_lane="health_issue_read",
             task_mode="issue_triage",
             workflow_id="workflow.health.issue_triage",
-            projection_id="projection:xuannv__health_maintainer:sample",
-            prompt_manifest_id="prompt-manifest:projection:xuannv__health_maintainer:sample",
+            projection_id="",
+            prompt_manifest_id="",
             status="sample",
             terminal_reason="not_executed_sample",
             result_ref="HealthTriageResult:sample",
@@ -186,12 +185,8 @@ class HealthRegistry:
             session_id=session_id,
             agent_id=str(payload.get("agent_id") or (binding.agent_id if binding is not None else "agent:health:maintainer")),
             agent_profile_id=str(payload.get("agent_profile_id") or (binding.agent_profile_id if binding is not None else "")),
-            projection_template_id=str(
-                payload.get("projection_template_id")
-                or (binding.projection_template_id if binding is not None else "xuannv__health_maintainer")
-            ),
-            skill_workflow_id=str(
-                payload.get("skill_workflow_id") or (binding.skill_workflow_id if binding is not None else "workflow.health.issue_triage")
+            workflow_id=str(
+                payload.get("workflow_id") or payload.get("skill_workflow_id") or (binding.workflow_id if binding is not None else "workflow.health.issue_triage")
             ),
             runtime_lane=str(payload.get("runtime_lane") or (binding.runtime_lane if binding is not None else "health_issue_read")),
             active_issue_ref=str(payload.get("active_issue_ref") or ""),
@@ -550,20 +545,12 @@ class HealthRegistry:
                 "binding": binding.to_dict(),
                 "reason": "task agent binding is invalid",
             }
-        projection = ProjectionInstanceRegistry(self.base_dir).preview_instance(
-            template_id=binding.projection_template_id,
-            task_id=f"task.health.{task_mode}:{issue.issue_id}",
-            agent_id=binding.agent_id,
-            runtime_lane=binding.runtime_lane,
-            resource_policy_ref=binding.resource_policy_ref,
-        )
         return {
             "authority": "health_system.agent_run_preview",
             "status": "ready",
             "issue": issue.to_dict(),
             "flow": flow.to_dict(),
             "binding": binding.to_dict(),
-            "projection_instance": projection.to_dict(),
             "runtime_directive_lane": {
                 "lane_id": f"lane:{binding.runtime_lane}:{issue.issue_id}",
                 "lane_type": binding.runtime_lane,
@@ -606,7 +593,7 @@ class HealthRegistry:
             agent_profile_id=str(binding.get("agent_profile_id") or ""),
             runtime_lane=str(binding.get("runtime_lane") or ""),
             task_agent_binding_ref=str(binding.get("binding_id") or ""),
-            skill_workflow_ref=str(binding.get("skill_workflow_id") or ""),
+            skill_workflow_ref=str(binding.get("workflow_id") or ""),
             health_issue_ref=issue_id,
             diagnostics={
                 "health_system_agent_run": True,
@@ -615,72 +602,12 @@ class HealthRegistry:
                 "health_run_source": source,
                 "task_mode": task_mode,
                 "flow_id": str(flow.get("flow_id") or ""),
-                "projection_template_id": str(binding.get("projection_template_id") or ""),
                 "output_contract_id": str(binding.get("output_contract_id") or ""),
                 "memory_scope": str(binding.get("memory_scope") or ""),
             },
         )
-        projection = ProjectionInstanceRegistry(self.base_dir).build_instance(
-            template_id=str(binding.get("projection_template_id") or ""),
-            task_id=task_id,
-            task_run_id=start.task_run.task_run_id,
-            agent_id=str(binding.get("agent_id") or ""),
-            runtime_lane=str(binding.get("runtime_lane") or ""),
-            resource_policy_ref=str(binding.get("resource_policy_ref") or ""),
-            candidate_only=False,
-        )
-        projection_event = task_run_loop.event_log.append(
-            start.task_run.task_run_id,
-            "stage_projection_built",
-            payload={
-                "projection_instance": projection.to_dict(),
-                "health_issue_ref": issue_id,
-                "task_agent_binding_ref": str(binding.get("binding_id") or ""),
-                "source": source,
-            },
-            refs={
-                "projection_ref": projection.projection_id,
-                "prompt_manifest_ref": projection.prompt_manifest_id,
-                "health_issue_ref": issue_id,
-            },
-        )
-        loop_state = replace(
-            start.loop_state,
-            projection_ref=projection.projection_id,
-            prompt_manifest_ref=projection.prompt_manifest_id,
-            diagnostics={
-                **dict(start.loop_state.diagnostics),
-                "projection_instance_built": True,
-                "projection_candidate_only": False,
-                "prompt_manifest_id": projection.prompt_manifest_id,
-            },
-        )
-        checkpoint = task_run_loop.checkpoints.write(loop_state, event_offset=projection_event.offset)
-        checkpoint_event = task_run_loop.event_log.append(
-            start.task_run.task_run_id,
-            "checkpoint_written",
-            payload={
-                "checkpoint_id": checkpoint.checkpoint_id,
-                "event_offset": checkpoint.event_offset,
-                "checksum": checkpoint.checksum,
-                "source": "health_system.agent_run_start",
-            },
-            refs={"checkpoint_ref": checkpoint.checkpoint_id},
-        )
-        task_run = replace(
-            start.task_run,
-            updated_at=time.time(),
-            latest_event_offset=checkpoint_event.offset,
-            latest_checkpoint_ref=checkpoint.checkpoint_id,
-            diagnostics={
-                **dict(start.task_run.diagnostics),
-                "projection_ref": projection.projection_id,
-                "prompt_manifest_ref": projection.prompt_manifest_id,
-                "health_agent_run_linked": True,
-            },
-        )
-        task_run_loop.state_index.upsert_task_run(task_run)
-        events = (*start.events, projection_event.to_dict(), checkpoint_event.to_dict())
+        task_run = start.task_run
+        events = tuple(start.events)
         health_run = HealthAgentRun(
             run_id=f"health-run:{task_run.task_run_id}",
             issue_id=issue_id,
@@ -689,9 +616,9 @@ class HealthRegistry:
             agent_profile_id=task_run.agent_profile_id,
             runtime_lane=task_run.runtime_lane,
             task_mode=task_mode,
-            workflow_id=str(binding.get("skill_workflow_id") or ""),
-            projection_id=projection.projection_id,
-            prompt_manifest_id=projection.prompt_manifest_id,
+            workflow_id=str(binding.get("workflow_id") or ""),
+            projection_id="",
+            prompt_manifest_id="",
             status=task_run.status,
             terminal_reason=task_run.terminal_reason,
             result_ref="",
@@ -701,8 +628,8 @@ class HealthRegistry:
                 "flow_id": str(flow.get("flow_id") or ""),
                 "task_contract_ref": task_contract_ref,
                 "task_agent_binding_ref": str(binding.get("binding_id") or ""),
-                "checkpoint_ref": checkpoint.checkpoint_id,
-                "latest_event_offset": checkpoint_event.offset,
+                "checkpoint_ref": task_run.latest_checkpoint_ref,
+                "latest_event_offset": task_run.latest_event_offset,
                 "event_count": len(events),
                 "real_runtime_loop_started": True,
             },
@@ -714,14 +641,13 @@ class HealthRegistry:
             "status": "running",
             "health_agent_run": health_run.to_dict(),
             "task_run": task_run.to_dict(),
-            "loop_state": loop_state.to_dict(),
-            "checkpoint": checkpoint.to_dict(),
+            "loop_state": start.loop_state.to_dict(),
+            "checkpoint": start.checkpoint.to_dict(),
             "events": [dict(item) for item in events],
             "trace": trace,
             "issue": issue,
             "flow": flow,
             "binding": binding,
-            "projection_instance": projection.to_dict(),
             "runtime_directive_lane": {
                 "lane_id": f"lane:{task_run.runtime_lane}:{issue_id}",
                 "lane_type": task_run.runtime_lane,
@@ -754,20 +680,17 @@ class HealthRegistry:
             return started
 
         task_run = dict(started["task_run"])
-        loop_state = dict(started["loop_state"])
         issue = dict(started["issue"])
         flow = dict(started["flow"])
         binding = dict(started["binding"])
-        projection = dict(started["projection_instance"])
         task_run_id = str(task_run.get("task_run_id") or "")
         task_id = str(task_run.get("task_id") or "")
-        workflow = SkillWorkflowRegistry(self.base_dir).get_workflow(str(binding.get("skill_workflow_id") or ""))
+        workflow = TaskWorkflowRegistry(self.base_dir).get_workflow(str(binding.get("workflow_id") or ""))
         workflow_payload = workflow.to_dict() if workflow is not None else {}
         model_messages = self._build_health_model_messages(
             issue=issue,
             flow=flow,
             binding=binding,
-            projection=projection,
             workflow=workflow_payload,
         )
         task_contract_ref = str(task_run.get("task_contract_ref") or f"health-task-contract:{task_id}")
@@ -811,8 +734,8 @@ class HealthRegistry:
                     "pending_user_message_chars": len(model_messages[-1]["content"]),
                     "system_prompt_chars": len(model_messages[0]["content"]),
                     "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{task_mode}",
-                    "projection_ref": str(projection.get("projection_id") or ""),
-                    "prompt_manifest_ref": str(projection.get("prompt_manifest_id") or ""),
+                    "projection_ref": "",
+                    "prompt_manifest_ref": "",
                     "token_pressure": {"level": "unknown", "source": "health_system"},
                 },
                 "context_policy_result": {
@@ -823,8 +746,6 @@ class HealthRegistry:
             refs={
                 "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{task_mode}",
                 "context_snapshot_ref": f"ctx:{task_run_id}",
-                "projection_ref": str(projection.get("projection_id") or ""),
-                "prompt_manifest_ref": str(projection.get("prompt_manifest_id") or ""),
             },
         )
         resource_policy = self._build_health_resource_policy(task_id=task_id, binding=binding)
@@ -844,7 +765,7 @@ class HealthRegistry:
                 "agent_profile_id": str(binding.get("agent_profile_id") or ""),
                 "runtime_lane": str(binding.get("runtime_lane") or ""),
                 "health_issue_ref": issue_id,
-                "workflow_id": str(binding.get("skill_workflow_id") or ""),
+                "workflow_id": str(binding.get("workflow_id") or ""),
             },
         )
         directive_event = task_run_loop.event_log.append(
@@ -867,8 +788,6 @@ class HealthRegistry:
         final_content = ""
         result_refs = [
             f"health_issue:{issue_id}",
-            f"projection:{projection.get('projection_id') or ''}",
-            f"prompt_manifest:{projection.get('prompt_manifest_id') or ''}",
         ]
         terminal_reason = "completed"
         executor_events: list[dict[str, Any]] = []
@@ -993,18 +912,16 @@ class HealthRegistry:
             agent_profile_id=str(task_run.get("agent_profile_id") or ""),
             runtime_lane=str(task_run.get("runtime_lane") or ""),
             task_agent_binding_ref=str(binding.get("binding_id") or ""),
-            skill_workflow_ref=str(binding.get("skill_workflow_id") or ""),
+            skill_workflow_ref=str(binding.get("workflow_id") or ""),
             health_issue_ref=issue_id,
             transition="stop_after_final_output",
             terminal_reason=terminal_reason,
             context_snapshot_ref=f"ctx:{task_run_id}",
             memory_state_ref=f"health-memory-view:{issue_id}:{task_mode}",
-            projection_ref=str(projection.get("projection_id") or ""),
-            prompt_manifest_ref=str(projection.get("prompt_manifest_id") or ""),
             result_refs=tuple(result_refs),
             commit_state={"task_result_final": final_commit.to_dict(), "health_result_recorded": True},
             diagnostics={
-                **dict(loop_state.get("diagnostics") or {}),
+                **dict(task_run.get("diagnostics") or {}),
                 "health_agent_model_executed": gate_result.allowed,
                 "final_content_chars": len(final_content),
                 "output_contract_id": str(flow.get("output_contract_id") or ""),
@@ -1059,9 +976,9 @@ class HealthRegistry:
             agent_profile_id=str(task_run.get("agent_profile_id") or ""),
             runtime_lane=str(task_run.get("runtime_lane") or ""),
             task_mode=task_mode,
-            workflow_id=str(binding.get("skill_workflow_id") or ""),
-            projection_id=str(projection.get("projection_id") or ""),
-            prompt_manifest_id=str(projection.get("prompt_manifest_id") or ""),
+            workflow_id=str(binding.get("workflow_id") or ""),
+            projection_id=str(terminal_state.projection_ref or ""),
+            prompt_manifest_id=str(terminal_state.prompt_manifest_ref or ""),
             status=terminal_status,
             terminal_reason=terminal_reason,
             result_ref=result_ref,
@@ -1101,7 +1018,6 @@ class HealthRegistry:
             "issue": issue,
             "flow": flow,
             "binding": binding,
-            "projection_instance": projection,
             "runtime_directive_lane": {
                 "lane_id": f"lane:{task_run.get('runtime_lane') or ''}:{issue_id}",
                 "lane_type": str(task_run.get("runtime_lane") or ""),
@@ -1363,7 +1279,9 @@ class HealthRegistry:
         return results
 
     def _build_health_resource_policy(self, *, task_id: str, binding: dict[str, Any]) -> ResourcePolicy:
-        profile = TaskFlowRegistry(self.base_dir).agent_registry.get_capability_profile(str(binding.get("agent_id") or ""))
+        from orchestration import AgentRuntimeRegistry
+
+        profile = AgentRuntimeRegistry(self.base_dir).get_profile(str(binding.get("agent_id") or ""))
         allowed = tuple(item for item in (profile.allowed_operations if profile is not None else ("op.model_response",)) if item)
         denied = tuple(profile.blocked_operations if profile is not None else ())
         decision = ResourceDecision(
@@ -1390,9 +1308,9 @@ class HealthRegistry:
             runtime_executable=True,
             decisions=(decision,),
             diagnostics={
-                "agent_capability_profile_enforced": profile is not None,
+                "agent_runtime_profile_enforced": profile is not None,
                 "task_agent_binding_ref": str(binding.get("binding_id") or ""),
-                "skill_workflow_ref": str(binding.get("skill_workflow_id") or ""),
+                "workflow_ref": str(binding.get("workflow_id") or ""),
                 "output_contract_id": str(binding.get("output_contract_id") or ""),
             },
         )
@@ -1403,7 +1321,6 @@ class HealthRegistry:
         issue: dict[str, Any],
         flow: dict[str, Any],
         binding: dict[str, Any],
-        projection: dict[str, Any],
         workflow: dict[str, Any],
     ) -> list[dict[str, str]]:
         system_prompt = "\n".join(
@@ -1416,8 +1333,6 @@ class HealthRegistry:
                 f"输出合同：{flow.get('output_contract_id') or binding.get('output_contract_id') or 'HealthTriageResult'}",
                 f"RuntimeLane：{binding.get('runtime_lane') or ''}",
                 f"MemoryScope：{binding.get('memory_scope') or ''}",
-                f"Projection：{projection.get('projection_id') or ''}",
-                f"PromptManifest：{projection.get('prompt_manifest_id') or ''}",
             ]
         )
         user_payload = {
@@ -1425,7 +1340,6 @@ class HealthRegistry:
             "flow": flow,
             "binding": binding,
             "workflow": workflow,
-            "projection_instance": projection,
         }
         return [
             {"role": "system", "content": system_prompt},
@@ -1536,8 +1450,7 @@ def _conversation_session_from_payload(payload: dict[str, Any]) -> HealthAgentCo
         session_id=str(payload.get("session_id") or ""),
         agent_id=str(payload.get("agent_id") or ""),
         agent_profile_id=str(payload.get("agent_profile_id") or ""),
-        projection_template_id=str(payload.get("projection_template_id") or ""),
-        skill_workflow_id=str(payload.get("skill_workflow_id") or ""),
+        workflow_id=str(payload.get("workflow_id") or payload.get("skill_workflow_id") or ""),
         runtime_lane=str(payload.get("runtime_lane") or ""),
         active_issue_ref=str(payload.get("active_issue_ref") or ""),
         active_run_ref=str(payload.get("active_run_ref") or ""),

@@ -327,12 +327,12 @@ export type AgentTaskConnectionProfile = {
   available_task_modes: string[];
   flow_refs: string[];
   binding_refs: string[];
-  projection_template_refs: string[];
-  skill_workflow_refs: string[];
+  projection_refs: string[];
+  workflow_refs: string[];
   topology_refs: string[];
   default_flow_ref: string;
-  default_projection_template_ref: string;
-  default_skill_workflow_ref: string;
+  default_projection_ref: string;
+  default_workflow_ref: string;
   default_runtime_lane_hint: string;
   validation_state: string;
   blocked_reasons: string[];
@@ -341,13 +341,15 @@ export type AgentTaskConnectionProfile = {
 
 export type TaskSystemAgentUpsertPayload = {
   agent_id: string;
-  display_name: string;
-  owner_system?: string;
-  profile_type?: string;
-  lifecycle_state?: string;
+  agent_name: string;
+  agent_category?: string;
+  interface_target?: string;
+  description?: string;
+  enabled?: boolean;
+  editable?: boolean;
   default_soul_id?: string;
-  default_projection_template_id?: string;
-  governance_status?: string;
+  default_projection_id?: string;
+  task_scope?: string[];
   metadata?: Record<string, unknown>;
 };
 
@@ -360,7 +362,7 @@ export type TaskSystemFlowUpsertPayload = {
   output_contract_id?: string;
   default_agent_id: string;
   default_workflow_id?: string;
-  default_projection_template_id?: string;
+  default_projection_id?: string;
   default_runtime_lane?: string;
   default_memory_scope?: string;
   enabled?: boolean;
@@ -372,7 +374,7 @@ export type GeneralTaskProfile = {
   title: string;
   default_agent_id: string;
   default_workflow_id: string;
-  default_projection_template_id: string;
+  default_projection_id: string;
   input_contract_id: string;
   output_contract_id: string;
   conversation_entry_policy: string;
@@ -391,12 +393,46 @@ export type TaskAssignment = {
   participant_agent_ids: string[];
   workflow_id: string;
   workflow_file_ref: string;
-  projection_template_id: string;
+  projection_id: string;
   input_contract_id: string;
   output_contract_id: string;
   task_structure: Record<string, unknown>;
   enabled: boolean;
   metadata?: Record<string, unknown>;
+};
+
+export type SpecificTaskUpsertPayload = TaskAssignment & {
+  trigger_signals?: string[];
+  notes?: string;
+};
+
+export type CoordinationTask = {
+  coordination_task_id: string;
+  title: string;
+  coordination_mode: string;
+  coordinator_agent_id: string;
+  participant_agent_ids: string[];
+  topology_template_id: string;
+  shared_context_policy: string;
+  memory_sharing_policy: string;
+  handoff_policy: string;
+  conflict_resolution_policy: string;
+  output_merge_policy: string;
+  stop_conditions: string[];
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type TopologyTemplate = {
+  template_id: string;
+  title: string;
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+  handoff_rules: Array<Record<string, unknown>>;
+  join_policy: string;
+  failure_policy: string;
+  terminal_policy: string;
+  enabled: boolean;
 };
 
 export type AgentTaskCarryingProfile = {
@@ -408,7 +444,7 @@ export type AgentTaskCarryingProfile = {
   carried_general_task_refs: string[];
   carried_specific_task_refs: string[];
   workflow_refs: string[];
-  projection_template_refs: string[];
+  projection_refs: string[];
   validation_state: string;
   blocked_reasons: string[];
   diagnostics: Record<string, unknown>;
@@ -425,7 +461,11 @@ export type TaskConnectionDiagnosticIssue = {
 
 export type GeneralTaskProfileUpsertPayload = GeneralTaskProfile;
 
-export type TaskAssignmentUpsertPayload = TaskAssignment;
+export type TaskAssignmentUpsertPayload = SpecificTaskUpsertPayload;
+
+export type CoordinationTaskUpsertPayload = CoordinationTask;
+
+export type TopologyTemplateUpsertPayload = TopologyTemplate;
 
 export type TaskAgentConnectionOverview = {
   authority: string;
@@ -442,42 +482,104 @@ export type TaskAgentConnectionOverview = {
 export type TaskSystemOverview = {
   authority: string;
   summary: Record<string, number>;
-  agents: Array<Record<string, unknown>>;
-  general_task_profiles?: GeneralTaskProfile[];
-  task_assignments?: TaskAssignment[];
-  flows: Array<Record<string, unknown>>;
-  bindings: Array<Record<string, unknown>>;
-  coordination_tasks: Array<Record<string, unknown>>;
-  topology_templates: Array<Record<string, unknown>>;
-  agent_task_connections?: TaskAgentConnectionOverview;
-  agent_carrying_profiles?: {
-    authority: string;
-    profiles: AgentTaskCarryingProfile[];
-    summary: Record<string, number>;
+  agent_management: {
+    categories: Array<{
+      category_id: string;
+      title: string;
+      editable: boolean;
+      agents: Array<{
+        agent_id: string;
+        agent_name: string;
+        agent_category: string;
+        interface_target: string;
+        description: string;
+        enabled: boolean;
+        editable: boolean;
+        builtin: boolean;
+        default_soul_id: string;
+        default_projection_id: string;
+        task_scope: string[];
+        metadata?: Record<string, unknown>;
+      }>;
+    }>;
   };
-  connection_diagnostics?: {
-    authority: string;
-    issues: TaskConnectionDiagnosticIssue[];
-    summary: Record<string, number>;
+  task_management: {
+    general_tasks: GeneralTaskProfile[];
+    specific_tasks: TaskAssignment[];
+    workflow_resources: TaskWorkflowRecord[];
   };
-  link_permission_matrix: {
-    authority: string;
-    rows: Array<Record<string, unknown>>;
+  coordination_management: {
+    coordination_tasks: CoordinationTask[];
+    topology_templates: TopologyTemplate[];
   };
 };
 
 export type OperationAgentCatalog = {
   authority: string;
   agents: Array<Record<string, unknown>>;
-  capabilities: Array<Record<string, unknown>>;
   summary: Record<string, number>;
 };
 
-export type SkillWorkflowCatalog = {
+export type OrchestrationAgentRuntimeProfile = {
+  agent_profile_id: string;
+  agent_id: string;
+  allowed_task_modes: string[];
+  allowed_runtime_lanes: string[];
+  allowed_operations: string[];
+  blocked_operations: string[];
+  allowed_memory_scopes: string[];
+  allowed_context_sections: string[];
+  output_contracts: string[];
+  approval_policy: string;
+  trace_policy: string;
+  lifecycle_policy: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type OrchestrationAgentRuntimeCatalog = {
   authority: string;
-  workflows: Array<Record<string, unknown>>;
+  agents: Array<Record<string, unknown> & { runtime_profile?: Partial<OrchestrationAgentRuntimeProfile> }>;
+  profiles: OrchestrationAgentRuntimeProfile[];
+  summary: Record<string, number>;
+  options: {
+    operations: Array<Record<string, unknown>>;
+    task_modes: string[];
+    runtime_lanes: string[];
+    memory_scopes: string[];
+    context_sections: string[];
+    output_contracts: string[];
+    approval_policies: string[];
+    trace_policies: string[];
+  };
+};
+
+export type OrchestrationAgentRuntimeProfileUpsertPayload = Omit<OrchestrationAgentRuntimeProfile, "agent_id">;
+
+export type TaskWorkflowCatalog = {
+  authority: string;
+  workflows: TaskWorkflowRecord[];
   summary: Record<string, number>;
 };
+
+export type TaskWorkflowRecord = {
+  workflow_id: string;
+  title: string;
+  task_mode: string;
+  default_projection_id: string;
+  allowed_projection_ids: string[];
+  visible_skill_ids: string[];
+  steps: Array<Record<string, unknown>>;
+  input_boundary: string;
+  output_boundary: string;
+  stop_conditions: string[];
+  required_evidence_refs: string[];
+  output_contract_id: string;
+  prompt: string;
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskWorkflowUpsertPayload = TaskWorkflowRecord;
 
 export type ProjectionTemplateCatalog = {
   authority: string;
@@ -705,8 +807,7 @@ export type HealthAgentConversationSession = {
   session_id: string;
   agent_id: string;
   agent_profile_id: string;
-  projection_template_id: string;
-  skill_workflow_id: string;
+  workflow_id: string;
   runtime_lane: string;
   active_issue_ref: string;
   active_run_ref: string;
@@ -758,7 +859,6 @@ export type HealthAgentRunPreview = {
   issue: Record<string, unknown>;
   flow: Record<string, unknown>;
   binding: Record<string, unknown>;
-  projection_instance?: Record<string, unknown>;
   runtime_directive_lane?: Record<string, unknown>;
   reason?: string;
 };
@@ -1171,7 +1271,6 @@ export type SoulProfile = {
   background: string;
   personality_traits: string[];
   expression_style: string[];
-  working_habits: string[];
   preferred_role_types: string[];
   preferred_task_modes: string[];
   collaboration_tendencies: string[];
@@ -1195,15 +1294,15 @@ export type SoulProjectionCard = {
   expression_density?: string;
   attention_focus?: string[];
   risk_notes?: string[];
-  task_contract_summary: string;
+  projection_prompt?: string;
+  usage_summary: string;
   skill_views: Array<Record<string, unknown>>;
   tool_views: Array<Record<string, unknown>>;
   memory_policy_summary: string;
   output_contract_summary: string;
-  legacy_runtime_preview?: Record<string, unknown>;
+  runtime_preview?: Record<string, unknown>;
   runtime_only_payload?: boolean;
   static_projection_card?: boolean;
-  style_content: string;
   created_at: number;
   updated_at: number;
   is_primary?: boolean;
@@ -1226,6 +1325,7 @@ export type SoulProjectionCardCreatePayload = {
   expression_density?: string;
   attention_focus?: string[];
   risk_notes?: string[];
+  projection_prompt?: string;
   skill_views?: Array<{
     skill_id: string;
     title: string;
@@ -1246,10 +1346,9 @@ export type SoulProjectionCardCreatePayload = {
     authorized?: boolean;
     authorization_owner?: string;
   }>;
-  task_contract_summary?: string;
+  usage_summary?: string;
   memory_policy_summary?: string;
   output_contract_summary?: string;
-  style_content?: string;
   select_after_create?: boolean;
 };
 
@@ -1827,6 +1926,23 @@ export async function setOrchestrationPlanMode(mode: string) {
   });
 }
 
+export async function getOrchestrationAgents() {
+  return request<OrchestrationAgentRuntimeCatalog>("/orchestration/agents");
+}
+
+export async function updateOrchestrationAgentRuntimeProfile(
+  agentId: string,
+  payload: OrchestrationAgentRuntimeProfileUpsertPayload
+) {
+  return request<OrchestrationAgentRuntimeCatalog>(
+    `/orchestration/agents/${encodeURIComponent(agentId)}/runtime-profile`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    }
+  );
+}
+
 export async function getOperationCatalog() {
   return request<OperationCatalog>("/operations/catalog");
 }
@@ -1961,12 +2077,23 @@ export async function getOperationAgents() {
   return request<OperationAgentCatalog>("/operations/agents");
 }
 
-export async function getSkillWorkflows() {
-  return request<SkillWorkflowCatalog>("/skills/workflows");
+export async function getTaskWorkflows() {
+  return request<TaskWorkflowCatalog>("/tasks/workflows");
+}
+
+export async function upsertTaskWorkflow(workflowId: string, payload: TaskWorkflowUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/workflows/${encodeURIComponent(workflowId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function getTaskSystemOverview() {
   return request<TaskSystemOverview>("/tasks/overview");
+}
+
+export async function getNextWorkerAgentId() {
+  return request<{ agent_id: string; authority: string }>("/tasks/agents/next-worker-id");
 }
 
 export async function upsertTaskSystemAgent(agentId: string, payload: TaskSystemAgentUpsertPayload) {
@@ -1976,10 +2103,9 @@ export async function upsertTaskSystemAgent(agentId: string, payload: TaskSystem
   });
 }
 
-export async function upsertTaskSystemFlow(flowId: string, payload: TaskSystemFlowUpsertPayload) {
-  return request<TaskSystemOverview>(`/tasks/flows/${encodeURIComponent(flowId)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
+export async function deleteTaskSystemAgent(agentId: string) {
+  return request<TaskSystemOverview>(`/tasks/agents/${encodeURIComponent(agentId)}`, {
+    method: "DELETE"
   });
 }
 
@@ -1992,6 +2118,23 @@ export async function upsertTaskSystemGeneralProfile(profileId: string, payload:
 
 export async function upsertTaskSystemAssignment(taskId: string, payload: TaskAssignmentUpsertPayload) {
   return request<TaskSystemOverview>(`/tasks/specific-assignments/${encodeURIComponent(taskId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemCoordinationTask(
+  coordinationTaskId: string,
+  payload: CoordinationTaskUpsertPayload
+) {
+  return request<TaskSystemOverview>(`/tasks/coordination-tasks/${encodeURIComponent(coordinationTaskId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemTopologyTemplate(templateId: string, payload: TopologyTemplateUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/topology-templates/${encodeURIComponent(templateId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });
@@ -2215,6 +2358,7 @@ export async function streamChat(
     session_id: string;
     ephemeral_system_messages?: string[];
     search_policy?: string[];
+    task_selection?: Record<string, unknown>;
   },
   handlers: StreamHandlers
 ) {

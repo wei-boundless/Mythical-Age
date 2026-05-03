@@ -24,6 +24,7 @@ class AgentRuntimeChainAssembler:
         task_id: str,
         message: str,
         source: str,
+        task_selection: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         memory_intent = analyze_memory_intent(message)
         memory_payload = self.build_memory_runtime_view_payload(
@@ -52,6 +53,15 @@ class AgentRuntimeChainAssembler:
             memory_runtime_view=memory_payload,
             query_understanding=asdict(query_understanding),
         )
+        current_turn_context_payload = current_turn_context.to_dict()
+        if task_selection:
+            current_turn_context_payload.update(
+                {
+                    key: value
+                    for key, value in dict(task_selection or {}).items()
+                    if value not in ("", None, [], {})
+                }
+            )
         skill_frame = _resolve_skill_frame(self.skill_registry, query_understanding)
         task_operation = build_task_runtime_contract(
             session_id=session_id,
@@ -61,7 +71,7 @@ class AgentRuntimeChainAssembler:
             memory_runtime_view=memory_payload,
             context_policy_result=context_payload,
             query_understanding=asdict(query_understanding),
-            current_turn_context=current_turn_context.to_dict(),
+            current_turn_context=current_turn_context_payload,
             active_skill=_skill_frame_payload(skill_frame),
             runtime_required_operations=_operation_ids_for_runtime(
                 query_understanding=query_understanding,
@@ -72,7 +82,7 @@ class AgentRuntimeChainAssembler:
         return {
             "memory_runtime_view": memory_payload,
             "context_policy_result": context_payload,
-            "current_turn_context": current_turn_context.to_dict(),
+            "current_turn_context": current_turn_context_payload,
             "task_operation": task_operation,
             "status": "runtime",
             "runtime_executable": True,

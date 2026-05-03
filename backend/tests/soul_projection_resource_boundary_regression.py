@@ -41,7 +41,7 @@ def test_soul_runtime_view_exposes_only_authorized_tool_sections() -> None:
         definition_id="task.task_execution",
         binding_id="binding-1",
         task_section="Goal: inspect resources",
-        method_section="Use bounded methods.",
+        workflow_section="Workflow: bounded inspection.",
         resource_section="",
         projection_section="Projection role: implementer.",
         output_section="Return preview.",

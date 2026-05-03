@@ -22,7 +22,7 @@ import type { SoulKey } from "@/lib/souls";
 import { useAppStore } from "@/lib/store";
 
 type SoulPanelMode = "contract" | "projection" | "core";
-type ProjectionDetailPage = "projection" | "soul";
+type ProjectionDetailPage = "projection";
 
 type ProjectionDraft = {
   sourceProjectionId?: string;
@@ -37,10 +37,10 @@ type ProjectionDraft = {
   expression_density: string;
   attention_focus: string;
   risk_notes: string;
-  task_contract_summary: string;
+  projection_prompt: string;
+  usage_summary: string;
   memory_policy_summary: string;
   output_contract_summary: string;
-  style_content: string;
 };
 
 type ProjectionDraftTextField =
@@ -52,10 +52,10 @@ type ProjectionDraftTextField =
   | "expression_density"
   | "attention_focus"
   | "risk_notes"
-  | "task_contract_summary"
+  | "projection_prompt"
+  | "usage_summary"
   | "memory_policy_summary"
-  | "output_contract_summary"
-  | "style_content";
+  | "output_contract_summary";
 
 const SOUL_MODES: Array<{
   id: SoulPanelMode;
@@ -113,7 +113,7 @@ const SOUL_LORE: Record<string, { title: string; summary: string }> = {
 function projectionBadgeLabel(card: SoulProjectionCard, selectedProjectionId: string) {
   if (card.is_primary) return "原始投影";
   if (card.projection_id === selectedProjectionId) return "当前选用";
-  return "任务投影";
+  return "可选投影";
 }
 
 function fileKind(file: SoulSystemFile | SoulSystemSeed) {
@@ -414,14 +414,6 @@ export function PlaygroundView() {
     return nextName;
   }
 
-  function inheritedProjectionStyle(seed: SoulSystemSeed) {
-    return visibleSoulContent(seed);
-  }
-
-  function projectionStyleSections(styleContent: string) {
-    return parseManagedSections(styleContent, "contract");
-  }
-
   function buildProjectionDraftForSeed(seed: SoulSystemSeed): ProjectionDraft {
     const profile = profileForSeed(seed);
     const roleType = profile?.preferred_role_types?.[0] ?? "dialogue";
@@ -439,14 +431,14 @@ export function PlaygroundView() {
       expression_density: "normal",
       attention_focus: "",
       risk_notes: "",
-      task_contract_summary: "静态用途：根据用户目标生成一个可在任务中选用的灵魂投影。",
+      projection_prompt: "",
+      usage_summary: "可被任务系统选用的灵魂投影资源。",
       memory_policy_summary: "预览模式不授予记忆写回权。",
-      output_contract_summary: "预览当前灵魂如何收束 prompt sections。",
-      style_content: inheritedProjectionStyle(seed)
+      output_contract_summary: "预览当前灵魂如何收束 prompt sections。"
     };
   }
 
-  function buildProjectionDraftFromCard(card: SoulProjectionCard, fallbackStyleContent = ""): ProjectionDraft {
+  function buildProjectionDraftFromCard(card: SoulProjectionCard): ProjectionDraft {
     return {
       sourceProjectionId: card.projection_id,
       isNew: false,
@@ -460,16 +452,15 @@ export function PlaygroundView() {
       expression_density: card.expression_density || "normal",
       attention_focus: (card.attention_focus ?? []).join(", "),
       risk_notes: (card.risk_notes ?? []).join("\n"),
-      task_contract_summary: card.task_contract_summary || "静态用途：当前投影没有绑定具体任务家族说明。",
+      projection_prompt: card.projection_prompt || "",
+      usage_summary: card.usage_summary || "可被任务系统选用的灵魂投影资源。",
       memory_policy_summary: card.memory_policy_summary || "预览模式不授予记忆写回权。",
-      output_contract_summary: card.output_contract_summary || "预览当前灵魂如何收束 prompt sections。",
-      style_content: card.style_content ?? fallbackStyleContent
+      output_contract_summary: card.output_contract_summary || "预览当前灵魂如何收束 prompt sections。"
     };
   }
 
   function projectionEditorForCard(card: SoulProjectionCard) {
-    const seed = catalog?.seeds.find((item) => item.key === card.soul_id) ?? null;
-    return projectionEditorMap[card.projection_id] ?? buildProjectionDraftFromCard(card, seed ? inheritedProjectionStyle(seed) : "");
+    return projectionEditorMap[card.projection_id] ?? buildProjectionDraftFromCard(card);
   }
 
   function enterProjectionSoul(seed: SoulSystemSeed) {
@@ -650,10 +641,10 @@ export function PlaygroundView() {
       expression_density: draftToSave.expression_density.trim() || "normal",
       attention_focus: splitListInput(draftToSave.attention_focus),
       risk_notes: splitListInput(draftToSave.risk_notes),
-      task_contract_summary: draftToSave.task_contract_summary,
+      projection_prompt: draftToSave.projection_prompt,
+      usage_summary: draftToSave.usage_summary,
       memory_policy_summary: draftToSave.memory_policy_summary,
       output_contract_summary: draftToSave.output_contract_summary,
-      style_content: draftToSave.style_content,
       select_after_create: true
     });
     const resolvedCard =
@@ -678,9 +669,9 @@ export function PlaygroundView() {
           [resolvedCard.projection_id]: buildProjectionDraftFromCard(resolvedCard)
         }));
       }
-      setNotice(`已保存任务投影「${resolvedCard?.title ?? projectionDraft.projection_name}」`);
+      setNotice(`已保存投影「${resolvedCard?.title ?? projectionDraft.projection_name}」`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "保存任务投影失败");
+      setError(exc instanceof Error ? exc.message : "保存投影失败");
     } finally {
       setProjectionLoading(false);
     }
@@ -704,9 +695,9 @@ export function PlaygroundView() {
         }
         return next;
       });
-      setNotice(`已保存任务投影「${resolvedCard?.title ?? draftToSave.projection_name}」`);
+      setNotice(`已保存投影「${resolvedCard?.title ?? draftToSave.projection_name}」`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "保存任务投影失败");
+      setError(exc instanceof Error ? exc.message : "保存投影失败");
     } finally {
       setProjectionLoading(false);
     }
@@ -719,16 +710,16 @@ export function PlaygroundView() {
       const payload = await selectSoulProjectionCard(card.projection_id);
       setProjectionCatalog(payload);
       setSelectedProjectionId(card.projection_id);
-      setNotice(`已选用任务投影「${card.title}」`);
+      setNotice(`已选用投影「${card.title}」`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "选用任务投影失败");
+      setError(exc instanceof Error ? exc.message : "选用投影失败");
     } finally {
       setProjectionLoading(false);
     }
   }
 
   async function deleteProjectionCard(card: SoulProjectionCard) {
-    if (!window.confirm(`确认删除任务投影「${card.title}」吗？`)) return;
+    if (!window.confirm(`确认删除投影「${card.title}」吗？`)) return;
     setProjectionLoading(true);
     setError("");
     try {
@@ -741,9 +732,9 @@ export function PlaygroundView() {
         delete next[card.projection_id];
         return next;
       });
-      setNotice(`已删除任务投影「${card.title}」`);
+      setNotice(`已删除投影「${card.title}」`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "删除任务投影失败");
+      setError(exc instanceof Error ? exc.message : "删除投影失败");
     } finally {
       setProjectionLoading(false);
     }
@@ -823,7 +814,7 @@ export function PlaygroundView() {
         <section className="workspace-section soul-file-rail">
           <div className="workspace-section__head">
             <Sparkles size={18} />
-            <h3>{mode === "contract" ? "灵魂设定" : mode === "projection" ? "任务投影" : "共同契约"}</h3>
+            <h3>{mode === "contract" ? "灵魂设定" : mode === "projection" ? "投影资源" : "共同契约"}</h3>
           </div>
 
           {mode === "projection" ? (
@@ -841,7 +832,7 @@ export function PlaygroundView() {
                         <button className="soul-seed-card__main" onClick={() => enterProjectionSoul(seed)} type="button">
                           <span>{seed.active ? "正在使用" : "可选灵魂"}</span>
                           <strong>{displayFileLabel(seed)}</strong>
-                          <em>{count ? `${count} 个任务投影` : "暂无任务投影"}</em>
+                          <em>{count ? `${count} 个投影` : "暂无投影"}</em>
                         </button>
                       </article>
                     );
@@ -912,9 +903,7 @@ export function PlaygroundView() {
             {mode === "projection" ? <Boxes size={18} /> : <FilePenLine size={18} />}
             <h3>
               {mode === "projection"
-                ? projectionDetailPage === "projection"
-                  ? `${selectedSeed?.name ?? "当前灵魂"}的投影管理`
-                  : `${selectedSeed?.name ?? "当前灵魂"}的灵魂设定`
+                ? `${selectedSeed?.name ?? "当前灵魂"}的投影管理`
                 : isEditing ? "编辑设定" : "设定内容"}
             </h3>
           </div>
@@ -927,8 +916,8 @@ export function PlaygroundView() {
                       <div className="soul-projection-card-board__head">
                         <div>
                           <span>{selectedSeed.active ? "当前灵魂" : "所选灵魂"}</span>
-                          <strong>{selectedSeed.name}的任务投影</strong>
-                          <em>选择一张投影卡进入管理，或新建一张投影。</em>
+                          <strong>{selectedSeed.name}的可选投影</strong>
+                          <em>这些投影会被任务系统选用，点击卡片进入管理。</em>
                         </div>
                         <button className="action-button action-button--primary" onClick={() => newProjectionDraft(selectedSeed)} type="button">
                           <Plus size={16} />
@@ -951,15 +940,15 @@ export function PlaygroundView() {
                             <span>{projectionBadgeLabel(card, projectionCatalog?.selected_projection_id ?? "")}</span>
                             <strong>{card.title}</strong>
                             <em>{card.role_type} / {card.task_mode}</em>
-                            <p>{card.task_contract_summary || "当前投影没有绑定具体任务契约。"}</p>
+                            <p>{card.usage_summary || "可被任务系统选用的灵魂投影资源。"}</p>
                           </button>
                         ))}
 
                         <button className="soul-projection-tile soul-projection-tile--create" onClick={() => newProjectionDraft(selectedSeed)} type="button">
-                          <span>新建任务投影</span>
+                          <span>新建投影</span>
                           <strong><Plus size={18} /> 新建</strong>
-                          <em>从当前灵魂继承设定</em>
-                          <p>为这个灵魂新增一张可在任务系统中选用的投影卡。</p>
+                          <em>为当前灵魂增加一个可选投影</em>
+                          <p>任务系统会在具体任务配置里选择要使用的投影。</p>
                         </button>
                       </div>
                     </div>
@@ -974,13 +963,6 @@ export function PlaygroundView() {
                           type="button"
                         >
                           投影管理
-                        </button>
-                        <button
-                          className={projectionDetailPage === "soul" ? "active" : ""}
-                          onClick={() => setProjectionDetailPage("soul")}
-                          type="button"
-                        >
-                          灵魂设定
                         </button>
                       </div>
                       <button
@@ -1004,7 +986,7 @@ export function PlaygroundView() {
                       <div className="soul-projection-editor-card__head">
                         <div>
                           <span>新投影</span>
-                          <strong>{projectionDraft.projection_name || "未命名任务投影"}</strong>
+                          <strong>{projectionDraft.projection_name || "未命名投影"}</strong>
                           <em>{projectionDraft.role_type || "dialogue"} / {projectionDraft.task_mode || "general_qa"}</em>
                         </div>
                         <small>草稿</small>
@@ -1012,7 +994,7 @@ export function PlaygroundView() {
 
                       <div className="soul-projection-form-grid">
                         <label>
-                          <small>任务投影名</small>
+                          <small>投影名</small>
                           <input
                             value={projectionDraft.projection_name}
                             onChange={(event) => updateProjectionDraft("projection_name", event.target.value)}
@@ -1081,10 +1063,20 @@ export function PlaygroundView() {
                       </div>
 
                       <label className="soul-projection-editor-card__contract">
-                        <small>静态用途说明</small>
+                        <small>投影补充提示</small>
                         <textarea
-                          value={projectionDraft.task_contract_summary}
-                          onChange={(event) => updateProjectionDraft("task_contract_summary", event.target.value)}
+                          value={projectionDraft.projection_prompt}
+                          onChange={(event) => updateProjectionDraft("projection_prompt", event.target.value)}
+                          rows={5}
+                          placeholder="留给用户自由填写，用于描述这个投影在任务中的额外提示。"
+                        />
+                      </label>
+
+                      <label className="soul-projection-editor-card__contract">
+                        <small>投影用途说明</small>
+                        <textarea
+                          value={projectionDraft.usage_summary}
+                          onChange={(event) => updateProjectionDraft("usage_summary", event.target.value)}
                           rows={7}
                         />
                       </label>
@@ -1112,7 +1104,7 @@ export function PlaygroundView() {
 
                         <div className="soul-projection-form-grid">
                             <label>
-                              <small>任务投影名</small>
+                              <small>投影名</small>
                               <input
                                 disabled={selectedProjectionCard.is_primary}
                                 value={editor.projection_name}
@@ -1189,11 +1181,22 @@ export function PlaygroundView() {
                         </div>
 
                           <label className="soul-projection-editor-card__contract">
-                            <small>静态用途说明</small>
+                            <small>投影补充提示</small>
                             <textarea
                               disabled={selectedProjectionCard.is_primary}
-                              value={editor.task_contract_summary}
-                              onChange={(event) => updateProjectionEditor(selectedProjectionCard, "task_contract_summary", event.target.value)}
+                              value={editor.projection_prompt}
+                              onChange={(event) => updateProjectionEditor(selectedProjectionCard, "projection_prompt", event.target.value)}
+                              rows={5}
+                              placeholder="留给用户自由填写，用于描述这个投影在任务中的额外提示。"
+                          />
+                        </label>
+
+                          <label className="soul-projection-editor-card__contract">
+                            <small>投影用途说明</small>
+                            <textarea
+                              disabled={selectedProjectionCard.is_primary}
+                              value={editor.usage_summary}
+                              onChange={(event) => updateProjectionEditor(selectedProjectionCard, "usage_summary", event.target.value)}
                               rows={7}
                           />
                         </label>
@@ -1212,7 +1215,7 @@ export function PlaygroundView() {
                             type="button"
                           >
                             <ShieldCheck size={16} />
-                            {selectedProjectionCard.projection_id === projectionCatalog?.selected_projection_id ? "已选用" : "选用此任务投影"}
+                            {selectedProjectionCard.projection_id === projectionCatalog?.selected_projection_id ? "已选用" : "选用此投影"}
                           </button>
                           <button className="action-button" onClick={() => resetProjectionEditor(selectedProjectionCard)} type="button">
                             <RotateCcw size={16} />
@@ -1232,113 +1235,7 @@ export function PlaygroundView() {
                         </div>
                       </div>
                     );
-                  })() : projectionDetailPage === "soul" ? (
-                    projectionDraft && projectionDraft.soul_id === selectedSeed.key ? (
-                      <div className="soul-projection-editor-card soul-projection-editor-card--draft">
-                        <div className="soul-projection-editor-card__head">
-                          <div>
-                            <span>投影灵魂设定</span>
-                            <strong>{projectionDraft.projection_name || "未命名任务投影"}</strong>
-                            <em>初始内容来自当前灵魂。</em>
-                          </div>
-                          <small>草稿</small>
-                        </div>
-
-                        <div className="soul-managed-sections">
-                          {projectionStyleSections(projectionDraft.style_content).map((section) => (
-                            <article className="soul-managed-section soul-managed-section--editing" key={section.id}>
-                              <div className="soul-managed-section__head">
-                                <div>
-                                  <strong>{section.title}</strong>
-                                </div>
-                              </div>
-                              <textarea
-                                value={section.content}
-                                onChange={(event) => updateProjectionDraft("style_content", updateManagedSection(projectionDraft.style_content, "contract", section.id, event.target.value))}
-                                spellCheck={false}
-                              />
-                            </article>
-                          ))}
-                        </div>
-
-                        <div className="soul-projection-actions">
-                          <button className="action-button action-button--primary" disabled={projectionLoading} onClick={() => void saveProjectionDraft()} type="button">
-                            {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
-                            保存投影
-                          </button>
-                          <button
-                            className="action-button"
-                            onClick={() => updateProjectionDraft("style_content", inheritedProjectionStyle(selectedSeed))}
-                            type="button"
-                          >
-                            <RotateCcw size={16} />
-                            恢复继承设定
-                          </button>
-                          <button className="action-button" onClick={() => setProjectionDraft(null)} type="button">
-                            <X size={16} />
-                            放弃草稿
-                          </button>
-                        </div>
-                      </div>
-                    ) : selectedProjectionCard ? (() => {
-                      const editor = projectionEditorForCard(selectedProjectionCard);
-                      return (
-                        <div className="soul-projection-editor-card" key={`${selectedProjectionCard.projection_id}-style`}>
-                        <div className="soul-projection-editor-card__head">
-                          <div>
-                            <span>{selectedProjectionCard.is_primary ? "原始投影设定" : "投影灵魂设定"}</span>
-                            <strong>{selectedProjectionCard.title}</strong>
-                            <em>{selectedProjectionCard.is_primary ? "基础投影设定。" : "投影独立设定。"}</em>
-                          </div>
-                          <small>{selectedProjectionCard.projection_id === projectionCatalog?.selected_projection_id ? "当前选用" : "未选用"}</small>
-                        </div>
-
-                          <div className="soul-managed-sections">
-                            {projectionStyleSections(editor.style_content).map((section) => (
-                              <article className="soul-managed-section soul-managed-section--editing" key={section.id}>
-                                <div className="soul-managed-section__head">
-                                  <div>
-                                    <strong>{section.title}</strong>
-                                  </div>
-                                </div>
-                                <textarea
-                                  value={section.content}
-                                  onChange={(event) => updateProjectionEditor(selectedProjectionCard, "style_content", updateManagedSection(editor.style_content, "contract", section.id, event.target.value))}
-                                  spellCheck={false}
-                                />
-                              </article>
-                            ))}
-                          </div>
-
-                          <div className="soul-projection-actions">
-                            <button className="action-button action-button--primary" disabled={projectionLoading} onClick={() => void saveExistingProjectionCard(selectedProjectionCard)} type="button">
-                              {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
-                              保存设定
-                            </button>
-                            <button className="action-button" onClick={() => resetProjectionEditor(selectedProjectionCard)} type="button">
-                              <RotateCcw size={16} />
-                              恢复
-                            </button>
-                            {!selectedProjectionCard.is_primary ? (
-                              <button
-                                className="action-button"
-                                disabled={projectionLoading}
-                                onClick={() => void deleteProjectionCard(selectedProjectionCard)}
-                                type="button"
-                              >
-                                <X size={16} />
-                                删除
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      );
-                    })() : (
-                      <div className="soul-reader">
-                        <pre>先从上方投影卡片中选一张卡，或者直接新建一张投影。</pre>
-                      </div>
-                    )
-                  ) : (
+                  })() : (
                     <div className="soul-reader">
                       <pre>先从上方投影卡片中选一张卡，或者直接新建一张投影。</pre>
                     </div>
@@ -1346,7 +1243,7 @@ export function PlaygroundView() {
                 </div>
               ) : (
                 <div className="soul-reader">
-                  <pre>先在左侧选择一个灵魂，再进入它的任务投影列表。</pre>
+                  <pre>先在左侧选择一个灵魂，再进入它的投影列表。</pre>
                 </div>
               )}
             </div>

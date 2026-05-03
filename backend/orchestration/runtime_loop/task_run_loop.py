@@ -142,7 +142,7 @@ class TaskRunLoop:
         session_id: str,
         task_id: str,
         task_contract_ref: str = "",
-        agent_id: str = "agent:main",
+        agent_id: str = "agent:0",
         agent_profile_id: str = "main_interactive_agent",
         runtime_lane: str = "full_interactive",
         task_agent_binding_ref: str = "",
@@ -266,10 +266,11 @@ class TaskRunLoop:
         runtime_context_manager: RuntimeContextManager,
         stage_projection_cycle: StageProjectionCycle | None = None,
         memory_intent: Any | None = None,
+        task_selection: dict[str, Any] | None = None,
         assistant_message_committer: Callable[[dict[str, Any]], Any] | None = None,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
-        agent_capability_profile: Any | None = None,
+        agent_runtime_profile: Any | None = None,
     ):
         """Run the current single-agent lane inside the TaskRunLoop trace spine."""
 
@@ -293,6 +294,7 @@ class TaskRunLoop:
             task_id=task_id,
             message=user_message,
             source=source,
+            task_selection=dict(task_selection or {}),
         )
         task_operation = dict(chain_runtime.get("task_operation") or {})
         task_contract = dict(task_operation.get("task_contract") or {})
@@ -563,7 +565,7 @@ class TaskRunLoop:
         directive, resource_policy = build_model_response_runtime_adoption(
             task_operation,
             operation_registry=self.operation_gate.registry,
-            agent_capability_profile=agent_capability_profile,
+            agent_runtime_profile=agent_runtime_profile,
         )
         runtime_tool_instances = self._tool_instances_for_resource_policy(tool_instances, resource_policy)
         directive_event = self.event_log.append(
@@ -2492,7 +2494,7 @@ def _task_spec_from_payload(payload: dict[str, Any]) -> TaskSpec | None:
                 _step_input_binding_from_payload(item)
                 for item in list(payload.get("step_input_bindings") or [])
             ),
-            selected_agent_id=str(payload.get("selected_agent_id") or "agent:main"),
+            selected_agent_id=str(payload.get("selected_agent_id") or "agent:0"),
             selected_skill_ids=tuple(str(item) for item in list(payload.get("selected_skill_ids") or [])),
             operation_requirement_ref=str(payload.get("operation_requirement_ref") or ""),
             status=str(payload.get("status") or "selected"),
@@ -2513,8 +2515,8 @@ def _task_template_from_payload(payload: dict[str, Any]) -> TaskTemplate | None:
             task_mode=str(payload.get("task_mode") or ""),
             input_schema=dict(payload.get("input_schema") or {}),
             output_schema=dict(payload.get("output_schema") or {}),
-            default_agent_id=str(payload.get("default_agent_id") or "agent:main"),
-            allowed_agent_ids=tuple(str(item) for item in list(payload.get("allowed_agent_ids") or ["agent:main"])),
+            default_agent_id=str(payload.get("default_agent_id") or "agent:0"),
+            allowed_agent_ids=tuple(str(item) for item in list(payload.get("allowed_agent_ids") or ["agent:0"])),
             required_capability_tags=tuple(str(item) for item in list(payload.get("required_capability_tags") or [])),
             required_operations=tuple(str(item) for item in list(payload.get("required_operations") or [])),
             optional_operations=tuple(str(item) for item in list(payload.get("optional_operations") or [])),

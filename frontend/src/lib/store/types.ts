@@ -42,6 +42,7 @@ export type WorkspaceView =
   | "operations"
   | "evidence"
   | "task-system"
+  | "orchestration"
   | "system-framework"
   | "experiments"
   | "playground"

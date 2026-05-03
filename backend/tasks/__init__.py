@@ -9,6 +9,7 @@ __all__ = [
     "GeneralTaskProfile",
     "TaskAssignment",
     "AgentTaskCarryingProfile",
+    "TaskWorkflowBinding",
     "ProjectionRequirement",
     "SkillRuntimeView",
     "TaskSpec",
@@ -27,6 +28,7 @@ __all__ = [
     "TaskAgentBinding",
     "AgentTaskConnectionProfile",
     "TaskFlowRegistry",
+    "TaskWorkflowRegistry",
     "TaskStepBlueprint",
     "StepInputBinding",
     "TaskTemplate",
@@ -79,6 +81,14 @@ def __getattr__(name: str) -> Any:
         from tasks.flow_registry import TaskFlowRegistry
 
         return TaskFlowRegistry
+    if name in {"TaskWorkflowBinding"}:
+        from tasks.workflow_models import TaskWorkflowBinding
+
+        return TaskWorkflowBinding
+    if name == "TaskWorkflowRegistry":
+        from tasks.workflow_registry import TaskWorkflowRegistry
+
+        return TaskWorkflowRegistry
     if name == "TaskTemplateRegistry":
         from tasks.template_registry import TaskTemplateRegistry
 

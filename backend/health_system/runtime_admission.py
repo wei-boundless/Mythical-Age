@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from orchestration import AgentRuntimeRegistry
 from tasks.flow_registry import TaskFlowRegistry
 
 from .models import HealthManagementCommand
@@ -67,7 +68,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
         )
 
     binding = registry.build_binding_for_flow(flow)
-    profile = registry.agent_registry.get_capability_profile(binding.agent_id)
+    profile = AgentRuntimeRegistry(base_dir).get_profile(binding.agent_id)
     blocked = list(binding.diagnostics.get("failures") or [])
     diagnostics: dict[str, Any] = {
         "command_type": command.command_type,
@@ -77,9 +78,9 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
     if binding.validation_state != "valid":
         blocked.append("binding_invalid")
     if profile is None:
-        blocked.append("capability_profile_missing")
+        blocked.append("runtime_profile_missing")
     else:
-        diagnostics["capability_profile"] = profile.to_dict()
+        diagnostics["runtime_profile"] = profile.to_dict()
         requested_operations = tuple(
             str(item)
             for item in list(command.payload.get("requested_operations") or ("op.model_response",))
@@ -92,10 +93,8 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
                 blocked.append(f"operation_not_allowed:{operation_id}")
         if binding.runtime_lane not in profile.allowed_runtime_lanes:
             blocked.append("runtime_lane_not_allowed")
-        if binding.skill_workflow_id not in profile.allowed_skill_workflows:
-            blocked.append("skill_workflow_not_allowed")
-        if binding.projection_template_id not in profile.allowed_projection_templates:
-            blocked.append("projection_template_not_allowed")
+        if binding.workflow_id not in profile.allowed_workflow_ids:
+            blocked.append("workflow_not_allowed")
 
     unique_blocked = tuple(dict.fromkeys(item for item in blocked if item))
     return HealthCommandRuntimeAdmission(

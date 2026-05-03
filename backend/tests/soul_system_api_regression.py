@@ -56,19 +56,18 @@ def test_soul_projection_card_stores_static_binding_without_runtime_view(tmp_pat
         "expression_density": "concise",
         "attention_focus": ["source_trace", "answer_boundary"],
         "risk_notes": ["投影卡不承载运行时授权。"],
-        "task_contract_summary": "动态任务契约：只收集证据，不提交最终答案。",
-        "style_content": "# 河伯风格\n\n## 表达\n\n- 先列证据，再下结论。",
+        "usage_summary": "证据收集姿态投影，供任务系统按需选择。",
     }
     store = upsert_projection_card(tmp_path, request=request, soul_name="河伯", selected=True)
     assert store["selected_projection_id"] == store["cards"][0]["projection_id"]
     assert store["cards"][0]["title"] == "河伯 / RAG 收集"
-    assert store["cards"][0]["style_content"].startswith("# 河伯风格")
     assert store["cards"][0]["static_projection_card"] is True
     assert store["cards"][0]["runtime_only_payload"] is True
     assert store["cards"][0]["posture_tags"] == ["evidence_first", "quiet"]
     assert store["cards"][0]["expression_density"] == "concise"
     assert store["cards"][0]["attention_focus"] == ["source_trace", "answer_boundary"]
     assert store["cards"][0]["risk_notes"] == ["投影卡不承载运行时授权。"]
-    assert store["cards"][0]["legacy_runtime_preview"]["task_contract_summary"].startswith("动态任务契约")
+    assert store["cards"][0]["usage_summary"].startswith("证据收集姿态投影")
+    assert store["cards"][0]["runtime_preview"]["usage_summary"].startswith("证据收集姿态投影")
     assert "projection" not in store["cards"][0]
     assert "runtime_view" not in store["cards"][0]

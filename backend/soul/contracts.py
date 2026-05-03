@@ -17,7 +17,6 @@ class SoulProfile:
     background: str = ""
     personality_traits: tuple[str, ...] = ()
     expression_style: tuple[str, ...] = ()
-    working_habits: tuple[str, ...] = ()
     preferred_role_types: tuple[str, ...] = ()
     preferred_task_modes: tuple[str, ...] = ()
     collaboration_tendencies: tuple[str, ...] = ()
@@ -93,9 +92,10 @@ class SoulProjectionRequest:
     task_mode: str
     agent_profile_id: str
     projection_name: str = ""
+    projection_prompt: str = ""
     skill_views: tuple[SoulSkillView, ...] = ()
     tool_views: tuple[SoulToolView, ...] = ()
-    task_contract_summary: str = "当前投影没有绑定具体任务契约。"
+    usage_summary: str = "可被任务系统选用的灵魂投影资源。"
     memory_policy_summary: str = "当前运行阶段不授予记忆写回权。"
     output_contract_summary: str = "输出当前灵魂运行时视图。"
 

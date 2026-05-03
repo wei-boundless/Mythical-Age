@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from health_system import HealthRegistry
+from orchestration import AgentRuntimeRegistry
 from operations import AgentRegistry
 from tasks import TaskFlowRegistry
 
@@ -79,8 +80,25 @@ def test_task_system_exposes_generic_agent_task_connection_profile(tmp_path) -> 
     assert overview["authority"] == "task_system.agent_task_connections"
     assert health_profile["owner_system"] == "health_system"
     assert "flow.health.issue_triage" in health_profile["flow_refs"]
-    assert "xuannv__health_maintainer" in health_profile["projection_template_refs"]
+    assert "xuannv__primary" in health_profile["projection_refs"]
     assert health_profile["validation_state"] == "valid"
+
+
+def test_health_agent_run_preview_does_not_expose_projection_instance(tmp_path) -> None:
+    registry = HealthRegistry(tmp_path)
+    issue = registry.create_issue(
+        {
+            "title": "健康系统预览边界测试",
+            "owner_system": "health_system",
+            "severity": "medium",
+            "runtime_trace_refs": ["runtime-loop:test"],
+        }
+    )
+
+    preview = registry.preview_agent_run(issue_id=issue.issue_id, task_mode="issue_triage")
+
+    assert preview["status"] == "ready"
+    assert "projection_instance" not in preview
 
 
 def test_launch_health_test_command_records_health_test_run(tmp_path) -> None:
@@ -108,7 +126,7 @@ def test_launch_health_test_command_records_health_test_run(tmp_path) -> None:
 
 def test_default_health_management_agent_configuration_is_bound_and_guarded(tmp_path) -> None:
     agent_registry = AgentRegistry(tmp_path)
-    profile = agent_registry.get_capability_profile("agent:health:maintainer")
+    profile = AgentRuntimeRegistry(tmp_path).get_profile("agent:health:maintainer")
     connection = next(
         item
         for item in TaskFlowRegistry(tmp_path).list_agent_task_connection_profiles()

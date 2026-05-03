@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from operations import RuntimeApprovalContext, build_operation_requirement
+from operations import AgentRegistry, RuntimeApprovalContext, build_operation_requirement
 from soul.projection import build_soul_runtime_view
+from soul.projection_store import get_projection_card
 from understanding.candidate_layer import build_understanding_candidates
 
 from .bindings import default_task_binding, merge_task_bindings
 from .bundle_models import BundleItemSpec, BundleSpec
 from .contracts import build_task_contract
 from .definitions import select_runtime_task_definitions, select_task_definitions
+from .flow_registry import TaskFlowRegistry
 from .runtime_contracts import (
     ProjectionRequirement,
     SkillRuntimeView,
@@ -19,6 +22,7 @@ from .runtime_contracts import (
 from .spec_models import TaskSpec
 from .step_models import StepInputBinding, TaskStepBlueprint
 from .template_registry import TaskTemplateRegistry
+from .workflow_registry import TaskWorkflowRegistry
 
 
 def build_task_runtime_contract(
@@ -41,7 +45,14 @@ def build_task_runtime_contract(
         query_understanding=query_understanding,
     )
     current_turn_payload = dict(current_turn_context or {})
-    template_registry = TaskTemplateRegistry()
+    registry_base_dir = Path(__file__).resolve().parents[1]
+    template_registry = TaskTemplateRegistry(registry_base_dir)
+    flow_registry = TaskFlowRegistry(registry_base_dir)
+    workflow_registry = TaskWorkflowRegistry(registry_base_dir)
+    registered_task = _resolve_registered_task(
+        flow_registry=flow_registry,
+        current_turn_context=current_turn_payload,
+    )
     task_intent_contract = template_registry.build_task_intent_contract(
         session_id=session_id,
         task_id=task_id,
@@ -64,8 +75,16 @@ def build_task_runtime_contract(
     )
     bindings = [default_task_binding(definition) for definition in definitions]
     merged_binding = merge_task_bindings(bindings)
-    task_family = str(selected_template.task_family or "") or "+".join(_dedupe([definition.task_family for definition in definitions]))
-    task_mode = str(selected_template.task_mode or "") or "+".join(definition.task_mode for definition in definitions)
+    task_family = _resolve_task_family(
+        registered_task=registered_task,
+        selected_template=selected_template,
+        definitions=definitions,
+    )
+    task_mode = _resolve_task_mode(
+        registered_task=registered_task,
+        selected_template=selected_template,
+        definitions=definitions,
+    )
     contract = build_task_contract(
         task_id=task_id,
         session_id=session_id,
@@ -118,6 +137,7 @@ def build_task_runtime_contract(
         session_id=session_id,
         user_goal=user_goal,
         selected_template=selected_template,
+        registered_task=registered_task,
         task_intent_contract=task_intent_contract,
         template_match=template_match,
         bundle_spec=bundle_spec,
@@ -127,12 +147,32 @@ def build_task_runtime_contract(
         operation_requirement_ref=operation_requirement.requirement_id,
         active_skill=active_skill_payload,
     )
-    projection_requirement = ProjectionRequirement(
-        task_id=contract.task_id,
-        role_type=merged_binding.projection_selector,
-        posture_tags=tuple(_projection_tags(task_mode)),
-        attention_focus=("task_goal", "method", "output"),
-        reason="derived from task binding and selected definitions",
+    selected_agent_id = str(task_spec.selected_agent_id or "agent:0").strip() or "agent:0"
+    task_workflow = _resolve_task_workflow(
+        flow_registry=flow_registry,
+        workflow_registry=workflow_registry,
+        registered_task=registered_task,
+        selected_template=selected_template,
+        definitions=definitions,
+        current_turn_context=current_turn_payload,
+        task_mode=task_mode,
+    )
+    projection_card = _resolve_projection_card(
+        registry_base_dir=registry_base_dir,
+        flow_registry=flow_registry,
+        workflow_registry=workflow_registry,
+        selected_agent_id=selected_agent_id,
+        registered_task=registered_task,
+        task_workflow=task_workflow,
+        selected_template=selected_template,
+        current_turn_context=current_turn_payload,
+        task_mode=task_mode,
+    )
+    projection_requirement = _build_projection_requirement(
+        contract.task_id,
+        fallback_role_type=merged_binding.projection_selector,
+        fallback_tags=tuple(_projection_tags(task_mode)),
+        projection_card=projection_card,
     )
     task_prompt_contract = TaskPromptContract(
         contract_id=f"task-prompt:{contract.task_id}:runtime",
@@ -140,7 +180,7 @@ def build_task_runtime_contract(
         definition_id=merged_binding.definition_id,
         binding_id=merged_binding.binding_id,
         task_section=_task_section(contract.user_goal, definitions),
-        method_section=_method_section(skill_views),
+        workflow_section=_workflow_section(task_workflow, selected_template, skill_views),
         resource_section="",
         projection_section=_projection_section(projection_requirement),
         output_section=_output_section(definitions),
@@ -150,10 +190,15 @@ def build_task_runtime_contract(
             "runtime_executable": True,
             "section_sources": {
                 "task_section": "TaskContract/TaskTemplate/TaskDefinition",
-                "method_section": "SkillRuntimeView",
+                "workflow_section": "TaskWorkflowBinding/TaskTemplate/SkillRuntimeView",
                 "projection_section": "ProjectionRequirement",
                 "output_section": "TaskTemplate.output_schema + TaskDefinition.output_contract",
             },
+            "registered_task_id": registered_task["task_id"] if registered_task else "",
+            "registered_task_type": registered_task["task_type"] if registered_task else "",
+            "workflow_id": (task_workflow or {}).get("workflow_id") or "",
+            "projection_id": projection_requirement.projection_id,
+            "projection_source": "projection_card" if projection_card else "task_binding",
         },
     )
     soul_runtime = build_soul_runtime_view(
@@ -207,6 +252,7 @@ def build_task_runtime_contract(
         "current_turn_context": current_turn_payload,
         "active_skill": active_skill_payload,
         "understanding_candidates": [candidate.to_dict() for candidate in understanding_candidates],
+        "registered_task": dict(registered_task or {}),
         "runtime_executable": True,
         "status": "runtime",
     }
@@ -220,10 +266,68 @@ def _task_section(user_goal: str, definitions: list[Any]) -> str:
     return f"Goal: {user_goal}\nTask definitions: {definition_ids}\nCompletion criteria: {criteria}"
 
 
-def _method_section(skill_views: list[Any]) -> str:
-    if not skill_views:
-        return ""
-    return "\n".join(f"- {view.title}: {view.method_summary}" for view in skill_views)
+def _workflow_section(
+    workflow: dict[str, Any] | None,
+    selected_template,
+    skill_views: list[Any],
+) -> str:
+    workflow = dict(workflow or {})
+    title = str(workflow.get("title") or workflow.get("workflow_id") or selected_template.title or "未命名工作流").strip()
+    workflow_id = str(workflow.get("workflow_id") or "").strip()
+    task_mode = str(workflow.get("task_mode") or selected_template.task_mode or "").strip()
+    raw_steps = workflow.get("steps")
+    steps = raw_steps if isinstance(raw_steps, list) else []
+    step_titles = [
+        str(item.get("title") or item.get("step_id") or "").strip()
+        for item in steps
+        if isinstance(item, dict) and str(item.get("title") or item.get("step_id") or "").strip()
+    ]
+    if not step_titles:
+        step_titles = [
+            str(step.title or step.step_id or "").strip()
+            for step in list(getattr(selected_template, "step_blueprints", ()) or ())
+            if str(step.title or step.step_id or "").strip()
+        ]
+    visible_skill_ids = workflow.get("visible_skill_ids")
+    workflow_skills = [
+        str(item).strip()
+        for item in (visible_skill_ids if isinstance(visible_skill_ids, list) else [])
+        if str(item).strip()
+    ]
+    if not workflow_skills:
+        workflow_skills = [view.skill_id for view in skill_views if str(view.skill_id or "").strip()]
+    stop_conditions = [
+        str(item).strip()
+        for item in list(workflow.get("stop_conditions") or [])
+        if str(item).strip()
+    ]
+    evidence_refs = [
+        str(item).strip()
+        for item in list(workflow.get("required_evidence_refs") or [])
+        if str(item).strip()
+    ]
+    output_boundary = str(
+        workflow.get("output_boundary")
+        or workflow.get("output_contract_id")
+        or selected_template.output_schema
+        or ""
+    ).strip()
+    lines = [
+        f"Workflow: {title}",
+        f"Workflow ID: {workflow_id or 'template_runtime'}",
+        f"Task mode: {task_mode or 'runtime'}",
+    ]
+    if step_titles:
+        lines.append(f"Steps: {' -> '.join(step_titles)}")
+    if workflow_skills:
+        lines.append(f"Visible skills: {', '.join(workflow_skills)}")
+    if stop_conditions:
+        lines.append(f"Stop conditions: {'; '.join(stop_conditions)}")
+    if evidence_refs:
+        lines.append(f"Required evidence refs: {', '.join(evidence_refs)}")
+    if output_boundary:
+        lines.append(f"Output boundary: {output_boundary}")
+    return "\n".join(lines)
 
 
 def _skill_runtime_view_from_active_skill(active_skill: dict[str, Any]) -> SkillRuntimeView | None:
@@ -265,9 +369,54 @@ def _resource_section(resource_views: list[Any]) -> str:
 
 
 def _projection_section(requirement: ProjectionRequirement) -> str:
-    return (
-        f"Projection role: {requirement.role_type}. "
-        f"Posture tags: {', '.join(requirement.posture_tags) or 'none'}."
+    lines = [
+        f"Projection role: {requirement.role_type}.",
+        f"Posture tags: {', '.join(requirement.posture_tags) or 'none'}.",
+    ]
+    if requirement.projection_id:
+        lines.append(f"Projection ID: {requirement.projection_id}.")
+    if requirement.soul_id:
+        lines.append(f"Soul: {requirement.soul_id}.")
+    if requirement.projection_title:
+        lines.append(f"Projection title: {requirement.projection_title}.")
+    if requirement.expression_density:
+        lines.append(f"Expression density: {requirement.expression_density}.")
+    if requirement.attention_focus:
+        lines.append(f"Attention focus: {', '.join(requirement.attention_focus)}.")
+    if requirement.projection_prompt:
+        lines.append("Projection prompt:")
+        lines.append(requirement.projection_prompt)
+    return "\n".join(lines)
+
+
+def _build_projection_requirement(
+    task_id: str,
+    *,
+    fallback_role_type: str,
+    fallback_tags: tuple[str, ...],
+    projection_card: dict[str, Any] | None,
+) -> ProjectionRequirement:
+    if projection_card:
+        posture_tags = tuple(str(item) for item in list(projection_card.get("posture_tags") or []) if str(item))
+        attention_focus = tuple(str(item) for item in list(projection_card.get("attention_focus") or []) if str(item))
+        return ProjectionRequirement(
+            task_id=task_id,
+            role_type=str(projection_card.get("role_type") or fallback_role_type or "runtime"),
+            posture_tags=posture_tags or fallback_tags,
+            expression_density=str(projection_card.get("expression_density") or "normal"),
+            attention_focus=attention_focus or ("task_goal", "workflow", "output"),
+            projection_id=str(projection_card.get("projection_id") or ""),
+            soul_id=str(projection_card.get("soul_id") or ""),
+            projection_title=str(projection_card.get("title") or ""),
+            projection_prompt=str(projection_card.get("projection_prompt") or ""),
+            reason="selected by task projection assignment",
+        )
+    return ProjectionRequirement(
+        task_id=task_id,
+        role_type=fallback_role_type,
+        posture_tags=fallback_tags,
+        attention_focus=("task_goal", "workflow", "output"),
+        reason="derived from task binding and selected definitions",
     )
 
 
@@ -297,6 +446,127 @@ def _projection_tags(task_mode: str) -> list[str]:
     return ["concise"]
 
 
+def _resolve_task_workflow(
+    *,
+    flow_registry: TaskFlowRegistry,
+    workflow_registry: TaskWorkflowRegistry,
+    registered_task: dict[str, Any] | None,
+    selected_template,
+    definitions: list[Any],
+    current_turn_context: dict[str, Any],
+    task_mode: str,
+) -> dict[str, Any] | None:
+    if registered_task:
+        registered_workflow_id = str(registered_task.get("workflow_id") or "").strip()
+        if registered_workflow_id:
+            workflow = workflow_registry.get_workflow(registered_workflow_id)
+            if workflow is not None:
+                return workflow.to_dict()
+
+    explicit_workflow_id = str(
+        current_turn_context.get("workflow_id")
+        or current_turn_context.get("task_workflow_id")
+        or ""
+    ).strip()
+    if explicit_workflow_id:
+        workflow = workflow_registry.get_workflow(explicit_workflow_id)
+        if workflow is not None:
+            return workflow.to_dict()
+
+    linked_flow_id = str(getattr(selected_template, "metadata", {}).get("linked_flow_id") or "").strip()
+    if linked_flow_id:
+        flow = flow_registry.get_flow(linked_flow_id)
+        if flow is not None and flow.default_workflow_id:
+            workflow = workflow_registry.get_workflow(flow.default_workflow_id)
+            if workflow is not None:
+                return workflow.to_dict()
+
+    for definition in definitions:
+        definition_mode = str(getattr(definition, "task_mode", "") or "").strip()
+        matched_flow = next(
+            (flow for flow in flow_registry.list_flows() if flow.task_mode == definition_mode and flow.default_workflow_id),
+            None,
+        )
+        if matched_flow is not None:
+            workflow = workflow_registry.get_workflow(matched_flow.default_workflow_id)
+            if workflow is not None:
+                return workflow.to_dict()
+
+    matched_flow = next(
+        (flow for flow in flow_registry.list_flows() if flow.task_mode == task_mode and flow.default_workflow_id),
+        None,
+    )
+    if matched_flow is not None:
+        workflow = workflow_registry.get_workflow(matched_flow.default_workflow_id)
+        if workflow is not None:
+            return workflow.to_dict()
+    return None
+
+
+def _resolve_projection_card(
+    *,
+    registry_base_dir: Path,
+    flow_registry: TaskFlowRegistry,
+    workflow_registry: TaskWorkflowRegistry,
+    selected_agent_id: str,
+    registered_task: dict[str, Any] | None,
+    task_workflow: dict[str, Any] | None,
+    selected_template,
+    current_turn_context: dict[str, Any],
+    task_mode: str,
+) -> dict[str, Any] | None:
+    if registered_task:
+        registered_projection_id = str(registered_task.get("projection_id") or "").strip()
+        if registered_projection_id:
+            card = get_projection_card(registry_base_dir, registered_projection_id)
+            if card is not None:
+                return card
+
+    explicit_projection_id = str(
+        current_turn_context.get("projection_id")
+        or current_turn_context.get("projection_card_id")
+        or current_turn_context.get("selected_projection_id")
+        or ""
+    ).strip()
+    if explicit_projection_id:
+        card = get_projection_card(registry_base_dir, explicit_projection_id)
+        if card is not None:
+            return card
+
+    linked_flow_id = str(getattr(selected_template, "metadata", {}).get("linked_flow_id") or "").strip()
+    if linked_flow_id:
+        flow = flow_registry.get_flow(linked_flow_id)
+        if flow is not None and flow.default_projection_id:
+            card = get_projection_card(registry_base_dir, flow.default_projection_id)
+            if card is not None:
+                return card
+
+    workflow_projection_id = str((task_workflow or {}).get("default_projection_id") or "").strip()
+    if workflow_projection_id:
+        card = get_projection_card(registry_base_dir, workflow_projection_id)
+        if card is not None:
+            return card
+
+    agent_projection_id = _resolve_agent_default_projection_id(
+        registry_base_dir=registry_base_dir,
+        agent_id=selected_agent_id,
+    )
+    if agent_projection_id:
+        card = get_projection_card(registry_base_dir, agent_projection_id)
+        if card is not None:
+            return card
+
+    matched_flow = next(
+        (flow for flow in flow_registry.list_flows() if flow.task_mode == task_mode and flow.default_projection_id),
+        None,
+    )
+    if matched_flow is not None:
+        card = get_projection_card(registry_base_dir, matched_flow.default_projection_id)
+        if card is not None:
+            return card
+    return None
+
+
 def _dedupe(values: list[str]) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -322,6 +592,7 @@ def _build_task_spec(
     session_id: str,
     user_goal: str,
     selected_template,
+    registered_task: dict[str, Any] | None,
     task_intent_contract,
     template_match,
     bundle_spec,
@@ -386,9 +657,121 @@ def _build_task_spec(
         bundle_item_ref=_single_bundle_item_ref(bundle_spec),
         requested_outputs=requested_outputs,
         step_input_bindings=step_input_bindings,
-        selected_agent_id=str(selected_template.default_agent_id or "agent:main"),
+        selected_agent_id=_resolve_selected_agent_id(
+            registered_task=registered_task,
+            current_turn_context=current_turn_context,
+            selected_template=selected_template,
+        ),
         selected_skill_ids=tuple(selected_skill_ids),
         operation_requirement_ref=operation_requirement_ref,
+    )
+
+
+def _resolve_registered_task(
+    *,
+    flow_registry: TaskFlowRegistry,
+    current_turn_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    specific_task_id = str(
+        current_turn_context.get("selected_task_id")
+        or current_turn_context.get("specific_task_id")
+        or current_turn_context.get("task_assignment_id")
+        or ""
+    ).strip()
+    if specific_task_id:
+        assignment = flow_registry.get_task_assignment(specific_task_id)
+        if assignment is not None:
+            return {
+                "task_type": "specific_task",
+                "task_id": assignment.task_id,
+                "task_title": assignment.task_title,
+                "task_family": assignment.task_family,
+                "task_mode": assignment.task_mode,
+                "default_agent_id": assignment.default_agent_id,
+                "workflow_id": assignment.workflow_id,
+                "projection_id": assignment.projection_id,
+                "input_contract_id": assignment.input_contract_id,
+                "output_contract_id": assignment.output_contract_id,
+                "metadata": dict(assignment.metadata or {}),
+            }
+    default_general_profile = next(
+        (profile for profile in flow_registry.list_general_task_profiles() if profile.enabled),
+        None,
+    )
+    if default_general_profile is None:
+        return None
+    return {
+        "task_type": "general_task",
+        "task_id": default_general_profile.profile_id,
+        "task_title": default_general_profile.title,
+        "task_family": "general",
+        "task_mode": "general_task",
+        "default_agent_id": default_general_profile.default_agent_id,
+        "workflow_id": default_general_profile.default_workflow_id,
+        "projection_id": default_general_profile.default_projection_id,
+        "input_contract_id": default_general_profile.input_contract_id,
+        "output_contract_id": default_general_profile.output_contract_id,
+        "metadata": dict(default_general_profile.metadata or {}),
+    }
+
+
+def _resolve_selected_agent_id(
+    *,
+    registered_task: dict[str, Any] | None,
+    current_turn_context: dict[str, Any],
+    selected_template,
+) -> str:
+    explicit_agent_id = str(
+        current_turn_context.get("selected_agent_id")
+        or current_turn_context.get("agent_id")
+        or ""
+    ).strip()
+    if explicit_agent_id:
+        return explicit_agent_id
+    registered_agent_id = str((registered_task or {}).get("default_agent_id") or "").strip()
+    if registered_agent_id:
+        return registered_agent_id
+    return str(selected_template.default_agent_id or "agent:0")
+
+
+def _resolve_agent_default_projection_id(
+    *,
+    registry_base_dir: Path,
+    agent_id: str,
+) -> str:
+    if str(agent_id or "").strip() == "agent:0":
+        return ""
+    agent = AgentRegistry(registry_base_dir).get_agent(agent_id)
+    if agent is None:
+        return ""
+    return str(agent.default_projection_id or "").strip()
+
+
+def _resolve_task_family(
+    *,
+    registered_task: dict[str, Any] | None,
+    selected_template,
+    definitions: list[Any],
+) -> str:
+    registered_family = str((registered_task or {}).get("task_family") or "").strip()
+    if registered_family:
+        return registered_family
+    return str(selected_template.task_family or "") or "+".join(
+        _dedupe([definition.task_family for definition in definitions])
+    )
+
+
+def _resolve_task_mode(
+    *,
+    registered_task: dict[str, Any] | None,
+    selected_template,
+    definitions: list[Any],
+) -> str:
+    registered_mode = str((registered_task or {}).get("task_mode") or "").strip()
+    if registered_mode:
+        return registered_mode
+    return str(selected_template.task_mode or "") or "+".join(
+        definition.task_mode for definition in definitions
     )
 
 

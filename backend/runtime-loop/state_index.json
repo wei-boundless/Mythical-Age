@@ -39149,6 +39149,117 @@
         "final_content_chars": 65
       },
       "authority": "orchestration.task_run"
+    },
+    "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:1:03c61ab5": {
+      "task_run_id": "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:1:03c61ab5",
+      "session_id": "2d6cf9acb7004567a3c21716f61d00ca",
+      "task_id": "turn:2d6cf9acb7004567a3c21716f61d00ca:1",
+      "task_contract_ref": "turn:2d6cf9acb7004567a3c21716f61d00ca:1",
+      "owner_agent_seat_id": "main",
+      "agent_id": "agent:0",
+      "agent_profile_id": "main_interactive_agent",
+      "runtime_lane": "full_interactive",
+      "status": "completed",
+      "created_at": 1777781983.209982,
+      "updated_at": 1777781988.7627647,
+      "latest_event_offset": 25,
+      "latest_checkpoint_ref": "rtchk:taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:1:03c61ab5:24",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "runtime_lane": "full_interactive",
+        "task_agent_binding_ref": "",
+        "skill_workflow_ref": "",
+        "health_issue_ref": "",
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 300.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "runtime_channel": "single_agent_runtime",
+        "final_content_chars": 66
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:3:fcc79cf3": {
+      "task_run_id": "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:3:fcc79cf3",
+      "session_id": "2d6cf9acb7004567a3c21716f61d00ca",
+      "task_id": "turn:2d6cf9acb7004567a3c21716f61d00ca:3",
+      "task_contract_ref": "turn:2d6cf9acb7004567a3c21716f61d00ca:3",
+      "owner_agent_seat_id": "main",
+      "agent_id": "agent:0",
+      "agent_profile_id": "main_interactive_agent",
+      "runtime_lane": "full_interactive",
+      "status": "completed",
+      "created_at": 1777782001.352981,
+      "updated_at": 1777782010.6140678,
+      "latest_event_offset": 25,
+      "latest_checkpoint_ref": "rtchk:taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:3:fcc79cf3:24",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "runtime_lane": "full_interactive",
+        "task_agent_binding_ref": "",
+        "skill_workflow_ref": "",
+        "health_issue_ref": "",
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 300.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "runtime_channel": "single_agent_runtime",
+        "final_content_chars": 58
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:5:82caab39": {
+      "task_run_id": "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:5:82caab39",
+      "session_id": "2d6cf9acb7004567a3c21716f61d00ca",
+      "task_id": "turn:2d6cf9acb7004567a3c21716f61d00ca:5",
+      "task_contract_ref": "turn:2d6cf9acb7004567a3c21716f61d00ca:5",
+      "owner_agent_seat_id": "main",
+      "agent_id": "agent:0",
+      "agent_profile_id": "main_interactive_agent",
+      "runtime_lane": "full_interactive",
+      "status": "completed",
+      "created_at": 1777782032.2364302,
+      "updated_at": 1777782041.6092074,
+      "latest_event_offset": 25,
+      "latest_checkpoint_ref": "rtchk:taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:5:82caab39:24",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "runtime_lane": "full_interactive",
+        "task_agent_binding_ref": "",
+        "skill_workflow_ref": "",
+        "health_issue_ref": "",
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 300.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "runtime_channel": "single_agent_runtime",
+        "final_content_chars": 58
+      },
+      "authority": "orchestration.task_run"
     }
   },
   "sessions": {
@@ -40489,7 +40600,12 @@
       "taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:11:5dfa5306",
       "taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:13:803315d2",
       "taskrun:21340dfa092a445eaddb94388f94db2a:turn:21340dfa092a445eaddb94388f94db2a:15:54788e3c"
+    ],
+    "2d6cf9acb7004567a3c21716f61d00ca": [
+      "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:1:03c61ab5",
+      "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:3:fcc79cf3",
+      "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:5:82caab39"
     ]
   },
-  "updated_at": 1777751910.4217153
+  "updated_at": 1777782041.6497998
 }

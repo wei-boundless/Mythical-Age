@@ -8,8 +8,8 @@ from typing import Any
 
 from execution import ModelResponseRuntimeExecutor, ToolRuntimeExecutor
 from observability import build_debug_trace_event, start_turn_trace
-from operations import AgentRegistry
 from orchestration import (
+    AgentRuntimeRegistry,
     RuntimeContextManager,
     TaskRunLoop,
     build_base_unit_catalog,
@@ -63,7 +63,7 @@ class QueryRuntime:
             tool_definition_resolver=self._get_tool_definition,
         )
         self.tool_runtime_executor = ToolRuntimeExecutor(tool_runtime=tool_runtime) if tool_runtime is not None else None
-        self.agent_registry = AgentRegistry(base_dir)
+        self.agent_runtime_registry = AgentRuntimeRegistry(base_dir)
         self.agent_runtime_chain = AgentRuntimeChainAssembler(
             memory_facade=memory_facade,
             skill_registry=skill_registry,
@@ -156,13 +156,14 @@ class QueryRuntime:
                     model_response_executor=self.model_response_executor,
                     runtime_context_manager=self.runtime_context_manager,
                     memory_intent=memory_intent,
+                    task_selection=dict(request.task_selection or {}),
                     assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
                         request.session_id,
                         payload,
                     ),
                     tool_runtime_executor=self.tool_runtime_executor,
                     tool_instances=self._all_tool_instances(),
-                    agent_capability_profile=self.agent_registry.get_capability_profile("agent:main"),
+                    agent_runtime_profile=self.agent_runtime_registry.get_profile("agent:0"),
                 ):
                     yield event
         except Exception as exc:

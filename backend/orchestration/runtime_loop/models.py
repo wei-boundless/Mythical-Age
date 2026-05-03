@@ -50,7 +50,7 @@ class TaskRun:
     task_id: str
     task_contract_ref: str = ""
     owner_agent_seat_id: str = "main"
-    agent_id: str = "agent:main"
+    agent_id: str = "agent:0"
     agent_profile_id: str = "main_interactive_agent"
     runtime_lane: str = "full_interactive"
     status: TaskRunStatus = "created"
@@ -85,7 +85,7 @@ class RuntimeLoopState:
     turn_count: int = 0
     step_count: int = 0
     current_step_id: str = ""
-    agent_id: str = "agent:main"
+    agent_id: str = "agent:0"
     agent_profile_id: str = "main_interactive_agent"
     runtime_lane: str = "full_interactive"
     task_agent_binding_ref: str = ""

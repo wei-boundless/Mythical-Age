@@ -70,7 +70,7 @@ def test_agent_runtime_chain_injects_active_skill_and_runtime_operations() -> No
     assert understanding["tool_name"] == "web_search"
     assert "op.web_search" in list(operation_requirement.get("required_operations") or [])
     assert "OpenAI API 最新更新" in str(task_prompt_contract.get("task_section") or "")
-    assert "联网搜索" in str(task_prompt_contract.get("method_section") or "")
+    assert "联网搜索" in str(task_prompt_contract.get("workflow_section") or "")
 
 
 def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:

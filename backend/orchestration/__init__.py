@@ -10,6 +10,8 @@ from .contracts import ControlKernelCandidateContext, PolicyHint, TaskContract, 
 from .execution_graph import CommitCandidate, ExecutionGraph, ExecutionNode
 from .kernel import ControlKernel, ControlKernelResult
 from .monitor import summarize_runtime_loop_events, summarize_runtime_loop_trace
+from .agent_runtime_models import AgentRuntimeProfile
+from .agent_runtime_registry import AgentRuntimeRegistry, default_agent_runtime_profiles
 from .runtime_directive import RuntimeDirective
 from .runtime_loop import (
     RuntimeActionRequest,
@@ -63,6 +65,8 @@ __all__ = [
     "ExecutionNode",
     "PolicyHint",
     "RuntimeDirective",
+    "AgentRuntimeProfile",
+    "AgentRuntimeRegistry",
     "RuntimeCommitGateDecision",
     "RuntimeActionRequest",
     "RuntimeActionRequestType",
@@ -99,6 +103,7 @@ __all__ = [
     "build_task_run_final_commit_decision",
     "build_user_message_commit_decision",
     "build_base_unit_catalog",
+    "default_agent_runtime_profiles",
     "build_executor_error_observation",
     "build_execution_receipt",
     "build_idempotency_token",

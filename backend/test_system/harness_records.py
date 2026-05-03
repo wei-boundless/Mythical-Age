@@ -430,7 +430,7 @@ DEFAULT_CASE_TEMPLATES: tuple[TestCaseTemplate, ...] = (
         tags=("operation_gate", "resource_policy", "permission"),
         description="用于验证 Agent、任务流、工具和记忆范围没有越权。",
         pass_criteria=(
-            "ResourcePolicy 与 AgentCapabilityProfile 必须一致。",
+            "ResourcePolicy 与 AgentRuntimeProfile 必须一致。",
             "blocked operation 必须 fail-closed，并留下可读拒绝原因。",
         ),
     ),

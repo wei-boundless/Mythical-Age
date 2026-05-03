@@ -43,7 +43,7 @@ def test_local_read_summary_runtime_contract_does_not_default_to_web_search() ->
     assert {"op.read_file", "op.search_files", "op.search_text"} <= operations
     assert "op.web_search" not in operations
     assert runtime["selected_template"]["template_id"] == "template.dev.workspace_patch"
-    assert runtime["task_spec"]["selected_agent_id"] == "agent:main"
+    assert runtime["task_spec"]["selected_agent_id"] == "agent:0"
 
 
 def test_visible_prompt_feedback_stays_current_context_only_without_local_read_tools() -> None:

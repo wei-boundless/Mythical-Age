@@ -87,12 +87,12 @@ class SoulProjectionCardRequest(BaseModel):
     expression_density: str = "normal"
     attention_focus: list[str] = Field(default_factory=list)
     risk_notes: list[str] = Field(default_factory=list)
+    projection_prompt: str = ""
     skill_views: list[SoulSkillViewPayload] = Field(default_factory=list)
     tool_views: list[SoulToolViewPayload] = Field(default_factory=list)
-    task_contract_summary: str = "当前投影没有绑定具体任务契约。"
+    usage_summary: str = "可被任务系统选用的灵魂投影资源。"
     memory_policy_summary: str = "预览模式不授予记忆写回权。"
     output_contract_summary: str = "预览当前灵魂如何收束 prompt sections。"
-    style_content: str = ""
     select_after_create: bool = True
 
 
@@ -146,17 +146,6 @@ def _projection_profiles(registry: SoulRegistry) -> list[dict[str, Any]]:
     return [profile.to_dict() for profile in registry.profiles().values()]
 
 
-def _visible_soul_style(content: str) -> str:
-    return HIDDEN_STYLE_SECTION_PATTERN.sub("", content).lstrip()
-
-
-def _projection_style_map(registry: SoulRegistry) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for soul_id, profile in registry.profiles().items():
-        result[soul_id] = _visible_soul_style(read_text(registry.base_dir / profile.seed_path))
-    return result
-
-
 @router.get("/soul/catalog")
 async def soul_catalog() -> dict[str, Any]:
     runtime = require_runtime()
@@ -196,7 +185,6 @@ async def soul_projection_cards() -> dict[str, Any]:
         runtime.base_dir,
         soul_profiles=_projection_profiles(registry),
         active_soul_id=registry.active_soul_id(),
-        soul_style_map=_projection_style_map(registry),
     )
 
 
@@ -243,8 +231,6 @@ async def create_soul_projection_card(payload: SoulProjectionCardRequest) -> dic
     request_payload = payload.model_dump()
     request_payload["soul_id"] = request_payload["soul_id"].strip().lower()
     request_payload["projection_id"] = request_payload.get("projection_id", "").strip()
-    if not request_payload.get("style_content"):
-        request_payload["style_content"] = _projection_style_map(registry).get(request_payload["soul_id"], "")
     store = upsert_projection_card(
         runtime.base_dir,
         request=request_payload,
@@ -256,7 +242,6 @@ async def create_soul_projection_card(payload: SoulProjectionCardRequest) -> dic
         store=store,
         soul_profiles=_projection_profiles(registry),
         active_soul_id=registry.active_soul_id(),
-        soul_style_map=_projection_style_map(registry),
         persist=True,
     )
 
@@ -272,7 +257,6 @@ async def select_soul_projection(projection_id: str) -> dict[str, Any]:
             store=store,
             soul_profiles=_projection_profiles(registry),
             active_soul_id=registry.active_soul_id(),
-            soul_style_map=_projection_style_map(registry),
             persist=True,
         )
     except KeyError as exc:
@@ -290,7 +274,6 @@ async def delete_soul_projection(projection_id: str) -> dict[str, Any]:
             store=store,
             soul_profiles=_projection_profiles(registry),
             active_soul_id=registry.active_soul_id(),
-            soul_style_map=_projection_style_map(registry),
             persist=True,
         )
     except KeyError as exc:

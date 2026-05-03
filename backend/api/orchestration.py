@@ -7,7 +7,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
+from operations import build_default_operation_registry
+from orchestration import AgentRuntimeRegistry, ControlKernel, TaskContract, build_base_unit_catalog
+from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
 router = APIRouter()
 
@@ -21,6 +23,21 @@ class BehaviorDryRunRequest(BaseModel):
 
 class OrchestrationModeRequest(BaseModel):
     mode: str = Field(default="primary")
+
+
+class AgentRuntimeProfileRequest(BaseModel):
+    agent_profile_id: str = Field(default="", max_length=160)
+    allowed_task_modes: list[str] = Field(default_factory=list)
+    allowed_runtime_lanes: list[str] = Field(default_factory=list)
+    allowed_operations: list[str] = Field(default_factory=list)
+    blocked_operations: list[str] = Field(default_factory=list)
+    allowed_memory_scopes: list[str] = Field(default_factory=list)
+    allowed_context_sections: list[str] = Field(default_factory=list)
+    output_contracts: list[str] = Field(default_factory=list)
+    approval_policy: str = Field(default="default", max_length=80)
+    trace_policy: str = Field(default="runtime_event_log", max_length=120)
+    lifecycle_policy: str = Field(default="orchestration_managed", max_length=120)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/orchestration/dry-run")
@@ -77,6 +94,73 @@ async def orchestration_catalog() -> dict[str, Any]:
         "skills": skills,
         "tools": tools,
     }
+
+
+@router.get("/orchestration/agents")
+async def orchestration_agents() -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = AgentRuntimeRegistry(runtime.base_dir)
+    catalog = registry.build_catalog()
+    task_registry = TaskFlowRegistry(runtime.base_dir)
+    operations = build_default_operation_registry().list_operations()
+    workflows = TaskWorkflowRegistry(runtime.base_dir).list_workflows()
+    return {
+        **catalog,
+        "options": {
+            "operations": [item.to_dict() for item in operations],
+            "task_modes": sorted({item.task_mode for item in task_registry.list_flows() if item.task_mode}),
+            "runtime_lanes": sorted({item.default_runtime_lane for item in task_registry.list_flows() if item.default_runtime_lane}),
+            "memory_scopes": sorted({item.default_memory_scope for item in task_registry.list_flows() if item.default_memory_scope}),
+            "context_sections": [
+                "conversation",
+                "state",
+                "task",
+                "projection",
+                "tool",
+                "health_issue",
+                "runtime_trace",
+                "prompt_manifest",
+                "memory_runtime_view",
+                "assertions",
+            ],
+            "output_contracts": sorted(
+                {
+                    *[item.output_contract_id for item in task_registry.list_flows() if item.output_contract_id],
+                    *[item.output_contract_id for item in workflows if item.output_contract_id],
+                    "AssistantFinalAnswer",
+                }
+            ),
+            "approval_policies": ["default", "read_only_first", "manual_approval_required", "deny_destructive"],
+            "trace_policies": ["runtime_event_log", "full_trace", "minimal_trace"],
+        },
+    }
+
+
+@router.put("/orchestration/agents/{agent_id}/runtime-profile")
+async def upsert_orchestration_agent_runtime_profile(
+    agent_id: str,
+    payload: AgentRuntimeProfileRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        AgentRuntimeRegistry(runtime.base_dir).upsert_profile(
+            agent_id=agent_id,
+            agent_profile_id=payload.agent_profile_id,
+            allowed_task_modes=tuple(payload.allowed_task_modes),
+            allowed_runtime_lanes=tuple(payload.allowed_runtime_lanes),
+            allowed_operations=tuple(payload.allowed_operations),
+            blocked_operations=tuple(payload.blocked_operations),
+            allowed_memory_scopes=tuple(payload.allowed_memory_scopes),
+            allowed_context_sections=tuple(payload.allowed_context_sections),
+            output_contracts=tuple(payload.output_contracts),
+            approval_policy=payload.approval_policy,
+            trace_policy=payload.trace_policy,
+            lifecycle_policy=payload.lifecycle_policy,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await orchestration_agents()
 
 
 @router.post("/orchestration/catalog/refresh")

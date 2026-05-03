@@ -5,10 +5,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .agent_models import AgentCapabilityProfile, AgentDescriptor
+from .agent_models import AgentDescriptor
+from soul.projection_store import get_projection_card
 
 
-AGENT_PROFILE_TYPES = {"main_agent", "system_management_agent", "worker_sub_agent"}
+AGENT_CATEGORIES = {"main_agent", "system_management_agent", "worker_sub_agent"}
 
 
 def _storage_root(base_dir: Path) -> Path:
@@ -34,109 +35,100 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
     timestamp = time.time() if now is None else now
     return (
         AgentDescriptor(
-            agent_id="agent:main",
-            display_name="主 Agent",
-            owner_system="task_system",
-            profile_type="main_agent",
-            lifecycle_state="system_builtin",
-            default_soul_id="active",
-            default_projection_template_id="primary_agent_default",
+            agent_id="agent:0",
+            agent_name="0号主Agent",
+            agent_category="main_agent",
+            interface_target="main_conversation",
+            description="系统主会话入口，承接通用任务并负责最终整合输出。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="",
+            default_projection_id="",
+            task_scope=("general_task", "final_integration"),
             created_at=timestamp,
             updated_at=timestamp,
-            governance_status="system_builtin",
-            deletable="never",
-            disable_allowed=False,
-            metadata={"role": "task_dispatch_and_final_integration"},
+            metadata={"role": "main_conversation_entry", "system_key": "task_system", "slot_index": 0},
         ),
         AgentDescriptor(
-            agent_id="agent:health:maintainer",
-            display_name="玄女健康管家",
-            owner_system="health_system",
-            profile_type="system_management_agent",
-            lifecycle_state="enabled",
-            default_soul_id="xuannv",
-            default_projection_template_id="xuannv__health_maintainer",
+            agent_id="agent:1",
+            agent_name="1号权限管理Agent",
+            agent_category="system_management_agent",
+            interface_target="permission_system_window",
+            description="对接权限系统会话窗口，负责权限系统相关管理任务。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="siyue",
+            default_projection_id="siyue__primary",
+            task_scope=("permission_management",),
             created_at=timestamp,
             updated_at=timestamp,
-            governance_status="operation_managed",
-            deletable="archive_only",
-            disable_allowed=True,
-            metadata={"role": "system_health_maintenance"},
+            metadata={"role": "system_manager", "system_key": "permission_system", "slot_index": 1},
         ),
-    )
-
-
-def default_agent_capabilities() -> tuple[AgentCapabilityProfile, ...]:
-    return (
-        AgentCapabilityProfile(
-            agent_profile_id="main_interactive_agent",
-            agent_id="agent:main",
-            allowed_task_modes=("request_intake", "task_dispatch", "final_response", "general_qa"),
-            allowed_runtime_lanes=("full_interactive", "task_dispatch", "final_integration"),
-            allowed_operations=(
-                "op.model_response",
-                "op.read_file",
-                "op.search_files",
-                "op.search_text",
-                "op.web_search",
-                "op.fetch_url",
-                "op.get_weather",
-                "op.get_gold_price",
-                "op.search_knowledge",
-                "op.pdf_analysis",
-                "op.structured_data_analysis",
-                "op.analyze_multimodal_file",
-                "op.index_multimodal_file",
-                "op.write_file",
-                "op.edit_file",
-            ),
-            blocked_operations=("op.shell", "op.python_repl", "op.memory_write_candidate"),
-            allowed_skill_workflows=("workflow.main.dispatch",),
-            allowed_projection_templates=("primary_agent_default",),
-            allowed_memory_scopes=("conversation_read_write", "state_read_write", "long_term_candidate"),
-            allowed_context_sections=("conversation", "state", "task", "projection", "tool"),
-            output_contracts=("AssistantFinalAnswer",),
-            lifecycle_policy="system_builtin",
+        AgentDescriptor(
+            agent_id="agent:2",
+            agent_name="2号记忆管理Agent",
+            agent_category="system_management_agent",
+            interface_target="memory_system_window",
+            description="对接记忆系统会话窗口，负责记忆系统相关管理任务。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="hebo",
+            default_projection_id="hebo__primary",
+            task_scope=("memory_management",),
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "system_manager", "system_key": "memory_system", "slot_index": 2},
         ),
-        AgentCapabilityProfile(
-            agent_profile_id="health_maintainer_agent",
-            agent_id="agent:health:maintainer",
-            allowed_task_modes=("issue_triage", "trace_analysis", "case_draft", "fix_verification"),
-            allowed_runtime_lanes=(
-                "health_issue_read",
-                "health_trace_read",
-                "prompt_trace_read",
-                "memory_trace_read",
-                "runtime_trace_read",
-                "assertion_trace_read",
-                "case_draft_candidate",
-                "fix_verification_candidate",
-            ),
-            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.memory_read"),
-            blocked_operations=(
-                "op.write_file",
-                "op.edit_file",
-                "op.shell",
-                "op.python_repl",
-                "op.memory_write_candidate",
-                "op.agent_bounded",
-            ),
-            allowed_skill_workflows=(
-                "workflow.health.issue_triage",
-                "workflow.health.trace_analysis",
-                "workflow.health.case_draft",
-                "workflow.health.fix_verification",
-            ),
-            allowed_projection_templates=("xuannv__health_maintainer",),
-            allowed_memory_scopes=("issue_local_readonly", "health_trace_readonly"),
-            allowed_context_sections=("health_issue", "runtime_trace", "prompt_manifest", "memory_runtime_view", "assertions"),
-            output_contracts=(
-                "HealthTriageResult",
-                "HealthTraceAnalysis",
-                "HealthCaseDraftProposal",
-                "HealthFixVerificationProposal",
-            ),
-            approval_policy="read_only_first",
+        AgentDescriptor(
+            agent_id="agent:3",
+            agent_name="3号健康管理Agent",
+            agent_category="system_management_agent",
+            interface_target="health_system_window",
+            description="对接健康系统会话窗口，负责健康维护和健康分析类任务。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="xuannv",
+            default_projection_id="xuannv__primary",
+            task_scope=("health_management", "health_issue_triage"),
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "system_manager", "system_key": "health_system", "slot_index": 3},
+        ),
+        AgentDescriptor(
+            agent_id="agent:4",
+            agent_name="4号操作管理Agent",
+            agent_category="system_management_agent",
+            interface_target="operation_system_window",
+            description="对接操作系统会话窗口，负责工具、skills 与执行能力相关管理任务。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="zhurong",
+            default_projection_id="zhurong__primary",
+            task_scope=("operation_management", "execution_management"),
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "system_manager", "system_key": "operation_system", "slot_index": 4},
+        ),
+        AgentDescriptor(
+            agent_id="agent:5",
+            agent_name="5号灵魂管理Agent",
+            agent_category="system_management_agent",
+            interface_target="soul_system_window",
+            description="对接灵魂系统会话窗口，负责人格设定、上下文组织风格与投影相关任务。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="goumang",
+            default_projection_id="goumang__primary",
+            task_scope=("soul_management", "projection_management"),
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "system_manager", "system_key": "soul_system", "slot_index": 5},
         ),
     )
 
@@ -146,7 +138,6 @@ class AgentRegistry:
         self.base_dir = Path(base_dir)
         self.root = _storage_root(self.base_dir)
         self.agents_path = self.root / "agents.json"
-        self.capabilities_path = self.root / "agent_capabilities.json"
 
     def list_agents(self) -> list[AgentDescriptor]:
         payload = _read_json(self.agents_path, {"agents": [item.to_dict() for item in default_agent_descriptors()]})
@@ -156,31 +147,39 @@ class AgentRegistry:
             _write_json(self.agents_path, {"agents": migrated})
         return [_agent_from_dict(item) for item in migrated]
 
-    def list_capabilities(self) -> list[AgentCapabilityProfile]:
-        payload = _read_json(
-            self.capabilities_path,
-            {"capabilities": [item.to_dict() for item in default_agent_capabilities()]},
-        )
-        return [_capability_from_dict(item) for item in list(payload.get("capabilities") or []) if isinstance(item, dict)]
-
     def get_agent(self, agent_id: str) -> AgentDescriptor | None:
         target = str(agent_id or "").strip()
-        return next((item for item in self.list_agents() if item.agent_id == target), None)
+        aliases = {target}
+        if target == "agent:main":
+            aliases.add("agent:0")
+        if target == "agent:health:maintainer":
+            aliases.add("agent:3")
+        return next((item for item in self.list_agents() if item.agent_id in aliases), None)
 
-    def get_capability_profile(self, agent_id: str) -> AgentCapabilityProfile | None:
-        target = str(agent_id or "").strip()
-        return next((item for item in self.list_capabilities() if item.agent_id == target), None)
+    def next_worker_agent_id(self) -> str:
+        occupied_numbers: set[int] = set()
+        for agent in self.list_agents():
+            raw = str(agent.agent_id or "").strip()
+            if not raw.startswith("agent:"):
+                continue
+            suffix = raw.split(":", 1)[1]
+            if suffix.isdigit():
+                occupied_numbers.add(int(suffix))
+        candidate = 6
+        while candidate in occupied_numbers:
+            candidate += 1
+        return f"agent:{candidate}"
 
     def set_agent_enabled(self, agent_id: str, enabled: bool) -> AgentDescriptor:
         current = self.get_agent(agent_id)
         if current is None:
             raise KeyError(agent_id)
-        if current.lifecycle_state == "system_builtin" and not enabled:
+        if current.builtin and not enabled:
             raise PermissionError("system builtin agent cannot be disabled")
         updated = AgentDescriptor(
             **{
-                **current.to_dict(),
-                "lifecycle_state": "enabled" if enabled else "disabled",
+                **current.__dict__,
+                "enabled": bool(enabled),
                 "updated_at": time.time(),
             }
         )
@@ -192,125 +191,166 @@ class AgentRegistry:
         self,
         *,
         agent_id: str,
-        display_name: str,
-        owner_system: str,
-        profile_type: str = "worker_sub_agent",
-        lifecycle_state: str = "enabled",
+        agent_name: str | None = None,
+        display_name: str | None = None,
+        agent_category: str | None = None,
+        profile_type: str | None = None,
+        interface_target: str = "",
+        description: str = "",
+        enabled: bool | None = None,
+        lifecycle_state: str | None = None,
+        editable: bool | None = None,
         default_soul_id: str = "",
-        default_projection_template_id: str = "",
-        governance_status: str = "task_managed",
+        default_projection_id: str = "",
+        task_scope: tuple[str, ...] | list[str] | None = None,
         metadata: dict[str, Any] | None = None,
+        owner_system: str | None = None,
+        governance_status: str | None = None,
     ) -> AgentDescriptor:
+        _ = owner_system
+        _ = governance_status
         target = str(agent_id or "").strip()
         if not target.startswith("agent:"):
             raise ValueError("agent_id must start with agent:")
-        normalized_profile_type = _normalize_profile_type(profile_type)
-        if normalized_profile_type not in AGENT_PROFILE_TYPES:
-            raise ValueError("unsupported profile_type")
-        if lifecycle_state not in {"enabled", "disabled", "draft", "system_builtin"}:
-            raise ValueError("unsupported lifecycle_state")
+        normalized_category = _normalize_agent_category(agent_category or profile_type or "worker_sub_agent")
+        if normalized_category not in AGENT_CATEGORIES:
+            raise ValueError("unsupported agent_category")
         current = self.get_agent(target)
-        if current is not None and current.lifecycle_state == "system_builtin":
-            raise PermissionError("system builtin agent cannot be edited here")
         timestamp = time.time()
+        if current is not None and current.builtin:
+            normalized_category = current.agent_category
+        normalized_enabled = bool(enabled if enabled is not None else lifecycle_state != "disabled")
+        normalized_projection_id = str(default_projection_id or current.default_projection_id if current is not None else "").strip()
+        normalized_soul_id = str(default_soul_id or current.default_soul_id if current is not None else "").strip()
+        if normalized_category == "main_agent":
+            normalized_projection_id = ""
+            normalized_soul_id = ""
+        if normalized_projection_id:
+            projection_card = get_projection_card(self.base_dir, normalized_projection_id)
+            if projection_card is not None:
+                normalized_soul_id = str(projection_card.get("soul_id") or normalized_soul_id).strip()
         updated = AgentDescriptor(
             agent_id=target,
-            display_name=str(display_name or target).strip() or target,
-            owner_system=str(owner_system or "task_system").strip() or "task_system",
-            profile_type=normalized_profile_type,
-            lifecycle_state=lifecycle_state,
-            default_soul_id=str(default_soul_id or "").strip(),
-            default_projection_template_id=str(default_projection_template_id or "").strip(),
+            agent_name=str(agent_name or display_name or target).strip() or target,
+            agent_category=normalized_category,
+            interface_target=str(interface_target or _default_interface_target(target, normalized_category)).strip(),
+            description=str(description or current.description if current is not None else "").strip(),
+            enabled=normalized_enabled,
+            builtin=current.builtin if current is not None else False,
+            editable=bool(editable if editable is not None else current.editable if current is not None else True),
+            default_soul_id=normalized_soul_id,
+            default_projection_id=normalized_projection_id,
+            task_scope=tuple(str(item).strip() for item in (task_scope or current.task_scope if current is not None else ()) if str(item).strip()),
             created_at=current.created_at if current is not None else timestamp,
             updated_at=timestamp,
-            governance_status=governance_status,
-            deletable=current.deletable if current is not None else "archive_only",
-            disable_allowed=current.disable_allowed if current is not None else True,
             metadata=dict(metadata or current.metadata if current is not None else metadata or {}),
         )
         agents = [item for item in self.list_agents() if item.agent_id != target]
         agents.append(updated)
+        agents.sort(key=lambda item: _agent_sort_key(item.agent_id))
         _write_json(self.agents_path, {"agents": [item.to_dict() for item in agents]})
         return updated
 
+    def delete_agent(self, agent_id: str) -> None:
+        current = self.get_agent(agent_id)
+        if current is None:
+            raise KeyError(agent_id)
+        if current.builtin:
+            raise PermissionError("system builtin agent cannot be deleted")
+        agents = [item for item in self.list_agents() if item.agent_id != current.agent_id]
+        _write_json(self.agents_path, {"agents": [item.to_dict() for item in agents]})
+
     def build_catalog(self) -> dict[str, Any]:
         agents = self.list_agents()
-        capabilities = self.list_capabilities()
-        capability_by_agent = {item.agent_id: item.to_dict() for item in capabilities}
         return {
-            "authority": "operation_system.agent_registry",
-            "agents": [
-                {
-                    **agent.to_dict(),
-                    "capability_profile": capability_by_agent.get(agent.agent_id, {}),
-                }
-                for agent in agents
-            ],
-            "capabilities": [item.to_dict() for item in capabilities],
+            "authority": "task_system.agent_registry",
+            "agents": [agent.to_dict() for agent in agents],
             "summary": {
                 "agent_count": len(agents),
-                "enabled_agent_count": sum(1 for item in agents if item.lifecycle_state in {"enabled", "system_builtin"}),
-                "main_agent_count": sum(1 for item in agents if item.profile_type == "main_agent"),
-                "system_management_agent_count": sum(1 for item in agents if item.profile_type == "system_management_agent"),
-                "worker_sub_agent_count": sum(1 for item in agents if item.profile_type == "worker_sub_agent"),
-                "system_builtin_count": sum(1 for item in agents if item.lifecycle_state == "system_builtin"),
+                "enabled_agent_count": sum(1 for item in agents if item.enabled),
+                "main_agent_count": sum(1 for item in agents if item.agent_category == "main_agent"),
+                "system_management_agent_count": sum(1 for item in agents if item.agent_category == "system_management_agent"),
+                "worker_sub_agent_count": sum(1 for item in agents if item.agent_category == "worker_sub_agent"),
+                "builtin_agent_count": sum(1 for item in agents if item.builtin),
             },
         }
 
 
-def _normalize_profile_type(value: str) -> str:
+def _agent_sort_key(agent_id: str) -> tuple[int, str]:
+    try:
+        return (0, f"{int(agent_id.split(':', 1)[1]):04d}")
+    except Exception:
+        return (1, agent_id)
+
+
+def _default_interface_target(agent_id: str, agent_category: str) -> str:
+    if agent_category == "main_agent":
+        return "main_conversation"
+    if agent_category == "system_management_agent":
+        return f"{agent_id.replace('agent:', '').replace(':', '_')}_window"
+    return "worker_task_console"
+
+
+def _normalize_agent_category(value: str) -> str:
     normalized = str(value or "worker_sub_agent").strip()
-    return normalized if normalized in AGENT_PROFILE_TYPES else "worker_sub_agent"
+    if normalized == "main_agent":
+        return "main_agent"
+    if normalized == "system_management_agent":
+        return "system_management_agent"
+    return "worker_sub_agent"
 
 
 def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    current = str(payload.get("profile_type") or "")
-    normalized = _normalize_profile_type(current)
-    if normalized == "worker_sub_agent":
-        agent_id = str(payload.get("agent_id") or "")
-        owner_system = str(payload.get("owner_system") or "")
-        if agent_id == "agent:main":
-            normalized = "main_agent"
-        elif owner_system and owner_system != "task_system":
-            normalized = "system_management_agent"
-    if current == normalized:
-        return payload
-    return {**payload, "profile_type": normalized}
+    agent_id = str(payload.get("agent_id") or "").strip()
+    legacy_name = str(payload.get("display_name") or payload.get("agent_name") or agent_id).strip() or agent_id
+    legacy_category = _normalize_agent_category(str(payload.get("agent_category") or payload.get("profile_type") or "worker_sub_agent"))
+    owner_system = str(payload.get("owner_system") or payload.get("metadata", {}).get("system_key") or "").strip()
+    if agent_id in {"agent:main", "agent:0"}:
+        legacy_category = "main_agent"
+    elif owner_system and owner_system not in {"", "task_system", "worker_pool"}:
+        legacy_category = "system_management_agent"
+    normalized_soul_id = str(payload.get("default_soul_id") or "").strip()
+    normalized_projection_id = str(payload.get("default_projection_id") or "").strip()
+    if legacy_category == "main_agent":
+        normalized_soul_id = ""
+        normalized_projection_id = ""
+    return {
+        "agent_id": "agent:0" if agent_id == "agent:main" else "agent:3" if agent_id == "agent:health:maintainer" else agent_id,
+        "agent_name": legacy_name,
+        "display_name": legacy_name,
+        "agent_category": legacy_category,
+        "profile_type": legacy_category,
+        "interface_target": str(payload.get("interface_target") or _default_interface_target(agent_id or "agent:worker", legacy_category)),
+        "description": str(payload.get("description") or payload.get("metadata", {}).get("role") or "").strip(),
+        "enabled": bool(payload.get("enabled", str(payload.get("lifecycle_state") or "enabled") != "disabled")),
+        "builtin": bool(payload.get("builtin", str(payload.get("lifecycle_state") or "") == "system_builtin")),
+        "editable": bool(payload.get("editable", not bool(payload.get("builtin", str(payload.get("lifecycle_state") or "") == "system_builtin")))),
+        "default_soul_id": normalized_soul_id,
+        "default_projection_id": normalized_projection_id,
+        "task_scope": list(payload.get("task_scope") or []),
+        "created_at": float(payload.get("created_at") or 0.0),
+        "updated_at": float(payload.get("updated_at") or 0.0),
+        "metadata": {
+            **dict(payload.get("metadata") or {}),
+            **({"system_key": owner_system} if owner_system else {}),
+        },
+    }
 
 
 def _agent_from_dict(payload: dict[str, Any]) -> AgentDescriptor:
     return AgentDescriptor(
         agent_id=str(payload.get("agent_id") or ""),
-        display_name=str(payload.get("display_name") or ""),
-        owner_system=str(payload.get("owner_system") or ""),
-        profile_type=_normalize_profile_type(str(payload.get("profile_type") or "worker_sub_agent")),
-        lifecycle_state=str(payload.get("lifecycle_state") or "disabled"),
+        agent_name=str(payload.get("agent_name") or payload.get("display_name") or ""),
+        agent_category=_normalize_agent_category(str(payload.get("agent_category") or payload.get("profile_type") or "worker_sub_agent")),
+        interface_target=str(payload.get("interface_target") or ""),
+        description=str(payload.get("description") or ""),
+        enabled=bool(payload.get("enabled", True)),
+        builtin=bool(payload.get("builtin", False)),
+        editable=bool(payload.get("editable", True)),
         default_soul_id=str(payload.get("default_soul_id") or ""),
-        default_projection_template_id=str(payload.get("default_projection_template_id") or ""),
+        default_projection_id=str(payload.get("default_projection_id") or ""),
+        task_scope=tuple(str(item) for item in list(payload.get("task_scope") or []) if str(item)),
         created_at=float(payload.get("created_at") or 0.0),
         updated_at=float(payload.get("updated_at") or 0.0),
-        governance_status=str(payload.get("governance_status") or "operation_managed"),
-        deletable=str(payload.get("deletable") or "archive_only"),
-        disable_allowed=bool(payload.get("disable_allowed", True)),
-        metadata=dict(payload.get("metadata") or {}),
-    )
-
-
-def _capability_from_dict(payload: dict[str, Any]) -> AgentCapabilityProfile:
-    return AgentCapabilityProfile(
-        agent_profile_id=str(payload.get("agent_profile_id") or ""),
-        agent_id=str(payload.get("agent_id") or ""),
-        allowed_task_modes=tuple(str(item) for item in list(payload.get("allowed_task_modes") or [])),
-        allowed_runtime_lanes=tuple(str(item) for item in list(payload.get("allowed_runtime_lanes") or [])),
-        allowed_operations=tuple(str(item) for item in list(payload.get("allowed_operations") or [])),
-        blocked_operations=tuple(str(item) for item in list(payload.get("blocked_operations") or [])),
-        allowed_skill_workflows=tuple(str(item) for item in list(payload.get("allowed_skill_workflows") or [])),
-        allowed_projection_templates=tuple(str(item) for item in list(payload.get("allowed_projection_templates") or [])),
-        allowed_memory_scopes=tuple(str(item) for item in list(payload.get("allowed_memory_scopes") or [])),
-        allowed_context_sections=tuple(str(item) for item in list(payload.get("allowed_context_sections") or [])),
-        output_contracts=tuple(str(item) for item in list(payload.get("output_contracts") or [])),
-        approval_policy=str(payload.get("approval_policy") or "default"),
-        trace_policy=str(payload.get("trace_policy") or "runtime_event_log"),
-        lifecycle_policy=str(payload.get("lifecycle_policy") or "operation_managed"),
         metadata=dict(payload.get("metadata") or {}),
     )

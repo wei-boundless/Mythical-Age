@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from orchestration.agent_runtime_models import AgentRuntimeProfile
 from operations import (
-    AgentCapabilityProfile,
     OperationDescriptor,
     OperationRegistry,
     ResourceDecision,
@@ -17,7 +17,7 @@ def build_model_response_runtime_adoption(
     task_operation: dict[str, Any],
     *,
     operation_registry: OperationRegistry | None = None,
-    agent_capability_profile: AgentCapabilityProfile | None = None,
+    agent_runtime_profile: AgentRuntimeProfile | None = None,
     approval_context: RuntimeApprovalContext | None = None,
 ) -> tuple[RuntimeDirective, ResourcePolicy]:
     """Adopt the current single-agent model lane into an executable directive.
@@ -35,7 +35,7 @@ def build_model_response_runtime_adoption(
     decisions = _build_runtime_decisions(
         task_operation,
         registry=registry,
-        agent_capability_profile=agent_capability_profile,
+        agent_runtime_profile=agent_runtime_profile,
         approval_context=context,
     )
     allowed_operations = tuple(decision.operation_id for decision in decisions if decision.decision == "allow")
@@ -62,7 +62,7 @@ def build_model_response_runtime_adoption(
         denied_agents=(),
         memory_read_scope="context_package",
         memory_write_scope="none",
-        approval_policy=_approval_policy(task_operation, agent_capability_profile),
+        approval_policy=_approval_policy(task_operation, agent_runtime_profile),
         runtime_view_only=False,
         adopted=True,
         runtime_executable=True,
@@ -78,7 +78,7 @@ def build_model_response_runtime_adoption(
             "adoption_owner": "TaskRunLoop",
             "authorization_inputs": {
                 "task_operation_requirement": True,
-                "agent_capability_profile": bool(agent_capability_profile is not None),
+                "agent_runtime_profile": bool(agent_runtime_profile is not None),
                 "operation_registry": bool(registry is not None),
             },
         },
@@ -108,12 +108,12 @@ def _build_runtime_decisions(
     task_operation: dict[str, Any],
     *,
     registry: OperationRegistry | None,
-    agent_capability_profile: AgentCapabilityProfile | None,
+    agent_runtime_profile: AgentRuntimeProfile | None,
     approval_context: RuntimeApprovalContext,
 ) -> list[ResourceDecision]:
     requested = _requested_operations(task_operation)
-    agent_allowed = _agent_allowed_operations(agent_capability_profile)
-    agent_blocked = _agent_blocked_operations(agent_capability_profile)
+    agent_allowed = _agent_allowed_operations(agent_runtime_profile)
+    agent_blocked = _agent_blocked_operations(agent_runtime_profile)
     decisions: list[ResourceDecision] = []
     for operation_id in requested:
         normalized_id = registry.normalize_id(operation_id) if registry is not None else operation_id
@@ -151,7 +151,7 @@ def _requested_operations(task_operation: dict[str, Any]) -> tuple[str, ...]:
     return tuple(item for item in _dedupe(requested) if item not in denied or item == "op.model_response")
 
 
-def _agent_allowed_operations(profile: AgentCapabilityProfile | None) -> set[str]:
+def _agent_allowed_operations(profile: AgentRuntimeProfile | None) -> set[str]:
     if profile is None:
         return {"op.model_response"}
     allowed = {str(item or "").strip() for item in profile.allowed_operations if str(item or "").strip()}
@@ -159,7 +159,7 @@ def _agent_allowed_operations(profile: AgentCapabilityProfile | None) -> set[str
     return allowed
 
 
-def _agent_blocked_operations(profile: AgentCapabilityProfile | None) -> set[str]:
+def _agent_blocked_operations(profile: AgentRuntimeProfile | None) -> set[str]:
     if profile is None:
         return set()
     return {str(item or "").strip() for item in profile.blocked_operations if str(item or "").strip()}
@@ -231,7 +231,7 @@ def _decide_runtime_operation(
     )
 
 
-def _approval_policy(task_operation: dict[str, Any], profile: AgentCapabilityProfile | None) -> str:
+def _approval_policy(task_operation: dict[str, Any], profile: AgentRuntimeProfile | None) -> str:
     if profile is not None and profile.approval_policy:
         return str(profile.approval_policy)
     requirement = dict(task_operation.get("operation_requirement") or {})

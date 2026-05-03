@@ -33,6 +33,14 @@ def load_projection_store(base_dir: Path) -> dict[str, Any]:
     }
 
 
+def get_projection_card(base_dir: Path, projection_id: str) -> dict[str, Any] | None:
+    target = str(projection_id or "").strip()
+    if not target:
+        return None
+    store = load_projection_store(base_dir)
+    return next((item for item in store["cards"] if str(item.get("projection_id") or "") == target), None)
+
+
 def save_projection_store(base_dir: Path, payload: dict[str, Any]) -> None:
     path = _store_path(base_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -44,7 +52,6 @@ def list_projection_cards(
     *,
     soul_profiles: list[dict[str, Any]] | None = None,
     active_soul_id: str = "",
-    soul_style_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     store = load_projection_store(base_dir)
     return reconcile_projection_store(
@@ -52,7 +59,6 @@ def list_projection_cards(
         store=store,
         soul_profiles=soul_profiles or [],
         active_soul_id=active_soul_id,
-        soul_style_map=soul_style_map or {},
         persist=True,
     )
 
@@ -69,7 +75,7 @@ def upsert_projection_card(
     name = str(request.get("projection_name") or "").strip()
     title = name or f"{soul_name} / {request.get('role_type')}"
     now = time.time()
-    legacy_runtime_preview = _legacy_runtime_preview(request)
+    runtime_preview = _runtime_preview(request)
     card = {
         "projection_id": projection_id,
         "title": title,
@@ -82,15 +88,15 @@ def upsert_projection_card(
         "expression_density": str(request.get("expression_density") or "normal"),
         "attention_focus": _list_of_str(request.get("attention_focus")),
         "risk_notes": _list_of_str(request.get("risk_notes")),
-        "task_contract_summary": request.get("task_contract_summary"),
+        "projection_prompt": str(request.get("projection_prompt") or ""),
+        "usage_summary": request.get("usage_summary") or "",
         "skill_views": request.get("skill_views") or [],
         "tool_views": request.get("tool_views") or [],
         "memory_policy_summary": request.get("memory_policy_summary") or "",
         "output_contract_summary": request.get("output_contract_summary") or "",
-        "legacy_runtime_preview": legacy_runtime_preview,
+        "runtime_preview": runtime_preview,
         "runtime_only_payload": True,
         "static_projection_card": True,
-        "style_content": str(request.get("style_content") or ""),
         "created_at": now,
         "updated_at": now,
     }
@@ -137,20 +143,12 @@ def reconcile_projection_store(
     store: dict[str, Any] | None = None,
     soul_profiles: list[dict[str, Any]] | None = None,
     active_soul_id: str = "",
-    soul_style_map: dict[str, str] | None = None,
     persist: bool = False,
 ) -> dict[str, Any]:
     current = store or load_projection_store(base_dir)
     cards = [_normalize_card(item) for item in current.get("cards", []) if isinstance(item, dict)]
     by_id = {str(card.get("projection_id") or ""): card for card in cards}
     changed = False
-    style_map = {str(key).strip().lower(): str(value) for key, value in (soul_style_map or {}).items() if str(key).strip()}
-
-    for card in by_id.values():
-        soul_id = str(card.get("soul_id") or "").strip().lower()
-        if card.get("style_content") is None and soul_id in style_map:
-            card["style_content"] = style_map[soul_id]
-            changed = True
 
     for profile in soul_profiles or []:
         soul_id = str(profile.get("soul_id") or "").strip().lower()
@@ -161,7 +159,6 @@ def reconcile_projection_store(
         default_card = _default_projection_card(
             profile,
             existing=existing,
-            style_content=style_map.get(soul_id, ""),
         )
         if existing != default_card:
             by_id[default_id] = default_card
@@ -199,10 +196,10 @@ def _projection_id(request: dict[str, Any]) -> str:
         "expression_density": request.get("expression_density") or "",
         "attention_focus": _list_of_str(request.get("attention_focus")),
         "risk_notes": _list_of_str(request.get("risk_notes")),
-        "task_contract_summary": request.get("task_contract_summary") or "",
+        "projection_prompt": str(request.get("projection_prompt") or ""),
+        "usage_summary": request.get("usage_summary") or "",
         "memory_policy_summary": request.get("memory_policy_summary") or "",
         "output_contract_summary": request.get("output_contract_summary") or "",
-        "style_content": request.get("style_content") or "",
     }
     encoded = json.dumps(raw, ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(encoded.encode("utf-8")).hexdigest()[:16]
@@ -217,7 +214,6 @@ def _default_projection_card(
     profile: dict[str, Any],
     *,
     existing: dict[str, Any] | None = None,
-    style_content: str = "",
 ) -> dict[str, Any]:
     soul_id = str(profile.get("soul_id") or "").strip().lower()
     soul_name = str(profile.get("display_name") or profile.get("name") or soul_id)
@@ -227,11 +223,7 @@ def _default_projection_card(
     task_mode = str(preferred_task_modes[0] if preferred_task_modes else "general_qa")
     now = time.time()
     created_at = existing.get("created_at") if isinstance(existing, dict) and existing.get("created_at") else now
-    current_style = existing.get("style_content") if isinstance(existing, dict) and "style_content" in existing else None
-    resolved_style = style_content if style_content else (current_style or "")
     updated_at = existing.get("updated_at") if isinstance(existing, dict) and existing.get("updated_at") else created_at
-    if current_style is not None and style_content and current_style != style_content:
-        updated_at = now
     return {
         "projection_id": _default_projection_id(soul_id),
         "title": f"{soul_name} / 原始投影",
@@ -244,13 +236,14 @@ def _default_projection_card(
         "expression_density": "normal",
         "attention_focus": [],
         "risk_notes": [],
-        "task_contract_summary": "",
+        "projection_prompt": "",
+        "usage_summary": "",
         "skill_views": [],
         "tool_views": [],
         "memory_policy_summary": "原始投影沿用系统默认记忆策略。",
         "output_contract_summary": "原始投影沿用系统默认输出边界。",
-        "legacy_runtime_preview": {
-            "task_contract_summary": "",
+        "runtime_preview": {
+            "usage_summary": "",
             "skill_views": [],
             "tool_views": [],
             "memory_policy_summary": "原始投影沿用系统默认记忆策略。",
@@ -258,7 +251,6 @@ def _default_projection_card(
         },
         "runtime_only_payload": True,
         "static_projection_card": True,
-        "style_content": resolved_style,
         "created_at": created_at,
         "updated_at": updated_at,
         "is_primary": True,
@@ -279,15 +271,15 @@ def _normalize_card(item: dict[str, Any]) -> dict[str, Any]:
         "expression_density": str(item.get("expression_density") or "normal"),
         "attention_focus": _list_of_str(item.get("attention_focus")),
         "risk_notes": _list_of_str(item.get("risk_notes")),
-        "task_contract_summary": str(item.get("task_contract_summary") or ""),
+        "projection_prompt": str(item.get("projection_prompt") or ""),
+        "usage_summary": str(item.get("usage_summary") or ""),
         "skill_views": item.get("skill_views") if isinstance(item.get("skill_views"), list) else [],
         "tool_views": item.get("tool_views") if isinstance(item.get("tool_views"), list) else [],
         "memory_policy_summary": str(item.get("memory_policy_summary") or ""),
         "output_contract_summary": str(item.get("output_contract_summary") or ""),
-        "legacy_runtime_preview": _normalize_legacy_runtime_preview(item),
+        "runtime_preview": _normalize_runtime_preview(item),
         "runtime_only_payload": bool(item.get("runtime_only_payload", True)),
         "static_projection_card": bool(item.get("static_projection_card", True)),
-        "style_content": item.get("style_content") if "style_content" in item else None,
         "created_at": item.get("created_at") or time.time(),
         "updated_at": item.get("updated_at") or time.time(),
         "is_primary": bool(item.get("is_primary", False)),
@@ -301,9 +293,10 @@ def _list_of_str(value: Any) -> list[str]:
     return [str(item) for item in value if str(item or "").strip()]
 
 
-def _legacy_runtime_preview(request: dict[str, Any]) -> dict[str, Any]:
+def _runtime_preview(request: dict[str, Any]) -> dict[str, Any]:
     return {
-        "task_contract_summary": request.get("task_contract_summary") or "",
+        "projection_prompt": str(request.get("projection_prompt") or ""),
+        "usage_summary": request.get("usage_summary") or "",
         "skill_views": request.get("skill_views") if isinstance(request.get("skill_views"), list) else [],
         "tool_views": request.get("tool_views") if isinstance(request.get("tool_views"), list) else [],
         "memory_policy_summary": request.get("memory_policy_summary") or "",
@@ -311,8 +304,8 @@ def _legacy_runtime_preview(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_legacy_runtime_preview(item: dict[str, Any]) -> dict[str, Any]:
-    legacy = item.get("legacy_runtime_preview")
-    if isinstance(legacy, dict):
-        return _legacy_runtime_preview(legacy)
-    return _legacy_runtime_preview(item)
+def _normalize_runtime_preview(item: dict[str, Any]) -> dict[str, Any]:
+    preview = item.get("runtime_preview")
+    if isinstance(preview, dict):
+        return _runtime_preview(preview)
+    return _runtime_preview(item)

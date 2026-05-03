@@ -65,7 +65,7 @@ class SoulProjectionBuilder:
                 owner_layer="task",
                 cache_scope="dynamic",
                 visible_to_model=True,
-                content=request.task_contract_summary,
+                content=request.usage_summary,
                 source_refs=(request.task_id,),
             ),
             PromptSection(
@@ -158,7 +158,7 @@ class SoulProjectionBuilder:
         raw = (
             f"{request.task_id}:{request.soul_id}:{request.role_type}:"
             f"{request.task_mode}:{request.agent_profile_id}:{request.projection_name}:"
-            f"{request.task_contract_summary}"
+            f"{request.usage_summary}"
         )
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
@@ -217,7 +217,7 @@ def build_soul_runtime_view(
         projection_name="runtime",
         skill_views=soul_skill_views,
         tool_views=soul_tool_views,
-        task_contract_summary=str(contract.get("task_section") or ""),
+        usage_summary=str(contract.get("projection_section") or ""),
         memory_policy_summary="",
         output_contract_summary=str(contract.get("output_section") or ""),
     )
@@ -236,14 +236,14 @@ def build_soul_runtime_view(
             source_refs=(str(contract.get("contract_id") or request.task_id),),
         ),
         PromptSection(
-            section_id="method_section",
-            title="方法摘要",
-            source_type="skill_runtime_view",
-            source_id="task_prompt_contract.method_section",
-            owner_layer="skill",
+            section_id="workflow_section",
+            title="工作流",
+            source_type="task_workflow",
+            source_id="task_prompt_contract.workflow_section",
+            owner_layer="task",
             cache_scope="dynamic",
             visible_to_model=True,
-            content=str(contract.get("method_section") or ""),
+            content=str(contract.get("workflow_section") or ""),
             source_refs=tuple(item.skill_id for item in soul_skill_views),
         ),
         PromptSection(

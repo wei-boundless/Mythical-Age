@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from operations import AgentRegistry, build_default_operation_registry
+from orchestration import AgentRuntimeRegistry
 
 from .match_contracts import TaskIntentContract, TemplateMatchResult
 from .definitions import TaskDefinition
@@ -337,8 +338,8 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             task_mode="issue_triage",
             input_schema={"issue": "HealthIssue"},
             output_schema={"result": "HealthTriageResult"},
-            default_agent_id="agent:health:maintainer",
-            allowed_agent_ids=("agent:health:maintainer",),
+            default_agent_id="agent:3",
+            allowed_agent_ids=("agent:3",),
             required_operations=("op.model_response", "op.read_file", "op.search_text"),
             step_blueprints=(
                 TaskStepBlueprint(
@@ -360,6 +361,7 @@ class TaskTemplateRegistry:
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = Path(base_dir) if base_dir is not None else None
         self.agent_registry = AgentRegistry(self.base_dir or Path(".")) if self.base_dir is not None else None
+        self.agent_runtime_registry = AgentRuntimeRegistry(self.base_dir or Path(".")) if self.base_dir is not None else None
         self.operation_registry = build_default_operation_registry()
 
     def list_templates(self) -> list[TaskTemplate]:
@@ -613,17 +615,13 @@ class TaskTemplateRegistry:
             failures: list[str] = []
             diagnostics: dict[str, Any] = {}
             agent = self.agent_registry.get_agent(template.default_agent_id) if self.agent_registry is not None else None
-            capability = (
-                self.agent_registry.get_capability_profile(template.default_agent_id)
-                if self.agent_registry is not None
-                else None
-            )
+            capability = self.agent_runtime_registry.get_profile(template.default_agent_id) if self.agent_runtime_registry is not None else None
             if agent is None:
                 failures.append("default_agent_missing")
             elif agent.lifecycle_state not in {"enabled", "system_builtin"}:
                 failures.append("default_agent_not_enabled")
             if capability is None:
-                failures.append("capability_profile_missing")
+                failures.append("runtime_profile_missing")
             else:
                 missing_required = [
                     operation
