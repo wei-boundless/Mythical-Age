@@ -26,6 +26,7 @@ class TaskSpec:
     selected_agent_id: str = "agent:0"
     selected_skill_ids: tuple[str, ...] = ()
     operation_requirement_ref: str = ""
+    safety_envelope: dict[str, Any] = field(default_factory=dict)
     status: str = "selected"
     authority: str = "task_system.task_spec"
 

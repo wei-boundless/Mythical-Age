@@ -55,6 +55,7 @@ class TaskAssignment:
     projection_id: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
+    safety_policy: dict[str, Any] = field(default_factory=dict)
     task_structure: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)

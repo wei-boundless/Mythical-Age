@@ -33,6 +33,33 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
             metadata={"managed_by": "task_system", "task_resource": "general_conversation"},
         ),
         TaskWorkflowBinding(
+            workflow_id="workflow.dev.bounded_patch",
+            title="受限补丁工作流",
+            task_mode="bounded_patch",
+            compatible_projection_ids=(),
+            visible_skill_ids=("skill.implementation", "skill.review"),
+            steps=(
+                {"step_id": "scope_patch_area", "title": "锁定补丁范围与目标文件"},
+                {"step_id": "inspect_related_code", "title": "阅读相关代码与依赖关系"},
+                {"step_id": "apply_scoped_patch", "title": "在受限目录内实施补丁"},
+                {"step_id": "verify_changed_behavior", "title": "验证变更结果与残余风险"},
+                {"step_id": "finalize_patch_report", "title": "汇报修改内容与验证状态"},
+            ),
+            input_boundary="Patch goal, explicit target root, optional file refs, acceptance checks.",
+            output_boundary="Scoped code changes, touched file refs, verification result, known limitations.",
+            stop_conditions=("patch_applied", "verification_reported"),
+            required_evidence_refs=("target_root", "changed_files"),
+            output_contract_id="AssistantFinalAnswer",
+            prompt=(
+                "这是受限补丁任务。"
+                "先界定补丁边界，再修改；"
+                "不得越出任务写入目录，不得碰受禁路径；"
+                "最终必须说明改了什么、验证了什么、还剩什么风险。"
+            ),
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "bounded_patch"},
+        ),
+        TaskWorkflowBinding(
             workflow_id="workflow.dev.light_web_game",
             title="轻量网页小游戏工作流",
             task_mode="light_web_game",
@@ -58,6 +85,33 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
             ),
             enabled=True,
             metadata={"managed_by": "task_system", "task_resource": "light_web_game"},
+        ),
+        TaskWorkflowBinding(
+            workflow_id="workflow.dev.arcade_game_bundle",
+            title="复合网页小游戏包工作流",
+            task_mode="arcade_game_bundle",
+            compatible_projection_ids=(),
+            visible_skill_ids=("skill.implementation", "skill.review"),
+            steps=(
+                {"step_id": "scope_target_root", "title": "锁定目标目录与入口形式"},
+                {"step_id": "inspect_existing_files", "title": "检查现有文件与可复用资源"},
+                {"step_id": "design_bundle_structure", "title": "设计 HTML/CSS/JS 结构"},
+                {"step_id": "implement_bundle_files", "title": "生成多文件游戏产物"},
+                {"step_id": "verify_entry_relations", "title": "验证入口与资源关系"},
+                {"step_id": "finalize_delivery", "title": "输出产物路径与已知限制"},
+            ),
+            input_boundary="Game goal, target root, optional asset hints, optional UI constraints.",
+            output_boundary="Multi-file playable web game artifact refs with entry file and validation state.",
+            stop_conditions=("bundle_artifacts_created", "entry_verified", "result_reported"),
+            required_evidence_refs=("target_root", "artifact_refs", "entry_file"),
+            output_contract_id="LightWebGameResult",
+            prompt=(
+                "优先用多文件但边界清晰的结构完成网页小游戏。"
+                "文件数量只服务于清晰性，不为了复杂而复杂；"
+                "必须明确入口文件、资源关系与未验证部分。"
+            ),
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "arcade_game_bundle"},
         ),
         TaskWorkflowBinding(
             workflow_id="workflow.health.issue_triage",

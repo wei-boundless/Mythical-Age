@@ -62,8 +62,11 @@ def build_tool_request_runtime_adoption(
             "read_only": bool(operation_descriptor.read_only) if operation_descriptor is not None else False,
             "destructive": bool(operation_descriptor.destructive) if operation_descriptor is not None else False,
             "memory_write_allowed": False,
-            "filesystem_write_allowed": False,
+            "filesystem_write_allowed": bool(operation_id in {"op.write_file", "op.edit_file"} and tool_allowed),
             "adoption_owner": "TaskRunLoop",
+            "task_safety_envelope": dict(
+                dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}
+            ).get("safety_envelope", {}),
         },
     )
     directive = RuntimeDirective(

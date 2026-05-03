@@ -35,6 +35,7 @@ class TaskTemplate:
     optional_operations: tuple[str, ...] = ()
     step_blueprints: tuple[TaskStepBlueprint, ...] = ()
     validation_rules: tuple[TaskValidationRule, ...] = ()
+    safety_policy: dict[str, Any] = field(default_factory=dict)
     ui_manifest: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)

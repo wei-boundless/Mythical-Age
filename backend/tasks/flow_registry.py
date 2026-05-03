@@ -23,6 +23,23 @@ from .workflow_registry import TaskWorkflowRegistry
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
     return (
         TaskFlowDefinition(
+            flow_id="flow.dev.bounded_patch",
+            task_mode="bounded_patch",
+            task_family="development",
+            title="受限补丁开发任务",
+            input_contract_id="WorkspacePatchTaskInput",
+            output_contract_id="AssistantFinalAnswer",
+            default_agent_id="agent:0",
+            default_workflow_id="workflow.dev.bounded_patch",
+            default_runtime_lane="workspace_patch",
+            default_memory_scope="conversation_read_write",
+            metadata={
+                "task_resource": "bounded_patch",
+                "template_id": "template.dev.workspace_patch",
+                "task_id": "task.dev.bounded_patch",
+            },
+        ),
+        TaskFlowDefinition(
             flow_id="flow.dev.light_web_game",
             task_mode="light_web_game",
             task_family="development",
@@ -37,6 +54,23 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
                 "task_resource": "light_web_game",
                 "template_id": "template.dev.light_web_game",
                 "task_id": "task.dev.light_web_game",
+            },
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.dev.arcade_game_bundle",
+            task_mode="arcade_game_bundle",
+            task_family="development",
+            title="复合网页小游戏包开发",
+            input_contract_id="ArcadeGameBundleTaskInput",
+            output_contract_id="LightWebGameResult",
+            default_agent_id="agent:0",
+            default_workflow_id="workflow.dev.arcade_game_bundle",
+            default_runtime_lane="game_delivery",
+            default_memory_scope="conversation_read_write",
+            metadata={
+                "task_resource": "arcade_game_bundle",
+                "template_id": "template.dev.arcade_game_bundle",
+                "task_id": "task.dev.arcade_game_bundle",
             },
         ),
         TaskFlowDefinition(
@@ -364,6 +398,7 @@ class TaskFlowRegistry:
         projection_id: str = "",
         input_contract_id: str = "",
         output_contract_id: str = "",
+        safety_policy: dict[str, Any] | None = None,
         task_structure: dict[str, Any] | None = None,
         enabled: bool = True,
         metadata: dict[str, Any] | None = None,
@@ -388,6 +423,7 @@ class TaskFlowRegistry:
             projection_id=str(projection_id or "").strip(),
             input_contract_id=str(input_contract_id or "").strip(),
             output_contract_id=str(output_contract_id or "").strip(),
+            safety_policy=dict(safety_policy or {}),
             task_structure=dict(task_structure or {}),
             enabled=bool(enabled),
             metadata=dict(metadata or {}),
@@ -413,6 +449,7 @@ class TaskFlowRegistry:
 
     def _assignment_from_flow(self, flow: TaskFlowDefinition) -> TaskAssignment:
         workflow = self.workflow_registry.get_workflow(flow.default_workflow_id)
+        template = self.template_registry.get_template(str(flow.metadata.get("template_id") or ""))
         task_id = str(flow.metadata.get("task_id") or f"task.{flow.task_family}.{flow.task_mode}").strip()
         return TaskAssignment(
             task_id=task_id,
@@ -428,6 +465,7 @@ class TaskFlowRegistry:
             projection_id="",
             input_contract_id=flow.input_contract_id,
             output_contract_id=flow.output_contract_id,
+            safety_policy=dict(getattr(template, "safety_policy", {}) or {}),
             task_structure={
                 "runtime_lane_hint": flow.default_runtime_lane,
                 "memory_scope_hint": flow.default_memory_scope,
@@ -929,6 +967,7 @@ def _assignment_from_dict(payload: dict[str, Any]) -> TaskAssignment:
         projection_id=str(payload.get("projection_id") or payload.get("projection_template_id") or ""),
         input_contract_id=str(payload.get("input_contract_id") or ""),
         output_contract_id=str(payload.get("output_contract_id") or ""),
+        safety_policy=dict(payload.get("safety_policy") or {}),
         task_structure=dict(payload.get("task_structure") or {}),
         enabled=bool(payload.get("enabled", True)),
         metadata=dict(payload.get("metadata") or {}),

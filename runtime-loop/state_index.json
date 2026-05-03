@@ -6177,6 +6177,117 @@
         "final_content_chars": 42
       },
       "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-events:turn:session-runtime-events:1:8c455845": {
+      "task_run_id": "taskrun:session-runtime-events:turn:session-runtime-events:1:8c455845",
+      "session_id": "session-runtime-events",
+      "task_id": "turn:session-runtime-events:1",
+      "task_contract_ref": "turn:session-runtime-events:1",
+      "owner_agent_seat_id": "main",
+      "agent_id": "agent:0",
+      "agent_profile_id": "main_interactive_agent",
+      "runtime_lane": "full_interactive",
+      "status": "completed",
+      "created_at": 1777814148.2049727,
+      "updated_at": 1777814148.4901984,
+      "latest_event_offset": 27,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-events:turn:session-runtime-events:1:8c455845:26",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "runtime_lane": "full_interactive",
+        "task_agent_binding_ref": "",
+        "skill_workflow_ref": "",
+        "health_issue_ref": "",
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 300.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "runtime_channel": "single_agent_runtime",
+        "final_content_chars": 37
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-runtime-directive:turn:session-runtime-directive:1:0afad17c": {
+      "task_run_id": "taskrun:session-runtime-directive:turn:session-runtime-directive:1:0afad17c",
+      "session_id": "session-runtime-directive",
+      "task_id": "turn:session-runtime-directive:1",
+      "task_contract_ref": "turn:session-runtime-directive:1",
+      "owner_agent_seat_id": "main",
+      "agent_id": "agent:0",
+      "agent_profile_id": "main_interactive_agent",
+      "runtime_lane": "full_interactive",
+      "status": "completed",
+      "created_at": 1777814148.5189755,
+      "updated_at": 1777814148.799295,
+      "latest_event_offset": 25,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-runtime-directive:turn:session-runtime-directive:1:0afad17c:24",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "runtime_lane": "full_interactive",
+        "task_agent_binding_ref": "",
+        "skill_workflow_ref": "",
+        "health_issue_ref": "",
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 300.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "runtime_channel": "single_agent_runtime",
+        "final_content_chars": 37
+      },
+      "authority": "orchestration.task_run"
+    },
+    "taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:b1a98613": {
+      "task_run_id": "taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:b1a98613",
+      "session_id": "session-bound-pdf-answer",
+      "task_id": "turn:session-bound-pdf-answer:1",
+      "task_contract_ref": "turn:session-bound-pdf-answer:1",
+      "owner_agent_seat_id": "main",
+      "agent_id": "agent:0",
+      "agent_profile_id": "main_interactive_agent",
+      "runtime_lane": "full_interactive",
+      "status": "completed",
+      "created_at": 1777814151.2015972,
+      "updated_at": 1777814151.4510047,
+      "latest_event_offset": 27,
+      "latest_checkpoint_ref": "rtchk:taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:b1a98613:26",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "runtime_lane": "full_interactive",
+        "task_agent_binding_ref": "",
+        "skill_workflow_ref": "",
+        "health_issue_ref": "",
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 300.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "runtime_channel": "single_agent_runtime",
+        "final_content_chars": 42
+      },
+      "authority": "orchestration.task_run"
     }
   },
   "sessions": {
@@ -6284,7 +6395,8 @@
       "taskrun:session-runtime-directive:turn:session-runtime-directive:1:27da5c0d",
       "taskrun:session-runtime-directive:turn:session-runtime-directive:1:58263c72",
       "taskrun:session-runtime-directive:turn:session-runtime-directive:1:b3bcbe9c",
-      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:ab9a57bd"
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:ab9a57bd",
+      "taskrun:session-runtime-directive:turn:session-runtime-directive:1:0afad17c"
     ],
     "debug-runtime": [
       "taskrun:debug-runtime:turn:debug-runtime:1:68d6722e",
@@ -6347,7 +6459,8 @@
       "taskrun:session-runtime-events:turn:session-runtime-events:1:3a2c00d8",
       "taskrun:session-runtime-events:turn:session-runtime-events:1:4963df29",
       "taskrun:session-runtime-events:turn:session-runtime-events:1:400dab83",
-      "taskrun:session-runtime-events:turn:session-runtime-events:1:f5992dd3"
+      "taskrun:session-runtime-events:turn:session-runtime-events:1:f5992dd3",
+      "taskrun:session-runtime-events:turn:session-runtime-events:1:8c455845"
     ],
     "session-bound-pdf-answer": [
       "taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:b1dedd51",
@@ -6362,8 +6475,9 @@
       "taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:266e9829",
       "taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:a67e745f",
       "taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:8e3d9aa5",
-      "taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:c6dcd31d"
+      "taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:c6dcd31d",
+      "taskrun:session-bound-pdf-answer:turn:session-bound-pdf-answer:1:b1a98613"
     ]
   },
-  "updated_at": 1777798193.1112676
+  "updated_at": 1777814151.458682
 }

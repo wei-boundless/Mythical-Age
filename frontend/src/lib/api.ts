@@ -394,6 +394,7 @@ export type TaskAssignment = {
   projection_id: string;
   input_contract_id: string;
   output_contract_id: string;
+  safety_policy: Record<string, unknown>;
   task_structure: Record<string, unknown>;
   enabled: boolean;
   metadata?: Record<string, unknown>;

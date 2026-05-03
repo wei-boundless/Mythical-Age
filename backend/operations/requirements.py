@@ -30,6 +30,7 @@ def build_operation_requirement(
     skill_required_operations: list[str] | tuple[str, ...] = (),
     approval_policy: str = "default",
     review_policy: str = "optional",
+    safety_envelope: dict[str, Any] | None = None,
     reason: str = "",
 ) -> OperationRequirement:
     required = _dedupe([*default_operation_requirements, *operation_scope])
@@ -46,6 +47,7 @@ def build_operation_requirement(
         metadata={
             "approval_policy": approval_policy,
             "review_policy": review_policy,
+            "safety_envelope": dict(safety_envelope or {}),
         },
     )
 
@@ -60,4 +62,3 @@ def _dedupe(values: list[str] | tuple[str, ...]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-

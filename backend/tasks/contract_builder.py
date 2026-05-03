@@ -69,6 +69,12 @@ def build_task_runtime_contract(
     selected_template = template_registry.get_template(template_match.template_id)
     if selected_template is None:
         raise ValueError(f"Unknown template selected: {template_match.template_id}")
+    if registered_task:
+        registered_template_id = str(registered_task.get("template_id") or "").strip()
+        if registered_template_id:
+            registered_template = template_registry.get_template(registered_template_id)
+            if registered_template is not None:
+                selected_template = registered_template
     definitions = _align_runtime_definitions(
         definitions=definitions,
         registered_task=registered_task,
@@ -142,6 +148,11 @@ def build_task_runtime_contract(
             registered_task=registered_task,
         ),
         review_policy=merged_binding.review_policy,
+        safety_envelope=_build_task_safety_envelope(
+            selected_template=selected_template,
+            registered_task=registered_task,
+            current_turn_context=current_turn_payload,
+        ),
         reason="derived from TaskTemplate, TaskDefinition, TaskBinding, and SkillRuntimeView",
     )
     task_spec = _build_task_spec(
@@ -158,6 +169,7 @@ def build_task_runtime_contract(
         query_understanding=dict(query_understanding or {}),
         operation_requirement_ref=operation_requirement.requirement_id,
         active_skill=active_skill_payload,
+        operation_requirement=operation_requirement.to_dict(),
     )
     selected_agent_id = str(task_spec.selected_agent_id or "agent:0").strip() or "agent:0"
     task_workflow = _resolve_task_workflow(
@@ -591,6 +603,7 @@ def _build_task_spec(
     query_understanding: dict[str, Any],
     operation_requirement_ref: str,
     active_skill: dict[str, Any],
+    operation_requirement: dict[str, Any],
 ) -> TaskSpec:
     explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
     resolved_bindings = [
@@ -654,6 +667,7 @@ def _build_task_spec(
         ),
         selected_skill_ids=tuple(selected_skill_ids),
         operation_requirement_ref=operation_requirement_ref,
+        safety_envelope=dict(dict(operation_requirement.get("metadata") or {}).get("safety_envelope") or {}),
     )
 
 
@@ -682,6 +696,7 @@ def _resolve_registered_task(
                 "projection_id": assignment.projection_id,
                 "input_contract_id": assignment.input_contract_id,
                 "output_contract_id": assignment.output_contract_id,
+                "safety_policy": dict(assignment.safety_policy or {}),
                 "template_id": str((assignment.metadata or {}).get("template_id") or ""),
                 "metadata": dict(assignment.metadata or {}),
             }
@@ -778,9 +793,10 @@ def _align_runtime_definitions(
     template_id = str(getattr(selected_template, "template_id", "") or "")
     task_mode = str((registered_task or {}).get("task_mode") or getattr(selected_template, "task_mode", "") or "")
     definition_catalog = default_task_definitions()
-    if template_id in {"template.dev.workspace_patch", "template.dev.light_web_game"} or task_mode in {
+    if template_id in {"template.dev.workspace_patch", "template.dev.light_web_game", "template.dev.arcade_game_bundle"} or task_mode in {
         "workspace_patch",
         "light_web_game",
+        "arcade_game_bundle",
     }:
         return [
             definition_catalog["task.task_execution"],
@@ -835,6 +851,43 @@ def _resolve_operation_approval_policy(
     ):
         return "task_bounded_write"
     return str(merged_binding.approval_policy or "default")
+
+
+def _build_task_safety_envelope(
+    *,
+    selected_template,
+    registered_task: dict[str, Any] | None,
+    current_turn_context: dict[str, Any],
+) -> dict[str, Any]:
+    template_policy = dict(getattr(selected_template, "safety_policy", {}) or {})
+    registered_policy = dict((registered_task or {}).get("safety_policy") or {})
+    effective_policy = {**template_policy, **registered_policy}
+    explicit_target_root = str(
+        current_turn_context.get("target_root")
+        or current_turn_context.get("workspace_target_root")
+        or dict(current_turn_context.get("explicit_inputs") or {}).get("target_root")
+        or ""
+    ).strip()
+    write_roots = [
+        str(item).strip()
+        for item in list(effective_policy.get("write_roots") or effective_policy.get("default_write_roots") or [])
+        if str(item).strip()
+    ]
+    if explicit_target_root:
+        write_roots = [explicit_target_root]
+    return {
+        "safety_class": str(effective_policy.get("safety_class") or "S0_readonly").strip(),
+        "write_mode": str(effective_policy.get("write_mode") or "none").strip(),
+        "write_roots": write_roots,
+        "forbidden_paths": [
+            str(item).strip()
+            for item in list(effective_policy.get("forbidden_paths") or [])
+            if str(item).strip()
+        ],
+        "verification_mode": str(effective_policy.get("verification_mode") or "none").strip(),
+        "task_id": str((registered_task or {}).get("task_id") or ""),
+        "template_id": str(getattr(selected_template, "template_id", "") or ""),
+    }
 
 
 def _build_bundle_spec(

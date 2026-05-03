@@ -41,6 +41,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     severity="error",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S0_readonly",
+                "write_mode": "none",
+                "verification_mode": "final_answer_only",
+            },
             ui_manifest={"icon": "message-square", "category": "chat"},
         ),
         TaskTemplate(
@@ -85,6 +90,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     severity="error",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S0_readonly",
+                "write_mode": "none",
+                "verification_mode": "result_refs_required",
+            },
             ui_manifest={"icon": "layers-3", "category": "orchestration"},
         ),
         TaskTemplate(
@@ -114,6 +124,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     output_contract_id="GroundedAnswer",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S0_readonly",
+                "write_mode": "none",
+                "verification_mode": "sources_required",
+            },
             ui_manifest={"icon": "globe", "category": "search"},
         ),
         TaskTemplate(
@@ -136,6 +151,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     output_contract_id="CapabilityResult",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S0_readonly",
+                "write_mode": "none",
+                "verification_mode": "tool_result_only",
+            },
             ui_manifest={"icon": "zap", "category": "execution"},
         ),
         TaskTemplate(
@@ -165,6 +185,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     output_contract_id="GroundedAnswer",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S0_readonly",
+                "write_mode": "none",
+                "verification_mode": "citations_required",
+            },
             ui_manifest={"icon": "book-open", "category": "knowledge"},
         ),
         TaskTemplate(
@@ -195,6 +220,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     output_contract_id="GroundedAnswer",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S0_readonly",
+                "write_mode": "none",
+                "verification_mode": "task_summary_refs_required",
+            },
             ui_manifest={"icon": "file-text", "category": "document"},
         ),
         TaskTemplate(
@@ -225,6 +255,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     output_contract_id="GroundedAnswer",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S0_readonly",
+                "write_mode": "none",
+                "verification_mode": "task_summary_refs_required",
+            },
             ui_manifest={"icon": "table", "category": "data"},
         ),
         TaskTemplate(
@@ -272,6 +307,19 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     severity="error",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S2_bounded_patch",
+                "write_mode": "scoped_patch",
+                "default_write_roots": [],
+                "forbidden_paths": [
+                    ".env",
+                    ".env.local",
+                    "storage",
+                    "node_modules",
+                    ".git",
+                ],
+                "verification_mode": "artifact_or_edit_proof",
+            },
             ui_manifest={"icon": "hammer", "category": "development"},
         ),
         TaskTemplate(
@@ -328,7 +376,109 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     severity="error",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S1_bounded_artifact_write",
+                "write_mode": "bounded_create",
+                "default_write_roots": [
+                    "frontend/public/games",
+                ],
+                "forbidden_paths": [
+                    ".env",
+                    ".env.local",
+                    "storage",
+                    "backend",
+                    "node_modules",
+                    ".git",
+                ],
+                "verification_mode": "artifact_refs_required",
+            },
             ui_manifest={"icon": "gamepad-2", "category": "development"},
+        ),
+        TaskTemplate(
+            template_id="template.dev.arcade_game_bundle",
+            title="复合网页小游戏包",
+            description="面向多文件网页小游戏的受限开发任务模板。",
+            task_family="development",
+            task_mode="arcade_game_bundle",
+            input_schema={"workspace_path": "string", "goal": "string", "target_root": "string"},
+            output_schema={
+                "final_answer": "string",
+                "artifact_refs": "string[]",
+                "validation_state": "string",
+                "entry_file": "string",
+            },
+            required_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.edit_file"),
+            optional_operations=("op.write_file", "op.shell"),
+            step_blueprints=(
+                TaskStepBlueprint(
+                    step_id="step.inspect_target_root",
+                    title="检查目标目录与已有资源",
+                    step_kind="read",
+                    executor_type="tool",
+                    required_operations=("op.read_file", "op.search_files", "op.search_text"),
+                    output_contract_id="WorkspaceInspection",
+                ),
+                TaskStepBlueprint(
+                    step_id="step.design_file_set",
+                    title="规划文件结构与运行入口",
+                    step_kind="understand",
+                    executor_type="model",
+                    required_operations=("op.model_response",),
+                    output_contract_id="ArtifactPlan",
+                ),
+                TaskStepBlueprint(
+                    step_id="step.implement_artifacts",
+                    title="生成或修改多文件产物",
+                    step_kind="write",
+                    executor_type="tool",
+                    required_operations=("op.edit_file",),
+                    optional_operations=("op.write_file",),
+                    output_contract_id="GameArtifactBundle",
+                ),
+                TaskStepBlueprint(
+                    step_id="step.verify_bundle",
+                    title="验证入口文件与资源关系",
+                    step_kind="verify",
+                    executor_type="worker",
+                    optional_operations=("op.shell",),
+                    output_contract_id="ArtifactVerification",
+                    stop_policy="allow_unverified_completion",
+                ),
+                TaskStepBlueprint(
+                    step_id="step.finalize_bundle_report",
+                    title="汇报真实产物与限制",
+                    step_kind="finalize",
+                    executor_type="model",
+                    required_operations=("op.model_response",),
+                    output_contract_id="AssistantFinalAnswer",
+                ),
+            ),
+            validation_rules=(
+                TaskValidationRule(
+                    rule_id="rule.bundle_artifacts_required",
+                    title="必须产出多文件结果",
+                    validation_kind="artifact_refs_required",
+                    severity="error",
+                    parameters={"min_artifact_count": 2},
+                ),
+            ),
+            safety_policy={
+                "safety_class": "S1_bounded_artifact_write",
+                "write_mode": "bounded_create",
+                "default_write_roots": [
+                    "frontend/public/games",
+                ],
+                "forbidden_paths": [
+                    ".env",
+                    ".env.local",
+                    "storage",
+                    "backend",
+                    "node_modules",
+                    ".git",
+                ],
+                "verification_mode": "artifact_refs_required",
+            },
+            ui_manifest={"icon": "joystick", "category": "development"},
         ),
         TaskTemplate(
             template_id="template.health.issue_triage",
@@ -351,6 +501,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                     output_contract_id="HealthTriageResult",
                 ),
             ),
+            safety_policy={
+                "safety_class": "S0_readonly",
+                "write_mode": "none",
+                "verification_mode": "health_result_only",
+            },
             ui_manifest={"icon": "shield-alert", "category": "health"},
             metadata={"linked_flow_id": "flow.health.issue_triage"},
         ),

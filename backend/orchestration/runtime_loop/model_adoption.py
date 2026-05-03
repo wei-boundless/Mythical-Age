@@ -73,7 +73,9 @@ def build_model_response_runtime_adoption(
             "tools_allowed": any(operation != "op.model_response" for operation in allowed_operations),
             "workers_allowed": False,
             "memory_write_allowed": False,
-            "filesystem_write_allowed": False,
+            "filesystem_write_allowed": any(
+                operation in {"op.write_file", "op.edit_file"} for operation in allowed_operations
+            ),
             "legacy_query_chain_removed": True,
             "adoption_owner": "TaskRunLoop",
             "authorization_inputs": {
@@ -81,6 +83,10 @@ def build_model_response_runtime_adoption(
                 "agent_runtime_profile": bool(agent_runtime_profile is not None),
                 "operation_registry": bool(registry is not None),
             },
+            "task_safety_envelope": dict(dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}).get(
+                "safety_envelope",
+                {},
+            ),
         },
     )
     directive = RuntimeDirective(

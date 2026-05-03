@@ -40,7 +40,7 @@ import {
 
 type TaskPage = "agents" | "tasks" | "coordination";
 type TaskModeTab = "general" | "specific";
-type TaskWorkbenchTab = "definition" | "binding" | "workflow";
+type TaskWorkbenchTab = "definition" | "binding" | "safety" | "workflow";
 
 type AgentCategory = {
   category_id: string;
@@ -99,6 +99,8 @@ type AgentDraft = {
 type SpecificTaskDraft = TaskAssignment & {
   trigger_signals_text: string;
   notes: string;
+  safety_write_roots_text: string;
+  safety_forbidden_paths_text: string;
 };
 
 type WorkflowDraft = TaskWorkflowRecord & {
@@ -131,6 +133,20 @@ const CATEGORY_TITLES = {
   system_management_agent: "系统管理 Agent",
   worker_sub_agent: "工作子 Agent"
 } as const;
+
+const SAFETY_CLASS_OPTIONS = [
+  { value: "S0_readonly", label: "S0 只读" },
+  { value: "S1_bounded_artifact_write", label: "S1 受限产物写入" },
+  { value: "S2_bounded_patch", label: "S2 受限补丁" },
+  { value: "S3_execution_guarded", label: "S3 受控执行" }
+] as const;
+
+const WRITE_MODE_OPTIONS = [
+  { value: "none", label: "只读" },
+  { value: "bounded_create", label: "限定创建" },
+  { value: "scoped_patch", label: "限定补丁" },
+  { value: "guarded_execution", label: "受控执行" }
+] as const;
 
 function text(value: unknown, fallback = "-") {
   if (Array.isArray(value)) return value.length ? value.join(" / ") : fallback;
@@ -173,6 +189,23 @@ function parseSteps(value: string) {
       return { step_id: stepId || `step_${index + 1}`, title: title || stepId || `步骤 ${index + 1}` };
     })
     .filter(Boolean) as Array<Record<string, unknown>>;
+}
+
+function normalizeSafetyPolicy(policy: Record<string, unknown> | null | undefined) {
+  const source = policy ?? {};
+  return {
+    safety_class: text(source.safety_class, "S0_readonly"),
+    write_mode: text(source.write_mode, "none"),
+    write_roots: Array.isArray(source.write_roots) ? source.write_roots.map((item) => String(item)).filter(Boolean) : [],
+    forbidden_paths: Array.isArray(source.forbidden_paths) ? source.forbidden_paths.map((item) => String(item)).filter(Boolean) : [],
+    verification_mode: text(source.verification_mode, "final_answer_only")
+  };
+}
+
+function formatSafetySummary(policy: Record<string, unknown>) {
+  const normalized = normalizeSafetyPolicy(policy);
+  const rootLabel = normalized.write_roots.length ? `${normalized.write_roots.length} 个写入根` : "未限定写入根";
+  return `${normalized.safety_class} / ${normalized.write_mode} / ${rootLabel}`;
 }
 
 function stepsToText(steps: Array<Record<string, unknown>>) {
@@ -230,10 +263,11 @@ function preferredGeneralWorkflowId(workflows: TaskWorkflowRecord[]) {
     ?? "";
 }
 
-function preferredGameWorkflowId(workflows: TaskWorkflowRecord[]) {
-  return workflows.find((workflow) => workflow.workflow_id === "workflow.dev.light_web_game")?.workflow_id
+function preferredSpecificWorkflowId(workflows: TaskWorkflowRecord[]) {
+  return workflows.find((workflow) => workflow.workflow_id === "workflow.dev.bounded_patch")?.workflow_id
+    ?? workflows.find((workflow) => workflow.workflow_id === "workflow.dev.light_web_game")?.workflow_id
     ?? workflows[0]?.workflow_id
-    ?? "workflow.dev.light_web_game";
+    ?? "workflow.dev.bounded_patch";
 }
 
 function emptyGeneralTask(workflowId = "", projectionId = ""): GeneralTaskProfile {
@@ -252,42 +286,74 @@ function emptyGeneralTask(workflowId = "", projectionId = ""): GeneralTaskProfil
 }
 
 function emptySpecificTask(workflowId = "", projectionId = ""): SpecificTaskDraft {
+  const resolvedWorkflowId = workflowId || "workflow.dev.bounded_patch";
+  const workflowMode = resolvedWorkflowId.includes("light_web_game")
+    ? "light_web_game"
+    : resolvedWorkflowId.includes("arcade_game_bundle")
+      ? "arcade_game_bundle"
+      : "bounded_patch";
+  const safetyPolicy = workflowMode === "light_web_game"
+    ? {
+        safety_class: "S1_bounded_artifact_write",
+        write_mode: "bounded_create",
+        write_roots: ["frontend/public/games"],
+        forbidden_paths: ["backend", "storage", ".env", ".env.local", ".git"],
+        verification_mode: "artifact_refs_required"
+      }
+    : {
+        safety_class: "S2_bounded_patch",
+        write_mode: "scoped_patch",
+        write_roots: [],
+        forbidden_paths: [".env", ".env.local", "storage", "node_modules", ".git"],
+        verification_mode: "artifact_or_edit_proof"
+      };
   return {
-    task_id: "task.dev.light_web_game",
-    task_title: "轻量网页小游戏开发",
+    task_id: "task.dev.new_task",
+    task_title: "新特定任务",
     task_kind: "specific_task",
     task_family: "development",
-    task_mode: "light_web_game",
-    flow_id: "flow.dev.light_web_game",
+    task_mode: workflowMode,
+    flow_id: `flow.dev.${workflowMode}`,
     default_agent_id: "agent:0",
     participant_agent_ids: [],
-    workflow_id: workflowId || "workflow.dev.light_web_game",
-    workflow_file_ref: `workflow:${workflowId || "workflow.dev.light_web_game"}`,
+    workflow_id: resolvedWorkflowId,
+    workflow_file_ref: `workflow:${resolvedWorkflowId}`,
     projection_id: projectionId,
-    input_contract_id: "LightWebGameTaskInput",
-    output_contract_id: "LightWebGameResult",
+    input_contract_id: workflowMode === "light_web_game" ? "LightWebGameTaskInput" : "WorkspacePatchTaskInput",
+    output_contract_id: workflowMode === "light_web_game" ? "LightWebGameResult" : "AssistantFinalAnswer",
+    safety_policy: safetyPolicy,
     task_structure: {
-      runtime_lane_hint: "game_delivery",
+      runtime_lane_hint: workflowMode === "light_web_game" ? "game_delivery" : "workspace_patch",
       memory_scope_hint: "conversation_read_write",
-      trigger_signals: ["小游戏", "web game", "snake", "canvas game"],
-      notes: "默认由主 Agent 承接，目标是交付可运行、可操作、可验证的轻量网页小游戏。",
-      workspace_target_hint: "frontend/public or standalone html file",
-      delivery_expectation: "playable_web_game"
+      trigger_signals: workflowMode === "light_web_game" ? ["小游戏", "web game", "snake", "canvas game"] : ["修复", "补丁", "patch", "修改代码"],
+      notes: workflowMode === "light_web_game"
+        ? "默认由主 Agent 承接，目标是交付可运行、可操作、可验证的轻量网页小游戏。"
+        : "默认由主 Agent 承接，目标是在明确边界内完成结构清晰、可验证的代码补丁。",
+      workspace_target_hint: workflowMode === "light_web_game" ? "frontend/public or standalone html file" : "explicit target root required",
+      delivery_expectation: workflowMode === "light_web_game" ? "playable_web_game" : "scoped_workspace_patch"
     },
     enabled: true,
     metadata: { managed_by: "task_system_console" },
-    trigger_signals_text: "小游戏\nweb game\nsnake\ncanvas game",
-    notes: "默认由主 Agent 承接，目标是交付可运行、可操作、可验证的轻量网页小游戏。"
+    trigger_signals_text: workflowMode === "light_web_game" ? "小游戏\nweb game\nsnake\ncanvas game" : "修复\n补丁\npatch\n修改代码",
+    notes: workflowMode === "light_web_game"
+      ? "默认由主 Agent 承接，目标是交付可运行、可操作、可验证的轻量网页小游戏。"
+      : "默认由主 Agent 承接，目标是在明确边界内完成结构清晰、可验证的代码补丁。",
+    safety_write_roots_text: listText(safetyPolicy.write_roots),
+    safety_forbidden_paths_text: listText(safetyPolicy.forbidden_paths)
   };
 }
 
 function specificTaskDraftFrom(task: TaskAssignment): SpecificTaskDraft {
+  const safetyPolicy = normalizeSafetyPolicy(task.safety_policy ?? {});
   return {
     ...task,
+    safety_policy: safetyPolicy,
     task_structure: task.task_structure ?? {},
     metadata: task.metadata ?? {},
     trigger_signals_text: listText((task.task_structure?.trigger_signals as string[] | undefined) ?? []),
-    notes: text(task.task_structure?.notes, "")
+    notes: text(task.task_structure?.notes, ""),
+    safety_write_roots_text: listText(safetyPolicy.write_roots),
+    safety_forbidden_paths_text: listText(safetyPolicy.forbidden_paths)
   };
 }
 
@@ -520,7 +586,7 @@ export function TaskSystemView() {
     if (selectedSpecificTask) {
       setSpecificTaskDraft(specificTaskDraftFrom(selectedSpecificTask));
     } else {
-      setSpecificTaskDraft(emptySpecificTask(preferredGameWorkflowId(workflows), projections[0]?.projection_id ?? ""));
+      setSpecificTaskDraft(emptySpecificTask(preferredSpecificWorkflowId(workflows), projections[0]?.projection_id ?? ""));
     }
   }, [selectedSpecificTask, workflows, projections]);
 
@@ -652,14 +718,30 @@ export function TaskSystemView() {
     try {
       const workflow = await saveWorkflowAndRefresh();
       const next = await upsertTaskSystemAssignment(specificTaskDraft.task_id, {
-        ...specificTaskDraft,
+        task_id: specificTaskDraft.task_id,
+        task_title: specificTaskDraft.task_title,
+        task_kind: specificTaskDraft.task_kind,
+        task_family: specificTaskDraft.task_family,
+        task_mode: specificTaskDraft.task_mode,
+        flow_id: specificTaskDraft.flow_id,
+        default_agent_id: specificTaskDraft.default_agent_id,
+        participant_agent_ids: specificTaskDraft.participant_agent_ids,
         workflow_id: workflow.workflow_id,
         workflow_file_ref: `workflow:${workflow.workflow_id}`,
+        projection_id: specificTaskDraft.projection_id,
+        input_contract_id: specificTaskDraft.input_contract_id,
+        output_contract_id: specificTaskDraft.output_contract_id,
+        safety_policy: {
+          ...normalizeSafetyPolicy(specificTaskDraft.safety_policy),
+          write_roots: splitList(specificTaskDraft.safety_write_roots_text),
+          forbidden_paths: splitList(specificTaskDraft.safety_forbidden_paths_text)
+        },
         task_structure: {
           ...specificTaskDraft.task_structure,
           trigger_signals: splitList(specificTaskDraft.trigger_signals_text),
           notes: specificTaskDraft.notes
         },
+        enabled: specificTaskDraft.enabled,
         metadata: { ...(specificTaskDraft.metadata ?? {}), managed_by: "task_system_console" }
       });
       setConsoleData(next as TaskSystemConsole);
@@ -698,7 +780,7 @@ export function TaskSystemView() {
   }
 
   function createSpecificTaskDraft() {
-    const draft = emptySpecificTask(preferredGameWorkflowId(workflows), projections[0]?.projection_id ?? "");
+    const draft = emptySpecificTask(preferredSpecificWorkflowId(workflows), projections[0]?.projection_id ?? "");
     setSelectedSpecificTaskId(draft.task_id);
     setSpecificTaskDraft(draft);
     setTaskWorkbenchTab("definition");
@@ -948,7 +1030,7 @@ export function TaskSystemView() {
                         <Workflow size={14} />
                         <span>{task.task_title}</span>
                         <Badge value={task.enabled ? "enabled" : "disabled"} />
-                        <small>{task.default_agent_id} / {task.workflow_id || "未绑定 workflow"}</small>
+                        <small>{task.default_agent_id} / {task.workflow_id || "未绑定 workflow"} / {text(task.safety_policy?.safety_class, "S0_readonly")}</small>
                       </button>
                     );
                   })}
@@ -980,11 +1062,17 @@ export function TaskSystemView() {
               <TaskSummaryCard title="承接 Agent" value={currentTaskAgentName || "未指定"} detail={currentTaskAgentId || "未绑定"} />
               <TaskSummaryCard title="绑定 workflow" value={currentTaskWorkflowId || "未绑定"} detail="任务先定目标，再装配 workflow" />
               <TaskSummaryCard title="任务投影" value={currentTaskProjectionTitle} detail={currentTaskProjectionId || "未绑定"} />
+              <TaskSummaryCard
+                title="运行安全"
+                value={taskModeTab === "general" ? "S0_readonly" : text((specificTaskDraft.safety_policy ?? {}).safety_class, "S0_readonly")}
+                detail={taskModeTab === "general" ? "通用任务默认只读承接。" : formatSafetySummary(specificTaskDraft.safety_policy ?? {})}
+              />
             </section>
 
-            <nav className="task-system-switcher task-system-switcher--three">
+            <nav className="task-system-switcher task-system-switcher--four">
               <button className={taskWorkbenchTab === "definition" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskWorkbenchTab("definition")} type="button">任务定义</button>
               <button className={taskWorkbenchTab === "binding" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskWorkbenchTab("binding")} type="button">执行绑定</button>
+              <button className={taskWorkbenchTab === "safety" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskWorkbenchTab("safety")} type="button">运行安全</button>
               <button className={taskWorkbenchTab === "workflow" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskWorkbenchTab("workflow")} type="button">Workflow</button>
             </nav>
 
@@ -1047,6 +1135,8 @@ export function TaskSystemView() {
                     } else {
                       setSpecificTaskDraft((value) => ({
                         ...value,
+                        task_mode: workflow?.task_mode || value.task_mode,
+                        flow_id: workflow?.task_mode ? `flow.${value.task_family}.${workflow.task_mode}` : value.flow_id,
                         workflow_id: workflowId,
                         workflow_file_ref: workflowId ? `workflow:${workflowId}` : ""
                       }));
@@ -1063,6 +1153,83 @@ export function TaskSystemView() {
                   ) : null}
                 </div>
               </div>
+            ) : null}
+
+            {taskWorkbenchTab === "safety" ? (
+              taskModeTab === "general" ? (
+                <div className="task-system-form-section">
+                  <div className="task-system-callout">
+                    <span>通用任务安全</span>
+                    <strong>主会话通用任务默认维持只读入口，不在这里放开写权限。</strong>
+                    <p>真正需要执行写入、补丁或产物生成的请求，应该分流到特定任务，再由特定任务声明自己的安全边界。</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="task-system-form-section">
+                  <div className="task-system-binding-grid">
+                    <article className="task-system-binding-card">
+                      <span>安全归属</span>
+                      <strong>安全策略属于任务，而不是隐藏在模板后面</strong>
+                      <p>特定任务决定允许什么写入方式、哪些目录可写、哪些路径禁止碰触，运行时按这里的登记值收敛能力。</p>
+                    </article>
+                    <article className="task-system-binding-card">
+                      <span>运行顺序</span>
+                      <strong>{"task -> workflow -> projection"}</strong>
+                      <p>先装配任务目标与安全边界，再装配 workflow 做法，最后再用 projection 补充执行姿态，这样职责不会混淆。</p>
+                    </article>
+                  </div>
+                  <div className="task-system-form-grid">
+                    <label>
+                      <span>安全等级</span>
+                      <select
+                        value={text((specificTaskDraft.safety_policy ?? {}).safety_class, "S0_readonly")}
+                        onChange={(event) => setSpecificTaskDraft((value) => ({
+                          ...value,
+                          safety_policy: { ...(value.safety_policy ?? {}), safety_class: event.target.value }
+                        }))}
+                      >
+                        {SAFETY_CLASS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>写入模式</span>
+                      <select
+                        value={text((specificTaskDraft.safety_policy ?? {}).write_mode, "none")}
+                        onChange={(event) => setSpecificTaskDraft((value) => ({
+                          ...value,
+                          safety_policy: { ...(value.safety_policy ?? {}), write_mode: event.target.value }
+                        }))}
+                      >
+                        {WRITE_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>验证模式</span>
+                      <input
+                        value={text((specificTaskDraft.safety_policy ?? {}).verification_mode, "")}
+                        onChange={(event) => setSpecificTaskDraft((value) => ({
+                          ...value,
+                          safety_policy: { ...(value.safety_policy ?? {}), verification_mode: event.target.value }
+                        }))}
+                      />
+                    </label>
+                    <label className="task-system-form-grid__full">
+                      <span>允许写入根目录</span>
+                      <textarea
+                        value={specificTaskDraft.safety_write_roots_text}
+                        onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, safety_write_roots_text: event.target.value }))}
+                      />
+                    </label>
+                    <label className="task-system-form-grid__full">
+                      <span>禁止路径</span>
+                      <textarea
+                        value={specificTaskDraft.safety_forbidden_paths_text}
+                        onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, safety_forbidden_paths_text: event.target.value }))}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )
             ) : null}
 
             {taskWorkbenchTab === "workflow" ? (

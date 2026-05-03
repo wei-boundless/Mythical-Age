@@ -58,6 +58,7 @@ class SpecificTaskUpsertRequest(BaseModel):
     projection_id: str = Field(default="", max_length=160)
     input_contract_id: str = Field(default="", max_length=160)
     output_contract_id: str = Field(default="", max_length=160)
+    safety_policy: dict[str, object] = Field(default_factory=dict)
     trigger_signals: list[str] = Field(default_factory=list)
     notes: str = Field(default="", max_length=1000)
     task_structure: dict[str, object] = Field(default_factory=dict)
@@ -300,6 +301,7 @@ async def upsert_task_system_specific_assignment(task_id: str, payload: Specific
             projection_id=payload.projection_id,
             input_contract_id=payload.input_contract_id,
             output_contract_id=payload.output_contract_id,
+            safety_policy=payload.safety_policy,
             task_structure={
                 **payload.task_structure,
                 "trigger_signals": payload.trigger_signals,

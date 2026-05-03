@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from operations import OperationGate, build_default_operation_registry
+from operations import OperationGate, OperationGatePipelineContext, build_default_operation_registry
 from output_boundary.boundary import AssistantOutputBoundary
 from tasks.run_models import (
     TaskRunLedger,
@@ -62,6 +62,7 @@ from .loop_control import RuntimeLoopLimits, check_runtime_loop_control
 from .model_adoption import build_model_response_runtime_adoption
 from .models import RuntimeLoopState, TaskRun
 from .observation_aggregator import ObservationAggregation, ObservationAggregator
+from .safety import build_task_safety_validators
 from .stage_projection import StageProjectionCycle
 from .state_index import RuntimeStateIndex
 from .trace_reader import RuntimeLoopTraceReader
@@ -567,6 +568,14 @@ class TaskRunLoop:
             operation_registry=self.operation_gate.registry,
             agent_runtime_profile=agent_runtime_profile,
         )
+        task_safety_envelope = dict(dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}).get(
+            "safety_envelope",
+            {},
+        )
+        task_safety_validators = build_task_safety_validators(
+            root_dir=self.root_dir,
+            safety_envelope=task_safety_envelope,
+        )
         runtime_tool_instances = self._tool_instances_for_resource_policy(tool_instances, resource_policy)
         directive_event = self.event_log.append(
             state.task_run_id,
@@ -590,6 +599,10 @@ class TaskRunLoop:
             "op.model_response",
             resource_policy=resource_policy,
             directive_ref=directive.directive_id,
+            context=OperationGatePipelineContext(
+                operation_input={"operation_id": "op.model_response"},
+                validators=task_safety_validators,
+            ),
         )
         gate_event = self.event_log.append(
             state.task_run_id,
@@ -2096,6 +2109,18 @@ class TaskRunLoop:
                 operation_id,
                 resource_policy=tool_policy,
                 directive_ref=tool_directive.directive_id,
+                context=OperationGatePipelineContext(
+                    operation_input={
+                        "operation_id": operation_id,
+                        **dict(action_request.payload.get("tool_call") or {}),
+                    },
+                    validators=build_task_safety_validators(
+                        root_dir=self.root_dir,
+                        safety_envelope=dict(
+                            dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}
+                        ).get("safety_envelope", {}),
+                    ),
+                ),
             )
             gate_event = self.event_log.append(
                 task_run_id,

@@ -13,11 +13,12 @@ from query import QueryRuntime
 from understanding.query_understanding import analyze_query_understanding
 from tasks import TaskCoordinator
 from orchestration import RuntimeActionRequest, RuntimeLoopLimits
+from orchestration.runtime_loop.safety import build_task_safety_validators
 from orchestration.runtime_loop.task_run_loop import _direct_tool_answer_from_observation
 from orchestration.runtime_loop.observation_aggregator import ObservationAggregator
 from context_management.projection import projection_from_file_work
 from orchestration.runtime_loop.tool_adoption import build_tool_request_runtime_adoption
-from operations import ResourceDecision, ResourcePolicy, build_default_operation_registry
+from operations import ResourceDecision, ResourcePolicy, OperationGatePipelineContext, build_default_operation_registry
 
 
 class _SettingsStub:
@@ -251,6 +252,80 @@ class _GameFileModelRuntimeStub:
         return SimpleNamespace(content="小游戏文件已生成到 frontend/public/games/agent_generated_snake.html")
 
 
+class _ArcadeBundleModelRuntimeStub:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.tool_enabled_calls = 0
+        self.last_tools: list[object] = []
+
+    async def invoke_messages(self, messages):
+        self.calls += 1
+        return SimpleNamespace(content="复合小游戏包已生成。")
+
+    async def invoke_messages_with_tools(self, messages, tools):
+        self.calls += 1
+        self.tool_enabled_calls += 1
+        self.last_tools = list(tools)
+        if self.tool_enabled_calls == 1:
+            return SimpleNamespace(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "tool-call-search-arcade-root",
+                        "name": "search_files",
+                        "args": {"query": "frontend/public/games/arcade_bundle"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if self.tool_enabled_calls == 2:
+            return SimpleNamespace(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "tool-call-write-arcade-index",
+                        "name": "write_file",
+                        "args": {
+                            "path": "frontend/public/games/arcade_bundle/index.html",
+                            "content": "<!doctype html><html><head><meta charset='utf-8'><title>Arcade Bundle</title><link rel='stylesheet' href='style.css'></head><body><main><h1>Arcade Bundle</h1><canvas id='game' width='480' height='320'></canvas><p id='status'>Press start.</p><button id='start'>Start</button><script src='game.js'></script></main></body></html>",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if self.tool_enabled_calls == 3:
+            return SimpleNamespace(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "tool-call-write-arcade-style",
+                        "name": "write_file",
+                        "args": {
+                            "path": "frontend/public/games/arcade_bundle/style.css",
+                            "content": "body{margin:0;font-family:Arial,sans-serif;background:#111827;color:#f3f4f6;display:grid;place-items:center;min-height:100vh}main{display:grid;gap:12px;justify-items:center}canvas{background:#0f172a;border:2px solid #334155}button{padding:10px 18px;background:#22c55e;border:none;color:#08130d;font-weight:700;cursor:pointer}",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if self.tool_enabled_calls == 4:
+            return SimpleNamespace(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "tool-call-write-arcade-game",
+                        "name": "write_file",
+                        "args": {
+                            "path": "frontend/public/games/arcade_bundle/game.js",
+                            "content": "const canvas=document.getElementById('game');const ctx=canvas.getContext('2d');const statusEl=document.getElementById('status');const startBtn=document.getElementById('start');let running=false;let x=24;let y=160;let vx=2;let score=0;function draw(){ctx.clearRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#38bdf8';ctx.fillRect(x,y,24,24);ctx.fillStyle='#f59e0b';for(let i=0;i<5;i+=1){ctx.fillRect(60+i*72,40+i*18,18,18);}ctx.fillStyle='#f8fafc';ctx.fillText('Score: '+score,12,20);}function tick(){if(!running)return;x+=vx;if(x>canvas.width){x=-24;score+=1;statusEl.textContent='Loop cleared '+score+' times.';}draw();requestAnimationFrame(tick);}startBtn.addEventListener('click',()=>{if(running)return;running=true;statusEl.textContent='Running';tick();});draw();",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return SimpleNamespace(content="多文件小游戏包已生成到 frontend/public/games/arcade_bundle/")
+
+
 def _build_runtime() -> QueryRuntime:
     return QueryRuntime(
         base_dir=Path("."),
@@ -282,13 +357,15 @@ def _build_stream_runtime() -> QueryRuntime:
 
 
 def _build_tool_loop_runtime(tmp_path: Path) -> QueryRuntime:
+    work_root = tmp_path / "backend"
+    work_root.mkdir(parents=True, exist_ok=True)
     runtime = QueryRuntime(
-        base_dir=tmp_path,
+        base_dir=work_root,
         settings_service=_SettingsStub(),
         session_manager=_SessionManagerStub(),
         memory_facade=_MemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
-        tool_runtime=_LoopToolRuntimeStub(BACKEND_DIR),
+        tool_runtime=_LoopToolRuntimeStub(work_root),
         skill_registry=_SkillRegistryStub(),
         permission_service=_PermissionStub(),
         model_runtime=_ToolLoopModelRuntimeStub(),
@@ -323,6 +400,8 @@ def _build_bound_answer_runtime() -> QueryRuntime:
 
 
 def _build_repeating_pdf_runtime(tmp_path: Path) -> QueryRuntime:
+    work_root = tmp_path / "backend"
+    work_root.mkdir(parents=True, exist_ok=True)
     memory_facade = _MemoryFacadeStub(
         state_snapshot={
             "context_slots": {
@@ -332,12 +411,12 @@ def _build_repeating_pdf_runtime(tmp_path: Path) -> QueryRuntime:
         }
     )
     runtime = QueryRuntime(
-        base_dir=tmp_path,
+        base_dir=work_root,
         settings_service=_SettingsStub(),
         session_manager=_SessionManagerStub(),
         memory_facade=memory_facade,
         retrieval_service=SimpleNamespace(),
-        tool_runtime=_LoopToolRuntimeStub(BACKEND_DIR),
+        tool_runtime=_LoopToolRuntimeStub(work_root),
         skill_registry=_SkillRegistryStub(),
         permission_service=_PermissionStub(),
         model_runtime=_RepeatingToolModelRuntimeStub(),
@@ -348,19 +427,40 @@ def _build_repeating_pdf_runtime(tmp_path: Path) -> QueryRuntime:
 
 
 def _build_game_generation_runtime(tmp_path: Path) -> QueryRuntime:
+    work_root = tmp_path / "backend"
+    work_root.mkdir(parents=True, exist_ok=True)
     runtime = QueryRuntime(
-        base_dir=tmp_path,
+        base_dir=work_root,
         settings_service=_SettingsStub(),
         session_manager=_SessionManagerStub(),
         memory_facade=_MemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
-        tool_runtime=_LoopToolRuntimeStub(BACKEND_DIR),
+        tool_runtime=_LoopToolRuntimeStub(work_root),
         skill_registry=_SkillRegistryStub(),
         permission_service=_PermissionStub(),
         model_runtime=_GameFileModelRuntimeStub(),
         task_coordinator=TaskCoordinator(),
     )
     runtime.task_run_loop.limits = RuntimeLoopLimits(max_runtime_seconds=300.0, max_model_calls=6, max_turns=6)
+    return runtime
+
+
+def _build_arcade_bundle_runtime(tmp_path: Path) -> QueryRuntime:
+    work_root = tmp_path / "backend"
+    work_root.mkdir(parents=True, exist_ok=True)
+    runtime = QueryRuntime(
+        base_dir=work_root,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_LoopToolRuntimeStub(work_root),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_ArcadeBundleModelRuntimeStub(),
+        task_coordinator=TaskCoordinator(),
+    )
+    runtime.task_run_loop.limits = RuntimeLoopLimits(max_runtime_seconds=300.0, max_model_calls=8, max_turns=8)
     return runtime
 
 
@@ -623,6 +723,9 @@ def test_astream_specific_light_web_game_task_can_write_new_file(tmp_path: Path)
     target = tmp_path / "frontend" / "public" / "games" / "agent_generated_snake.html"
     directive_event = next(event for event in events if event["type"] == "runtime_directive")
     done_event = next(event for event in events if event["type"] == "done")
+    started_event = next(event for event in events if event["type"] == "runtime_loop_started")
+    task_run_id = str(dict(started_event["task_run"]).get("task_run_id") or "")
+    trace = runtime.task_run_loop.get_trace(task_run_id)
     runtime_event_types = [
         dict(event.get("event") or {}).get("event_type")
         for event in events
@@ -650,6 +753,74 @@ def test_astream_specific_light_web_game_task_can_write_new_file(tmp_path: Path)
         for event in events
         if event.get("type") == "runtime_loop_event"
     )
+
+
+def test_astream_arcade_game_bundle_task_can_write_multiple_files_within_bounded_root(tmp_path: Path) -> None:
+    runtime = _build_arcade_bundle_runtime(tmp_path)
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-agent-arcade",
+                message="生成一个包含开始界面、游戏脚本和样式文件的网页小游戏包",
+                history=[],
+                task_selection={"selected_task_id": "task.dev.arcade_game_bundle"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    bundle_root = tmp_path / "frontend" / "public" / "games" / "arcade_bundle"
+    index_file = bundle_root / "index.html"
+    style_file = bundle_root / "style.css"
+    game_file = bundle_root / "game.js"
+    directive_event = next(event for event in events if event["type"] == "runtime_directive")
+
+    assert index_file.exists()
+    assert style_file.exists()
+    assert game_file.exists()
+    assert "Arcade Bundle" in index_file.read_text(encoding="utf-8")
+    assert "canvas" in game_file.read_text(encoding="utf-8")
+    assert "op.write_file" in directive_event["resource_policy"]["allowed_operations"]
+
+
+def test_arcade_game_bundle_blocks_write_outside_bounded_root(tmp_path: Path) -> None:
+    runtime = _build_arcade_bundle_runtime(tmp_path)
+    safety_validators = build_task_safety_validators(
+        root_dir=tmp_path,
+        safety_envelope={
+            "safety_class": "S1_bounded_artifact_write",
+            "write_mode": "bounded_create",
+            "write_roots": ["frontend/public/games/arcade_bundle"],
+            "forbidden_paths": ["backend", "storage", ".env"],
+        },
+    )
+    gate_result = runtime.task_run_loop.operation_gate.check(
+        "op.write_file",
+        resource_policy=ResourcePolicy(
+            policy_id="respol:test:arcade",
+            task_id="task.dev.arcade_game_bundle",
+            allowed_operations=("op.write_file",),
+            denied_operations=(),
+            requires_approval_operations=(),
+            not_executable_operations=(),
+            adopted=True,
+            runtime_executable=True,
+            runtime_view_only=False,
+        ),
+        directive_ref="runtime-directive:test",
+        context=OperationGatePipelineContext(
+            operation_input={"path": "backend/unsafe.py", "content": "print('nope')"},
+            validators=safety_validators,
+        ),
+    )
+
+    assert gate_result.allowed is False
+    assert "outside task write roots" in gate_result.reason or "blocked by task safety envelope" in gate_result.reason
 
 
 def test_followup_after_tool_result_stays_tool_capable_until_final_answer(tmp_path: Path) -> None:

@@ -227,3 +227,51 @@ def test_specific_light_web_game_task_contract_promotes_development_execution_sh
     assert "op.write_file" in optional_operations
     assert "op.edit_file" not in denied_operations
     assert "op.write_file" not in denied_operations
+
+
+def test_specific_arcade_game_bundle_contract_exposes_bounded_write_safety_envelope() -> None:
+    runtime = build_task_runtime_contract(
+        session_id="session-arcade-contract",
+        task_id="task-arcade-contract",
+        user_goal="生成一个多文件网页小游戏包，包含开始界面、游戏逻辑和说明。",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "selected_task_id": "task.dev.arcade_game_bundle",
+            "target_root": "frontend/public/games/arcade_bundle",
+        },
+    )
+
+    safety_envelope = runtime["task_spec"]["safety_envelope"]
+    operations = set(runtime["operation_requirement"]["required_operations"])
+
+    assert runtime["registered_task"]["task_id"] == "task.dev.arcade_game_bundle"
+    assert runtime["selected_template"]["template_id"] == "template.dev.arcade_game_bundle"
+    assert safety_envelope["safety_class"] == "S1_bounded_artifact_write"
+    assert safety_envelope["write_mode"] == "bounded_create"
+    assert safety_envelope["write_roots"] == ["frontend/public/games/arcade_bundle"]
+    assert "backend" in safety_envelope["forbidden_paths"]
+    assert {"op.read_file", "op.search_files", "op.search_text", "op.edit_file"} <= operations
+
+
+def test_specific_bounded_patch_contract_exposes_scoped_patch_safety_envelope() -> None:
+    runtime = build_task_runtime_contract(
+        session_id="session-bounded-patch",
+        task_id="task-bounded-patch",
+        user_goal="在 frontend/src/components 内修复一个按钮状态问题。",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "selected_task_id": "task.dev.bounded_patch",
+            "target_root": "frontend/src/components",
+        },
+    )
+
+    safety_envelope = runtime["task_spec"]["safety_envelope"]
+    required_operations = set(runtime["operation_requirement"]["required_operations"])
+
+    assert runtime["registered_task"]["task_id"] == "task.dev.bounded_patch"
+    assert runtime["selected_template"]["template_id"] == "template.dev.workspace_patch"
+    assert safety_envelope["safety_class"] == "S2_bounded_patch"
+    assert safety_envelope["write_mode"] == "scoped_patch"
+    assert safety_envelope["write_roots"] == ["frontend/src/components"]
+    assert ".git" in safety_envelope["forbidden_paths"]
+    assert {"op.read_file", "op.search_files", "op.search_text", "op.edit_file"} <= required_operations
