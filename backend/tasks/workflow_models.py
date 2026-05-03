@@ -9,8 +9,7 @@ class TaskWorkflowBinding:
     workflow_id: str
     title: str
     task_mode: str
-    default_projection_id: str = ""
-    allowed_projection_ids: tuple[str, ...] = ()
+    compatible_projection_ids: tuple[str, ...] = ()
     visible_skill_ids: tuple[str, ...] = ()
     steps: tuple[dict[str, Any], ...] = ()
     input_boundary: str = ""
@@ -24,7 +23,7 @@ class TaskWorkflowBinding:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["allowed_projection_ids"] = list(self.allowed_projection_ids)
+        payload["compatible_projection_ids"] = list(self.compatible_projection_ids)
         payload["visible_skill_ids"] = list(self.visible_skill_ids)
         payload["steps"] = [dict(item) for item in self.steps]
         payload["stop_conditions"] = list(self.stop_conditions)

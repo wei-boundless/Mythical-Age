@@ -327,11 +327,9 @@ export type AgentTaskConnectionProfile = {
   available_task_modes: string[];
   flow_refs: string[];
   binding_refs: string[];
-  projection_refs: string[];
   workflow_refs: string[];
   topology_refs: string[];
   default_flow_ref: string;
-  default_projection_ref: string;
   default_workflow_ref: string;
   default_runtime_lane_hint: string;
   validation_state: string;
@@ -444,7 +442,6 @@ export type AgentTaskCarryingProfile = {
   carried_general_task_refs: string[];
   carried_specific_task_refs: string[];
   workflow_refs: string[];
-  projection_refs: string[];
   validation_state: string;
   blocked_reasons: string[];
   diagnostics: Record<string, unknown>;
@@ -565,8 +562,7 @@ export type TaskWorkflowRecord = {
   workflow_id: string;
   title: string;
   task_mode: string;
-  default_projection_id: string;
-  allowed_projection_ids: string[];
+  compatible_projection_ids: string[];
   visible_skill_ids: string[];
   steps: Array<Record<string, unknown>>;
   input_boundary: string;

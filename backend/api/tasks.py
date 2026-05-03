@@ -69,8 +69,7 @@ class TaskWorkflowUpsertRequest(BaseModel):
     workflow_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
     task_mode: str = Field(default="", max_length=80)
-    default_projection_id: str = Field(default="", max_length=160)
-    allowed_projection_ids: list[str] = Field(default_factory=list)
+    compatible_projection_ids: list[str] = Field(default_factory=list)
     visible_skill_ids: list[str] = Field(default_factory=list)
     steps: list[dict[str, object]] = Field(default_factory=list)
     input_boundary: str = Field(default="")
@@ -195,8 +194,7 @@ async def upsert_task_system_workflow(workflow_id: str, payload: TaskWorkflowUps
             workflow_id=payload.workflow_id,
             title=payload.title,
             task_mode=payload.task_mode,
-            default_projection_id=payload.default_projection_id,
-            allowed_projection_ids=tuple(payload.allowed_projection_ids),
+            compatible_projection_ids=tuple(payload.compatible_projection_ids),
             visible_skill_ids=tuple(payload.visible_skill_ids),
             steps=tuple(dict(item) for item in payload.steps),
             input_boundary=payload.input_boundary,

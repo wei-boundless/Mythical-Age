@@ -533,20 +533,6 @@ def _resolve_projection_card(
         if card is not None:
             return card
 
-    linked_flow_id = str(getattr(selected_template, "metadata", {}).get("linked_flow_id") or "").strip()
-    if linked_flow_id:
-        flow = flow_registry.get_flow(linked_flow_id)
-        if flow is not None and flow.default_projection_id:
-            card = get_projection_card(registry_base_dir, flow.default_projection_id)
-            if card is not None:
-                return card
-
-    workflow_projection_id = str((task_workflow or {}).get("default_projection_id") or "").strip()
-    if workflow_projection_id:
-        card = get_projection_card(registry_base_dir, workflow_projection_id)
-        if card is not None:
-            return card
-
     agent_projection_id = _resolve_agent_default_projection_id(
         registry_base_dir=registry_base_dir,
         agent_id=selected_agent_id,
@@ -556,14 +542,6 @@ def _resolve_projection_card(
         if card is not None:
             return card
 
-    matched_flow = next(
-        (flow for flow in flow_registry.list_flows() if flow.task_mode == task_mode and flow.default_projection_id),
-        None,
-    )
-    if matched_flow is not None:
-        card = get_projection_card(registry_base_dir, matched_flow.default_projection_id)
-        if card is not None:
-            return card
     return None
 
 

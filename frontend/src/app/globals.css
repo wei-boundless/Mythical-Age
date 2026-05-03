@@ -11991,6 +11991,10 @@ html[data-soul="xuannv"] .soul-portrait__label {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.task-system-switcher--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .task-system-switcher--five {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
@@ -12096,6 +12100,13 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-system-control-grid--agents {
   grid-template-columns: minmax(320px, 0.36fr) minmax(0, 0.64fr);
+}
+
+.task-system-task-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.32fr) minmax(0, 0.68fr);
+  gap: 0.9rem;
+  min-height: 0;
 }
 
 .task-system-control-panel {
@@ -12254,6 +12265,139 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-system-form-section {
   display: grid;
   gap: 0.85rem;
+}
+
+.task-system-task-rail,
+.task-system-task-workbench {
+  align-self: start;
+}
+
+.task-system-task-rail__stack,
+.task-system-inline-copy {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.task-system-inline-title {
+  color: var(--color-text);
+  font-size: 0.88rem;
+}
+
+.task-system-task-note,
+.task-system-callout,
+.task-system-binding-card,
+.task-system-summary-card,
+.task-system-workflow-hero,
+.task-system-workflow-card {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.026);
+}
+
+.task-system-task-note,
+.task-system-callout,
+.task-system-binding-card,
+.task-system-summary-card,
+.task-system-workflow-hero {
+  padding: 0.9rem;
+}
+
+.task-system-task-note span,
+.task-system-callout span,
+.task-system-binding-card span,
+.task-system-summary-card span,
+.task-system-workflow-hero span,
+.task-system-workflow-card span,
+.task-system-inline-copy span {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.task-system-task-note strong,
+.task-system-callout strong,
+.task-system-binding-card strong,
+.task-system-summary-card strong,
+.task-system-workflow-hero strong,
+.task-system-inline-copy strong {
+  color: var(--color-text);
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.task-system-task-note p,
+.task-system-callout p,
+.task-system-binding-card p,
+.task-system-summary-card p,
+.task-system-workflow-hero p,
+.task-system-workflow-card small {
+  margin: 0.28rem 0 0;
+  color: var(--color-text-soft);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.task-system-task-cover,
+.task-system-binding-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.task-system-summary-card {
+  display: grid;
+  gap: 0.32rem;
+}
+
+.task-system-summary-card strong {
+  font-size: 1rem;
+}
+
+.task-system-binding-card {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.task-system-workflow-workbench {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.task-system-workflow-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.task-system-workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.task-system-workflow-card {
+  display: grid;
+  gap: 0.42rem;
+  padding: 0.72rem 0.78rem;
+}
+
+.task-system-workflow-card textarea {
+  width: 100%;
+  min-height: 128px;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--color-text);
+  font: inherit;
+  line-height: 1.5;
+  outline: none;
+  padding: 0.62rem 0.7rem;
+  resize: vertical;
+}
+
+.task-system-workflow-card small {
+  display: block;
 }
 
 .task-system-form-grid {
@@ -12698,6 +12842,10 @@ html[data-soul="xuannv"] .soul-portrait__label {
     grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr);
   }
 
+  .task-system-task-layout {
+    grid-template-columns: minmax(280px, 0.36fr) minmax(0, 0.64fr);
+  }
+
   .task-system-control-grid > :last-child {
     grid-column: 1 / -1;
   }
@@ -12721,15 +12869,20 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 @media (max-width: 860px) {
   .task-system-agent-type-guide,
-  .task-system-info-grid {
+  .task-system-info-grid,
+  .task-system-task-cover,
+  .task-system-binding-grid,
+  .task-system-workflow-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .task-system-control-grid--agents {
+  .task-system-control-grid--agents,
+  .task-system-task-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .task-system-switcher--five,
+  .task-system-switcher--three,
   .task-system-switcher--four,
   .task-system-form-grid,
   .task-system-form-grid--wide,

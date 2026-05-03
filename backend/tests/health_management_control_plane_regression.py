@@ -80,7 +80,7 @@ def test_task_system_exposes_generic_agent_task_connection_profile(tmp_path) -> 
     assert overview["authority"] == "task_system.agent_task_connections"
     assert health_profile["owner_system"] == "health_system"
     assert "flow.health.issue_triage" in health_profile["flow_refs"]
-    assert "xuannv__primary" in health_profile["projection_refs"]
+    assert "workflow.health.issue_triage" in health_profile["workflow_refs"]
     assert health_profile["validation_state"] == "valid"
 
 

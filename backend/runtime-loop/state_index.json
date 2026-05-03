@@ -39260,6 +39260,43 @@
         "final_content_chars": 58
       },
       "authority": "orchestration.task_run"
+    },
+    "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:7:97987ce6": {
+      "task_run_id": "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:7:97987ce6",
+      "session_id": "2d6cf9acb7004567a3c21716f61d00ca",
+      "task_id": "turn:2d6cf9acb7004567a3c21716f61d00ca:7",
+      "task_contract_ref": "turn:2d6cf9acb7004567a3c21716f61d00ca:7",
+      "owner_agent_seat_id": "main",
+      "agent_id": "agent:0",
+      "agent_profile_id": "main_interactive_agent",
+      "runtime_lane": "full_interactive",
+      "status": "completed",
+      "created_at": 1777786730.469911,
+      "updated_at": 1777786840.8705378,
+      "latest_event_offset": 52,
+      "latest_checkpoint_ref": "rtchk:taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:7:97987ce6:51",
+      "terminal_reason": "completed",
+      "diagnostics": {
+        "loop_owner": "OrchestrationSystem.TaskRunLoop",
+        "single_agent": true,
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "runtime_lane": "full_interactive",
+        "task_agent_binding_ref": "",
+        "skill_workflow_ref": "",
+        "health_issue_ref": "",
+        "multi_agent_enabled": false,
+        "loop_limits": {
+          "max_turns": 8,
+          "max_model_calls": 8,
+          "max_runtime_seconds": 300.0,
+          "max_events": 200,
+          "authority": "orchestration.runtime_loop_limits"
+        },
+        "runtime_channel": "single_agent_runtime",
+        "final_content_chars": 6066
+      },
+      "authority": "orchestration.task_run"
     }
   },
   "sessions": {
@@ -40604,8 +40641,9 @@
     "2d6cf9acb7004567a3c21716f61d00ca": [
       "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:1:03c61ab5",
       "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:3:fcc79cf3",
-      "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:5:82caab39"
+      "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:5:82caab39",
+      "taskrun:2d6cf9acb7004567a3c21716f61d00ca:turn:2d6cf9acb7004567a3c21716f61d00ca:7:97987ce6"
     ]
   },
-  "updated_at": 1777782041.6497998
+  "updated_at": 1777786840.8951273
 }

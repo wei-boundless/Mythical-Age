@@ -13,8 +13,7 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
             workflow_id="workflow.health.issue_triage",
             title="健康问题分诊工作流",
             task_mode="issue_triage",
-            default_projection_id="xuannv__primary",
-            allowed_projection_ids=("xuannv__primary",),
+            compatible_projection_ids=("xuannv__primary",),
             visible_skill_ids=("skill.health.issue_triage", "skill.health.trace_reading"),
             steps=(
                 {"step_id": "collect_refs", "title": "收集问题证据引用"},
@@ -33,8 +32,7 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
             workflow_id="workflow.health.trace_analysis",
             title="健康链路分析工作流",
             task_mode="trace_analysis",
-            default_projection_id="xuannv__primary",
-            allowed_projection_ids=("xuannv__primary",),
+            compatible_projection_ids=("xuannv__primary",),
             visible_skill_ids=("skill.health.trace_reading", "skill.health.root_cause_analysis"),
             steps=(
                 {"step_id": "read_runtime_events", "title": "读取运行事件"},
@@ -53,8 +51,7 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
             workflow_id="workflow.health.case_draft",
             title="健康用例草案工作流",
             task_mode="case_draft",
-            default_projection_id="xuannv__primary",
-            allowed_projection_ids=("xuannv__primary",),
+            compatible_projection_ids=("xuannv__primary",),
             visible_skill_ids=("skill.health.case_draft", "skill.health.assertion_design"),
             steps=(
                 {"step_id": "extract_trigger", "title": "提取复现触发条件"},
@@ -73,8 +70,7 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
             workflow_id="workflow.health.fix_verification",
             title="健康修复验证工作流",
             task_mode="fix_verification",
-            default_projection_id="xuannv__primary",
-            allowed_projection_ids=("xuannv__primary",),
+            compatible_projection_ids=("xuannv__primary",),
             visible_skill_ids=("skill.health.fix_verification", "skill.health.trace_reading"),
             steps=(
                 {"step_id": "compare_before_after", "title": "比较修复前后链路"},
@@ -116,11 +112,11 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _workflow_from_dict(payload: dict[str, Any]) -> TaskWorkflowBinding:
-    default_projection_id = str(payload.get("default_projection_id") or "")
-    allowed_projection_ids = tuple(
+    compatible_projection_ids = tuple(
         str(item)
         for item in list(
-            payload.get("allowed_projection_ids")
+            payload.get("compatible_projection_ids")
+            or payload.get("allowed_projection_ids")
             or payload.get("allowed_projection_template_ids")
             or []
         )
@@ -130,8 +126,7 @@ def _workflow_from_dict(payload: dict[str, Any]) -> TaskWorkflowBinding:
         workflow_id=str(payload.get("workflow_id") or ""),
         title=str(payload.get("title") or ""),
         task_mode=str(payload.get("task_mode") or ""),
-        default_projection_id=default_projection_id,
-        allowed_projection_ids=allowed_projection_ids,
+        compatible_projection_ids=compatible_projection_ids,
         visible_skill_ids=tuple(str(item) for item in list(payload.get("visible_skill_ids") or []) if str(item)),
         steps=tuple(dict(item) for item in list(payload.get("steps") or []) if isinstance(item, dict)),
         input_boundary=str(payload.get("input_boundary") or ""),
@@ -170,8 +165,7 @@ class TaskWorkflowRegistry:
         workflow_id: str,
         title: str,
         task_mode: str,
-        default_projection_id: str = "",
-        allowed_projection_ids: tuple[str, ...] = (),
+        compatible_projection_ids: tuple[str, ...] = (),
         visible_skill_ids: tuple[str, ...] = (),
         steps: tuple[dict[str, Any], ...] = (),
         input_boundary: str = "",
@@ -190,8 +184,7 @@ class TaskWorkflowRegistry:
             workflow_id=target,
             title=str(title or target).strip(),
             task_mode=str(task_mode or "").strip(),
-            default_projection_id=str(default_projection_id or "").strip(),
-            allowed_projection_ids=tuple(str(item).strip() for item in allowed_projection_ids if str(item).strip()),
+            compatible_projection_ids=tuple(str(item).strip() for item in compatible_projection_ids if str(item).strip()),
             visible_skill_ids=tuple(str(item).strip() for item in visible_skill_ids if str(item).strip()),
             steps=tuple(dict(item) for item in steps if isinstance(item, dict)),
             input_boundary=str(input_boundary or "").strip(),

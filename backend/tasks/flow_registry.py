@@ -5,7 +5,6 @@ from typing import Any
 
 from operations import AgentRegistry
 from orchestration import AgentRuntimeRegistry
-from soul.projection_store import get_projection_card
 
 from .flow_models import (
     AgentTaskCarryingProfile,
@@ -32,7 +31,6 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
             output_contract_id="HealthTriageResult",
             default_agent_id="agent:3",
             default_workflow_id="workflow.health.issue_triage",
-            default_projection_id="xuannv__primary",
             default_runtime_lane="health_issue_read",
             default_memory_scope="issue_local_readonly",
         ),
@@ -45,7 +43,6 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
             output_contract_id="HealthTraceAnalysis",
             default_agent_id="agent:3",
             default_workflow_id="workflow.health.trace_analysis",
-            default_projection_id="xuannv__primary",
             default_runtime_lane="health_trace_read",
             default_memory_scope="health_trace_readonly",
         ),
@@ -58,7 +55,6 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
             output_contract_id="HealthCaseDraftProposal",
             default_agent_id="agent:3",
             default_workflow_id="workflow.health.case_draft",
-            default_projection_id="xuannv__primary",
             default_runtime_lane="case_draft_candidate",
             default_memory_scope="issue_local_readonly",
         ),
@@ -71,7 +67,6 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
             output_contract_id="HealthFixVerificationProposal",
             default_agent_id="agent:3",
             default_workflow_id="workflow.health.fix_verification",
-            default_projection_id="xuannv__primary",
             default_runtime_lane="fix_verification_candidate",
             default_memory_scope="health_trace_readonly",
         ),
@@ -259,7 +254,6 @@ class TaskFlowRegistry:
                     output_contract_id=str(item.get("output_contract_id") or ""),
                     default_agent_id=str(item.get("default_agent_id") or ""),
                     default_workflow_id=str(item.get("default_workflow_id") or ""),
-                    default_projection_id=str(item.get("default_projection_id") or ""),
                     default_runtime_lane=str(item.get("default_runtime_lane") or ""),
                     default_memory_scope=str(item.get("default_memory_scope") or ""),
                     enabled=bool(item.get("enabled", True)),
@@ -283,7 +277,6 @@ class TaskFlowRegistry:
         output_contract_id: str,
         default_agent_id: str,
         default_workflow_id: str,
-        default_projection_id: str,
         default_runtime_lane: str,
         default_memory_scope: str,
         enabled: bool = True,
@@ -301,7 +294,6 @@ class TaskFlowRegistry:
             output_contract_id=str(output_contract_id or "").strip(),
             default_agent_id=str(default_agent_id or "").strip(),
             default_workflow_id=str(default_workflow_id or "").strip(),
-            default_projection_id=str(default_projection_id or "").strip(),
             default_runtime_lane=str(default_runtime_lane or "").strip(),
             default_memory_scope=str(default_memory_scope or "").strip(),
             enabled=bool(enabled),
@@ -388,7 +380,6 @@ class TaskFlowRegistry:
             output_contract_id=assignment.output_contract_id,
             default_agent_id=assignment.default_agent_id,
             default_workflow_id=assignment.workflow_id,
-            default_projection_id=assignment.projection_id,
             default_runtime_lane=str(assignment.task_structure.get("runtime_lane_hint") or ""),
             default_memory_scope=str(assignment.task_structure.get("memory_scope_hint") or ""),
             enabled=assignment.enabled,
@@ -409,7 +400,7 @@ class TaskFlowRegistry:
             participant_agent_ids=(),
             workflow_id=flow.default_workflow_id,
             workflow_file_ref=f"workflow:{flow.default_workflow_id}" if flow.default_workflow_id else "",
-            projection_id=flow.default_projection_id,
+            projection_id="",
             input_contract_id=flow.input_contract_id,
             output_contract_id=flow.output_contract_id,
             task_structure={
@@ -568,7 +559,6 @@ class TaskFlowRegistry:
             _validate_contains(failures, diagnostics, "memory_scope", flow.default_memory_scope, profile.allowed_memory_scopes)
             _validate_contains(failures, diagnostics, "output_contract", flow.output_contract_id, profile.output_contracts)
         self._validate_workflow_ref(failures, diagnostics, flow.default_workflow_id)
-        self._validate_projection_ref(failures, diagnostics, flow.default_projection_id)
         return TaskAgentBinding(
             binding_id=f"binding:{flow.flow_id}:{flow.default_agent_id}",
             task_id=f"task-template:{flow.task_mode}",
@@ -576,7 +566,6 @@ class TaskFlowRegistry:
             agent_id=flow.default_agent_id,
             agent_profile_id=profile.agent_profile_id if profile is not None else "",
             runtime_lane=flow.default_runtime_lane,
-            projection_id=flow.default_projection_id,
             workflow_id=flow.default_workflow_id,
             memory_scope=flow.default_memory_scope,
             output_contract_id=flow.output_contract_id,
@@ -596,7 +585,6 @@ class TaskFlowRegistry:
                     "task_mode": next((flow.task_mode for flow in self.list_flows() if flow.flow_id == item.flow_id), ""),
                     "runtime_lane": item.runtime_lane,
                     "workflow": item.workflow_id,
-                    "projection": item.projection_id,
                     "memory_scope": item.memory_scope,
                     "output_contract": item.output_contract_id,
                     "validation_state": item.validation_state,
@@ -652,15 +640,11 @@ class TaskFlowRegistry:
                     available_task_modes=tuple(dict.fromkeys(flow.task_mode for flow in agent_flows)),
                     flow_refs=tuple(flow.flow_id for flow in agent_flows),
                     binding_refs=tuple(binding.binding_id for binding in agent_bindings),
-                    projection_refs=tuple(
-                        dict.fromkeys(binding.projection_id for binding in agent_bindings if binding.projection_id)
-                    ),
                     workflow_refs=tuple(
                         dict.fromkeys(binding.workflow_id for binding in agent_bindings if binding.workflow_id)
                     ),
                     topology_refs=topology_refs,
                     default_flow_ref=default_flow.flow_id if default_flow is not None else "",
-                    default_projection_ref=default_binding.projection_id if default_binding is not None else "",
                     default_workflow_ref=default_binding.workflow_id if default_binding is not None else "",
                     default_runtime_lane_hint=default_binding.runtime_lane if default_binding is not None else "",
                     validation_state=profile_validation_state,
@@ -725,14 +709,6 @@ class TaskFlowRegistry:
                     ]
                 )
             )
-            projection_refs = tuple(
-                dict.fromkeys(
-                    [
-                        *(item.default_projection_id for item in carried_general if item.default_projection_id),
-                        *(item.projection_id for item in carried_specific if item.projection_id),
-                    ]
-                )
-            )
             blocked_reasons = list(self._agent_assignment_failures(agent.agent_id, carried_general, carried_specific))
             for assignment in carried_specific:
                 binding = binding_by_flow.get(assignment.flow_id)
@@ -749,7 +725,6 @@ class TaskFlowRegistry:
                     carried_general_task_refs=tuple(item.profile_id for item in carried_general),
                     carried_specific_task_refs=tuple(item.task_id for item in carried_specific),
                     workflow_refs=workflow_refs,
-                    projection_refs=projection_refs,
                     validation_state=validation_state,
                     blocked_reasons=tuple(dict.fromkeys(blocked_reasons)),
                     diagnostics={
@@ -837,23 +812,6 @@ class TaskFlowRegistry:
     ) -> None:
         if not value or value not in allowed:
             issues.append(_diagnostic_issue(object_id, object_type, f"{field}_missing_ref", field, value=value))
-
-    def _validate_projection_ref(
-        self,
-        failures: list[str],
-        diagnostics: dict[str, Any],
-        projection_ref: str,
-    ) -> None:
-        value = str(projection_ref or "").strip()
-        if not value:
-            return
-        if get_projection_card(self.base_dir, value) is not None:
-            return
-        failures.append("projection_missing")
-        diagnostics["projection"] = {
-            "value": value,
-            "status": "missing",
-        }
 
     def _validate_workflow_ref(
         self,

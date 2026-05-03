@@ -14,7 +14,6 @@ class TaskFlowDefinition:
     output_contract_id: str
     default_agent_id: str
     default_workflow_id: str
-    default_projection_id: str
     default_runtime_lane: str
     default_memory_scope: str
     enabled: bool = True
@@ -74,7 +73,6 @@ class TaskAgentBinding:
     agent_id: str
     agent_profile_id: str
     runtime_lane: str
-    projection_id: str
     workflow_id: str
     memory_scope: str
     output_contract_id: str
@@ -170,11 +168,9 @@ class AgentTaskConnectionProfile:
     available_task_modes: tuple[str, ...] = ()
     flow_refs: tuple[str, ...] = ()
     binding_refs: tuple[str, ...] = ()
-    projection_refs: tuple[str, ...] = ()
     workflow_refs: tuple[str, ...] = ()
     topology_refs: tuple[str, ...] = ()
     default_flow_ref: str = ""
-    default_projection_ref: str = ""
     default_workflow_ref: str = ""
     default_runtime_lane_hint: str = ""
     validation_state: str = "unchecked"
@@ -188,7 +184,6 @@ class AgentTaskConnectionProfile:
             "available_task_modes",
             "flow_refs",
             "binding_refs",
-            "projection_refs",
             "workflow_refs",
             "topology_refs",
             "blocked_reasons",
