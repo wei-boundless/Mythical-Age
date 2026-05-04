@@ -56,6 +56,30 @@ def evaluate_turn_assertion(payload: dict[str, Any], assertion: str) -> Assertio
     if expression == "memory.durable_commit=true":
         actual = bool(dict(loop_summary.get("memory") or {}).get("durable_memory_commit_applied") is True)
         return _pass(expression, actual, actual=dict(loop_summary.get("memory") or {}))
+    if expression == "task_run.nonempty":
+        actual = str(dict(payload.get("result") or {}).get("task_run_id") or "")
+        return _pass(expression, bool(actual.strip()), actual=actual)
+    if expression == "trace.agent_run_results.nonempty":
+        actual = list(dict(payload.get("runtime_trace") or {}).get("artifact_refs") or [])
+        result_count = int(dict(payload.get("runtime_trace") or {}).get("agent_run_result_count") or 0)
+        return _pass(expression, result_count > 0, actual={"agent_run_result_count": result_count, "artifact_refs": actual})
+    if expression == "trace.worker_spawned":
+        actual = int(dict(payload.get("runtime_trace") or {}).get("worker_spawn_result_count") or 0)
+        return _pass(expression, actual > 0, actual=actual)
+    if expression == "trace.coordination.flow_registered":
+        actual = int(dict(payload.get("runtime_trace") or {}).get("coordination_run_count") or 0)
+        return _pass(expression, actual > 0, actual=actual)
+    if expression == "trace.coordination.accepted":
+        actual = bool(dict(payload.get("runtime_trace") or {}).get("accepted") is True)
+        return _pass(expression, actual, actual=dict(payload.get("runtime_trace") or {}))
+    if expression.startswith("trace.coordination.completed_nodes>="):
+        expected = int(expression.split(">=", 1)[1])
+        actual = int(dict(payload.get("runtime_trace") or {}).get("completed_node_count") or 0)
+        return _pass(expression, actual >= expected, actual=actual)
+    if expression.startswith("trace.artifact.contains="):
+        expected = expression.split("=", 1)[1]
+        actual = [str(item) for item in list(dict(payload.get("runtime_trace") or {}).get("artifact_refs") or [])]
+        return _pass(expression, any(expected in item for item in actual), actual=actual)
 
     legacy_result = _evaluate_legacy_assertion(expression, turn, result)
     if legacy_result is not None:

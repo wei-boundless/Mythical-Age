@@ -190,6 +190,7 @@ def _resolve_registered_task(
 ) -> dict[str, Any] | None:
     specific_task_id = str(
         current_turn_context.get("selected_task_id")
+        or current_turn_context.get("task_id")
         or current_turn_context.get("specific_task_id")
         or current_turn_context.get("task_assignment_id")
         or ""
@@ -307,6 +308,12 @@ def _align_runtime_definitions(
         return [
             definition_catalog["task.task_execution"],
             definition_catalog["task.inspection_and_correction"],
+        ]
+    if template_id == "template.writing.short_story" or task_mode == "short_story":
+        return [
+            definition_catalog["task.information_synthesis"],
+            definition_catalog["task.inspection_and_correction"],
+            definition_catalog["task.final_response"],
         ]
     return definitions
 

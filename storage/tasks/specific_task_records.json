@@ -132,6 +132,70 @@
       }
     },
     {
+      "task_id": "task.writing.short_story",
+      "task_title": "短篇小说协作写作",
+      "task_family": "writing",
+      "task_mode": "short_story",
+      "description": "短篇小说协作写作",
+      "enabled": true,
+      "input_contract_id": "ShortStoryTaskInput",
+      "output_contract_id": "ShortStoryResult",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.short_story",
+      "default_workflow_id": "workflow.writing.short_story",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "safety_class": "S0_readonly",
+          "write_mode": "none",
+          "verification_mode": "coordination_acceptance_required"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "story_coordination",
+          "memory_scope_hint": "conversation_read_write",
+          "workflow_steps": [
+            {
+              "step_id": "scope_story_goal",
+              "title": "收束题材、篇幅与验收要求"
+            },
+            {
+              "step_id": "propose_story_idea",
+              "title": "提出故事创意"
+            },
+            {
+              "step_id": "review_story_idea",
+              "title": "审核创意方向"
+            },
+            {
+              "step_id": "draft_story_content",
+              "title": "正式编写小说正文"
+            },
+            {
+              "step_id": "inspect_story_content",
+              "title": "执行内容纠察"
+            },
+            {
+              "step_id": "revise_story_if_needed",
+              "title": "必要时进入修正循环"
+            },
+            {
+              "step_id": "accept_story_delivery",
+              "title": "完成最终验收与交付"
+            }
+          ],
+          "task_resource_kind": "short_story"
+        }
+      },
+      "metadata": {
+        "task_resource": "short_story",
+        "template_id": "template.writing.short_story",
+        "task_id": "task.writing.short_story",
+        "coordination_task_id": "coord.writing.short_story_pipeline",
+        "communication_protocol_id": "protocol.writing.short_story_pipeline",
+        "source_flow_id": "flow.writing.short_story"
+      }
+    },
+    {
       "task_id": "task.dev.arcade_game_bundle",
       "task_title": "复合网页小游戏包开发",
       "task_family": "development",

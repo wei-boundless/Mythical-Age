@@ -178,6 +178,15 @@ class TaskCommunicationProtocolUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+def _display_number(internal_id: str, *, prefix: str, fallback: str) -> str:
+    value = str(internal_id or "").strip()
+    if value.startswith(prefix):
+        suffix = value[len(prefix):]
+        if suffix.isdigit():
+            return f"{fallback}-{int(suffix):03d}"
+    return "未生成"
+
+
 def _task_system_payload(base_dir) -> dict[str, object]:
     registry = TaskFlowRegistry(base_dir)
     agent_catalog = AgentRegistry(base_dir).build_catalog()
@@ -277,6 +286,33 @@ async def task_system_next_worker_agent_id() -> dict[str, str]:
     return {
         "agent_id": AgentRegistry(runtime.base_dir).next_worker_agent_id(),
         "authority": "task_system.agent_registry",
+    }
+
+
+@router.get("/tasks/next-ids")
+async def task_system_next_ids() -> dict[str, object]:
+    runtime = require_runtime()
+    flow_registry = TaskFlowRegistry(runtime.base_dir)
+    workflow_registry = TaskWorkflowRegistry(runtime.base_dir)
+    task_id = flow_registry.next_specific_task_id()
+    flow_id = flow_registry.next_flow_id()
+    workflow_id = workflow_registry.next_workflow_id()
+    coordination_task_id = flow_registry.next_coordination_task_id()
+    topology_template_id = flow_registry.next_topology_template_id()
+    return {
+        "authority": "task_system.id_registry",
+        "task_id": task_id,
+        "flow_id": flow_id,
+        "workflow_id": workflow_id,
+        "coordination_task_id": coordination_task_id,
+        "topology_template_id": topology_template_id,
+        "display_numbers": {
+            "task": _display_number(task_id, prefix="task.", fallback="任务"),
+            "flow": _display_number(flow_id, prefix="flow.", fallback="流程"),
+            "workflow": _display_number(workflow_id, prefix="workflow.", fallback="流程"),
+            "coordination": _display_number(coordination_task_id, prefix="coord.", fallback="协作"),
+            "topology": _display_number(topology_template_id, prefix="topology.", fallback="拓扑"),
+        },
     }
 
 

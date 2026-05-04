@@ -182,14 +182,14 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
         assertions=(
             "复合请求应拆成多个子任务执行。",
             "后续只展开第二个子任务时，不应重做全部子任务。",
-            "任务记录应落到 TaskCoordinator。",
+            "任务执行应落到正式 TaskRun 与 runtime trace。",
         ),
         failure_modes=(
             "subtask 结果顺序错乱。",
             "二次追问仍触发整包重跑。",
             "任务记录缺失。",
         ),
-        expected_artifacts=("tasks in TaskCoordinator",),
+        expected_artifacts=("runtime trace with task runs",),
         related_regressions=(
             "backend/tests/task_understanding_regression.py",
             "backend/tests/orchestration_cutover_regression.py",
@@ -199,6 +199,67 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             turn("main", "user", "先总结 PDF 第三页，再给我 inventory.xlsx 最缺货的前三个仓库，最后补一句北京天气。", "expect subtask fanout"),
             turn("main", "user", "只展开第二个子任务。", "expect partial continuation"),
             turn("main", "user", "把第一个和第三个子任务各压成一句话。"),
+        ),
+    ),
+    ConversationScenario(
+        id="task-system-light-web-game-acceptance",
+        title="任务系统主 Agent 小游戏开发验收",
+        category="acceptance",
+        execution_mode="deterministic",
+        goal="验证主 Agent 能通过正式任务装配完成轻量网页小游戏开发，并留下真实产物与运行痕迹。",
+        coverage=("tasks", "tool_route", "sse"),
+        assertions=(
+            "任务选择进入正式 light_web_game 任务，而不是临时自由回答。",
+            "运行产物要落到 frontend/public/games 等受限目录，并形成 task run / agent run 结果。",
+            "最终结果必须同时给出产物路径与验证状态。",
+        ),
+        failure_modes=(
+            "没有进入正式任务装配，只走普通聊天路径。",
+            "模型回答宣称完成，但没有真实 artifact refs。",
+            "任务能写文件但没有留下 runtime trace 和 agent_run_result。",
+        ),
+        expected_artifacts=(
+            "output/test_runs/<run>/artifacts/task-system-light-web-game-acceptance/*.json",
+            "frontend/public/games/<artifact>.html",
+            "runtime trace with task run and agent run result",
+        ),
+        related_regressions=(
+            "backend/tests/query_runtime_runtime_loop_regression.py",
+            "backend/tests/orchestration_cutover_regression.py",
+            "backend/tests/system_eval/long_scenarios_regression.py",
+        ),
+        turns=(
+            turn("main", "user", "请在 frontend/public/games 下生成一个简单可运行的网页贪吃蛇小游戏，并告诉我产物路径与验证情况。", "expect formal task execution"),
+        ),
+    ),
+    ConversationScenario(
+        id="task-system-short-story-coordination-acceptance",
+        title="任务系统多 Agent 小说协作验收",
+        category="acceptance",
+        execution_mode="deterministic",
+        goal="验证多 Agent 协调任务能按正式协调对象跑通创意、审核、编写、纠察、验收与修正循环。",
+        coverage=("tasks", "sse", "stress"),
+        assertions=(
+            "必须创建正式 CoordinationRun、CoordinationNodeRun、AgentRunResult 与 merge result。",
+            "协调流要覆盖创意提出、创意审核、审核通过、正式编写、内容纠察、修正循环、内容验收。",
+            "最终必须进入 accepted 状态，而不是只有流程对象没有验收结论。",
+        ),
+        failure_modes=(
+            "协调任务只创建对象外壳，没有 stage-flow 推进。",
+            "多 Agent 节点存在但没有参与结果或 handoff 痕迹。",
+            "修正循环或验收节点没有闭环，导致 accepted=false。",
+        ),
+        expected_artifacts=(
+            "output/test_runs/<run>/artifacts/task-system-short-story-coordination-acceptance/*.json",
+            "runtime trace with coordination flow, node runs and agent run results",
+        ),
+        related_regressions=(
+            "backend/tests/query_runtime_runtime_loop_regression.py",
+            "backend/tests/orchestration_cutover_regression.py",
+            "backend/tests/system_eval/long_scenarios_regression.py",
+        ),
+        turns=(
+            turn("main", "user", "请用多 Agent 协调模式完成一个短篇小说协作流程：先提出创意并审核，通过后正式编写，再做内容纠察与验收，如未通过则进入一次修正循环，最终给我验收通过的短篇小说结果。", "expect coordination acceptance loop"),
         ),
     ),
     ConversationScenario(

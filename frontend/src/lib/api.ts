@@ -351,6 +351,22 @@ export type TaskSystemAgentUpsertPayload = {
   metadata?: Record<string, unknown>;
 };
 
+export type TaskSystemNextIds = {
+  authority: string;
+  task_id: string;
+  flow_id: string;
+  workflow_id: string;
+  coordination_task_id: string;
+  topology_template_id: string;
+  display_numbers: {
+    task: string;
+    flow: string;
+    workflow: string;
+    coordination: string;
+    topology: string;
+  };
+};
+
 export type TaskSystemFlowUpsertPayload = {
   flow_id: string;
   task_family: string;
@@ -1216,57 +1232,6 @@ export type CapabilitySystemCatalog = {
   }>;
 };
 
-export type AgentSystemSkill = {
-  id: string;
-  name: string;
-  description: string;
-  tags: string[];
-  input_modes: string[];
-  output_modes: string[];
-};
-
-export type AgentSystemAgent = {
-  agent_id: string;
-  name: string;
-  description: string;
-  kind: string;
-  worker_route: string;
-  protocol_version: string;
-  supports_streaming: boolean;
-  supports_long_task: boolean;
-  default_input_modes: string[];
-  default_output_modes: string[];
-  skills: AgentSystemSkill[];
-  mcp_profile: Record<string, unknown>;
-  extensions: Record<string, unknown>;
-  enabled: boolean;
-};
-
-export type AgentProtocolLink = {
-  link_id: string;
-  from_agent: string;
-  to_agent: string;
-  label: string;
-  enabled: boolean;
-  input_contract: string;
-  output_contract: string;
-  handoff_policy: string;
-  channels: string[];
-};
-
-export type AgentSystemCatalog = {
-  protocol_version: string;
-  agents: AgentSystemAgent[];
-  protocol_links: AgentProtocolLink[];
-  status_summary: {
-    total_agents: number;
-    enabled_agents: number;
-    enabled_links: number;
-    protocol_enabled_links?: number;
-    blocked_links?: number;
-  };
-};
-
 export type SoulSystemFile = {
   path: string;
   label: string;
@@ -2038,27 +2003,6 @@ export async function updateCapabilitySystemTool(toolName: string, payload: { to
   });
 }
 
-export async function getAgentSystemCatalog() {
-  return request<AgentSystemCatalog>("/agents/catalog");
-}
-
-export async function setAgentEnabled(agentId: string, enabled: boolean) {
-  return request<AgentSystemCatalog>(`/agents/${encodeURIComponent(agentId)}/enabled`, {
-    method: "PUT",
-    body: JSON.stringify({ enabled })
-  });
-}
-
-export async function updateAgentProtocolLink(
-  linkId: string,
-  payload: Partial<Pick<AgentProtocolLink, "enabled" | "input_contract" | "output_contract" | "handoff_policy">>
-) {
-  return request<AgentSystemCatalog>(`/agents/protocol-links/${encodeURIComponent(linkId)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
-  });
-}
-
 export async function getSoulSystemCatalog() {
   return request<SoulSystemCatalog>("/soul/catalog");
 }
@@ -2125,6 +2069,10 @@ export async function getTaskSystemOverview() {
 
 export async function getNextWorkerAgentId() {
   return request<{ agent_id: string; authority: string }>("/tasks/agents/next-worker-id");
+}
+
+export async function getTaskSystemNextIds() {
+  return request<TaskSystemNextIds>("/tasks/next-ids");
 }
 
 export async function upsertTaskSystemAgent(agentId: string, payload: TaskSystemAgentUpsertPayload) {

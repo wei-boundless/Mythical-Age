@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.chat import router as chat_router
-from api.agents import router as agents_router
 from api.config_api import router as config_router
 from api.files import router as files_router
 from api.health_system import router as health_system_router
@@ -39,7 +38,6 @@ app.add_middleware(
 )
 
 app.include_router(chat_router, prefix="/api", tags=["chat"])
-app.include_router(agents_router, prefix="/api", tags=["agents"])
 app.include_router(sessions_router, prefix="/api", tags=["sessions"])
 app.include_router(files_router, prefix="/api", tags=["files"])
 app.include_router(memory_router, prefix="/api", tags=["memory"])

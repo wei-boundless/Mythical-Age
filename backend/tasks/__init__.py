@@ -28,7 +28,6 @@ __all__ = [
     "TaskConstraints",
     "TaskContextRef",
     "TaskContract",
-    "TaskCoordinator",
     "TaskDefinition",
     "TaskFlowDefinition",
     "TaskAgentBinding",
@@ -52,10 +51,6 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    if name == "TaskCoordinator":
-        from tasks.coordinator import TaskCoordinator
-
-        return TaskCoordinator
     if name in {"TaskContract"}:
         from tasks.contracts import TaskContract
 

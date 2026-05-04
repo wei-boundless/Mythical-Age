@@ -40,6 +40,23 @@ RuntimeTerminalReason = Literal[
     "internal_error",
 ]
 
+AgentRunStatus = Literal[
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "killed",
+]
+
+CoordinationRunStatus = Literal[
+    "pending",
+    "running",
+    "waiting",
+    "completed",
+    "failed",
+    "killed",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class TaskRun:
@@ -74,6 +91,206 @@ class TaskRun:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRun:
+    """Durable runtime object for a concrete agent execution instance."""
+
+    agent_run_id: str
+    task_run_id: str
+    agent_id: str
+    agent_profile_id: str
+    role: str = "main_executor"
+    spawn_mode: str = "adopt_existing"
+    context_scope: str = "task_default"
+    runtime_lane: str = "full_interactive"
+    parent_agent_run_ref: str = ""
+    coordination_run_ref: str = ""
+    status: AgentRunStatus = "pending"
+    latest_checkpoint_ref: str = ""
+    result_ref: str = ""
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "orchestration.agent_run"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.agent_run":
+            raise ValueError("AgentRun authority must be orchestration.agent_run")
+        if not self.agent_run_id:
+            raise ValueError("AgentRun requires agent_run_id")
+        if not self.task_run_id:
+            raise ValueError("AgentRun requires task_run_id")
+        if not self.agent_id:
+            raise ValueError("AgentRun requires agent_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRunResult:
+    """Formal result object for an AgentRun."""
+
+    agent_run_result_id: str
+    agent_run_id: str
+    task_run_id: str
+    agent_id: str
+    status: AgentRunStatus
+    output_ref: str = ""
+    summary: str = ""
+    artifact_refs: tuple[str, ...] = ()
+    created_at: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "orchestration.agent_run_result"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.agent_run_result":
+            raise ValueError("AgentRunResult authority must be orchestration.agent_run_result")
+        if not self.agent_run_result_id:
+            raise ValueError("AgentRunResult requires agent_run_result_id")
+        if not self.agent_run_id:
+            raise ValueError("AgentRunResult requires agent_run_id")
+        if not self.task_run_id:
+            raise ValueError("AgentRunResult requires task_run_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["artifact_refs"] = list(self.artifact_refs)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class CoordinationRun:
+    """Formal runtime object for a multi-agent coordination session."""
+
+    coordination_run_id: str
+    task_run_id: str
+    coordination_task_ref: str
+    coordinator_agent_id: str
+    topology_template_id: str = ""
+    communication_protocol_id: str = ""
+    handoff_policy: str = ""
+    failure_policy: str = ""
+    merge_policy: str = ""
+    status: CoordinationRunStatus = "pending"
+    latest_checkpoint_ref: str = ""
+    latest_merge_result_ref: str = ""
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "orchestration.coordination_run"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.coordination_run":
+            raise ValueError("CoordinationRun authority must be orchestration.coordination_run")
+        if not self.coordination_run_id:
+            raise ValueError("CoordinationRun requires coordination_run_id")
+        if not self.task_run_id:
+            raise ValueError("CoordinationRun requires task_run_id")
+        if not self.coordination_task_ref:
+            raise ValueError("CoordinationRun requires coordination_task_ref")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class CoordinationNodeRun:
+    """Runtime node execution inside a CoordinationRun."""
+
+    node_run_id: str
+    coordination_run_id: str
+    task_run_id: str
+    node_id: str
+    role: str
+    assigned_agent_id: str = ""
+    assigned_agent_run_ref: str = ""
+    status: CoordinationRunStatus = "pending"
+    handoff_count: int = 0
+    latest_handoff_ref: str = ""
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "orchestration.coordination_node_run"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.coordination_node_run":
+            raise ValueError("CoordinationNodeRun authority must be orchestration.coordination_node_run")
+        if not self.node_run_id:
+            raise ValueError("CoordinationNodeRun requires node_run_id")
+        if not self.coordination_run_id:
+            raise ValueError("CoordinationNodeRun requires coordination_run_id")
+        if not self.task_run_id:
+            raise ValueError("CoordinationNodeRun requires task_run_id")
+        if not self.node_id:
+            raise ValueError("CoordinationNodeRun requires node_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class AgentHandoffEnvelope:
+    """Formal handoff payload exchanged between agent runs."""
+
+    handoff_id: str
+    task_run_id: str
+    coordination_run_id: str
+    source_agent_run_ref: str
+    target_agent_run_ref: str
+    protocol_id: str = ""
+    message_type: str = ""
+    payload_ref: str = ""
+    ack_state: str = "pending"
+    created_at: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "orchestration.agent_handoff_envelope"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.agent_handoff_envelope":
+            raise ValueError("AgentHandoffEnvelope authority must be orchestration.agent_handoff_envelope")
+        if not self.handoff_id:
+            raise ValueError("AgentHandoffEnvelope requires handoff_id")
+        if not self.task_run_id:
+            raise ValueError("AgentHandoffEnvelope requires task_run_id")
+        if not self.coordination_run_id:
+            raise ValueError("AgentHandoffEnvelope requires coordination_run_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class CoordinationMergeResult:
+    """Formal final merge result for a CoordinationRun."""
+
+    merge_result_id: str
+    coordination_run_id: str
+    task_run_id: str
+    merge_policy: str
+    final_result_ref: str = ""
+    accepted: bool = False
+    unresolved_issue_refs: tuple[str, ...] = ()
+    created_at: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "orchestration.coordination_merge_result"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.coordination_merge_result":
+            raise ValueError("CoordinationMergeResult authority must be orchestration.coordination_merge_result")
+        if not self.merge_result_id:
+            raise ValueError("CoordinationMergeResult requires merge_result_id")
+        if not self.coordination_run_id:
+            raise ValueError("CoordinationMergeResult requires coordination_run_id")
+        if not self.task_run_id:
+            raise ValueError("CoordinationMergeResult requires task_run_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["unresolved_issue_refs"] = list(self.unresolved_issue_refs)
+        return payload
 
 
 @dataclass(frozen=True, slots=True)

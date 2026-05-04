@@ -46,6 +46,29 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     assert diagnostics["connection_diagnostics"]["authority"] == "task_system.connection_diagnostics"
 
 
+def test_task_system_next_ids_are_generated_with_prefixed_internal_ids_and_display_numbers(tmp_path: Path) -> None:
+    original = tasks_api.require_runtime
+    tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(tasks_api.task_system_next_ids())
+    finally:
+        tasks_api.require_runtime = original  # type: ignore[assignment]
+
+    assert payload["authority"] == "task_system.id_registry"
+    assert str(payload["task_id"]).startswith("task.")
+    assert str(payload["flow_id"]).startswith("flow.")
+    assert str(payload["workflow_id"]).startswith("workflow.")
+    assert str(payload["coordination_task_id"]).startswith("coord.")
+    assert str(payload["topology_template_id"]).startswith("topology.")
+
+    display_numbers = payload["display_numbers"]
+    assert str(display_numbers["task"]).startswith("任务-")
+    assert str(display_numbers["flow"]).startswith("流程-")
+    assert str(display_numbers["workflow"]).startswith("流程-")
+    assert str(display_numbers["coordination"]).startswith("协作-")
+    assert str(display_numbers["topology"]).startswith("拓扑-")
+
+
 def test_task_system_formal_object_upserts_persist_and_return_management_payload(tmp_path: Path) -> None:
     original = tasks_api.require_runtime
     tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
@@ -207,3 +230,37 @@ def test_task_system_specific_record_is_canonical_and_assignment_becomes_compat_
     assert compat_assignment.task_title == specific_record.task_title
     assert compat_assignment.workflow_id == specific_record.default_workflow_id
     assert compat_assignment.input_contract_id == specific_record.input_contract_id
+
+
+def test_task_system_includes_formal_short_story_task_objects(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+
+    flow = registry.get_flow("flow.writing.short_story")
+    record = registry.get_specific_task_record("task.writing.short_story")
+    assignment = registry.get_task_assignment("task.writing.short_story")
+    memory_profile = registry.get_task_memory_request_profile("task.writing.short_story")
+    protocol = registry.get_task_communication_protocol("protocol.writing.short_story_pipeline")
+    coordination = registry.get_coordination_task("coord.writing.short_story_pipeline")
+
+    assert flow is not None
+    assert flow.task_family == "writing"
+    assert flow.default_workflow_id == "workflow.writing.short_story"
+    assert flow.metadata.get("template_id") == "template.writing.short_story"
+
+    assert record is not None
+    assert record.task_mode == "short_story"
+    assert record.default_flow_contract_id == "flow.writing.short_story"
+
+    assert assignment is not None
+    assert assignment.task_family == "writing"
+    assert assignment.workflow_id == "workflow.writing.short_story"
+
+    assert memory_profile is not None
+    assert "long_term" in memory_profile.requested_memory_layers
+    assert memory_profile.allow_long_term_memory is True
+
+    assert protocol is not None
+    assert protocol.enabled is True
+
+    assert coordination is not None
+    assert coordination.enabled is True

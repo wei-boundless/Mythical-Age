@@ -295,6 +295,8 @@ def _profiles_for_scenario_sets(scenario_sets: list[str]) -> list[str]:
     profiles: list[str] = []
     if "core" in scenario_sets:
         profiles.append("long_core")
+    if "task_acceptance" in scenario_sets:
+        profiles.append("task_acceptance")
     if "batches" in scenario_sets or "extended" in scenario_sets:
         profiles.append("long_batches")
     if "mega" in scenario_sets:

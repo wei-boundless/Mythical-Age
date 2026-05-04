@@ -14,7 +14,7 @@ from .skill_authoring import read_text
 from .validation import validate_capability_catalog
 
 
-MAIN_AGENT_ID = "agent:main:conversation"
+MAIN_AGENT_ID = "agent:0"
 
 TOOL_TYPE_OPTIONS = [
     "实时查询",

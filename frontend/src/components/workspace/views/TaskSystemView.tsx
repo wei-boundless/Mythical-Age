@@ -20,6 +20,7 @@ import {
   deleteTaskSystemAgent,
   getNextWorkerAgentId,
   getSoulProjectionCards,
+  getTaskSystemNextIds,
   getTaskSystemOverview,
   upsertTaskSystemAgent,
   upsertTaskSystemAssignment,
@@ -40,7 +41,7 @@ import {
 
 type TaskPage = "agents" | "tasks" | "coordination";
 type TaskModeTab = "general" | "specific";
-type TaskWorkbenchTab = "definition" | "binding" | "safety" | "workflow";
+type TaskWorkbenchTab = "definition" | "adoption" | "method" | "safety" | "assembly";
 
 type AgentCategory = {
   category_id: string;
@@ -148,6 +149,19 @@ const WRITE_MODE_OPTIONS = [
   { value: "guarded_execution", label: "受控执行" }
 ] as const;
 
+const TASK_MODE_OPTIONS = [
+  { value: "bounded_patch", label: "受限补丁", family: "development" },
+  { value: "light_web_game", label: "轻量网页小游戏", family: "development" },
+  { value: "arcade_game_bundle", label: "复合网页小游戏包", family: "development" },
+  { value: "short_story", label: "短篇小说协作写作", family: "writing" }
+] as const;
+
+const TASK_FAMILY_OPTIONS = [
+  { value: "development", label: "开发任务" },
+  { value: "writing", label: "写作任务" },
+  { value: "health", label: "健康治理" }
+] as const;
+
 function text(value: unknown, fallback = "-") {
   if (Array.isArray(value)) return value.length ? value.join(" / ") : fallback;
   if (value === null || value === undefined || value === "") return fallback;
@@ -189,6 +203,44 @@ function parseSteps(value: string) {
       return { step_id: stepId || `step_${index + 1}`, title: title || stepId || `步骤 ${index + 1}` };
     })
     .filter(Boolean) as Array<Record<string, unknown>>;
+}
+
+function labelTaskMode(mode: string) {
+  const normalized = mode.trim().toLowerCase();
+  if (!normalized) return "未定义模式";
+  const option = TASK_MODE_OPTIONS.find((item) => item.value === normalized);
+  if (option) return option.label;
+  if (normalized === "bounded_patch") return "受限补丁";
+  if (normalized === "light_web_game") return "轻量网页小游戏";
+  if (normalized === "arcade_game_bundle") return "复合网页小游戏包";
+  return mode;
+}
+
+function labelTaskFamily(family: string) {
+  return TASK_FAMILY_OPTIONS.find((item) => item.value === family)?.label ?? family ?? "未分组";
+}
+
+function displayNumberFromId(value: string, label: string) {
+  const suffix = String(value || "").split(".").pop() ?? "";
+  if (/^\d+$/.test(suffix)) {
+    return `${label}-${Number(suffix).toString().padStart(3, "0")}`;
+  }
+  return value ? "系统预置" : "未生成";
+}
+
+function labelExecutionMode(mode: string) {
+  if (mode === "single_agent") return "单 Agent";
+  if (mode === "coordination_candidate") return "协作候选";
+  if (mode === "subagent_allowed") return "可派生子 Agent";
+  return mode || "未定义";
+}
+
+function labelWorkflowTitle(workflows: TaskWorkflowRecord[], workflowId: string) {
+  return workflows.find((workflow) => workflow.workflow_id === workflowId)?.title ?? "未绑定流程";
+}
+
+function maskSystemValue(value: string, fallback = "系统已管理") {
+  return value && value.trim() ? fallback : "未设置";
 }
 
 function normalizeSafetyPolicy(policy: Record<string, unknown> | null | undefined) {
@@ -399,6 +451,16 @@ function emptyWorkflow(): WorkflowDraft {
   });
 }
 
+function emptyWorkflowWithId(workflowId: string): WorkflowDraft {
+  return workflowDraftFrom({
+    ...workflowPayload(emptyWorkflow()),
+    workflow_id: workflowId,
+    title: "新执行流程",
+    task_mode: "bounded_patch",
+    metadata: { managed_by: "task_system_console", display_number: displayNumberFromId(workflowId, "流程") }
+  });
+}
+
 function workflowPayload(draft: WorkflowDraft): TaskWorkflowRecord {
   return {
     workflow_id: draft.workflow_id,
@@ -448,6 +510,17 @@ function emptyCoordination(topologyId = ""): CoordinationDraft {
   };
 }
 
+function emptyCoordinationWithId(coordinationTaskId: string, topologyId = ""): CoordinationDraft {
+  return {
+    ...emptyCoordination(topologyId),
+    coordination_task_id: coordinationTaskId,
+    metadata: {
+      managed_by: "task_system_console",
+      display_number: displayNumberFromId(coordinationTaskId, "协作")
+    }
+  };
+}
+
 function topologyDraftFrom(template: TopologyTemplate): TopologyDraft {
   return {
     ...template,
@@ -471,10 +544,17 @@ function emptyTopology(): TopologyDraft {
   });
 }
 
+function emptyTopologyWithId(templateId: string): TopologyDraft {
+  return {
+    ...emptyTopology(),
+    template_id: templateId,
+  };
+}
+
 export function TaskSystemView() {
   const [consoleData, setConsoleData] = useState<TaskSystemConsole | null>(null);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
-  const [activePage, setActivePage] = useState<TaskPage>("agents");
+  const [activePage, setActivePage] = useState<TaskPage>("tasks");
   const [taskModeTab, setTaskModeTab] = useState<TaskModeTab>("specific");
   const [taskWorkbenchTab, setTaskWorkbenchTab] = useState<TaskWorkbenchTab>("definition");
   const [selectedCategoryId, setSelectedCategoryId] = useState("main_agent");
@@ -562,11 +642,20 @@ export function TaskSystemView() {
   const agentEditorRecord = selectedAgent ?? (isDraftWorkerAgent ? agentDraft : null);
   const agentEditorBuiltin = Boolean(selectedAgent?.builtin);
   const agentEditorCategory = selectedAgent?.agent_category ?? agentDraft.agent_category;
+  const agentEditorTaskScopeSummary = selectedAgent
+    ? selectedAgent.task_scope.length ? selectedAgent.task_scope.join(" / ") : "未定义"
+    : agentDraft.task_scope_text || "未定义";
   const selectedGeneralTask = taskManagement?.general_tasks.find((item) => item.profile_id === selectedGeneralId) ?? taskManagement?.general_tasks[0] ?? null;
-  const selectedSpecificTask = taskManagement?.specific_tasks.find((item) => item.task_id === selectedSpecificTaskId) ?? taskManagement?.specific_tasks[0] ?? null;
+  const selectedSpecificTask = taskManagement?.specific_tasks.find((item) => item.task_id === selectedSpecificTaskId)
+    ?? (selectedSpecificTaskId ? null : taskManagement?.specific_tasks[0] ?? null);
   const selectedWorkflow = workflows.find((item) => item.workflow_id === (taskModeTab === "general" ? selectedGeneralTask?.default_workflow_id : selectedSpecificTask?.workflow_id)) ?? workflows[0] ?? null;
-  const selectedCoordinationTask = coordinationManagement?.coordination_tasks.find((item) => item.coordination_task_id === selectedCoordinationId) ?? coordinationManagement?.coordination_tasks[0] ?? null;
-  const selectedTopology = coordinationManagement?.topology_templates.find((item) => item.template_id === selectedTopologyId) ?? coordinationManagement?.topology_templates[0] ?? null;
+  const selectedCoordinationTask = coordinationManagement?.coordination_tasks.find((item) => item.coordination_task_id === selectedCoordinationId)
+    ?? (selectedCoordinationId ? null : coordinationManagement?.coordination_tasks[0] ?? null);
+  const selectedTopology = coordinationManagement?.topology_templates.find((item) => item.template_id === selectedTopologyId)
+    ?? (selectedTopologyId ? null : coordinationManagement?.topology_templates[0] ?? null);
+  const isSpecificTaskDraft = !selectedSpecificTask && Boolean(selectedSpecificTaskId) && specificTaskDraft.task_id === selectedSpecificTaskId;
+  const isCoordinationDraft = !selectedCoordinationTask && Boolean(selectedCoordinationId) && coordinationDraft.coordination_task_id === selectedCoordinationId;
+  const isTopologyDraft = !selectedTopology && Boolean(selectedTopologyId) && topologyDraft.template_id === selectedTopologyId;
 
   useEffect(() => {
     if (selectedAgent) {
@@ -585,10 +674,10 @@ export function TaskSystemView() {
   useEffect(() => {
     if (selectedSpecificTask) {
       setSpecificTaskDraft(specificTaskDraftFrom(selectedSpecificTask));
-    } else {
+    } else if (!isSpecificTaskDraft) {
       setSpecificTaskDraft(emptySpecificTask(preferredSpecificWorkflowId(workflows), projections[0]?.projection_id ?? ""));
     }
-  }, [selectedSpecificTask, workflows, projections]);
+  }, [isSpecificTaskDraft, selectedSpecificTask, workflows, projections]);
 
   useEffect(() => {
     if (selectedWorkflow) {
@@ -601,18 +690,18 @@ export function TaskSystemView() {
   useEffect(() => {
     if (selectedCoordinationTask) {
       setCoordinationDraft(coordinationDraftFrom(selectedCoordinationTask));
-    } else {
+    } else if (!isCoordinationDraft) {
       setCoordinationDraft(emptyCoordination(coordinationManagement?.topology_templates[0]?.template_id ?? ""));
     }
-  }, [selectedCoordinationTask, coordinationManagement?.topology_templates]);
+  }, [coordinationManagement?.topology_templates, isCoordinationDraft, selectedCoordinationTask]);
 
   useEffect(() => {
     if (selectedTopology) {
       setTopologyDraft(topologyDraftFrom(selectedTopology));
-    } else {
+    } else if (!isTopologyDraft) {
       setTopologyDraft(emptyTopology());
     }
-  }, [selectedTopology]);
+  }, [isTopologyDraft, selectedTopology]);
 
   useEffect(() => {
     setTaskWorkbenchTab("definition");
@@ -771,24 +860,91 @@ export function TaskSystemView() {
           workflow_file_ref: `workflow:${workflow.workflow_id}`
         }));
       }
-      setNotice("workflow 已保存，并已绑定到当前任务草稿。");
+      setNotice("执行流程已保存，并已绑定到当前任务草稿。");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "保存 workflow 失败");
+      setError(exc instanceof Error ? exc.message : "保存执行流程失败");
     } finally {
       setSaving("");
     }
   }
 
-  function createSpecificTaskDraft() {
-    const draft = emptySpecificTask(preferredSpecificWorkflowId(workflows), projections[0]?.projection_id ?? "");
-    setSelectedSpecificTaskId(draft.task_id);
-    setSpecificTaskDraft(draft);
-    setTaskWorkbenchTab("definition");
+  async function createSpecificTaskDraft() {
+    setSaving("task-create");
+    setError("");
+    try {
+      const nextIds = await getTaskSystemNextIds();
+      const workflowId = preferredSpecificWorkflowId(workflows);
+      const workflow = workflows.find((item) => item.workflow_id === workflowId);
+      const workflowMode = workflow?.task_mode || "bounded_patch";
+      const workflowFamily = TASK_MODE_OPTIONS.find((item) => item.value === workflowMode)?.family || "development";
+      const draft = emptySpecificTask(workflowId, projections[0]?.projection_id ?? "");
+      const nextDraft: SpecificTaskDraft = {
+        ...draft,
+        task_id: nextIds.task_id,
+        flow_id: nextIds.flow_id,
+        workflow_id: workflowId,
+        workflow_file_ref: workflowId ? `workflow:${workflowId}` : "",
+        task_mode: workflowMode,
+        task_family: workflowFamily,
+        metadata: {
+          ...(draft.metadata ?? {}),
+          managed_by: "task_system_console",
+          display_number: nextIds.display_numbers.task,
+          flow_display_number: nextIds.display_numbers.flow
+        }
+      };
+      setSelectedSpecificTaskId(nextDraft.task_id);
+      setSpecificTaskDraft(nextDraft);
+      setTaskWorkbenchTab("definition");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "创建任务草稿失败");
+    } finally {
+      setSaving("");
+    }
   }
 
-  function createWorkflowDraft() {
-    setWorkflowDraft(emptyWorkflow());
-    setTaskWorkbenchTab("workflow");
+  async function createWorkflowDraft() {
+    setSaving("workflow-create");
+    setError("");
+    try {
+      const nextIds = await getTaskSystemNextIds();
+      setWorkflowDraft(emptyWorkflowWithId(nextIds.workflow_id));
+      setTaskWorkbenchTab("method");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "创建执行流程草稿失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function createCoordinationTaskDraft() {
+    setSaving("coordination-create");
+    setError("");
+    try {
+      const nextIds = await getTaskSystemNextIds();
+      const draft = emptyCoordinationWithId(nextIds.coordination_task_id, selectedTopologyId || coordinationManagement?.topology_templates[0]?.template_id || "");
+      setSelectedCoordinationId(draft.coordination_task_id);
+      setCoordinationDraft(draft);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "创建协调任务草稿失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function createTopologyDraft() {
+    setSaving("topology-create");
+    setError("");
+    try {
+      const nextIds = await getTaskSystemNextIds();
+      const draft = emptyTopologyWithId(nextIds.topology_template_id);
+      setSelectedTopologyId(draft.template_id);
+      setTopologyDraft(draft);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "创建拓扑模板草稿失败");
+    } finally {
+      setSaving("");
+    }
   }
 
   const taskList = taskModeTab === "general" ? taskManagement?.general_tasks ?? [] : taskManagement?.specific_tasks ?? [];
@@ -799,8 +955,83 @@ export function TaskSystemView() {
   const currentTaskProjectionId = taskModeTab === "general" ? generalDraft.default_projection_id : specificTaskDraft.projection_id;
   const currentTaskInputContract = taskModeTab === "general" ? generalDraft.input_contract_id : specificTaskDraft.input_contract_id;
   const currentTaskOutputContract = taskModeTab === "general" ? generalDraft.output_contract_id : specificTaskDraft.output_contract_id;
+  const currentTaskFlowId = taskModeTab === "general"
+    ? text(generalDraft.metadata?.flow_id, "flow.general.main_conversation")
+    : specificTaskDraft.flow_id;
   const currentTaskAgentName = allAgents.find((agent) => agent.agent_id === currentTaskAgentId)?.agent_name ?? currentTaskAgentId;
   const currentTaskProjectionTitle = projectionTitleById.get(currentTaskProjectionId) || currentTaskProjectionId || "未绑定";
+  const currentWorkflowTitle = workflows.find((workflow) => workflow.workflow_id === currentTaskWorkflowId)?.title ?? (currentTaskWorkflowId || "未绑定");
+  const specificTaskStructure = specificTaskDraft.task_structure ?? {};
+  const currentAdoptionMode = taskModeTab === "general"
+    ? "main_session_default"
+    : text(specificTaskStructure.adoption_mode, specificTaskDraft.participant_agent_ids.length ? "coordination_candidate" : "adopt_existing");
+  const currentAllowWorkerSpawn = taskModeTab === "general"
+    ? false
+    : Boolean(specificTaskStructure.allow_worker_agent_spawn);
+  const currentAgentAdoptionPlanRef = taskModeTab === "general"
+    ? text(generalDraft.metadata?.agent_adoption_plan_ref, `plan.${generalDraft.profile_id || "general.main"}`)
+    : text(specificTaskStructure.agent_adoption_plan_ref, `plan.${specificTaskDraft.task_id || "task.pending"}`);
+  const currentMemoryRequestProfileRef = taskModeTab === "general"
+    ? text(generalDraft.metadata?.memory_request_profile_ref, "memory.general.main_session")
+    : text(specificTaskStructure.memory_request_profile_ref, `memory.${specificTaskDraft.task_id || "task.pending"}`);
+  const currentMemoryLayers = taskModeTab === "general"
+    ? ["session_context", "conversation_short_term"]
+    : Array.isArray(specificTaskStructure.memory_layer_refs)
+      ? specificTaskStructure.memory_layer_refs.map((item) => String(item)).filter(Boolean)
+      : [];
+  const currentMemoryTopics = taskModeTab === "general"
+    ? []
+    : Array.isArray(specificTaskStructure.memory_topic_hints)
+      ? specificTaskStructure.memory_topic_hints.map((item) => String(item)).filter(Boolean)
+      : [];
+  const currentRuntimeLane = taskModeTab === "general"
+    ? text(generalDraft.metadata?.runtime_lane_hint, "main_conversation")
+    : text(specificTaskStructure.runtime_lane_hint, "default_lane");
+  const currentExecutionMode = taskModeTab === "general"
+    ? "single_agent"
+    : currentAdoptionMode === "coordination_candidate" || specificTaskDraft.participant_agent_ids.length
+      ? "coordination_candidate"
+      : currentAllowWorkerSpawn
+        ? "subagent_allowed"
+        : "single_agent";
+  const currentSafetySummary = taskModeTab === "general"
+    ? "S0_readonly / none / 主会话默认只读"
+    : formatSafetySummary(specificTaskDraft.safety_policy ?? {});
+  const currentExecutionLabel = currentExecutionMode === "coordination_candidate"
+    ? "协调候选"
+    : currentExecutionMode === "subagent_allowed"
+      ? "允许子 Agent"
+      : "单 Agent";
+  const currentAssemblyReadiness = [
+    { label: "任务对象", ready: Boolean(currentTaskId) },
+    { label: "执行主体", ready: Boolean(currentTaskAgentId) },
+    { label: "执行流程", ready: Boolean(currentTaskWorkflowId) },
+    { label: "表达风格", ready: Boolean(currentTaskProjectionId) },
+    { label: "流程契约", ready: Boolean(currentTaskFlowId) },
+    { label: "执行计划", ready: Boolean(currentAgentAdoptionPlanRef) },
+    { label: "记忆请求", ready: Boolean(currentMemoryRequestProfileRef) },
+    { label: "安全包络", ready: Boolean(currentSafetySummary) }
+  ];
+  const currentAssemblyMissing = currentAssemblyReadiness
+    .filter((item) => !item.ready)
+    .map((item) => item.label);
+  const currentAssemblyActionHints = [
+    !currentTaskAgentId ? "先绑定默认承接 Agent，避免 runtime 临场猜执行主体。" : "",
+    !currentTaskWorkflowId ? "补齐执行流程，让任务方法留在正式资源里，而不是靠临场自由发挥。" : "",
+    !currentTaskProjectionId ? "补齐任务投影，让执行姿态和表达边界有正式落点。" : "",
+    !currentTaskFlowId ? "补齐 flow contract，让 runtime 按正式任务契约推进状态。" : "",
+    taskModeTab === "specific" && !currentAllowWorkerSpawn && currentExecutionMode !== "coordination_candidate"
+      ? "当前任务会按单 Agent 执行；如果确实需要分工，再显式开放 adoption plan。"
+      : "",
+    taskModeTab === "specific" && currentExecutionMode === "coordination_candidate"
+      ? "当前已经具备协调候选结构，下一步重点检查参与主体、拓扑模板和合并策略。"
+      : ""
+  ].filter(Boolean).slice(0, 3);
+  const selectedCoordinationParticipantNames = coordinationDraft.participant_agent_ids_text
+    ? splitList(coordinationDraft.participant_agent_ids_text).map((agentId) => allAgents.find((agent) => agent.agent_id === agentId)?.agent_name || agentId)
+    : [];
+  const selectedTopologyNodeCount = Array.isArray(selectedTopology?.nodes) ? selectedTopology?.nodes.length : 0;
+  const selectedTopologyEdgeCount = Array.isArray(selectedTopology?.edges) ? selectedTopology?.edges.length : 0;
 
   async function saveCoordination() {
     setSaving("coordination");
@@ -851,9 +1082,9 @@ export function TaskSystemView() {
     <div className="workspace-view task-system-view">
       <header className="workspace-view__header">
         <div>
-          <p className="workspace-view__eyebrow">Task Control Plane</p>
+          <p className="workspace-view__eyebrow">任务执行装配工作台</p>
           <h2 className="workspace-view__title">任务系统</h2>
-          <p className="workspace-view__subtitle">围绕 Agent、任务、workflow 和协调拓扑建立真正可登记、可绑定、可执行的管理中枢。</p>
+          <p className="workspace-view__subtitle">围绕任务管理、执行采用、方法边界与协调结构建立正式装配入口。</p>
         </div>
       </header>
 
@@ -863,9 +1094,9 @@ export function TaskSystemView() {
 
       <nav className="task-system-switcher" aria-label="任务系统模块">
         {[
-          { key: "agents", label: "Agent 管理", icon: Bot },
           { key: "tasks", label: "任务管理", icon: Workflow },
-          { key: "coordination", label: "编排管理", icon: GitBranch }
+          { key: "coordination", label: "协调任务", icon: GitBranch },
+          { key: "agents", label: "Agent 资源", icon: Bot }
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -882,121 +1113,23 @@ export function TaskSystemView() {
         })}
       </nav>
 
-      {activePage === "agents" ? (
-        <section className="task-system-control-grid task-system-control-grid--two task-system-control-grid--agents">
-          <aside className="task-system-control-panel">
-            <div className="task-system-toolbar">
-              <div className="archive-search task-system-search">
-                <Search size={16} />
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Agent" />
-              </div>
-              {selectedCategoryId === "worker_sub_agent" ? (
-                <button
-                  className="action-button action-button--ghost"
-                  disabled={saving === "agent-create"}
-                  onClick={() => void createWorkerAgentDraft()}
-                  type="button"
-                >
-                  {saving === "agent-create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
-                  新工作子Agent
-                </button>
-              ) : null}
-            </div>
-            <div className="task-system-agent-type-guide">
-              {filteredCategories.map((category) => {
-                const Icon = CATEGORY_ICONS[category.category_id as keyof typeof CATEGORY_ICONS] ?? UserCog;
-                const active = selectedCategoryId === category.category_id;
-                return (
-                  <button
-                    className={active ? "task-system-agent-type-guide__item task-system-agent-type-guide__item--active" : "task-system-agent-type-guide__item"}
-                    key={category.category_id}
-                    onClick={() => {
-                      setSelectedCategoryId(category.category_id);
-                      setSelectedAgentId(category.agents[0]?.agent_id ?? "");
-                    }}
-                    type="button"
-                  >
-                    <Icon size={16} />
-                    <strong>{category.title}</strong>
-                    <p>{category.category_id === "worker_sub_agent" ? "可创建、编辑、删除工作子 Agent。" : "可编辑当前登记信息。"}</p>
-                  </button>
-                );
-              })}
-            </div>
-            <AgentCategoryRail
-              category={filteredCategories.find((item) => item.category_id === selectedCategoryId) ?? null}
-              selectedAgentId={selectedAgentId}
-              onSelect={setSelectedAgentId}
-            />
-          </aside>
-
-          <main className="task-system-control-panel">
-            <PanelHead
-              title="Agent 登记"
-              description="登记接口、默认投影和任务覆盖范围，统一维护 Agent 注册表。"
-              action={agentEditorRecord ? (
-                <div className="task-system-inline-actions">
-                  {selectedAgent && !selectedAgent.builtin ? (
-                    <button className="action-button action-button--ghost" disabled={saving === "agent-delete"} onClick={() => void removeAgent()} type="button">
-                      {saving === "agent-delete" ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}
-                      删除 Agent
-                    </button>
-                  ) : null}
-                  <button className="action-button action-button--primary" disabled={saving === "agent"} onClick={() => void saveAgent()} type="button">
-                    {saving === "agent" ? <Loader2 className="spin" size={14} /> : <Save size={14} />}
-                    保存 Agent
-                  </button>
-                </div>
-              ) : null}
-            />
-            {agentEditorRecord ? (
-              <>
-                <div className="task-system-editor-head">
-                  <span><UserCog size={18} /></span>
-                  <div>
-                    <em>{CATEGORY_TITLES[agentEditorCategory as keyof typeof CATEGORY_TITLES] ?? agentEditorCategory}</em>
-                    <strong>{agentEditorRecord.agent_name}</strong>
-                    <p>{agentEditorRecord.description || "当前 Agent 暂无补充说明。"}</p>
-                  </div>
-                </div>
-                <div className="task-system-info-grid">
-                  <InfoBlock title="Agent ID" value={agentEditorRecord.agent_id} />
-                  <InfoBlock title="接口目标" value={agentEditorRecord.interface_target} />
-                  <InfoBlock title="灵魂" value={isMainAgentCategory(agentEditorCategory) ? "外部切换" : soulNameById.get(agentEditorRecord.default_soul_id) || agentEditorRecord.default_soul_id || "未指定"} />
-                  <InfoBlock title="默认投影" value={isMainAgentCategory(agentEditorCategory) ? "不在任务系统内绑定" : projectionTitleById.get(agentEditorRecord.default_projection_id) || agentEditorRecord.default_projection_id || "未指定"} />
-                </div>
-                <div className="task-system-form-grid">
-                  <label><span>Agent ID</span><input disabled={agentEditorBuiltin} value={agentDraft.agent_id} onChange={(event) => setAgentDraft((value) => ({ ...value, agent_id: event.target.value }))} /></label>
-                  <label><span>名称</span><input value={agentDraft.agent_name} onChange={(event) => setAgentDraft((value) => ({ ...value, agent_name: event.target.value }))} /></label>
-                  <label><span>类别</span><select disabled={agentEditorBuiltin} value={agentDraft.agent_category} onChange={(event) => setAgentDraft((value) => ({ ...value, agent_category: event.target.value }))}><option value="main_agent">主 Agent</option><option value="system_management_agent">系统管理 Agent</option><option value="worker_sub_agent">工作子 Agent</option></select></label>
-                  <label><span>接口目标</span><input value={agentDraft.interface_target} onChange={(event) => setAgentDraft((value) => ({ ...value, interface_target: event.target.value }))} /></label>
-                  <label className="task-system-form-grid__full"><span>职责说明</span><textarea value={agentDraft.description} onChange={(event) => setAgentDraft((value) => ({ ...value, description: event.target.value }))} /></label>
-                  {!isMainAgentCategory(agentDraft.agent_category) ? (
-                    <ProjectionPicker label="默认投影" projectionId={agentDraft.default_projection_id} projections={projections} onChange={(projectionId) => setAgentDraft((value) => ({ ...value, default_projection_id: projectionId, default_soul_id: String(projections.find((projection) => projection.projection_id === projectionId)?.soul_id || "") }))} />
-                  ) : (
-                    <div className="task-system-form-grid__full task-system-empty">主 Agent 的灵魂与投影由主会话外部切换链路管理，这里不再绑定。</div>
-                  )}
-                  <label className="task-system-form-grid__full"><span>任务覆盖范围</span><textarea value={agentDraft.task_scope_text} onChange={(event) => setAgentDraft((value) => ({ ...value, task_scope_text: event.target.value }))} /></label>
-                  <label className="task-system-checkbox"><input checked={agentDraft.enabled} onChange={(event) => setAgentDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用 Agent</label>
-                </div>
-              </>
-            ) : (
-              <div className="task-system-empty">当前类别暂无 Agent。</div>
-            )}
-          </main>
-        </section>
-      ) : null}
-
       {activePage === "tasks" ? (
-        <section className="task-system-task-layout">
-          <aside className="task-system-control-panel task-system-task-rail">
-            <PanelHead
-              title="任务分类"
-              description="任务系统先区分通用任务与特定任务，再进入对应的配置主面。"
-            />
-            <nav className="task-system-switcher">
-              <button className={taskModeTab === "general" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskModeTab("general")} type="button">通用任务</button>
-              <button className={taskModeTab === "specific" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskModeTab("specific")} type="button">特定任务</button>
+        <section className="task-management-stage">
+          <aside className="task-management-directory">
+            <div className="task-management-directory__head">
+              <span>任务目录</span>
+              <strong>任务管理</strong>
+            </div>
+
+            <nav className="task-management-mode-switch" aria-label="任务类型">
+              <button className={taskModeTab === "specific" ? "task-management-mode-switch__item task-management-mode-switch__item--active" : "task-management-mode-switch__item"} onClick={() => setTaskModeTab("specific")} type="button">
+                特定任务
+                <span>{taskManagement?.specific_tasks.length ?? 0}</span>
+              </button>
+              <button className={taskModeTab === "general" ? "task-management-mode-switch__item task-management-mode-switch__item--active" : "task-management-mode-switch__item"} onClick={() => setTaskModeTab("general")} type="button">
+                通用任务
+                <span>{taskManagement?.general_tasks.length ?? 0}</span>
+              </button>
             </nav>
 
             {taskModeTab === "general" ? (
@@ -1005,32 +1138,36 @@ export function TaskSystemView() {
                   <Bot size={16} />
                   <strong>{generalDraft.title}</strong>
                   <Badge value={generalDraft.enabled ? "enabled" : "disabled"} />
-                  <span>主会话默认承接配置。用户不需要显式选择，它只负责定义入口默认行为。</span>
+                  <span>主会话默认承接配置</span>
                 </button>
                 <div className="task-system-task-note">
-                  <span>主链路</span>
-                  <strong>{"主会话 -> 主 Agent -> 通用任务配置 -> 如需再分流到特定任务"}</strong>
+                  <span>默认承接链路</span>
+                  <strong>{"主会话 -> 通用任务 -> 主 Agent -> 如需再进入特定任务"}</strong>
                 </div>
               </div>
             ) : (
               <div className="task-system-task-rail__stack">
                 <div className="task-system-toolbar">
                   <strong className="task-system-inline-title">特定任务列表</strong>
-                  <button className="action-button action-button--ghost" onClick={createSpecificTaskDraft} type="button">
-                    <Plus size={14} />
-                    新特定任务
+                  <button className="action-button action-button--ghost" disabled={saving === "task-create"} onClick={() => void createSpecificTaskDraft()} type="button">
+                    {saving === "task-create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
+                    新任务
                   </button>
                 </div>
                 <div className="task-system-flow-tabs">
                   {taskList.map((item) => {
                     const task = item as TaskAssignment;
                     const active = selectedSpecificTaskId === task.task_id;
+                    const taskAgentName = allAgents.find((agent) => agent.agent_id === task.default_agent_id)?.agent_name ?? task.default_agent_id;
+                    const taskWorkflowTitle = workflows.find((workflow) => workflow.workflow_id === task.workflow_id)?.title
+                      ?? task.workflow_id
+                      ?? "未绑定执行流程";
                     return (
                       <button className={active ? "task-system-flow-tab task-system-flow-tab--active" : "task-system-flow-tab"} key={task.task_id} onClick={() => setSelectedSpecificTaskId(task.task_id)} type="button">
                         <Workflow size={14} />
                         <span>{task.task_title}</span>
                         <Badge value={task.enabled ? "enabled" : "disabled"} />
-                        <small>{task.default_agent_id} / {task.workflow_id || "未绑定 workflow"} / {text(task.safety_policy?.safety_class, "S0_readonly")}</small>
+                        <small>{String(task.metadata?.display_number || displayNumberFromId(task.task_id, "任务"))} · {labelTaskMode(text(task.task_mode, ""))} · {taskAgentName || "未绑定执行主体"} · {taskWorkflowTitle} · {text(task.safety_policy?.safety_class, "S0_readonly")}</small>
                       </button>
                     );
                   })}
@@ -1039,67 +1176,80 @@ export function TaskSystemView() {
             )}
           </aside>
 
-          <main className="task-system-control-panel task-system-task-workbench">
-            <PanelHead
-              title={taskModeTab === "general" ? "通用任务配置" : "特定任务配置"}
-              description={taskModeTab === "general" ? "通用任务是主会话默认配置，不需要用户选择；它负责默认入口、默认 workflow 与默认投影。" : "特定任务需要显式登记任务契约、承接 Agent、workflow 与投影，保证 Agent 能稳定消费。"}
-              action={
-                <div className="task-system-inline-actions">
-                  <button className="action-button action-button--ghost" disabled={saving === "workflow"} onClick={() => void saveWorkflowOnly()} type="button">
-                    {saving === "workflow" ? <Loader2 className="spin" size={14} /> : <Layers3 size={14} />}
-                    保存 workflow
-                  </button>
-                  <button className="action-button action-button--primary" disabled={Boolean(saving) && saving !== "workflow"} onClick={() => taskModeTab === "general" ? void saveGeneralTask() : void saveSpecificTask()} type="button">
-                    {saving === "general" || saving === "specific" ? <Loader2 className="spin" size={14} /> : <Save size={14} />}
-                    保存任务
-                  </button>
-                </div>
-              }
-            />
+          <main className="task-management-workbench">
+            <header className="task-management-titlebar">
+              <div>
+                <span>{taskModeTab === "general" ? "通用任务" : "特定任务"}</span>
+                <h3>{currentTaskTitle || "未命名任务"}</h3>
+                <p>{taskModeTab === "general" ? "主会话默认承接任务" : labelExecutionMode(currentExecutionMode)}</p>
+              </div>
+              <div className="task-system-inline-actions">
+                <button className="action-button action-button--ghost" disabled={saving === "workflow"} onClick={() => void saveWorkflowOnly()} type="button">
+                  {saving === "workflow" ? <Loader2 className="spin" size={14} /> : <Layers3 size={14} />}
+                  保存流程
+                </button>
+                <button className="action-button action-button--primary" disabled={Boolean(saving) && saving !== "workflow"} onClick={() => taskModeTab === "general" ? void saveGeneralTask() : void saveSpecificTask()} type="button">
+                  {saving === "general" || saving === "specific" ? <Loader2 className="spin" size={14} /> : <Save size={14} />}
+                  保存任务
+                </button>
+              </div>
+            </header>
 
-            <section className="task-system-task-cover">
-              <TaskSummaryCard title="任务标识" value={currentTaskId} detail={currentTaskTitle} />
-              <TaskSummaryCard title="承接 Agent" value={currentTaskAgentName || "未指定"} detail={currentTaskAgentId || "未绑定"} />
-              <TaskSummaryCard title="绑定 workflow" value={currentTaskWorkflowId || "未绑定"} detail="任务先定目标，再装配 workflow" />
-              <TaskSummaryCard title="任务投影" value={currentTaskProjectionTitle} detail={currentTaskProjectionId || "未绑定"} />
-              <TaskSummaryCard
-                title="运行安全"
-                value={taskModeTab === "general" ? "S0_readonly" : text((specificTaskDraft.safety_policy ?? {}).safety_class, "S0_readonly")}
-                detail={taskModeTab === "general" ? "通用任务默认只读承接。" : formatSafetySummary(specificTaskDraft.safety_policy ?? {})}
-              />
-            </section>
+            <div className="task-management-status-row">
+              <TaskSummaryCard title="执行主体" value={currentTaskAgentName || "未指定"} detail={taskModeTab === "general" ? "主会话默认承接" : "负责执行该任务"} />
+              <TaskSummaryCard title="执行流程" value={currentWorkflowTitle} detail={taskModeTab === "general" ? "系统流程已绑定" : "当前任务采用的标准流程"} />
+              <TaskSummaryCard title="表达风格" value={currentTaskProjectionTitle} detail={currentTaskProjectionId ? "已指定风格与输出姿态" : "暂未指定"} />
+              <TaskSummaryCard title="任务编号" value={taskModeTab === "general" ? "通用任务" : String(specificTaskDraft.metadata?.display_number || displayNumberFromId(specificTaskDraft.task_id, "任务"))} detail={taskModeTab === "general" ? "主会话默认入口" : labelTaskFamily(specificTaskDraft.task_family)} />
+            </div>
 
-            <nav className="task-system-switcher task-system-switcher--four">
-              <button className={taskWorkbenchTab === "definition" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskWorkbenchTab("definition")} type="button">任务定义</button>
-              <button className={taskWorkbenchTab === "binding" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskWorkbenchTab("binding")} type="button">执行绑定</button>
-              <button className={taskWorkbenchTab === "safety" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskWorkbenchTab("safety")} type="button">运行安全</button>
-              <button className={taskWorkbenchTab === "workflow" ? "task-system-switcher__item task-system-switcher__item--active" : "task-system-switcher__item"} onClick={() => setTaskWorkbenchTab("workflow")} type="button">Workflow</button>
+            <nav className="task-management-subnav" aria-label="任务管理子页面">
+              {[
+                { key: "definition", label: "任务定义", meta: "目标 / 信号" },
+                { key: "adoption", label: "执行采用", meta: "执行主体 / 输入输出" },
+                { key: "method", label: "方法边界", meta: "执行流程" },
+                { key: "safety", label: "安全治理", meta: "权限包络" },
+                { key: "assembly", label: "装配预览", meta: "运行前检查" }
+              ].map((item) => (
+                <button
+                  className={taskWorkbenchTab === item.key ? "task-management-subnav__item task-management-subnav__item--active" : "task-management-subnav__item"}
+                  key={item.key}
+                  onClick={() => setTaskWorkbenchTab(item.key as TaskWorkbenchTab)}
+                  type="button"
+                >
+                  <strong>{item.label}</strong>
+                  <span>{item.meta}</span>
+                </button>
+              ))}
             </nav>
 
             {taskWorkbenchTab === "definition" ? (
               taskModeTab === "general" ? (
                 <div className="task-system-form-section">
-                  <div className="task-system-callout">
-                    <span>通用任务原则</span>
-                    <strong>通用任务只是主会话默认承接规则，不要求用户显式选择。</strong>
-                    <p>它负责把主会话稳定地接入任务系统，并为后续是否分流到特定任务提供默认入口。</p>
-                  </div>
                   <div className="task-system-form-grid">
-                    <label><span>Profile ID</span><input value={generalDraft.profile_id} onChange={(event) => setGeneralDraft((value) => ({ ...value, profile_id: event.target.value }))} /></label>
-                    <label><span>标题</span><input value={generalDraft.title} onChange={(event) => setGeneralDraft((value) => ({ ...value, title: event.target.value }))} /></label>
+                    <label><span>任务名称</span><input value={generalDraft.title} onChange={(event) => setGeneralDraft((value) => ({ ...value, title: event.target.value }))} /></label>
+                    <label><span>启用状态</span><input value={generalDraft.enabled ? "已启用" : "未启用"} readOnly /></label>
+                    <label><span>任务编号</span><input value="通用任务" readOnly /></label>
                     <label className="task-system-form-grid__full"><span>对话入口策略</span><input value={generalDraft.conversation_entry_policy} onChange={(event) => setGeneralDraft((value) => ({ ...value, conversation_entry_policy: event.target.value }))} /></label>
-                    <label><span>Input Contract</span><input value={generalDraft.input_contract_id} onChange={(event) => setGeneralDraft((value) => ({ ...value, input_contract_id: event.target.value }))} /></label>
-                    <label><span>Output Contract</span><input value={generalDraft.output_contract_id} onChange={(event) => setGeneralDraft((value) => ({ ...value, output_contract_id: event.target.value }))} /></label>
+                    <label><span>用户输入</span><input value={maskSystemValue(generalDraft.input_contract_id, "普通用户消息")} readOnly /></label>
+                    <label><span>系统输出</span><input value={maskSystemValue(generalDraft.output_contract_id, "标准回复结果")} readOnly /></label>
                     <label className="task-system-checkbox"><input checked={generalDraft.enabled} onChange={(event) => setGeneralDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用通用任务</label>
                   </div>
                 </div>
               ) : (
                 <div className="task-system-form-section">
                   <div className="task-system-form-grid">
-                    <label><span>Task ID</span><input value={specificTaskDraft.task_id} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, task_id: event.target.value, flow_id: `flow.${slug(event.target.value.replace(/^task\./, ""))}` }))} /></label>
-                    <label><span>标题</span><input value={specificTaskDraft.task_title} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, task_title: event.target.value }))} /></label>
-                    <label><span>Task Family</span><input value={specificTaskDraft.task_family} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, task_family: event.target.value }))} /></label>
-                    <label><span>Task Mode</span><input value={specificTaskDraft.task_mode} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, task_mode: event.target.value }))} /></label>
+                    <label><span>任务名称</span><input value={specificTaskDraft.task_title} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, task_title: event.target.value }))} /></label>
+                    <label><span>任务类型</span><select value={specificTaskDraft.task_mode} onChange={(event) => {
+                      const taskMode = event.target.value;
+                      const option = TASK_MODE_OPTIONS.find((item) => item.value === taskMode);
+                      setSpecificTaskDraft((value) => ({
+                        ...value,
+                        task_mode: taskMode,
+                        task_family: option?.family ?? value.task_family
+                      }));
+                    }}>{TASK_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                    <label><span>任务分组</span><select value={specificTaskDraft.task_family} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, task_family: event.target.value }))}>{TASK_FAMILY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                    <label><span>任务编号</span><input value={String(specificTaskDraft.metadata?.display_number || displayNumberFromId(specificTaskDraft.task_id, "任务"))} readOnly /></label>
                     <label className="task-system-form-grid__full"><span>触发信号</span><textarea value={specificTaskDraft.trigger_signals_text} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, trigger_signals_text: event.target.value }))} /></label>
                     <label className="task-system-form-grid__full"><span>任务备注</span><textarea value={specificTaskDraft.notes} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, notes: event.target.value }))} /></label>
                     <label className="task-system-checkbox"><input checked={specificTaskDraft.enabled} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用特定任务</label>
@@ -1108,23 +1258,11 @@ export function TaskSystemView() {
               )
             ) : null}
 
-            {taskWorkbenchTab === "binding" ? (
+            {taskWorkbenchTab === "adoption" ? (
               <div className="task-system-form-section">
-                <div className="task-system-binding-grid">
-                  <article className="task-system-binding-card">
-                    <span>Prompts 装配顺序</span>
-                    <strong>{"task -> workflow -> projection"}</strong>
-                    <p>任务先定义目标和契约，再由 workflow 规定做法，最后用 projection 补充执行姿态。</p>
-                  </article>
-                  <article className="task-system-binding-card">
-                    <span>稳定消费机制</span>
-                    <strong>{`${currentTaskInputContract} -> ${currentTaskOutputContract}`}</strong>
-                    <p>Agent 消费的是显式任务契约，而不是完全依靠模型自己去猜任务边界。</p>
-                  </article>
-                </div>
                 <div className="task-system-form-grid">
-                  <label><span>默认承接 Agent</span><select value={taskModeTab === "general" ? generalDraft.default_agent_id : specificTaskDraft.default_agent_id} onChange={(event) => taskModeTab === "general" ? setGeneralDraft((value) => ({ ...value, default_agent_id: event.target.value })) : setSpecificTaskDraft((value) => ({ ...value, default_agent_id: event.target.value }))}>{allAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.agent_name}</option>)}</select></label>
-                  <label><span>绑定 workflow</span><select value={currentTaskWorkflowId} onChange={(event) => {
+                  <label><span>默认执行主体</span><select value={taskModeTab === "general" ? generalDraft.default_agent_id : specificTaskDraft.default_agent_id} onChange={(event) => taskModeTab === "general" ? setGeneralDraft((value) => ({ ...value, default_agent_id: event.target.value })) : setSpecificTaskDraft((value) => ({ ...value, default_agent_id: event.target.value }))}>{allAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.agent_name}</option>)}</select></label>
+                  <label><span>绑定执行流程</span><select value={currentTaskWorkflowId} onChange={(event) => {
                     const workflowId = event.target.value;
                     const workflow = workflows.find((item) => item.workflow_id === workflowId);
                     if (taskModeTab === "general") {
@@ -1136,7 +1274,9 @@ export function TaskSystemView() {
                       setSpecificTaskDraft((value) => ({
                         ...value,
                         task_mode: workflow?.task_mode || value.task_mode,
-                        flow_id: workflow?.task_mode ? `flow.${value.task_family}.${workflow.task_mode}` : value.flow_id,
+                        task_family: workflow?.task_mode
+                          ? (TASK_MODE_OPTIONS.find((item) => item.value === workflow.task_mode)?.family ?? value.task_family)
+                          : value.task_family,
                         workflow_id: workflowId,
                         workflow_file_ref: workflowId ? `workflow:${workflowId}` : ""
                       }));
@@ -1145,13 +1285,48 @@ export function TaskSystemView() {
                       setWorkflowDraft(workflowDraftFrom(workflow));
                     }
                   }}>{workflows.map((workflow) => <option key={workflow.workflow_id} value={workflow.workflow_id}>{workflow.title}</option>)}</select></label>
-                  <ProjectionPicker label="任务投影" projectionId={currentTaskProjectionId} projections={projections} onChange={(projectionId) => taskModeTab === "general" ? setGeneralDraft((value) => ({ ...value, default_projection_id: projectionId })) : setSpecificTaskDraft((value) => ({ ...value, projection_id: projectionId }))} />
-                  <label><span>Input Contract</span><input value={currentTaskInputContract} onChange={(event) => taskModeTab === "general" ? setGeneralDraft((value) => ({ ...value, input_contract_id: event.target.value })) : setSpecificTaskDraft((value) => ({ ...value, input_contract_id: event.target.value }))} /></label>
-                  <label><span>Output Contract</span><input value={currentTaskOutputContract} onChange={(event) => taskModeTab === "general" ? setGeneralDraft((value) => ({ ...value, output_contract_id: event.target.value })) : setSpecificTaskDraft((value) => ({ ...value, output_contract_id: event.target.value }))} /></label>
+                  <ProjectionPicker label="输出风格" projectionId={currentTaskProjectionId} projections={projections} onChange={(projectionId) => taskModeTab === "general" ? setGeneralDraft((value) => ({ ...value, default_projection_id: projectionId })) : setSpecificTaskDraft((value) => ({ ...value, projection_id: projectionId }))} />
+                  <label><span>输入内容</span><input value={maskSystemValue(currentTaskInputContract, "按当前任务要求读取")} readOnly /></label>
+                  <label><span>输出结果</span><input value={maskSystemValue(currentTaskOutputContract, "按当前任务结果输出")} readOnly /></label>
                   {taskModeTab === "specific" ? (
-                    <label className="task-system-form-grid__full"><span>显式装载的协作 Agent</span><textarea value={listText(specificTaskDraft.participant_agent_ids)} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, participant_agent_ids: splitList(event.target.value) }))} /></label>
+                    <>
+                      <label><span>执行方式</span><input value={labelExecutionMode(currentExecutionMode)} readOnly /></label>
+                      <label><span>记忆调用</span><input value={maskSystemValue(currentMemoryRequestProfileRef, "系统自动管理")} readOnly /></label>
+                      <label className="task-system-form-grid__full"><span>协作执行主体</span><textarea value={listText(specificTaskDraft.participant_agent_ids)} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, participant_agent_ids: splitList(event.target.value) }))} /></label>
+                      <label><span>执行通道</span><input value={text(specificTaskStructure.runtime_lane_hint, "") || "系统自动安排"} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, task_structure: { ...(value.task_structure ?? {}), runtime_lane_hint: event.target.value } }))} /></label>
+                      <label className="task-system-checkbox"><input checked={currentAllowWorkerSpawn} onChange={(event) => setSpecificTaskDraft((value) => ({ ...value, task_structure: { ...(value.task_structure ?? {}), allow_worker_agent_spawn: event.target.checked } }))} type="checkbox" />允许系统自动增加工作子 Agent</label>
+                    </>
                   ) : null}
                 </div>
+              </div>
+            ) : null}
+
+            {taskWorkbenchTab === "method" ? (
+              <div className="task-system-form-section">
+                <div className="task-management-section-toolbar">
+                  <div className="task-system-inline-copy">
+                    <strong>当前执行流程</strong>
+                    <span>{workflowDraft.title || "未命名流程"}</span>
+                  </div>
+                  <button className="action-button action-button--ghost" disabled={saving === "workflow-create"} onClick={() => void createWorkflowDraft()} type="button">
+                    {saving === "workflow-create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
+                    新执行流程
+                  </button>
+                </div>
+                <WorkflowWorkbench draft={workflowDraft} onChange={setWorkflowDraft} onBindCurrent={() => {
+                  if (taskModeTab === "general") {
+                    setGeneralDraft((value) => ({
+                      ...value,
+                      default_workflow_id: workflowDraft.workflow_id
+                    }));
+                  } else {
+                    setSpecificTaskDraft((value) => ({
+                      ...value,
+                      workflow_id: workflowDraft.workflow_id,
+                      workflow_file_ref: workflowDraft.workflow_id ? `workflow:${workflowDraft.workflow_id}` : ""
+                    }));
+                  }
+                }} />
               </div>
             ) : null}
 
@@ -1166,18 +1341,6 @@ export function TaskSystemView() {
                 </div>
               ) : (
                 <div className="task-system-form-section">
-                  <div className="task-system-binding-grid">
-                    <article className="task-system-binding-card">
-                      <span>安全归属</span>
-                      <strong>安全策略属于任务，而不是隐藏在模板后面</strong>
-                      <p>特定任务决定允许什么写入方式、哪些目录可写、哪些路径禁止碰触，运行时按这里的登记值收敛能力。</p>
-                    </article>
-                    <article className="task-system-binding-card">
-                      <span>运行顺序</span>
-                      <strong>{"task -> workflow -> projection"}</strong>
-                      <p>先装配任务目标与安全边界，再装配 workflow 做法，最后再用 projection 补充执行姿态，这样职责不会混淆。</p>
-                    </article>
-                  </div>
                   <div className="task-system-form-grid">
                     <label>
                       <span>安全等级</span>
@@ -1232,44 +1395,73 @@ export function TaskSystemView() {
               )
             ) : null}
 
-            {taskWorkbenchTab === "workflow" ? (
-              <div className="task-system-form-section">
-                <div className="task-system-toolbar">
-                  <div className="task-system-inline-copy">
-                    <strong>当前 workflow</strong>
-                    <span>{workflowDraft.title} / {workflowDraft.workflow_id}</span>
+            {taskWorkbenchTab === "assembly" ? (
+              <div className="task-system-form-section task-system-assembly-page">
+                <div className="task-system-assembly-hero">
+                  <div>
+                    <span>装配总览</span>
+                    <strong>{currentTaskTitle || "未命名任务"}{" -> "}{currentExecutionMode}</strong>
+                    <p>{currentAssemblyMissing.length ? `待补齐：${currentAssemblyMissing.join(" / ")}` : `当前任务已具备 ${currentExecutionLabel} 所需的基础登记信息。`}</p>
                   </div>
-                  <button className="action-button action-button--ghost" onClick={createWorkflowDraft} type="button">
-                    <Plus size={14} />
-                    新 workflow
-                  </button>
+                  <div className="task-system-status-strip">
+                    {currentAssemblyReadiness.map((item) => (
+                      <span className={item.ready ? "task-system-status-pill task-system-status-pill--ready" : "task-system-status-pill task-system-status-pill--pending"} key={item.label}>
+                        {item.label} · {item.ready ? "就绪" : "待补齐"}
+                      </span>
+                    ))}
+                  </div>
                 </div>
+
+                <div className="task-system-assembly-stack task-system-assembly-stack--wide">
+                  <TaskSummaryCard title="执行主体" value={currentTaskAgentName || "未指定"} detail={currentTaskAgentId || "未绑定"} />
+                  <TaskSummaryCard title="执行流程" value={currentWorkflowTitle} detail="系统已绑定" />
+                  <TaskSummaryCard title="表达风格" value={currentTaskProjectionTitle} detail={currentTaskProjectionId ? "已指定" : "未绑定"} />
+                  <TaskSummaryCard title="输入输出" value="系统已装配" detail="当前任务的输入输出由系统管理" />
+                </div>
+
+                <div className="task-system-info-grid">
+                  <InfoBlock title="执行主体编号" value={currentTaskAgentId || "未绑定"} />
+                  <InfoBlock title="流程编号" value={displayNumberFromId(currentTaskWorkflowId, "流程")} />
+                  <InfoBlock title="表达风格" value={currentTaskProjectionTitle} />
+                  <InfoBlock title="任务编号" value={taskModeTab === "general" ? "通用任务" : displayNumberFromId(currentTaskId, "任务")} />
+                  <InfoBlock title="执行计划" value={maskSystemValue(currentAgentAdoptionPlanRef)} />
+                  <InfoBlock title="记忆请求" value={maskSystemValue(currentMemoryRequestProfileRef)} />
+                  <InfoBlock title="执行通道" value={currentRuntimeLane} />
+                  <InfoBlock title="执行方式" value={labelExecutionMode(currentExecutionMode)} />
+                </div>
+
                 <div className="task-system-binding-grid">
                   <article className="task-system-binding-card">
-                    <span>workflow 的位置</span>
-                    <strong>任务资源，不是独立中心</strong>
-                    <p>workflow 脱离任务没有实际管理意义，所以它在任务页内部编辑，并由任务绑定进入运行时。</p>
+                    <span>执行采用计划</span>
+                    <strong>{maskSystemValue(currentAgentAdoptionPlanRef, "系统已生成")}</strong>
+                    <p>执行方式：{labelExecutionMode(currentExecutionMode)}；工作子 Agent：{currentAllowWorkerSpawn ? "允许自动增加" : "不自动增加"}。</p>
                   </article>
                   <article className="task-system-binding-card">
-                    <span>workflow 的职责</span>
-                    <strong>规定做法、边界与停机条件</strong>
-                    <p>它负责步骤、可见 skills、输入输出边界与停止条件，而不是单纯堆一个总 prompts 文本。</p>
+                    <span>记忆调用策略</span>
+                    <strong>{maskSystemValue(currentMemoryRequestProfileRef, "系统已生成")}</strong>
+                    <p>memory layers：{currentMemoryLayers.length ? currentMemoryLayers.join(" / ") : "未显式声明"}；topics：{currentMemoryTopics.length ? currentMemoryTopics.join(" / ") : "未补充主题提示"}。</p>
+                  </article>
+                  <article className="task-system-binding-card">
+                    <span>安全包络</span>
+                    <strong>{currentSafetySummary}</strong>
+                    <p>执行通道：{currentRuntimeLane}；输出结果：系统自动管理。</p>
+                  </article>
+                  <article className="task-system-binding-card">
+                    <span>输入输出边界</span>
+                    <strong>系统已装配</strong>
+                    <p>输入、输出和流程约束已经由当前任务自动收束，普通使用者无需手动处理内部契约。</p>
                   </article>
                 </div>
-                <WorkflowWorkbench draft={workflowDraft} onChange={setWorkflowDraft} onBindCurrent={() => {
-                  if (taskModeTab === "general") {
-                    setGeneralDraft((value) => ({
-                      ...value,
-                      default_workflow_id: workflowDraft.workflow_id
-                    }));
-                  } else {
-                    setSpecificTaskDraft((value) => ({
-                      ...value,
-                      workflow_id: workflowDraft.workflow_id,
-                      workflow_file_ref: workflowDraft.workflow_id ? `workflow:${workflowDraft.workflow_id}` : ""
-                    }));
-                  }
-                }} />
+
+                <div className="task-system-callout">
+                  <span>下一步建议</span>
+                  <strong>{currentAssemblyActionHints[0] || "当前页面已具备继续验收的基础形态，可转向运行实测。"}</strong>
+                  <div className="task-system-next-steps">
+                    {currentAssemblyActionHints.length ? currentAssemblyActionHints.map((hint) => (
+                      <p key={hint}>{hint}</p>
+                    )) : <p>下一步可以进入小游戏单 Agent 实测或小说协作多 Agent 实测，检查前端预览、API 装配和 runtime trace 是否一致。</p>}
+                  </div>
+                </div>
               </div>
             ) : null}
           </main>
@@ -1279,45 +1471,200 @@ export function TaskSystemView() {
       {activePage === "coordination" ? (
         <section className="task-system-control-grid">
           <aside className="task-system-control-panel">
-            <PanelHead title="协调任务" description="登记需要多个 Agent 协同完成的任务实例。" action={<button className="action-button action-button--ghost" onClick={() => setCoordinationDraft(emptyCoordination(selectedTopologyId))} type="button"><Plus size={14} />新协调任务</button>} />
+            <PanelHead title="协调任务" description="登记需要多个 Agent 协同完成的任务实例。" action={<button className="action-button action-button--ghost" disabled={saving === "coordination-create"} onClick={() => void createCoordinationTaskDraft()} type="button">{saving === "coordination-create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}新协调任务</button>} />
             <div className="task-system-flow-tabs">
               {(coordinationManagement?.coordination_tasks ?? []).map((task) => (
                 <button className={selectedCoordinationId === task.coordination_task_id ? "task-system-flow-tab task-system-flow-tab--active" : "task-system-flow-tab"} key={task.coordination_task_id} onClick={() => setSelectedCoordinationId(task.coordination_task_id)} type="button">
                   <GitBranch size={14} />
                   <span>{task.title}</span>
                   <Badge value={task.enabled ? "enabled" : "disabled"} />
+                  <small>{String(task.metadata?.display_number || displayNumberFromId(task.coordination_task_id, "协作"))} / {task.coordination_mode} / {displayNumberFromId(task.topology_template_id, "拓扑")}</small>
                 </button>
               ))}
             </div>
           </aside>
 
           <main className="task-system-control-panel">
-            <PanelHead title="协调任务登记" description="定义协调 Agent、参与 Agent 与收敛规则。" action={<button className="action-button action-button--primary" disabled={saving === "coordination"} onClick={() => void saveCoordination()} type="button"><Save size={14} />保存协调任务</button>} />
+            <PanelHead title="协调任务管理" description="定义主协调者、参与主体、拓扑模板、通信与交接、冲突收敛和终止条件。" action={<button className="action-button action-button--primary" disabled={saving === "coordination"} onClick={() => void saveCoordination()} type="button"><Save size={14} />保存协调任务</button>} />
+            <div className="task-system-binding-grid">
+              <article className="task-system-binding-card">
+                <span>协调主体</span>
+                <strong>{allAgents.find((agent) => agent.agent_id === coordinationDraft.coordinator_agent_id)?.agent_name || coordinationDraft.coordinator_agent_id || "未指定"}</strong>
+                <p>主协调者负责读取任务拓扑、按需触发参与主体、汇总交接结果，并形成最终合并结果。</p>
+              </article>
+              <article className="task-system-binding-card">
+                <span>拓扑与协议</span>
+                <strong>{coordinationDraft.topology_template_id || "未绑定拓扑"}</strong>
+                <p>当前收敛策略：{coordinationDraft.output_merge_policy || "未定义"}；handoff：{coordinationDraft.handoff_policy || "未定义"}。</p>
+              </article>
+            </div>
             <div className="task-system-form-grid">
-              <label><span>Coordination ID</span><input value={coordinationDraft.coordination_task_id} onChange={(event) => setCoordinationDraft((value) => ({ ...value, coordination_task_id: event.target.value }))} /></label>
+              <label><span>协作编号</span><input value={String(coordinationDraft.metadata?.display_number || displayNumberFromId(coordinationDraft.coordination_task_id, "协作"))} readOnly /></label>
               <label><span>标题</span><input value={coordinationDraft.title} onChange={(event) => setCoordinationDraft((value) => ({ ...value, title: event.target.value }))} /></label>
               <label><span>协调模式</span><input value={coordinationDraft.coordination_mode} onChange={(event) => setCoordinationDraft((value) => ({ ...value, coordination_mode: event.target.value }))} /></label>
               <label><span>协调 Agent</span><select value={coordinationDraft.coordinator_agent_id} onChange={(event) => setCoordinationDraft((value) => ({ ...value, coordinator_agent_id: event.target.value }))}>{allAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.agent_name}</option>)}</select></label>
               <label><span>拓扑模板</span><select value={coordinationDraft.topology_template_id} onChange={(event) => setCoordinationDraft((value) => ({ ...value, topology_template_id: event.target.value }))}>{(coordinationManagement?.topology_templates ?? []).map((template) => <option key={template.template_id} value={template.template_id}>{template.title}</option>)}</select></label>
+              <label><span>上下文共享策略</span><input value={coordinationDraft.shared_context_policy} onChange={(event) => setCoordinationDraft((value) => ({ ...value, shared_context_policy: event.target.value }))} /></label>
+              <label><span>记忆共享策略</span><input value={coordinationDraft.memory_sharing_policy} onChange={(event) => setCoordinationDraft((value) => ({ ...value, memory_sharing_policy: event.target.value }))} /></label>
+              <label><span>交接策略</span><input value={coordinationDraft.handoff_policy} onChange={(event) => setCoordinationDraft((value) => ({ ...value, handoff_policy: event.target.value }))} /></label>
+              <label><span>冲突收敛策略</span><input value={coordinationDraft.conflict_resolution_policy} onChange={(event) => setCoordinationDraft((value) => ({ ...value, conflict_resolution_policy: event.target.value }))} /></label>
+              <label><span>合并策略</span><input value={coordinationDraft.output_merge_policy} onChange={(event) => setCoordinationDraft((value) => ({ ...value, output_merge_policy: event.target.value }))} /></label>
               <label className="task-system-form-grid__full"><span>参与 Agent</span><textarea value={coordinationDraft.participant_agent_ids_text} onChange={(event) => setCoordinationDraft((value) => ({ ...value, participant_agent_ids_text: event.target.value }))} /></label>
               <label className="task-system-form-grid__full"><span>停止条件</span><textarea value={coordinationDraft.stop_conditions_text} onChange={(event) => setCoordinationDraft((value) => ({ ...value, stop_conditions_text: event.target.value }))} /></label>
               <label className="task-system-checkbox"><input checked={coordinationDraft.enabled} onChange={(event) => setCoordinationDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用协调任务</label>
             </div>
           </main>
 
-          <aside className="task-system-control-panel">
-            <PanelHead title="拓扑模板" description="维护多 Agent 协作时的节点、边和交接规则。" action={<button className="action-button action-button--primary" disabled={saving === "topology"} onClick={() => void saveTopology()} type="button"><Save size={14} />保存拓扑</button>} />
+          <aside className="task-system-control-panel task-system-assembly-panel">
+            <PanelHead title="协调运行预览" description="这里先展示协调运行将如何进入运行链路：谁做主协调者，谁做参与主体，采用什么拓扑、交接和收敛策略。" action={<div className="task-system-inline-actions"><button className="action-button action-button--ghost" disabled={saving === "topology-create"} onClick={() => void createTopologyDraft()} type="button">{saving === "topology-create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}新拓扑模板</button><button className="action-button action-button--primary" disabled={saving === "topology"} onClick={() => void saveTopology()} type="button"><Save size={14} />保存拓扑</button></div>} />
+            <div className="task-system-assembly-stack">
+              <TaskSummaryCard title="主协调者" value={allAgents.find((agent) => agent.agent_id === coordinationDraft.coordinator_agent_id)?.agent_name || "未指定"} detail={coordinationDraft.coordinator_agent_id || "未绑定"} />
+              <TaskSummaryCard title="参与主体" value={String(selectedCoordinationParticipantNames.length || 0)} detail={selectedCoordinationParticipantNames.length ? selectedCoordinationParticipantNames.join(" / ") : "未绑定参与主体"} />
+              <TaskSummaryCard title="拓扑模板" value={selectedTopology?.title || topologyDraft.title || "未绑定"} detail={displayNumberFromId(coordinationDraft.topology_template_id || topologyDraft.template_id, "拓扑")} />
+              <TaskSummaryCard title="合并策略" value={coordinationDraft.output_merge_policy || "未定义"} detail={coordinationDraft.conflict_resolution_policy || "未定义收敛策略"} />
+            </div>
+            <div className="task-system-binding-grid task-system-binding-grid--single">
+              <article className="task-system-binding-card">
+                <span>CoordinationRun 装配</span>
+                <strong>{coordinationDraft.coordination_mode || "未定义模式"}</strong>
+                <p>上下文共享：{coordinationDraft.shared_context_policy || "未定义"}；记忆共享：{coordinationDraft.memory_sharing_policy || "未定义"}。</p>
+              </article>
+              <article className="task-system-binding-card">
+                <span>拓扑预览</span>
+                <strong>{selectedTopologyNodeCount} 个节点 / {selectedTopologyEdgeCount} 条连接</strong>
+                <p>汇合策略：{topologyDraft.join_policy || "未定义"}；失败策略：{topologyDraft.failure_policy || "未定义"}；终止策略：{topologyDraft.terminal_policy || "未定义"}。</p>
+              </article>
+            </div>
             <div className="task-system-form-grid">
-              <label><span>Template ID</span><input value={topologyDraft.template_id} onChange={(event) => setTopologyDraft((value) => ({ ...value, template_id: event.target.value }))} /></label>
+              <label><span>拓扑编号</span><input value={displayNumberFromId(topologyDraft.template_id, "拓扑")} readOnly /></label>
               <label><span>标题</span><input value={topologyDraft.title} onChange={(event) => setTopologyDraft((value) => ({ ...value, title: event.target.value }))} /></label>
-              <label><span>Join Policy</span><input value={topologyDraft.join_policy} onChange={(event) => setTopologyDraft((value) => ({ ...value, join_policy: event.target.value }))} /></label>
-              <label><span>Failure Policy</span><input value={topologyDraft.failure_policy} onChange={(event) => setTopologyDraft((value) => ({ ...value, failure_policy: event.target.value }))} /></label>
-              <label className="task-system-form-grid__full"><span>Nodes JSON</span><textarea value={topologyDraft.nodes_text} onChange={(event) => setTopologyDraft((value) => ({ ...value, nodes_text: event.target.value }))} /></label>
-              <label className="task-system-form-grid__full"><span>Edges JSON</span><textarea value={topologyDraft.edges_text} onChange={(event) => setTopologyDraft((value) => ({ ...value, edges_text: event.target.value }))} /></label>
-              <label className="task-system-form-grid__full"><span>Handoff Rules JSON</span><textarea value={topologyDraft.handoff_rules_text} onChange={(event) => setTopologyDraft((value) => ({ ...value, handoff_rules_text: event.target.value }))} /></label>
+              <label><span>汇合策略</span><input value={topologyDraft.join_policy} onChange={(event) => setTopologyDraft((value) => ({ ...value, join_policy: event.target.value }))} /></label>
+              <label><span>失败策略</span><input value={topologyDraft.failure_policy} onChange={(event) => setTopologyDraft((value) => ({ ...value, failure_policy: event.target.value }))} /></label>
+              <label><span>终止策略</span><input value={topologyDraft.terminal_policy} onChange={(event) => setTopologyDraft((value) => ({ ...value, terminal_policy: event.target.value }))} /></label>
+              <label className="task-system-form-grid__full"><span>节点结构</span><textarea value={topologyDraft.nodes_text} onChange={(event) => setTopologyDraft((value) => ({ ...value, nodes_text: event.target.value }))} /></label>
+              <label className="task-system-form-grid__full"><span>连接结构</span><textarea value={topologyDraft.edges_text} onChange={(event) => setTopologyDraft((value) => ({ ...value, edges_text: event.target.value }))} /></label>
+              <label className="task-system-form-grid__full"><span>交接规则</span><textarea value={topologyDraft.handoff_rules_text} onChange={(event) => setTopologyDraft((value) => ({ ...value, handoff_rules_text: event.target.value }))} /></label>
               <label className="task-system-checkbox"><input checked={topologyDraft.enabled} onChange={(event) => setTopologyDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用拓扑模板</label>
             </div>
           </aside>
+        </section>
+      ) : null}
+
+      {activePage === "agents" ? (
+        <section className="task-system-control-grid task-system-control-grid--two task-system-control-grid--agents">
+          <aside className="task-system-control-panel">
+            <PanelHead title="Agent 资源" description="任务系统把 Agent 视为可采用的执行资源库，而不是系统本体。这里重点看任务范围、接口目标和是否适合作为执行主体。" />
+            <div className="task-system-toolbar">
+              <div className="task-system-search">
+                <Search size={16} />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Agent 资源" />
+              </div>
+              {selectedCategoryId === "worker_sub_agent" ? (
+                <button
+                  className="action-button action-button--ghost"
+                  disabled={saving === "agent-create"}
+                  onClick={() => void createWorkerAgentDraft()}
+                  type="button"
+                >
+                  {saving === "agent-create" ? <Loader2 className="spin" size={14} /> : <Plus size={14} />}
+                  新工作子Agent
+                </button>
+              ) : null}
+            </div>
+            <div className="task-system-agent-type-guide">
+              {filteredCategories.map((category) => {
+                const Icon = CATEGORY_ICONS[category.category_id as keyof typeof CATEGORY_ICONS] ?? UserCog;
+                const active = selectedCategoryId === category.category_id;
+                return (
+                  <button
+                    className={active ? "task-system-agent-type-guide__item task-system-agent-type-guide__item--active" : "task-system-agent-type-guide__item"}
+                    key={category.category_id}
+                    onClick={() => {
+                      setSelectedCategoryId(category.category_id);
+                      setSelectedAgentId(category.agents[0]?.agent_id ?? "");
+                    }}
+                    type="button"
+                  >
+                    <Icon size={16} />
+                    <strong>{category.title}</strong>
+                    <p>{category.category_id === "main_agent" ? "主会话默认执行主体。" : category.category_id === "system_management_agent" ? "系统治理和特定任务辅助主体。" : "可被任务授权动态采用或生成的工作子 Agent。"}</p>
+                  </button>
+                );
+              })}
+            </div>
+            <AgentCategoryRail
+              category={filteredCategories.find((item) => item.category_id === selectedCategoryId) ?? null}
+              selectedAgentId={selectedAgentId}
+              onSelect={setSelectedAgentId}
+            />
+          </aside>
+
+          <main className="task-system-control-panel">
+            <PanelHead
+              title="Agent 资源详情"
+              description="围绕任务采用场景维护 Agent 的接口、默认投影和任务覆盖范围。"
+              action={agentEditorRecord ? (
+                <div className="task-system-inline-actions">
+                  {selectedAgent && !selectedAgent.builtin ? (
+                    <button className="action-button action-button--ghost" disabled={saving === "agent-delete"} onClick={() => void removeAgent()} type="button">
+                      {saving === "agent-delete" ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}
+                      删除 Agent
+                    </button>
+                  ) : null}
+                  <button className="action-button action-button--primary" disabled={saving === "agent"} onClick={() => void saveAgent()} type="button">
+                    {saving === "agent" ? <Loader2 className="spin" size={14} /> : <Save size={14} />}
+                    保存 Agent
+                  </button>
+                </div>
+              ) : null}
+            />
+            {agentEditorRecord ? (
+              <>
+                <div className="task-system-editor-head">
+                  <span><UserCog size={18} /></span>
+                  <div>
+                    <em>{CATEGORY_TITLES[agentEditorCategory as keyof typeof CATEGORY_TITLES] ?? agentEditorCategory}</em>
+                    <strong>{agentEditorRecord.agent_name}</strong>
+                    <p>{agentEditorRecord.description || "当前 Agent 暂无补充说明。"}</p>
+                  </div>
+                </div>
+                <div className="task-system-info-grid">
+                  <InfoBlock title="执行主体编号" value={agentEditorRecord.agent_id} />
+                  <InfoBlock title="接口目标" value={agentEditorRecord.interface_target} />
+                  <InfoBlock title="任务范围" value={agentEditorTaskScopeSummary} />
+                  <InfoBlock title="资源角色" value={selectedCategoryId === "main_agent" ? "默认承接主体" : selectedCategoryId === "system_management_agent" ? "系统协作主体" : "worker blueprint 候选"} />
+                </div>
+                <div className="task-system-binding-grid">
+                  <article className="task-system-binding-card">
+                    <span>协作适配</span>
+                    <strong>{selectedCategoryId === "main_agent" ? "适合主执行与主协调" : selectedCategoryId === "system_management_agent" ? "适合参与主体或治理节点" : "适合作为工作子 Agent 蓝图"}</strong>
+                    <p>任务系统不在这里直接执行 Agent，而是维护这些执行主体何时可被采用、以什么接口进入运行链路。</p>
+                  </article>
+                  <article className="task-system-binding-card">
+                    <span>投影策略</span>
+                    <strong>{isMainAgentCategory(agentEditorCategory) ? "主会话外部切换" : projectionTitleById.get(agentEditorRecord.default_projection_id) || agentEditorRecord.default_projection_id || "未指定"}</strong>
+                    <p>{isMainAgentCategory(agentEditorCategory) ? "主 Agent 的灵魂和投影由主会话切换链路治理，这里不再在任务系统内硬绑定。" : `灵魂：${soulNameById.get(agentEditorRecord.default_soul_id) || agentEditorRecord.default_soul_id || "未指定"}`}</p>
+                  </article>
+                </div>
+                <div className="task-system-form-grid">
+                  <label><span>执行主体编号</span><input disabled={agentEditorBuiltin} value={agentDraft.agent_id} onChange={(event) => setAgentDraft((value) => ({ ...value, agent_id: event.target.value }))} /></label>
+                  <label><span>名称</span><input value={agentDraft.agent_name} onChange={(event) => setAgentDraft((value) => ({ ...value, agent_name: event.target.value }))} /></label>
+                  <label><span>类别</span><select disabled={agentEditorBuiltin} value={agentDraft.agent_category} onChange={(event) => setAgentDraft((value) => ({ ...value, agent_category: event.target.value }))}><option value="main_agent">主 Agent</option><option value="system_management_agent">系统管理 Agent</option><option value="worker_sub_agent">工作子 Agent</option></select></label>
+                  <label><span>接口目标</span><input value={agentDraft.interface_target} onChange={(event) => setAgentDraft((value) => ({ ...value, interface_target: event.target.value }))} /></label>
+                  <label className="task-system-form-grid__full"><span>职责说明</span><textarea value={agentDraft.description} onChange={(event) => setAgentDraft((value) => ({ ...value, description: event.target.value }))} /></label>
+                  {!isMainAgentCategory(agentDraft.agent_category) ? (
+                    <ProjectionPicker label="默认投影" projectionId={agentDraft.default_projection_id} projections={projections} onChange={(projectionId) => setAgentDraft((value) => ({ ...value, default_projection_id: projectionId, default_soul_id: String(projections.find((projection) => projection.projection_id === projectionId)?.soul_id || "") }))} />
+                  ) : (
+                    <div className="task-system-form-grid__full task-system-empty">主 Agent 的灵魂与投影由主会话外部切换链路管理，这里不再绑定。</div>
+                  )}
+                  <label className="task-system-form-grid__full"><span>任务覆盖范围</span><textarea value={agentDraft.task_scope_text} onChange={(event) => setAgentDraft((value) => ({ ...value, task_scope_text: event.target.value }))} /></label>
+                  <label className="task-system-checkbox"><input checked={agentDraft.enabled} onChange={(event) => setAgentDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用 Agent</label>
+                </div>
+              </>
+            ) : (
+              <div className="task-system-empty">当前类别暂无 Agent。</div>
+            )}
+          </main>
         </section>
       ) : null}
     </div>
@@ -1426,9 +1773,9 @@ function WorkflowWorkbench({
     <div className="task-system-workflow-workbench">
       <div className="task-system-workflow-hero">
         <div>
-          <span>Workflow Resource</span>
-          <strong>{draft.title || "未命名 workflow"}</strong>
-          <p>{draft.workflow_id || "请先定义 workflow 标识，然后把它绑定到任务。"}</p>
+          <span>执行流程</span>
+          <strong>{draft.title || "未命名执行流程"}</strong>
+          <p>{String(draft.metadata?.display_number || displayNumberFromId(draft.workflow_id, "流程"))}</p>
         </div>
         <button className="action-button action-button--ghost" onClick={onBindCurrent} type="button">
           <Workflow size={14} />
@@ -1437,23 +1784,23 @@ function WorkflowWorkbench({
       </div>
 
       <div className="task-system-form-grid">
-        <label><span>Workflow ID</span><input value={draft.workflow_id} onChange={(event) => onChange({ ...draft, workflow_id: event.target.value })} /></label>
-        <label><span>标题</span><input value={draft.title} onChange={(event) => onChange({ ...draft, title: event.target.value })} /></label>
-        <label><span>Task Mode</span><input value={draft.task_mode} onChange={(event) => onChange({ ...draft, task_mode: event.target.value })} /></label>
-        <label><span>Output Contract</span><input value={draft.output_contract_id} onChange={(event) => onChange({ ...draft, output_contract_id: event.target.value })} /></label>
-        <label className="task-system-form-grid__full"><span>兼容投影范围</span><textarea value={draft.compatible_projection_ids_text} onChange={(event) => onChange({ ...draft, compatible_projection_ids_text: event.target.value })} /></label>
+        <label><span>流程名称</span><input value={draft.title} onChange={(event) => onChange({ ...draft, title: event.target.value })} /></label>
+        <label><span>适用任务类型</span><select value={draft.task_mode} onChange={(event) => onChange({ ...draft, task_mode: event.target.value })}>{TASK_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label><span>流程编号</span><input value={String(draft.metadata?.display_number || displayNumberFromId(draft.workflow_id, "流程"))} readOnly /></label>
+        <label><span>结果输出</span><input value={maskSystemValue(draft.output_contract_id, "系统结果输出")} readOnly /></label>
+        <label className="task-system-form-grid__full"><span>兼容风格范围</span><textarea value={draft.compatible_projection_ids_text} onChange={(event) => onChange({ ...draft, compatible_projection_ids_text: event.target.value })} /></label>
       </div>
 
       <div className="task-system-workflow-grid">
         <label className="task-system-workflow-card">
           <span>步骤结构</span>
           <textarea value={draft.steps_text} onChange={(event) => onChange({ ...draft, steps_text: event.target.value })} />
-          <small>每行格式：`step_id | 标题`</small>
+          <small>每行填写一个步骤，格式为“步骤编号 | 步骤名称”。</small>
         </label>
         <label className="task-system-workflow-card">
           <span>可见 Skills</span>
           <textarea value={draft.visible_skill_ids_text} onChange={(event) => onChange({ ...draft, visible_skill_ids_text: event.target.value })} />
-          <small>限制 workflow 可直接调用的能力集合。</small>
+          <small>限制执行流程可直接调用的能力集合。</small>
         </label>
         <label className="task-system-workflow-card">
           <span>停止条件</span>
@@ -1468,18 +1815,18 @@ function WorkflowWorkbench({
         <label className="task-system-workflow-card">
           <span>输入边界</span>
           <textarea value={draft.input_boundary} onChange={(event) => onChange({ ...draft, input_boundary: event.target.value })} />
-          <small>说明 workflow 允许消费哪些输入，哪些输入需要被拒绝或转交。</small>
+          <small>说明执行流程允许消费哪些输入，哪些输入需要被拒绝或转交。</small>
         </label>
         <label className="task-system-workflow-card">
           <span>输出边界</span>
           <textarea value={draft.output_boundary} onChange={(event) => onChange({ ...draft, output_boundary: event.target.value })} />
-          <small>说明 workflow 最终可以输出什么形态，防止任务越权输出。</small>
+          <small>说明执行流程最终可以输出什么形态，防止任务越权输出。</small>
         </label>
       </div>
 
       <div className="task-system-form-grid">
         <label className="task-system-form-grid__full"><span>Prompt 补充</span><textarea value={draft.prompt} onChange={(event) => onChange({ ...draft, prompt: event.target.value })} /></label>
-        <label className="task-system-checkbox"><input checked={draft.enabled} onChange={(event) => onChange({ ...draft, enabled: event.target.checked })} type="checkbox" />启用 workflow</label>
+        <label className="task-system-checkbox"><input checked={draft.enabled} onChange={(event) => onChange({ ...draft, enabled: event.target.checked })} type="checkbox" />启用执行流程</label>
       </div>
     </div>
   );

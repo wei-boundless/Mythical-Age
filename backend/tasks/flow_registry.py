@@ -64,6 +64,25 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
             },
         ),
         TaskFlowDefinition(
+            flow_id="flow.writing.short_story",
+            task_mode="short_story",
+            task_family="writing",
+            title="短篇小说协作写作",
+            input_contract_id="ShortStoryTaskInput",
+            output_contract_id="ShortStoryResult",
+            default_agent_id="agent:0",
+            default_workflow_id="workflow.writing.short_story",
+            default_runtime_lane="story_coordination",
+            default_memory_scope="conversation_read_write",
+            metadata={
+                "task_resource": "short_story",
+                "template_id": "template.writing.short_story",
+                "task_id": "task.writing.short_story",
+                "coordination_task_id": "coord.writing.short_story_pipeline",
+                "communication_protocol_id": "protocol.writing.short_story_pipeline",
+            },
+        ),
+        TaskFlowDefinition(
             flow_id="flow.dev.arcade_game_bundle",
             task_mode="arcade_game_bundle",
             task_family="development",
@@ -198,6 +217,36 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _merge_items_by_key(
+    default_items: list[dict[str, Any]],
+    stored_items: list[dict[str, Any]],
+    *,
+    key: str,
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for item in default_items:
+        item_key = str(item.get(key) or "").strip()
+        if item_key:
+            merged[item_key] = dict(item)
+    for item in stored_items:
+        item_key = str(item.get(key) or "").strip()
+        if item_key:
+            merged[item_key] = dict(item)
+    return list(merged.values())
+
+
+def _next_prefixed_id(existing_ids: list[str], *, prefix: str, width: int = 6) -> str:
+    max_value = 0
+    for raw in existing_ids:
+        value = str(raw or "").strip()
+        if not value.startswith(prefix):
+            continue
+        suffix = value[len(prefix):]
+        if suffix.isdigit():
+            max_value = max(max_value, int(suffix))
+    return f"{prefix}{max_value + 1:0{width}d}"
+
+
 def default_general_task_profiles() -> tuple[GeneralTaskProfile, ...]:
     return (
         GeneralTaskProfile(
@@ -233,6 +282,78 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             enabled=False,
             metadata={"candidate_only": True},
         ),
+        CoordinationTaskDefinition(
+            coordination_task_id="coord.writing.short_story_pipeline",
+            title="短篇小说协作流水线",
+            coordination_mode="staged_review_loop",
+            coordinator_agent_id="agent:0",
+            participant_agent_ids=("agent:4", "agent:5"),
+            topology_template_id="topology.writing.short_story_pipeline",
+            shared_context_policy="structured_stage_refs_only",
+            memory_sharing_policy="isolated_by_default",
+            handoff_policy="stage_contract_handoff",
+            conflict_resolution_policy="coordinator_review",
+            output_merge_policy="acceptance_then_final_merge",
+            stop_conditions=("acceptance_passed", "revision_budget_exhausted"),
+            enabled=True,
+            metadata={
+                "max_revision_cycles": 1,
+                "required_revision_cycles": 1,
+                "task_id": "task.writing.short_story",
+                "stage_sequence": [
+                    {
+                        "stage_id": "idea_proposal",
+                        "title": "创意提出",
+                        "node_id": "idea_worker",
+                        "role": "participant",
+                        "message_type": "idea_proposal",
+                    },
+                    {
+                        "stage_id": "idea_review",
+                        "title": "创意审核",
+                        "node_id": "idea_review",
+                        "role": "participant",
+                        "message_type": "idea_review",
+                    },
+                    {
+                        "stage_id": "approval_signal",
+                        "title": "审核通过",
+                        "node_id": "approval_gate",
+                        "role": "coordinator",
+                        "message_type": "approval_signal",
+                    },
+                    {
+                        "stage_id": "draft_submission",
+                        "title": "正式编写",
+                        "node_id": "draft_writer",
+                        "role": "participant",
+                        "message_type": "draft_submission",
+                    },
+                    {
+                        "stage_id": "content_issue",
+                        "title": "内容纠察",
+                        "node_id": "content_check",
+                        "role": "participant",
+                        "message_type": "content_issue",
+                    },
+                    {
+                        "stage_id": "revision_request",
+                        "title": "修正循环",
+                        "node_id": "revision_loop",
+                        "role": "participant",
+                        "message_type": "revision_request",
+                        "loop_kind": "revision_loop",
+                    },
+                    {
+                        "stage_id": "acceptance_result",
+                        "title": "内容验收",
+                        "node_id": "acceptance",
+                        "role": "coordinator",
+                        "message_type": "acceptance_result",
+                    },
+                ],
+            },
+        ),
     )
 
 
@@ -250,6 +371,35 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
             error_signal_policy="raise_to_coordinator",
             enabled=False,
             metadata={"candidate_only": True},
+        ),
+        TaskCommunicationProtocol(
+            protocol_id="protocol.writing.short_story_pipeline",
+            title="短篇小说协作协议",
+            message_types=(
+                "idea_proposal",
+                "idea_review",
+                "approval_signal",
+                "draft_submission",
+                "content_issue",
+                "revision_request",
+                "acceptance_result",
+            ),
+            payload_contracts=(
+                "StoryIdeaProposal",
+                "StoryIdeaReview",
+                "StoryApprovalSignal",
+                "ShortStoryDraft",
+                "StoryContentIssueReport",
+                "StoryRevisionRequest",
+                "StoryAcceptanceResult",
+            ),
+            signal_rules=("participant_report_to_coordinator", "coordinator_stage_gate", "acceptance_then_merge"),
+            handoff_rules=("stage_refs_only", "structured_story_result_only"),
+            ack_policy="explicit_ack",
+            timeout_policy="fail_closed",
+            error_signal_policy="raise_to_coordinator",
+            enabled=True,
+            metadata={"task_id": "task.writing.short_story"},
         ),
     )
 
@@ -269,6 +419,28 @@ def default_topology_templates() -> tuple[TopologyTemplate, ...]:
                 {"from": "fix_verification", "to": "final_merge", "policy": "structured_result_only"},
             ),
             enabled=False,
+        ),
+        TopologyTemplate(
+            template_id="topology.writing.short_story_pipeline",
+            title="短篇小说协作拓扑",
+            nodes=(
+                {"node_id": "idea_worker", "agent_id": "agent:5", "lane": "creative_ideation", "role": "participant"},
+                {"node_id": "idea_review", "agent_id": "agent:4", "lane": "content_review", "role": "participant"},
+                {"node_id": "approval_gate", "agent_id": "agent:0", "lane": "coordination_gate", "role": "coordinator"},
+                {"node_id": "draft_writer", "agent_id": "agent:5", "lane": "story_drafting", "role": "participant"},
+                {"node_id": "content_check", "agent_id": "agent:4", "lane": "content_inspection", "role": "participant"},
+                {"node_id": "revision_loop", "agent_id": "agent:5", "lane": "story_revision", "role": "participant"},
+                {"node_id": "acceptance", "agent_id": "agent:0", "lane": "final_acceptance", "role": "coordinator"},
+            ),
+            edges=(
+                {"from": "idea_worker", "to": "idea_review", "policy": "stage_contract_handoff"},
+                {"from": "idea_review", "to": "approval_gate", "policy": "stage_contract_handoff"},
+                {"from": "approval_gate", "to": "draft_writer", "policy": "stage_contract_handoff"},
+                {"from": "draft_writer", "to": "content_check", "policy": "stage_contract_handoff"},
+                {"from": "content_check", "to": "revision_loop", "policy": "stage_contract_handoff"},
+                {"from": "revision_loop", "to": "acceptance", "policy": "stage_contract_handoff"},
+            ),
+            enabled=True,
         ),
     )
 
@@ -334,6 +506,10 @@ def _default_memory_request_profile(task: TaskAssignment) -> TaskMemoryRequestPr
     elif task_family == "development":
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["project_background", "recent_workspace_state", task_mode or "development"]
+        allow_long_term_memory = True
+    elif task_family == "writing":
+        requested_layers = ["conversation", "state", "long_term"]
+        requested_topics = ["story_goal", "story_style", task_mode or "writing"]
         allow_long_term_memory = True
     elif task_mode == "general_task":
         requested_layers = ["conversation"]
@@ -416,6 +592,10 @@ def _default_memory_request_profile_from_specific_record(record: SpecificTaskRec
     elif task_family == "development":
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["project_background", "recent_workspace_state", task_mode or "development"]
+        allow_long_term_memory = True
+    elif task_family == "writing":
+        requested_layers = ["conversation", "state", "long_term"]
+        requested_topics = ["story_goal", "story_style", task_mode or "writing"]
         allow_long_term_memory = True
     return TaskMemoryRequestProfile(
         profile_id=f"taskmem:{record.task_id}",
@@ -525,14 +705,18 @@ class TaskFlowRegistry:
         return profile
 
     def list_flows(self) -> list[TaskFlowDefinition]:
+        default_payload = [item.to_dict() for item in default_task_flows()]
         payload = _read_json(
             _flows_path(self.base_dir),
-            {"flows": [item.to_dict() for item in default_task_flows()]},
+            {"flows": default_payload},
+        )
+        merged_payload = _merge_items_by_key(
+            default_payload,
+            [item for item in list(payload.get("flows") or []) if isinstance(item, dict)],
+            key="flow_id",
         )
         flows = []
-        for item in list(payload.get("flows") or []):
-            if not isinstance(item, dict):
-                continue
+        for item in merged_payload:
             flows.append(
                 TaskFlowDefinition(
                     flow_id=str(item.get("flow_id") or ""),
@@ -549,11 +733,20 @@ class TaskFlowRegistry:
                     metadata=dict(item.get("metadata") or {}),
                 )
             )
+        normalized = [item.to_dict() for item in flows]
+        if payload.get("flows") != normalized:
+            _write_json(_flows_path(self.base_dir), {"flows": normalized})
         return flows
 
     def get_flow(self, flow_id: str) -> TaskFlowDefinition | None:
         target = str(flow_id or "").strip()
         return next((item for item in self.list_flows() if item.flow_id == target), None)
+
+    def next_flow_id(self) -> str:
+        return _next_prefixed_id(
+            [item.flow_id for item in self.list_flows()],
+            prefix="flow.",
+        )
 
     def upsert_flow(
         self,
@@ -599,14 +792,17 @@ class TaskFlowRegistry:
             _assignments_path(self.base_dir),
             {"assignments": default_assignments},
         )
+        merged_payload = _merge_items_by_key(
+            default_assignments,
+            [item for item in list(payload.get("assignments") or []) if isinstance(item, dict)],
+            key="task_id",
+        )
         assignments: list[TaskAssignment] = []
-        for item in list(payload.get("assignments") or []):
-            if not isinstance(item, dict):
-                continue
+        for item in merged_payload:
             assignments.append(_assignment_from_dict(item))
-        if not assignments:
-            assignments = [self._assignment_from_specific_task_record(item) for item in self.list_specific_task_records()]
-            _write_json(_assignments_path(self.base_dir), {"assignments": [item.to_dict() for item in assignments]})
+        normalized = [item.to_dict() for item in assignments]
+        if payload.get("assignments") != normalized:
+            _write_json(_assignments_path(self.base_dir), {"assignments": normalized})
         return assignments
 
     def get_general_task_profile(self, profile_id: str) -> GeneralTaskProfile | None:
@@ -617,6 +813,11 @@ class TaskFlowRegistry:
         target = str(task_id or "").strip()
         return next((item for item in self.list_task_assignments() if item.task_id == target), None)
 
+    def next_specific_task_id(self) -> str:
+        ids = [item.task_id for item in self.list_task_assignments()]
+        ids.extend(item.task_id for item in self.list_specific_task_records())
+        return _next_prefixed_id(ids, prefix="task.")
+
     def list_specific_task_records(self) -> list[SpecificTaskRecord]:
         default_records = [self._specific_task_record_from_flow(flow).to_dict() for flow in self.list_flows()]
         payload = _read_json(
@@ -624,9 +825,12 @@ class TaskFlowRegistry:
             {"specific_task_records": default_records},
         )
         records: list[SpecificTaskRecord] = []
-        for item in list(payload.get("specific_task_records") or []):
-            if not isinstance(item, dict):
-                continue
+        merged_payload = _merge_items_by_key(
+            default_records,
+            [item for item in list(payload.get("specific_task_records") or []) if isinstance(item, dict)],
+            key="task_id",
+        )
+        for item in merged_payload:
             records.append(
                 SpecificTaskRecord(
                     task_id=str(item.get("task_id") or ""),
@@ -654,10 +858,12 @@ class TaskFlowRegistry:
         if not records:
             records = [self._specific_task_record_from_flow(flow) for flow in self.list_flows()]
         if records:
-            _write_json(
-                _specific_task_records_path(self.base_dir),
-                {"specific_task_records": [item.to_dict() for item in records]},
-            )
+            normalized = [item.to_dict() for item in records]
+            if payload.get("specific_task_records") != normalized:
+                _write_json(
+                    _specific_task_records_path(self.base_dir),
+                    {"specific_task_records": normalized},
+                )
         return records
 
     def get_specific_task_record(self, task_id: str) -> SpecificTaskRecord | None:
@@ -876,10 +1082,13 @@ class TaskFlowRegistry:
             _projection_bindings_path(self.base_dir),
             {"projection_bindings": default_bindings},
         )
+        merged_payload = _merge_items_by_key(
+            default_bindings,
+            [item for item in list(payload.get("projection_bindings") or []) if isinstance(item, dict)],
+            key="binding_id",
+        )
         bindings: list[TaskProjectionBinding] = []
-        for item in list(payload.get("projection_bindings") or []):
-            if not isinstance(item, dict):
-                continue
+        for item in merged_payload:
             bindings.append(
                 TaskProjectionBinding(
                     binding_id=str(item.get("binding_id") or ""),
@@ -896,6 +1105,9 @@ class TaskFlowRegistry:
                     metadata=dict(item.get("metadata") or {}),
                 )
             )
+        normalized = [item.to_dict() for item in bindings]
+        if payload.get("projection_bindings") != normalized:
+            _write_json(_projection_bindings_path(self.base_dir), {"projection_bindings": normalized})
         return bindings
 
     def get_projection_binding(self, task_id: str) -> TaskProjectionBinding | None:
@@ -947,10 +1159,13 @@ class TaskFlowRegistry:
             _flow_contract_bindings_path(self.base_dir),
             {"flow_contract_bindings": default_bindings},
         )
+        merged_payload = _merge_items_by_key(
+            default_bindings,
+            [item for item in list(payload.get("flow_contract_bindings") or []) if isinstance(item, dict)],
+            key="binding_id",
+        )
         bindings: list[TaskFlowContractBinding] = []
-        for item in list(payload.get("flow_contract_bindings") or []):
-            if not isinstance(item, dict):
-                continue
+        for item in merged_payload:
             bindings.append(
                 TaskFlowContractBinding(
                     binding_id=str(item.get("binding_id") or ""),
@@ -962,6 +1177,9 @@ class TaskFlowRegistry:
                     metadata=dict(item.get("metadata") or {}),
                 )
             )
+        normalized = [item.to_dict() for item in bindings]
+        if payload.get("flow_contract_bindings") != normalized:
+            _write_json(_flow_contract_bindings_path(self.base_dir), {"flow_contract_bindings": normalized})
         return bindings
 
     def get_flow_contract_binding(self, task_id: str) -> TaskFlowContractBinding | None:
@@ -1007,10 +1225,14 @@ class TaskFlowRegistry:
             _adoption_plans_path(self.base_dir),
             {"adoption_plans": [_default_adoption_plan(item).to_dict() for item in default_tasks]},
         )
+        default_plans = [_default_adoption_plan(item).to_dict() for item in default_tasks]
+        merged_payload = _merge_items_by_key(
+            default_plans,
+            [item for item in list(payload.get("adoption_plans") or []) if isinstance(item, dict)],
+            key="plan_id",
+        )
         plans: list[TaskAgentAdoptionPlan] = []
-        for item in list(payload.get("adoption_plans") or []):
-            if not isinstance(item, dict):
-                continue
+        for item in merged_payload:
             plans.append(
                 TaskAgentAdoptionPlan(
                     plan_id=str(item.get("plan_id") or ""),
@@ -1029,6 +1251,9 @@ class TaskFlowRegistry:
                     metadata=dict(item.get("metadata") or {}),
                 )
             )
+        normalized = [item.to_dict() for item in plans]
+        if payload.get("adoption_plans") != normalized:
+            _write_json(_adoption_plans_path(self.base_dir), {"adoption_plans": normalized})
         return plans
 
     def get_task_agent_adoption_plan(self, task_id: str) -> TaskAgentAdoptionPlan | None:
@@ -1084,10 +1309,13 @@ class TaskFlowRegistry:
             _memory_request_profiles_path(self.base_dir),
             {"memory_request_profiles": default_profiles},
         )
+        merged_payload = _merge_items_by_key(
+            default_profiles,
+            [item for item in list(payload.get("memory_request_profiles") or []) if isinstance(item, dict)],
+            key="profile_id",
+        )
         profiles: list[TaskMemoryRequestProfile] = []
-        for item in list(payload.get("memory_request_profiles") or []):
-            if not isinstance(item, dict):
-                continue
+        for item in merged_payload:
             profiles.append(
                 TaskMemoryRequestProfile(
                     profile_id=str(item.get("profile_id") or ""),
@@ -1109,6 +1337,9 @@ class TaskFlowRegistry:
                     metadata=dict(item.get("metadata") or {}),
                 )
             )
+        normalized = [item.to_dict() for item in profiles]
+        if payload.get("memory_request_profiles") != normalized:
+            _write_json(_memory_request_profiles_path(self.base_dir), {"memory_request_profiles": normalized})
         return profiles
 
     def get_task_memory_request_profile(self, task_id: str) -> TaskMemoryRequestProfile | None:
@@ -1158,14 +1389,18 @@ class TaskFlowRegistry:
         return profile
 
     def list_coordination_tasks(self) -> list[CoordinationTaskDefinition]:
+        default_payload = [item.to_dict() for item in default_coordination_tasks()]
         payload = _read_json(
             _coordination_tasks_path(self.base_dir),
-            {"coordination_tasks": [item.to_dict() for item in default_coordination_tasks()]},
+            {"coordination_tasks": default_payload},
+        )
+        merged_payload = _merge_items_by_key(
+            default_payload,
+            [item for item in list(payload.get("coordination_tasks") or []) if isinstance(item, dict)],
+            key="coordination_task_id",
         )
         tasks: list[CoordinationTaskDefinition] = []
-        for item in list(payload.get("coordination_tasks") or []):
-            if not isinstance(item, dict):
-                continue
+        for item in merged_payload:
             tasks.append(
                 CoordinationTaskDefinition(
                     coordination_task_id=str(item.get("coordination_task_id") or ""),
@@ -1184,17 +1419,34 @@ class TaskFlowRegistry:
                     metadata=dict(item.get("metadata") or {}),
                 )
             )
+        normalized = [item.to_dict() for item in tasks]
+        if payload.get("coordination_tasks") != normalized:
+            _write_json(_coordination_tasks_path(self.base_dir), {"coordination_tasks": normalized})
         return tasks
 
+    def get_coordination_task(self, coordination_task_id: str) -> CoordinationTaskDefinition | None:
+        target = str(coordination_task_id or "").strip()
+        return next((item for item in self.list_coordination_tasks() if item.coordination_task_id == target), None)
+
+    def next_coordination_task_id(self) -> str:
+        return _next_prefixed_id(
+            [item.coordination_task_id for item in self.list_coordination_tasks()],
+            prefix="coord.",
+        )
+
     def list_topology_templates(self) -> list[TopologyTemplate]:
+        default_payload = [item.to_dict() for item in default_topology_templates()]
         payload = _read_json(
             _topology_templates_path(self.base_dir),
-            {"topology_templates": [item.to_dict() for item in default_topology_templates()]},
+            {"topology_templates": default_payload},
+        )
+        merged_payload = _merge_items_by_key(
+            default_payload,
+            [item for item in list(payload.get("topology_templates") or []) if isinstance(item, dict)],
+            key="template_id",
         )
         templates: list[TopologyTemplate] = []
-        for item in list(payload.get("topology_templates") or []):
-            if not isinstance(item, dict):
-                continue
+        for item in merged_payload:
             templates.append(
                 TopologyTemplate(
                     template_id=str(item.get("template_id") or ""),
@@ -1208,17 +1460,30 @@ class TaskFlowRegistry:
                     enabled=bool(item.get("enabled", False)),
                 )
             )
+        normalized = [item.to_dict() for item in templates]
+        if payload.get("topology_templates") != normalized:
+            _write_json(_topology_templates_path(self.base_dir), {"topology_templates": normalized})
         return templates
 
+    def next_topology_template_id(self) -> str:
+        return _next_prefixed_id(
+            [item.template_id for item in self.list_topology_templates()],
+            prefix="topology.",
+        )
+
     def list_task_communication_protocols(self) -> list[TaskCommunicationProtocol]:
+        default_payload = [item.to_dict() for item in default_task_communication_protocols()]
         payload = _read_json(
             _communication_protocols_path(self.base_dir),
-            {"communication_protocols": [item.to_dict() for item in default_task_communication_protocols()]},
+            {"communication_protocols": default_payload},
+        )
+        merged_payload = _merge_items_by_key(
+            default_payload,
+            [item for item in list(payload.get("communication_protocols") or []) if isinstance(item, dict)],
+            key="protocol_id",
         )
         protocols: list[TaskCommunicationProtocol] = []
-        for item in list(payload.get("communication_protocols") or []):
-            if not isinstance(item, dict):
-                continue
+        for item in merged_payload:
             protocols.append(
                 TaskCommunicationProtocol(
                     protocol_id=str(item.get("protocol_id") or ""),
@@ -1234,6 +1499,9 @@ class TaskFlowRegistry:
                     metadata=dict(item.get("metadata") or {}),
                 )
             )
+        normalized = [item.to_dict() for item in protocols]
+        if payload.get("communication_protocols") != normalized:
+            _write_json(_communication_protocols_path(self.base_dir), {"communication_protocols": normalized})
         return protocols
 
     def get_task_communication_protocol(self, protocol_id: str) -> TaskCommunicationProtocol | None:

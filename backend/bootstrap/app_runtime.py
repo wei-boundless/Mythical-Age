@@ -16,7 +16,6 @@ from retrieval import RetrievalService
 from bootstrap.settings import AppSettingsService
 from sessions import SessionManager
 from structured_memory import ConsolidationConfig, ConsolidationReport, ConsolidationScheduler
-from tasks import TaskCoordinator
 
 
 class AppRuntime:
@@ -30,7 +29,6 @@ class AppRuntime:
         self.retrieval_service: RetrievalService | None = None
         self.permission_service: PermissionService | None = None
         self.model_runtime: ModelRuntime | None = None
-        self.task_coordinator: TaskCoordinator | None = None
         self.query_runtime: QueryRuntime | None = None
         self.consolidation_scheduler: ConsolidationScheduler | None = None
 
@@ -49,7 +47,6 @@ class AppRuntime:
         self.permission_service = PermissionService(self.settings, self.tool_runtime)
         self.model_runtime = ModelRuntime(self.settings)
         self.memory_facade.set_model_invoker(self.model_runtime.invoke_messages)
-        self.task_coordinator = TaskCoordinator(base_dir=base_dir)
         self.consolidation_scheduler = ConsolidationScheduler(
             layout.durable_memory_dir,
             config=ConsolidationConfig(
@@ -69,7 +66,6 @@ class AppRuntime:
             skill_registry=self.skill_registry,
             permission_service=self.permission_service,
             model_runtime=self.model_runtime,
-            task_coordinator=self.task_coordinator,
         )
 
     def require_ready(self) -> "AppRuntime":
@@ -83,7 +79,6 @@ class AppRuntime:
             or self.retrieval_service is None
             or self.permission_service is None
             or self.model_runtime is None
-            or self.task_coordinator is None
             or self.query_runtime is None
         ):
             raise RuntimeError("App runtime is not initialized")

@@ -93,6 +93,17 @@ PROFILES: dict[str, ExperimentProfile] = {
         extra_args=("--scenario-set", "batches"),
         requires_confirmation=True,
     ),
+    "task_acceptance": ExperimentProfile(
+        id="task_acceptance",
+        title="任务系统验收",
+        description="运行两条任务系统正式验收场景，覆盖主 Agent 小游戏交付和多 Agent 小说协作闭环。",
+        command_preview="python -m health_system.maintenance.harness.run --profile long --scenario-set task_acceptance",
+        risk="高耗时",
+        estimated_duration="约 5-15 分钟",
+        harness_profile="long",
+        extra_args=("--scenario-set", "task_acceptance"),
+        requires_confirmation=True,
+    ),
     "marathon": ExperimentProfile(
         id="marathon",
         title="六十轮长跑",

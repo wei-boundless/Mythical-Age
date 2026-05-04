@@ -207,10 +207,12 @@ def build_task_execution_assembly_bundle(
     communication_protocol = _select_communication_protocol(
         flow_registry=flow_registry,
         registered_task=registered_task,
+        current_turn_context=current_turn_payload,
     )
     coordination_task = _select_coordination_task(
         flow_registry=flow_registry,
         registered_task=registered_task,
+        current_turn_context=current_turn_payload,
     )
     task_contract_payload = task_contract.to_dict()
     if current_turn_payload:
@@ -414,11 +416,24 @@ def _select_communication_protocol(
     *,
     flow_registry: TaskFlowRegistry,
     registered_task: dict[str, Any] | None,
+    current_turn_context: dict[str, Any] | None = None,
 ):
+    current_turn_payload = dict(current_turn_context or {})
+    explicit_protocol_id = str(
+        current_turn_payload.get("communication_protocol_id")
+        or current_turn_payload.get("protocol_id")
+        or ""
+    ).strip()
+    if explicit_protocol_id:
+        explicit_protocol = flow_registry.get_task_communication_protocol(explicit_protocol_id)
+        if explicit_protocol is not None:
+            return explicit_protocol
     task_id = str((registered_task or {}).get("task_id") or "").strip()
     task_family = str((registered_task or {}).get("task_family") or "").strip()
     if task_id.startswith("task.health.") or task_family == "health":
         return flow_registry.get_task_communication_protocol("protocol.health.repair_review")
+    if task_id == "task.writing.short_story" or task_family == "writing":
+        return flow_registry.get_task_communication_protocol("protocol.writing.short_story_pipeline")
     return None
 
 
@@ -426,7 +441,23 @@ def _select_coordination_task(
     *,
     flow_registry: TaskFlowRegistry,
     registered_task: dict[str, Any] | None,
+    current_turn_context: dict[str, Any] | None = None,
 ):
+    current_turn_payload = dict(current_turn_context or {})
+    explicit_coordination_task_id = str(
+        current_turn_payload.get("coordination_task_id")
+        or current_turn_payload.get("selected_coordination_task_id")
+        or ""
+    ).strip()
+    if explicit_coordination_task_id:
+        return next(
+            (
+                item
+                for item in flow_registry.list_coordination_tasks()
+                if item.coordination_task_id == explicit_coordination_task_id
+            ),
+            None,
+        )
     task_id = str((registered_task or {}).get("task_id") or "").strip()
     task_family = str((registered_task or {}).get("task_family") or "").strip()
     if task_id.startswith("task.health.") or task_family == "health":
@@ -435,6 +466,15 @@ def _select_coordination_task(
                 item
                 for item in flow_registry.list_coordination_tasks()
                 if item.topology_template_id == "topology.health.repair_review"
+            ),
+            None,
+        )
+    if task_id == "task.writing.short_story" or task_family == "writing":
+        return next(
+            (
+                item
+                for item in flow_registry.list_coordination_tasks()
+                if item.coordination_task_id == "coord.writing.short_story_pipeline"
             ),
             None,
         )

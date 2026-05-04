@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,9 +10,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from orchestration.agent_registry import AgentRegistry
 from orchestration import AgentRuntimeChainAssembler, StageProjectionCycle
 from query import QueryRuntime
-from tasks import TaskCoordinator
+from tasks import TaskFlowRegistry
 
 
 class _MemoryFacadeStub:
@@ -82,6 +84,12 @@ class _SessionManagerStub:
         return list(messages)
 
 
+def _isolated_backend_root() -> Path:
+    root = Path(tempfile.mkdtemp(prefix="orchestration-cutover-")) / "backend"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def test_agent_runtime_chain_cutsover_to_formal_orchestration_objects() -> None:
     chain = AgentRuntimeChainAssembler(
         base_dir=BACKEND_DIR,
@@ -120,7 +128,7 @@ def test_agent_runtime_chain_cutsover_to_formal_orchestration_objects() -> None:
 
 def test_query_runtime_uses_turn_id_and_task_instance_id_instead_of_turn_task_id() -> None:
     runtime = QueryRuntime(
-        base_dir=BACKEND_DIR,
+        base_dir=_isolated_backend_root(),
         settings_service=_SettingsStub(),
         session_manager=_SessionManagerStub(),
         memory_facade=_MemoryFacadeStub(),
@@ -129,7 +137,6 @@ def test_query_runtime_uses_turn_id_and_task_instance_id_instead_of_turn_task_id
         skill_registry=_SkillRegistryStub(),
         permission_service=_PermissionStub(),
         model_runtime=_ModelRuntimeStub(),
-        task_coordinator=TaskCoordinator(),
     )
 
     async def _collect() -> list[dict[str, object]]:
@@ -164,3 +171,252 @@ def test_query_runtime_uses_turn_id_and_task_instance_id_instead_of_turn_task_id
     assert not str(task_run["task_id"]).startswith("turn:")
     assert refs["task_body_orchestration_ref"] == orchestration["orchestration_id"]
     assert refs["agent_runtime_spec_ref"]
+
+
+def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> None:
+    base_dir = _isolated_backend_root()
+    registry = TaskFlowRegistry(base_dir)
+    registry.upsert_task_agent_adoption_plan(
+        task_id="task.dev.light_web_game",
+        adoption_mode="adopt_with_projection",
+        default_agent_id="agent:0",
+        allowed_agent_categories=("main_agent", "worker_sub_agent"),
+        allow_worker_agent_spawn=True,
+        worker_agent_blueprint_id="worker.dev.prototype",
+        worker_agent_naming_rule="game-worker-{n}",
+        notes="runtime formalization test",
+    )
+    registry.upsert_coordination_task(
+        coordination_task_id="coord.dev.parallel_game_delivery",
+        title="小游戏并行交付",
+        coordination_mode="review_merge",
+        coordinator_agent_id="agent:0",
+        participant_agent_ids=("agent:6",),
+        topology_template_id="topology.dev.parallel_game_delivery",
+        handoff_policy="structured_handoff",
+        output_merge_policy="coordinator_final_merge",
+        enabled=True,
+    )
+    registry.upsert_topology_template(
+        template_id="topology.dev.parallel_game_delivery",
+        title="小游戏并行交付拓扑",
+        nodes=(
+            {"node_id": "design_worker", "agent_id": "agent:6", "lane": "game_delivery", "role": "worker_participant"},
+            {"node_id": "final_merge", "agent_id": "agent:0", "lane": "final_integration", "role": "coordinator"},
+        ),
+        edges=(
+            {"from": "design_worker", "to": "final_merge", "policy": "structured_handoff"},
+        ),
+        enabled=True,
+    )
+    registry.upsert_task_communication_protocol(
+        protocol_id="protocol.dev.parallel_game_delivery",
+        title="小游戏并行交付协议",
+        message_types=("draft_result", "merge_request"),
+        payload_contracts=("LightWebGameResult",),
+        signal_rules=("worker_to_coordinator",),
+        handoff_rules=("structured_handoff",),
+        enabled=True,
+    )
+    runtime = QueryRuntime(
+        base_dir=base_dir,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeStub(),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_ModelRuntimeStub(),
+    )
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-worker-coordination",
+                message="请开发一个轻量网页小游戏原型。",
+                history=[],
+                task_selection={
+                    "task_id": "task.dev.light_web_game",
+                    "task_mode": "light_web_game",
+                    "coordination_task_id": "coord.dev.parallel_game_delivery",
+                },
+            )
+        ):
+            events.append(event)
+        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        return events, str(dict(started["task_run"]).get("task_run_id") or "")
+
+    events, task_run_id = asyncio.run(_collect())
+    trace = runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)
+
+    runtime_event_types = [
+        dict(event.get("event") or {}).get("event_type")
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+
+    assert trace is not None
+    assert "worker_agent_spawn_requested" in runtime_event_types
+    assert "worker_agent_spawn_completed" in runtime_event_types
+    assert "coordination_node_run_created" in runtime_event_types
+    assert "handoff_envelope_created" in runtime_event_types
+    assert trace["worker_spawn_requests"]
+    assert trace["worker_spawn_results"]
+    assert any(item["status"] == "spawned" for item in trace["worker_spawn_results"])
+    spawned_agent_id = str(trace["worker_spawn_results"][0]["spawned_agent_id"] or "")
+    spawned_agent = AgentRegistry(base_dir).get_agent(spawned_agent_id)
+    assert spawned_agent is not None
+    assert "main_agent" not in spawned_agent.task_scope
+    assert "worker_sub_agent" not in spawned_agent.task_scope
+    assert "light_web_game" in spawned_agent.task_scope
+    assert len(trace["agent_runs"]) >= 2
+    assert trace["coordination_runs"]
+    assert trace["coordination_runs"][0]["node_runs"]
+    assert trace["coordination_runs"][0]["handoff_envelopes"]
+    assert trace["coordination_runs"][0]["latest_merge_result"] is not None
+
+
+def test_runtime_registers_coordination_flow_for_story_pipeline() -> None:
+    base_dir = _isolated_backend_root()
+    registry = TaskFlowRegistry(base_dir)
+    registry.upsert_coordination_task(
+        coordination_task_id="coord.writing.short_story_pipeline",
+        title="短篇小说协作流水线",
+        coordination_mode="staged_review_loop",
+        coordinator_agent_id="agent:0",
+        participant_agent_ids=("agent:4", "agent:5"),
+        topology_template_id="topology.writing.short_story_pipeline",
+        handoff_policy="stage_contract_handoff",
+        output_merge_policy="acceptance_then_final_merge",
+        enabled=True,
+        metadata={
+            "max_revision_cycles": 1,
+            "required_revision_cycles": 1,
+            "stage_sequence": [
+                {"stage_id": "idea_proposal", "node_id": "idea_worker", "role": "participant", "message_type": "idea_proposal"},
+                {"stage_id": "idea_review", "node_id": "idea_review", "role": "participant", "message_type": "idea_review"},
+                {"stage_id": "approval_signal", "node_id": "approval_gate", "role": "coordinator", "message_type": "approval_signal"},
+                {"stage_id": "draft_submission", "node_id": "draft_writer", "role": "participant", "message_type": "draft_submission"},
+                {"stage_id": "content_issue", "node_id": "content_check", "role": "participant", "message_type": "content_issue"},
+                {"stage_id": "revision_request", "node_id": "revision_loop", "role": "participant", "message_type": "revision_request", "loop_kind": "revision_loop"},
+                {"stage_id": "acceptance_result", "node_id": "acceptance", "role": "coordinator", "message_type": "acceptance_result"},
+            ],
+        },
+    )
+    registry.upsert_topology_template(
+        template_id="topology.writing.short_story_pipeline",
+        title="短篇小说协作拓扑",
+        nodes=(
+            {"node_id": "idea_worker", "agent_id": "agent:5", "lane": "creative_ideation", "role": "participant"},
+            {"node_id": "idea_review", "agent_id": "agent:4", "lane": "content_review", "role": "participant"},
+            {"node_id": "approval_gate", "agent_id": "agent:0", "lane": "coordination_gate", "role": "coordinator"},
+            {"node_id": "draft_writer", "agent_id": "agent:5", "lane": "story_drafting", "role": "participant"},
+            {"node_id": "content_check", "agent_id": "agent:4", "lane": "content_inspection", "role": "participant"},
+            {"node_id": "revision_loop", "agent_id": "agent:5", "lane": "story_revision", "role": "participant"},
+            {"node_id": "acceptance", "agent_id": "agent:0", "lane": "final_acceptance", "role": "coordinator"},
+        ),
+        edges=(
+            {"from": "idea_worker", "to": "idea_review", "policy": "stage_contract_handoff"},
+            {"from": "idea_review", "to": "approval_gate", "policy": "stage_contract_handoff"},
+            {"from": "approval_gate", "to": "draft_writer", "policy": "stage_contract_handoff"},
+            {"from": "draft_writer", "to": "content_check", "policy": "stage_contract_handoff"},
+            {"from": "content_check", "to": "revision_loop", "policy": "stage_contract_handoff"},
+            {"from": "revision_loop", "to": "acceptance", "policy": "stage_contract_handoff"},
+        ),
+        enabled=True,
+    )
+    registry.upsert_task_communication_protocol(
+        protocol_id="protocol.writing.short_story_pipeline",
+        title="短篇小说协作协议",
+        message_types=(
+            "idea_proposal",
+            "idea_review",
+            "approval_signal",
+            "draft_submission",
+            "content_issue",
+            "revision_request",
+            "acceptance_result",
+        ),
+        payload_contracts=("StoryIdeaProposal", "StoryAcceptanceResult"),
+        signal_rules=("participant_report_to_coordinator", "coordinator_stage_gate"),
+        handoff_rules=("stage_refs_only",),
+        enabled=True,
+    )
+    runtime = QueryRuntime(
+        base_dir=base_dir,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeStub(),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_ModelRuntimeStub(),
+    )
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-story-coordination",
+                message="请用多 Agent 协调模式创作一篇短篇小说。",
+                history=[],
+                task_selection={
+                    "selected_task_id": "task.writing.short_story",
+                    "task_id": "task.writing.short_story",
+                    "task_mode": "short_story",
+                    "coordination_task_id": "coord.writing.short_story_pipeline",
+                    "communication_protocol_id": "protocol.writing.short_story_pipeline",
+                },
+            )
+        ):
+            events.append(event)
+        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        return events, str(dict(started["task_run"]).get("task_run_id") or "")
+
+    events, task_run_id = asyncio.run(_collect())
+    trace = runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)
+    runtime_event_types = [
+        dict(event.get("event") or {}).get("event_type")
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    trace_event_types = [str(item.get("event_type") or "") for item in list(trace.get("events") or [])] if trace is not None else []
+
+    assert trace is not None
+    assert "coordination_flow_registered" in runtime_event_types
+    assert "coordination_stage_updated" in runtime_event_types
+    assert "coordination_flow_finalized" in trace_event_types
+    assert trace["agent_run_results"]
+    coordination_run = trace["coordination_runs"][0]
+    flow = dict(coordination_run["diagnostics"].get("coordination_flow") or {})
+    assert flow["revision_loop_enabled"] is True
+    assert flow["required_revision_cycles"] == 1
+    assert len(list(flow.get("stages") or [])) >= 7
+    assert any(str(node.get("diagnostics", {}).get("stage_id") or "") == "idea_proposal" for node in coordination_run["node_runs"])
+    assert coordination_run["latest_merge_result"] is not None
+    assert coordination_run["latest_merge_result"]["unresolved_issue_refs"] == []
+
+
+def test_agent_registry_upsert_preserves_explicit_task_scope_for_new_agent() -> None:
+    base_dir = _isolated_backend_root()
+    registry = AgentRegistry(base_dir)
+
+    created = registry.upsert_agent(
+        agent_id="agent:6",
+        agent_name="测试工作Agent",
+        agent_category="worker_sub_agent",
+        task_scope=("light_web_game", "bounded_patch"),
+        metadata={"created_by": "regression"},
+    )
+
+    assert created.task_scope == ("light_web_game", "bounded_patch")
+    loaded = registry.get_agent("agent:6")
+    assert loaded is not None
+    assert loaded.task_scope == ("light_web_game", "bounded_patch")

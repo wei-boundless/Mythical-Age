@@ -88,6 +88,34 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
             metadata={"managed_by": "task_system", "task_resource": "light_web_game"},
         ),
         TaskWorkflowBinding(
+            workflow_id="workflow.writing.short_story",
+            title="短篇小说协作工作流",
+            task_mode="short_story",
+            compatible_projection_ids=(),
+            visible_skill_ids=("skill.writing", "skill.review"),
+            steps=(
+                {"step_id": "scope_story_goal", "title": "收束题材、篇幅与验收要求"},
+                {"step_id": "propose_story_idea", "title": "提出故事创意"},
+                {"step_id": "review_story_idea", "title": "审核创意方向"},
+                {"step_id": "draft_story_content", "title": "正式编写小说正文"},
+                {"step_id": "inspect_story_content", "title": "执行内容纠察"},
+                {"step_id": "revise_story_if_needed", "title": "必要时进入修正循环"},
+                {"step_id": "accept_story_delivery", "title": "完成最终验收与交付"},
+            ),
+            input_boundary="Story goal, optional style constraints, optional acceptance requirements.",
+            output_boundary="Accepted short story text, acceptance conclusion, and known remaining limitations when any.",
+            stop_conditions=("story_accepted", "revision_budget_exhausted", "result_reported"),
+            required_evidence_refs=("story_goal",),
+            output_contract_id="ShortStoryResult",
+            prompt=(
+                "这是正式的短篇小说协作任务。"
+                "先收束创作目标，再经过创意审核、正文编写、内容纠察与验收；"
+                "若审校未通过，必须按修正循环回到可验收状态。"
+            ),
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "short_story"},
+        ),
+        TaskWorkflowBinding(
             workflow_id="workflow.dev.arcade_game_bundle",
             title="复合网页小游戏包工作流",
             task_mode="arcade_game_bundle",
@@ -216,6 +244,36 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _merge_items_by_key(
+    default_items: list[dict[str, Any]],
+    stored_items: list[dict[str, Any]],
+    *,
+    key: str,
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for item in default_items:
+        item_key = str(item.get(key) or "").strip()
+        if item_key:
+            merged[item_key] = dict(item)
+    for item in stored_items:
+        item_key = str(item.get(key) or "").strip()
+        if item_key:
+            merged[item_key] = dict(item)
+    return list(merged.values())
+
+
+def _next_prefixed_id(existing_ids: list[str], *, prefix: str, width: int = 6) -> str:
+    max_value = 0
+    for raw in existing_ids:
+        value = str(raw or "").strip()
+        if not value.startswith(prefix):
+            continue
+        suffix = value[len(prefix):]
+        if suffix.isdigit():
+            max_value = max(max_value, int(suffix))
+    return f"{prefix}{max_value + 1:0{width}d}"
+
+
 def _workflow_from_dict(payload: dict[str, Any]) -> TaskWorkflowBinding:
     compatible_projection_ids = tuple(
         str(item)
@@ -250,11 +308,17 @@ class TaskWorkflowRegistry:
         self.base_dir = Path(base_dir)
 
     def list_workflows(self) -> list[TaskWorkflowBinding]:
+        default_payload = [item.to_dict() for item in default_task_workflows()]
         payload = _read_json(
             _workflows_path(self.base_dir),
-            {"workflows": [item.to_dict() for item in default_task_workflows()]},
+            {"workflows": default_payload},
         )
-        workflows = [_workflow_from_dict(item) for item in list(payload.get("workflows") or []) if isinstance(item, dict)]
+        merged_payload = _merge_items_by_key(
+            default_payload,
+            [item for item in list(payload.get("workflows") or []) if isinstance(item, dict)],
+            key="workflow_id",
+        )
+        workflows = [_workflow_from_dict(item) for item in merged_payload]
         normalized = [item.to_dict() for item in workflows]
         if payload.get("workflows") != normalized:
             _write_json(_workflows_path(self.base_dir), {"workflows": normalized})
@@ -263,6 +327,12 @@ class TaskWorkflowRegistry:
     def get_workflow(self, workflow_id: str) -> TaskWorkflowBinding | None:
         target = str(workflow_id or "").strip()
         return next((item for item in self.list_workflows() if item.workflow_id == target), None)
+
+    def next_workflow_id(self) -> str:
+        return _next_prefixed_id(
+            [item.workflow_id for item in self.list_workflows()],
+            prefix="workflow.",
+        )
 
     def upsert_workflow(
         self,

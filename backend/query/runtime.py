@@ -47,7 +47,6 @@ class QueryRuntime:
         skill_registry=None,
         permission_service=None,
         model_runtime,
-        task_coordinator=None,
     ) -> None:
         self.base_dir = base_dir
         self.settings_service = settings_service
@@ -73,7 +72,10 @@ class QueryRuntime:
             tool_registry=getattr(tool_runtime, "registry", None),
         )
         self.runtime_context_manager = RuntimeContextManager(self.build_static_system_prompt_for_session)
-        self.task_run_loop = TaskRunLoop(ProjectLayout.from_backend_dir(base_dir).runtime_state_dir)
+        self.task_run_loop = TaskRunLoop(
+            ProjectLayout.from_backend_dir(base_dir).runtime_state_dir,
+            backend_dir=base_dir,
+        )
 
         self.legacy_query_chain_removed = True
         self.legacy_runtime_components = {
@@ -82,6 +84,7 @@ class QueryRuntime:
             "runtime_followup": "removed",
             "evidence_orchestrator": "removed",
             "worker_direct_execution": "removed",
+            "task_coordinator": "removed_from_main_runtime",
         }
 
     def build_system_prompt_for_session(

@@ -85,8 +85,8 @@ def test_operation_agent_bindings_keep_pdf_tools_off_main_agent() -> None:
 
     bindings = agent_tool_bindings(tools)
 
-    assert "web_search" in bindings["agent:main:conversation"]
-    assert "pdf_analysis" not in bindings["agent:main:conversation"]
+    assert "web_search" in bindings["agent:0"]
+    assert "pdf_analysis" not in bindings["agent:0"]
     assert "pdf_analysis" in bindings["agent:document:pdf"]
 
 

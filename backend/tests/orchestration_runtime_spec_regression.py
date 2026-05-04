@@ -95,3 +95,27 @@ def test_orchestration_runtime_bundle_uses_selected_task_profiles() -> None:
     assert runtime_spec["runtime_lane"] in {"health_issue_read", "full_interactive"}
     assert orchestration["resource_binding_plan"]["operation_requirement_ref"].startswith("opreq:")
     assert orchestration["verification_gate_plan"]["task_constraints"] == task_bundle["task_execution_assembly"]["task_constraints"]
+
+
+def test_orchestration_runtime_bundle_uses_formal_short_story_task_profiles() -> None:
+    task_bundle = build_task_execution_assembly_bundle(
+        session_id="session-orch-story",
+        task_id="taskinst:turn:session-orch-story:1:short_story",
+        user_goal="请完成一个经过创意审核、正文编写、内容纠察和验收的短篇小说。",
+        source="test",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "turn_id": "turn:session-orch-story:1",
+            "selected_task_id": "task.writing.short_story",
+        },
+    )
+
+    assembly = task_bundle["task_execution_assembly"]
+
+    assert assembly["task_mode"] == "short_story"
+    assert assembly["task_family"] == "writing"
+    assert assembly["workflow_id"] == "workflow.writing.short_story"
+    assert assembly["flow_contract_id"] == "flow.writing.short_story"
+    assert assembly["communication_protocol_ref"] == "protocol.writing.short_story_pipeline"
+    assert assembly["coordination_task_ref"] == "coord.writing.short_story_pipeline"
+    assert assembly["topology_template_ref"] == "topology.writing.short_story_pipeline"

@@ -176,3 +176,32 @@ def test_runtime_loop_assertions_cover_commit_and_memory_writeback() -> None:
     )
 
     assert all(result.passed for result in results)
+
+
+def test_runtime_loop_assertions_cover_task_acceptance_trace_contract() -> None:
+    payload = {
+        "result": {"response_text": "验收完成", "task_run_id": "taskrun:acceptance"},
+        "runtime_trace": {
+            "agent_run_result_count": 2,
+            "worker_spawn_result_count": 1,
+            "coordination_run_count": 1,
+            "completed_node_count": 7,
+            "accepted": True,
+            "artifact_refs": ["frontend/public/games/agent_generated_snake.html"],
+        },
+    }
+
+    results = evaluate_turn_assertions(
+        payload,
+        [
+            "task_run.nonempty",
+            "trace.agent_run_results.nonempty",
+            "trace.worker_spawned",
+            "trace.coordination.flow_registered",
+            "trace.coordination.completed_nodes>=7",
+            "trace.coordination.accepted",
+            "trace.artifact.contains=frontend/public/games",
+        ],
+    )
+
+    assert all(result.passed for result in results)

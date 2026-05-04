@@ -26,6 +26,8 @@ from .body_models import (
 )
 from .body_registry import BodyProfileRegistry
 from .runtime_directive import RuntimeDirective
+from .worker_agent_blueprints import WorkerAgentBlueprint, WorkerAgentSpawnRequest, WorkerAgentSpawnResult
+from .worker_agent_factory import ProvisionedWorkerAgent, WorkerAgentFactory, default_worker_agent_blueprints
 from .resource_gate import (
     ApprovalState,
     ApprovalToken,
@@ -42,6 +44,12 @@ from .runtime_loop import (
     RuntimeActionRequestType,
     RuntimeCheckpoint,
     RuntimeCheckpointStore,
+    AgentHandoffEnvelope,
+    AgentRun,
+    AgentRunResult,
+    CoordinationMergeResult,
+    CoordinationNodeRun,
+    CoordinationRun,
     RuntimeContextInvariantReport,
     RuntimeContextManager,
     RuntimeContextObservationRecord,
@@ -121,6 +129,12 @@ __all__ = [
     "RuntimeActionRequestType",
     "RuntimeCheckpoint",
     "RuntimeCheckpointStore",
+    "AgentRun",
+    "AgentRunResult",
+    "CoordinationRun",
+    "CoordinationNodeRun",
+    "AgentHandoffEnvelope",
+    "CoordinationMergeResult",
     "RuntimeContextInvariantReport",
     "RuntimeContextManager",
     "RuntimeContextObservationRecord",
@@ -148,6 +162,11 @@ __all__ = [
     "TaskContract",
     "UnitCatalog",
     "UnitDescriptor",
+    "WorkerAgentBlueprint",
+    "WorkerAgentFactory",
+    "WorkerAgentSpawnRequest",
+    "WorkerAgentSpawnResult",
+    "ProvisionedWorkerAgent",
     "build_assistant_session_message_commit_decision",
     "build_blocked_runtime_commit_gate",
     "build_resource_policy_candidate",
@@ -159,6 +178,7 @@ __all__ = [
     "build_operation_requirement",
     "default_agent_descriptors",
     "default_agent_runtime_profiles",
+    "default_worker_agent_blueprints",
     "build_executor_error_observation",
     "build_execution_receipt",
     "build_idempotency_token",

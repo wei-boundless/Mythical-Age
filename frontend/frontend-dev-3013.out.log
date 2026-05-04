@@ -7,3 +7,42 @@
 
  ✓ Starting...
  ✓ Ready in 2.6s
+ ○ Compiling / ...
+ ✓ Compiled / in 28.3s (1290 modules)
+ GET / 200 in 28859ms
+ GET / 200 in 67ms
+ ✓ Compiled in 1061ms (1263 modules)
+ ✓ Compiled in 784ms (1263 modules)
+ ✓ Compiled /_not-found in 202ms (1252 modules)
+ GET /_next/static/css/app/layout.css?v=1777901832270 404 in 362ms
+ ✓ Compiled in 1215ms (1263 modules)
+ ✓ Compiled /_not-found in 179ms (1252 modules)
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1328ms (1482 modules)
+ GET /_next/static/css/app/layout.css?v=1777914042649 500 in 2251ms
+ GET /_next/static/css/app/layout.css?v=1777914045023 500 in 27ms
+ ✓ Compiled in 934ms (1491 modules)
+ ✓ Compiled /_not-found in 185ms (1480 modules)
+ ✓ Compiled /_error in 168ms (1482 modules)
+ GET /_next/static/css/app/layout.css?v=1777914215851 500 in 382ms
+ ✓ Compiled in 727ms (1496 modules)
+ GET /_next/static/css/app/layout.css?v=1777914261888 500 in 11ms
+ ✓ Compiled in 842ms (1496 modules)
+ GET /_next/static/css/app/layout.css?v=1777914283796 500 in 12ms
+ ✓ Compiled in 1211ms (1491 modules)
+ ✓ Compiled in 712ms (1491 modules)
+ ✓ Compiled /_not-found in 171ms (1480 modules)
+ GET /_next/static/css/app/layout.css?v=1777914531732 404 in 253ms
+ GET /_next/static/css/app/layout.css?v=1777914532017 404 in 42ms
+ ✓ Compiled in 858ms (1491 modules)
+ ✓ Compiled in 1290ms (1491 modules)
+ ✓ Compiled in 1815ms (1491 modules)
+ ✓ Compiled in 1121ms (1491 modules)
+ ✓ Compiled in 728ms (1491 modules)
+ ✓ Compiled in 1133ms (1491 modules)
+ ✓ Compiled in 1333ms (1491 modules)
+ ✓ Compiled in 891ms (1491 modules)
+ ✓ Compiled in 1998ms (1491 modules)
+ ✓ Compiled in 1783ms (1477 modules)
+ ✓ Compiled in 879ms (1491 modules)
+ ✓ Compiled in 1494ms (1491 modules)

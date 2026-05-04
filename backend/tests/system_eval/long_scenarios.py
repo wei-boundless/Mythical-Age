@@ -254,6 +254,48 @@ COMPOUND_TASK_TURNS: tuple[LongScenarioTurn, ...] = (
 )
 
 
+TASK_SYSTEM_LIGHT_WEB_GAME_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content="请在 frontend/public/games 下生成一个简单可运行的网页贪吃蛇小游戏，并告诉我产物路径与验证情况。",
+        checks=(
+            "response.nonempty",
+            "task_run.nonempty",
+            "trace.agent_run_results.nonempty",
+            "trace.artifact.contains=frontend/public/games",
+        ),
+        params={"task_selection": {"selected_task_id": "task.dev.light_web_game"}},
+        force_memory_sync=False,
+    ),
+)
+
+
+TASK_SYSTEM_SHORT_STORY_COORDINATION_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content="请用多 Agent 协调模式完成一个短篇小说协作流程：先提出创意并审核，通过后正式编写，再做内容纠察与验收，如未通过则进入一次修正循环，最终给我验收通过的短篇小说结果。",
+        checks=(
+            "response.nonempty",
+            "task_run.nonempty",
+            "trace.agent_run_results.nonempty",
+            "trace.coordination.flow_registered",
+            "trace.coordination.completed_nodes>=7",
+            "trace.coordination.accepted",
+        ),
+        params={
+            "task_selection": {
+                "selected_task_id": "task.writing.short_story",
+                "task_id": "task.writing.short_story",
+                "task_mode": "short_story",
+            }
+        },
+        force_memory_sync=False,
+    ),
+)
+
+
 PERMISSION_BOUNDARY_TURNS: tuple[LongScenarioTurn, ...] = (
     operator("main", "set_permission_mode", mode="default"),
     user(
@@ -704,6 +746,20 @@ SCENARIOS: tuple[LongScenario, ...] = (
         turns=COMPOUND_TASK_TURNS,
     ),
     LongScenario(
+        id="task-system-light-web-game-acceptance",
+        title="任务系统主 Agent 小游戏开发验收",
+        goal="验证主 Agent 能以正式任务装配完成轻量网页小游戏开发，并留下真实产物与执行痕迹。",
+        coverage=("tasks", "tool_route", "sse"),
+        turns=TASK_SYSTEM_LIGHT_WEB_GAME_ACCEPTANCE_TURNS,
+    ),
+    LongScenario(
+        id="task-system-short-story-coordination-acceptance",
+        title="任务系统多 Agent 小说协作验收",
+        goal="验证多 Agent 协调任务能跑通创意、审核、编写、纠察、验收与修正循环，并形成正式协调痕迹。",
+        coverage=("tasks", "sse", "stress"),
+        turns=TASK_SYSTEM_SHORT_STORY_COORDINATION_ACCEPTANCE_TURNS,
+    ),
+    LongScenario(
         id="permission-boundary-and-safe-fallback",
         title="权限边界与安全回退",
         goal="模拟用户先要求高风险操作，再退回到安全说明和只读分析。",
@@ -755,8 +811,14 @@ SCENARIO_SETS: dict[str, tuple[str, ...]] = {
         "commerce-ops-data-live-switch",
         "memory-preference-and-cross-session-recall",
         "compound-task-decomposition-and-focus-return",
+        "task-system-light-web-game-acceptance",
+        "task-system-short-story-coordination-acceptance",
         "permission-boundary-and-safe-fallback",
         "multi-session-workbench-isolation",
+    ),
+    "task_acceptance": (
+        "task-system-light-web-game-acceptance",
+        "task-system-short-story-coordination-acceptance",
     ),
     "mega": ("sixty-turn-real-user-marathon",),
     "extended": tuple(scenario.id for scenario in SCENARIOS),

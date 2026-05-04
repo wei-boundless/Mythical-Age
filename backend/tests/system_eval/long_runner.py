@@ -85,6 +85,7 @@ class TurnResult:
     output_commit_diagnostics: dict[str, Any] = field(default_factory=dict)
     memory_sync_ms: float = 0.0
     tasks_count: int = 0
+    task_run_id: str = ""
     passed: bool = True
     failed_checks: list[str] = field(default_factory=list)
     quality_warnings: list[str] = field(default_factory=list)
@@ -286,6 +287,10 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             if turn.tasks_count < expected:
                 failures.append(f"{check} (actual={turn.tasks_count})")
             continue
+        if check == "task_run.nonempty":
+            if not turn.task_run_id.strip():
+                failures.append(check)
+            continue
         if check == "trace.available":
             if not turn.trace_available:
                 failures.append(check)
@@ -448,6 +453,77 @@ def _runtime_operation_refs(events: list[dict[str, Any]]) -> list[str]:
     return refs
 
 
+def _task_selection_payload(turn: LongScenarioTurn) -> dict[str, Any]:
+    raw = dict(turn.params or {}).get("task_selection")
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _task_run_id_from_events(events: list[dict[str, Any]]) -> str:
+    for item in events:
+        if str(item.get("event") or "") == "runtime_loop_started":
+            task_run = dict(item.get("data") or {}).get("task_run", {})
+            task_run_id = str(dict(task_run or {}).get("task_run_id") or "").strip()
+            if task_run_id:
+                return task_run_id
+    for item in events:
+        if str(item.get("event") or "") != "runtime_loop_event":
+            continue
+        event = dict(dict(item.get("data") or {}).get("event") or {})
+        task_run_id = str(event.get("task_run_id") or "").strip()
+        if task_run_id:
+            return task_run_id
+    return ""
+
+
+def _runtime_trace_summary(runtime, task_run_id: str) -> dict[str, Any]:
+    if not task_run_id.strip():
+        return {}
+    trace = runtime.query_runtime.task_run_loop.get_trace(task_run_id)
+    if not isinstance(trace, dict):
+        return {}
+    coordination_runs = [
+        dict(item)
+        for item in list(trace.get("coordination_runs") or [])
+        if isinstance(item, dict)
+    ]
+    node_runs = [
+        dict(node)
+        for coordination in coordination_runs
+        for node in list(coordination.get("node_runs") or [])
+        if isinstance(node, dict)
+    ]
+    agent_run_results = [
+        dict(item)
+        for item in list(trace.get("agent_run_results") or [])
+        if isinstance(item, dict)
+    ]
+    artifact_refs = [
+        str(ref)
+        for item in agent_run_results
+        for ref in list(item.get("artifact_refs") or [])
+        if str(ref).strip()
+    ]
+    flow = {}
+    merge_result = {}
+    if coordination_runs:
+        flow = dict(dict(coordination_runs[0].get("diagnostics") or {}).get("coordination_flow") or {})
+        merge_result = dict(coordination_runs[0].get("latest_merge_result") or {})
+    return {
+        "task_run_id": task_run_id,
+        "agent_run_count": len(list(trace.get("agent_runs") or [])),
+        "agent_run_result_count": len(agent_run_results),
+        "worker_spawn_request_count": len(list(trace.get("worker_spawn_requests") or [])),
+        "worker_spawn_result_count": len(list(trace.get("worker_spawn_results") or [])),
+        "coordination_run_count": len(coordination_runs),
+        "coordination_node_count": len(node_runs),
+        "completed_node_count": sum(1 for node in node_runs if str(node.get("status") or "") == "completed"),
+        "coordination_flow": flow,
+        "merge_result": merge_result,
+        "artifact_refs": artifact_refs,
+        "accepted": bool(flow.get("accepted") is True or merge_result.get("accepted") is True),
+    }
+
+
 def _infer_plan_fields_from_runtime(events: list[dict[str, Any]]) -> dict[str, Any]:
     task_payload = _first_runtime_loop_payload(events, "task_contract_built")
     task_contract = dict(task_payload.get("task_contract") or {})
@@ -595,7 +671,12 @@ def _execute_user_turn(
     with client.stream(
         "POST",
         "/api/chat",
-        json={"message": turn.content, "session_id": session_id, "stream": True},
+        json={
+            "message": turn.content,
+            "session_id": session_id,
+            "stream": True,
+            "task_selection": _task_selection_payload(turn),
+        },
     ) as response:
         events, timing = collect_sse_events(
             response,
@@ -686,6 +767,8 @@ def _execute_user_turn(
     )
     effective_execution_mode = str(orchestration_topology.get("mode") or inferred.get("execution_mode") or "")
     task_count = len(runtime.task_coordinator.list_tasks(session_id=session_id))
+    task_run_id = _task_run_id_from_events(events)
+    runtime_trace = _runtime_trace_summary(runtime, task_run_id)
 
     turn_result = TurnResult(
         index=turn_index,
@@ -742,6 +825,7 @@ def _execute_user_turn(
         output_commit_diagnostics=dict(done_payload.get("output_commit") or {}),
         memory_sync_ms=memory_sync_ms,
         tasks_count=task_count,
+        task_run_id=task_run_id,
         timing=timing.to_dict(),
     )
     turn_result.failed_checks = _parse_checks(turn_result, turn.checks)
@@ -779,6 +863,7 @@ def _execute_user_turn(
                 "orchestration_plan": orchestration_plan,
                 "orchestration_diff": orchestration_diff,
                 "memory_sync": sync_details or {},
+                "runtime_trace": runtime_trace,
                 "result": turn_result.to_dict(),
             },
             ensure_ascii=False,

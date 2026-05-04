@@ -43,8 +43,34 @@ class RuntimeLoopTraceReader:
             return None
         events = self.event_log.list_events(task_run_id)
         checkpoint = self.checkpoints.load_latest(task_run_id)
+        agent_runs = self.state_index.list_task_agent_runs(task_run_id)
+        coordination_runs = self.state_index.list_task_coordination_runs(task_run_id)
         return {
             "task_run": task_run.to_dict(),
+            "agent_runs": [item.to_dict() for item in agent_runs],
+            "agent_run_results": [item.to_dict() for item in self.state_index.list_task_agent_run_results(task_run_id)],
+            "worker_spawn_requests": [
+                item.to_dict() for item in self.state_index.list_task_worker_spawn_requests(task_run_id)
+            ],
+            "worker_spawn_results": [
+                item.to_dict() for item in self.state_index.list_task_worker_spawn_results(task_run_id)
+            ],
+            "coordination_runs": [
+                {
+                    **item.to_dict(),
+                    "node_runs": [node.to_dict() for node in self.state_index.list_coordination_node_runs(item.coordination_run_id)],
+                    "handoff_envelopes": [
+                        handoff.to_dict()
+                        for handoff in self.state_index.list_coordination_handoffs(item.coordination_run_id)
+                    ],
+                    "latest_merge_result": (
+                        self.state_index.get_latest_coordination_merge_result(item.coordination_run_id).to_dict()
+                        if self.state_index.get_latest_coordination_merge_result(item.coordination_run_id) is not None
+                        else None
+                    ),
+                }
+                for item in coordination_runs
+            ],
             "event_count": len(events),
             "events": [
                 _event_view(
@@ -66,8 +92,12 @@ class RuntimeLoopTraceReader:
     def _task_run_summary(self, task_run: TaskRun) -> dict[str, Any]:
         events = self.event_log.list_events(task_run.task_run_id)
         checkpoint = self.checkpoints.load_latest(task_run.task_run_id)
+        agent_runs = self.state_index.list_task_agent_runs(task_run.task_run_id)
+        coordination_runs = self.state_index.list_task_coordination_runs(task_run.task_run_id)
         return {
             "task_run": task_run.to_dict(),
+            "agent_run_count": len(agent_runs),
+            "coordination_run_count": len(coordination_runs),
             "event_count": len(events),
             "latest_event_type": events[-1].event_type if events else "",
             "latest_checkpoint": checkpoint.to_dict() if checkpoint is not None else None,
@@ -152,7 +182,118 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "requested_outputs": list(task_spec.get("requested_outputs") or []),
                 "step_count": len(list(task_run_ledger.get("step_runs") or [])),
                 "user_goal_chars": len(str(contract.get("user_goal") or "")),
+                "adoption_plan_ref": str(dict(payload.get("task_agent_adoption_plan") or {}).get("plan_id") or ""),
+                "coordination_task_ref": str(dict(payload.get("coordination_task_record") or {}).get("coordination_task_id") or ""),
                 "source": str(payload.get("source") or ""),
+            }
+        )
+    elif event_type == "agent_run_created":
+        agent_run = dict(payload.get("agent_run") or {})
+        summary.update(
+            {
+                "agent_run_id": str(agent_run.get("agent_run_id") or ""),
+                "agent_id": str(agent_run.get("agent_id") or ""),
+                "role": str(agent_run.get("role") or ""),
+                "spawn_mode": str(agent_run.get("spawn_mode") or ""),
+                "status": str(agent_run.get("status") or ""),
+            }
+        )
+    elif event_type == "coordination_run_created":
+        coordination_run = dict(payload.get("coordination_run") or {})
+        summary.update(
+            {
+                "coordination_run_id": str(coordination_run.get("coordination_run_id") or ""),
+                "coordination_task_ref": str(coordination_run.get("coordination_task_ref") or ""),
+                "coordinator_agent_id": str(coordination_run.get("coordinator_agent_id") or ""),
+                "topology_template_id": str(coordination_run.get("topology_template_id") or ""),
+                "communication_protocol_id": str(coordination_run.get("communication_protocol_id") or ""),
+                "status": str(coordination_run.get("status") or ""),
+            }
+        )
+    elif event_type == "worker_agent_spawn_requested":
+        request = dict(payload.get("worker_spawn_request") or {})
+        summary.update(
+            {
+                "spawn_request_id": str(request.get("spawn_request_id") or ""),
+                "blueprint_id": str(request.get("blueprint_id") or ""),
+                "requested_agent_name": str(request.get("requested_agent_name") or ""),
+                "runtime_lane": str(request.get("runtime_lane") or ""),
+                "requested_by_agent_id": str(request.get("requested_by_agent_id") or ""),
+            }
+        )
+    elif event_type == "worker_agent_spawn_completed":
+        result = dict(payload.get("worker_spawn_result") or {})
+        summary.update(
+            {
+                "spawn_result_id": str(result.get("spawn_result_id") or ""),
+                "spawn_request_id": str(result.get("spawn_request_id") or ""),
+                "spawned_agent_id": str(result.get("spawned_agent_id") or ""),
+                "spawned_agent_run_ref": str(result.get("spawned_agent_run_ref") or ""),
+                "status": str(result.get("status") or ""),
+            }
+        )
+    elif event_type == "coordination_node_run_created":
+        node_run = dict(payload.get("coordination_node_run") or {})
+        summary.update(
+            {
+                "node_run_id": str(node_run.get("node_run_id") or ""),
+                "node_id": str(node_run.get("node_id") or ""),
+                "assigned_agent_id": str(node_run.get("assigned_agent_id") or ""),
+                "assigned_agent_run_ref": str(node_run.get("assigned_agent_run_ref") or ""),
+                "status": str(node_run.get("status") or ""),
+            }
+        )
+    elif event_type == "coordination_node_run_updated":
+        node_run = dict(payload.get("coordination_node_run") or {})
+        summary.update(
+            {
+                "node_run_id": str(node_run.get("node_run_id") or ""),
+                "node_id": str(node_run.get("node_id") or ""),
+                "status": str(node_run.get("status") or ""),
+                "assigned_agent_run_ref": str(node_run.get("assigned_agent_run_ref") or ""),
+            }
+        )
+    elif event_type == "handoff_envelope_created":
+        handoff = dict(payload.get("handoff_envelope") or {})
+        summary.update(
+            {
+                "handoff_id": str(handoff.get("handoff_id") or ""),
+                "source_agent_run_ref": str(handoff.get("source_agent_run_ref") or ""),
+                "target_agent_run_ref": str(handoff.get("target_agent_run_ref") or ""),
+                "protocol_id": str(handoff.get("protocol_id") or ""),
+                "message_type": str(handoff.get("message_type") or ""),
+                "ack_state": str(handoff.get("ack_state") or ""),
+            }
+        )
+    elif event_type == "coordination_merge_result_created":
+        merge_result = dict(payload.get("coordination_merge_result") or {})
+        summary.update(
+            {
+                "merge_result_id": str(merge_result.get("merge_result_id") or ""),
+                "merge_policy": str(merge_result.get("merge_policy") or ""),
+                "accepted": bool(merge_result.get("accepted") is True),
+                "final_result_ref": str(merge_result.get("final_result_ref") or ""),
+            }
+        )
+    elif event_type in {"coordination_flow_registered", "coordination_flow_finalized"}:
+        flow = dict(payload.get("coordination_flow") or {})
+        summary.update(
+            {
+                "current_stage_id": str(flow.get("current_stage_id") or ""),
+                "stage_count": len(list(flow.get("stages") or [])),
+                "revision_loop_enabled": bool(flow.get("revision_loop_enabled") is True),
+                "completed_revision_cycles": int(flow.get("completed_revision_cycles") or 0),
+                "accepted": bool(flow.get("accepted") is True),
+            }
+        )
+    elif event_type == "coordination_stage_updated":
+        stage = dict(payload.get("stage") or {})
+        summary.update(
+            {
+                "stage_id": str(stage.get("stage_id") or ""),
+                "node_id": str(stage.get("node_id") or ""),
+                "message_type": str(stage.get("message_type") or ""),
+                "status": str(stage.get("status") or ""),
             }
         )
     elif event_type == "memory_runtime_view_built":
@@ -298,6 +439,7 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
         )
     elif event_type == "checkpoint_written":
         execution_summary = dict(payload.get("execution_summary") or {})
+        runtime_objects_summary = dict(payload.get("runtime_objects_summary") or {})
         summary.update(
             {
                 "checkpoint_id": str(payload.get("checkpoint_id") or ""),
@@ -306,6 +448,8 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "completed_count": int(execution_summary.get("completed_count") or 0),
                 "reused_count": int(execution_summary.get("reused_count") or 0),
                 "suppressed_count": int(execution_summary.get("suppressed_count") or 0),
+                "agent_run_count": int(runtime_objects_summary.get("agent_run_count") or 0),
+                "coordination_run_count": int(runtime_objects_summary.get("coordination_run_count") or 0),
             }
         )
     return summary

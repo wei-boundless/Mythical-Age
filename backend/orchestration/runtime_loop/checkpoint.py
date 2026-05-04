@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .models import RuntimeLoopState
+from .models import AgentRun, CoordinationRun, RuntimeLoopState
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +24,9 @@ class RuntimeCheckpoint:
     execution_refs: tuple[str, ...] = ()
     execution_state_ref: str = ""
     execution_summary: dict[str, Any] = field(default_factory=dict)
+    agent_run_refs: tuple[str, ...] = ()
+    coordination_run_refs: tuple[str, ...] = ()
+    runtime_objects_summary: dict[str, Any] = field(default_factory=dict)
     approval_state: dict[str, Any] = field(default_factory=dict)
     commit_state: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
@@ -60,6 +63,8 @@ class RuntimeCheckpointStore:
         execution_refs: tuple[str, ...] = (),
         execution_state_ref: str = "",
         execution_summary: dict[str, Any] | None = None,
+        agent_runs: tuple[AgentRun, ...] = (),
+        coordination_runs: tuple[CoordinationRun, ...] = (),
     ) -> RuntimeCheckpoint:
         created_at = time.time()
         checkpoint_id = f"rtchk:{state.task_run_id}:{event_offset}"
@@ -73,6 +78,9 @@ class RuntimeCheckpointStore:
             execution_refs=tuple(execution_refs),
             execution_state_ref=str(execution_state_ref or ""),
             execution_summary=dict(execution_summary or {}),
+            agent_run_refs=tuple(item.agent_run_id for item in agent_runs),
+            coordination_run_refs=tuple(item.coordination_run_id for item in coordination_runs),
+            runtime_objects_summary=_runtime_objects_summary(agent_runs=agent_runs, coordination_runs=coordination_runs),
             approval_state=dict(state.pending_approval_state),
             commit_state=dict(state.commit_state),
             created_at=created_at,
@@ -82,6 +90,9 @@ class RuntimeCheckpointStore:
                 execution_refs=tuple(execution_refs),
                 execution_state_ref=str(execution_state_ref or ""),
                 execution_summary=dict(execution_summary or {}),
+                agent_run_refs=tuple(item.agent_run_id for item in agent_runs),
+                coordination_run_refs=tuple(item.coordination_run_id for item in coordination_runs),
+                runtime_objects_summary=_runtime_objects_summary(agent_runs=agent_runs, coordination_runs=coordination_runs),
             ),
         )
         self._atomic_write(self._checkpoint_path(state.task_run_id), checkpoint.to_dict())
@@ -128,6 +139,9 @@ class RuntimeCheckpointStore:
             execution_refs=tuple(payload.get("execution_refs") or ()),
             execution_state_ref=str(payload.get("execution_state_ref") or ""),
             execution_summary=dict(payload.get("execution_summary") or {}),
+            agent_run_refs=tuple(str(item) for item in list(payload.get("agent_run_refs") or []) if str(item)),
+            coordination_run_refs=tuple(str(item) for item in list(payload.get("coordination_run_refs") or []) if str(item)),
+            runtime_objects_summary=dict(payload.get("runtime_objects_summary") or {}),
             approval_state=dict(payload.get("approval_state") or {}),
             commit_state=dict(payload.get("commit_state") or {}),
             created_at=float(payload.get("created_at") or 0.0),
@@ -152,6 +166,9 @@ def _checksum(
     execution_refs: tuple[str, ...] = (),
     execution_state_ref: str = "",
     execution_summary: dict[str, Any] | None = None,
+    agent_run_refs: tuple[str, ...] = (),
+    coordination_run_refs: tuple[str, ...] = (),
+    runtime_objects_summary: dict[str, Any] | None = None,
 ) -> str:
     raw = json.dumps(
         {
@@ -160,6 +177,9 @@ def _checksum(
             "execution_refs": list(execution_refs),
             "execution_state_ref": str(execution_state_ref or ""),
             "execution_summary": dict(execution_summary or {}),
+            "agent_run_refs": list(agent_run_refs),
+            "coordination_run_refs": list(coordination_run_refs),
+            "runtime_objects_summary": dict(runtime_objects_summary or {}),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -169,3 +189,16 @@ def _checksum(
 
 def _safe_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))
+
+
+def _runtime_objects_summary(
+    *,
+    agent_runs: tuple[AgentRun, ...],
+    coordination_runs: tuple[CoordinationRun, ...],
+) -> dict[str, Any]:
+    return {
+        "agent_run_count": len(agent_runs),
+        "coordination_run_count": len(coordination_runs),
+        "running_agent_run_count": sum(1 for item in agent_runs if item.status == "running"),
+        "running_coordination_run_count": sum(1 for item in coordination_runs if item.status == "running"),
+    }

@@ -216,11 +216,17 @@ class AgentRegistry:
             raise ValueError("unsupported agent_category")
         current = self.get_agent(target)
         timestamp = time.time()
+        current_projection_id = current.default_projection_id if current is not None else ""
+        current_soul_id = current.default_soul_id if current is not None else ""
+        current_description = current.description if current is not None else ""
+        current_editable = current.editable if current is not None else True
+        current_metadata = dict(current.metadata) if current is not None else {}
+        resolved_task_scope = task_scope if task_scope is not None else (current.task_scope if current is not None else ())
         if current is not None and current.builtin:
             normalized_category = current.agent_category
         normalized_enabled = bool(enabled if enabled is not None else lifecycle_state != "disabled")
-        normalized_projection_id = str(default_projection_id or current.default_projection_id if current is not None else "").strip()
-        normalized_soul_id = str(default_soul_id or current.default_soul_id if current is not None else "").strip()
+        normalized_projection_id = str(default_projection_id or current_projection_id).strip()
+        normalized_soul_id = str(default_soul_id or current_soul_id).strip()
         if normalized_category == "main_agent":
             normalized_projection_id = ""
             normalized_soul_id = ""
@@ -233,16 +239,16 @@ class AgentRegistry:
             agent_name=str(agent_name or display_name or target).strip() or target,
             agent_category=normalized_category,
             interface_target=str(interface_target or _default_interface_target(target, normalized_category)).strip(),
-            description=str(description or current.description if current is not None else "").strip(),
+            description=str(description or current_description).strip(),
             enabled=normalized_enabled,
             builtin=current.builtin if current is not None else False,
-            editable=bool(editable if editable is not None else current.editable if current is not None else True),
+            editable=bool(editable if editable is not None else current_editable),
             default_soul_id=normalized_soul_id,
             default_projection_id=normalized_projection_id,
-            task_scope=tuple(str(item).strip() for item in (task_scope or current.task_scope if current is not None else ()) if str(item).strip()),
+            task_scope=tuple(str(item).strip() for item in resolved_task_scope if str(item).strip()),
             created_at=current.created_at if current is not None else timestamp,
             updated_at=timestamp,
-            metadata=dict(metadata or current.metadata if current is not None else metadata or {}),
+            metadata=dict(metadata or current_metadata),
         )
         agents = [item for item in self.list_agents() if item.agent_id != target]
         agents.append(updated)

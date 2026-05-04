@@ -32,7 +32,7 @@ const railGroups = [
       {
         icon: Workflow,
         label: "任务系统",
-        description: "管理主 Agent 调度、子 Agent 实例、任务流与链路权限",
+        description: "管理任务、采用执行主体、预览任务装配、协调任务与 Agent 资源",
         view: "task-system"
       },
       {

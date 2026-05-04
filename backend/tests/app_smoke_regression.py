@@ -96,3 +96,9 @@ def test_chat_rejects_invalid_session_id_before_streaming() -> None:
         )
         assert response.status_code == 400
         assert response.json() == {"detail": "Invalid session_id"}
+
+
+def test_legacy_agent_control_plane_routes_are_removed() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/agents/catalog")
+        assert response.status_code == 404

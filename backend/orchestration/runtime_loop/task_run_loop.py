@@ -10,8 +10,12 @@ from typing import Any, Callable
 from langchain_core.messages import AIMessage, ToolMessage
 
 from capability_system import build_default_operation_registry
+from orchestration.agent_registry import AgentRegistry
+from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.resource_gate import OperationGate, OperationGatePipelineContext
+from project_layout import ProjectLayout
 from output_boundary.boundary import AssistantOutputBoundary
+from tasks.flow_registry import TaskFlowRegistry
 from tasks.run_models import (
     TaskRunLedger,
     TaskStepRun,
@@ -49,6 +53,11 @@ from .action_request import (
     build_tool_result_observation,
 )
 from .checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
+from .coordination_flow import (
+    build_coordination_flow_state,
+    build_coordination_node_status_map,
+    finalize_coordination_flow_state,
+)
 from .context_manager import RuntimeContextManager
 from .execution_record import (
     OperationExecutionRecord,
@@ -61,7 +70,16 @@ from .execution_record import (
 from .event_log import RuntimeEventLog
 from .loop_control import RuntimeLoopLimits, check_runtime_loop_control
 from .model_adoption import build_model_response_runtime_adoption
-from .models import RuntimeLoopState, TaskRun
+from .models import (
+    AgentHandoffEnvelope,
+    AgentRun,
+    AgentRunResult,
+    CoordinationMergeResult,
+    CoordinationNodeRun,
+    CoordinationRun,
+    RuntimeLoopState,
+    TaskRun,
+)
 from .observation_aggregator import ObservationAggregation, ObservationAggregator
 from .safety import build_task_safety_validators
 from .stage_projection import StageProjectionCycle
@@ -69,11 +87,15 @@ from .state_index import RuntimeStateIndex
 from .trace_reader import RuntimeLoopTraceReader
 from .tool_adoption import build_tool_request_runtime_adoption
 from .tool_repetition_guard import ToolRepetitionGuard
+from ..worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
+from ..worker_agent_factory import WorkerAgentFactory
 
 
 @dataclass(frozen=True, slots=True)
 class TaskRunLoopStartResult:
     task_run: TaskRun
+    agent_run: AgentRun
+    coordination_run: CoordinationRun | None
     loop_state: RuntimeLoopState
     checkpoint: RuntimeCheckpoint
     events: tuple[dict[str, Any], ...]
@@ -81,6 +103,8 @@ class TaskRunLoopStartResult:
     def to_dict(self) -> dict[str, Any]:
         return {
             "task_run": self.task_run.to_dict(),
+            "agent_run": self.agent_run.to_dict(),
+            "coordination_run": self.coordination_run.to_dict() if self.coordination_run is not None else None,
             "loop_state": self.loop_state.to_dict(),
             "checkpoint": self.checkpoint.to_dict(),
             "events": [dict(item) for item in self.events],
@@ -99,10 +123,15 @@ class TaskRunLoop:
         self,
         root_dir: Path,
         *,
+        backend_dir: Path | None = None,
         operation_gate: OperationGate | None = None,
         limits: RuntimeLoopLimits | None = None,
     ) -> None:
         self.root_dir = Path(root_dir)
+        if backend_dir is None:
+            self.backend_dir = ProjectLayout.from_backend_dir(self.root_dir).backend_dir
+        else:
+            self.backend_dir = Path(backend_dir)
         self.event_log = RuntimeEventLog(self.root_dir)
         self.checkpoints = RuntimeCheckpointStore(self.root_dir)
         self.execution_store = RuntimeExecutionStore(self.root_dir)
@@ -111,6 +140,10 @@ class TaskRunLoop:
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.limits = limits or RuntimeLoopLimits()
         self.tool_authorization_index = self._build_tool_authorization_index()
+        self.task_flow_registry = TaskFlowRegistry(self.backend_dir)
+        self.agent_registry = AgentRegistry(self.backend_dir)
+        self.agent_runtime_registry = AgentRuntimeRegistry(self.backend_dir)
+        self.worker_agent_factory = WorkerAgentFactory(self.backend_dir)
 
     @staticmethod
     def _apply_observation_aggregation(
@@ -150,10 +183,41 @@ class TaskRunLoop:
         task_agent_binding_ref: str = "",
         skill_workflow_ref: str = "",
         health_issue_ref: str = "",
+        adoption_mode: str = "adopt_existing",
+        coordination_task_ref: str = "",
+        coordinator_agent_id: str = "",
+        topology_template_id: str = "",
+        communication_protocol_id: str = "",
+        handoff_policy: str = "",
+        failure_policy: str = "",
+        merge_policy: str = "",
         diagnostics: dict[str, Any] | None = None,
     ) -> TaskRunLoopStartResult:
         now = time.time()
         task_run_id = f"taskrun:{session_id}:{task_id}:{uuid.uuid4().hex[:8]}"
+        agent_run_id = f"agrun:{task_run_id}:main"
+        coordination_run = (
+            CoordinationRun(
+                coordination_run_id=f"coordrun:{task_run_id}:primary",
+                task_run_id=task_run_id,
+                coordination_task_ref=coordination_task_ref,
+                coordinator_agent_id=coordinator_agent_id or agent_id,
+                topology_template_id=topology_template_id,
+                communication_protocol_id=communication_protocol_id,
+                handoff_policy=handoff_policy,
+                failure_policy=failure_policy,
+                merge_policy=merge_policy,
+                status="running",
+                created_at=now,
+                updated_at=now,
+                diagnostics={
+                    "coordination_candidate": True,
+                    "task_agent_binding_ref": task_agent_binding_ref,
+                },
+            )
+            if coordination_task_ref
+            else None
+        )
         started = self.event_log.append(
             task_run_id,
             "task_run_started",
@@ -167,11 +231,46 @@ class TaskRunLoop:
                 "task_agent_binding_ref": task_agent_binding_ref,
                 "skill_workflow_ref": skill_workflow_ref,
                 "health_issue_ref": health_issue_ref,
-                "single_agent": True,
-                "multi_agent_enabled": False,
+                "single_agent": coordination_run is None,
+                "multi_agent_enabled": coordination_run is not None,
+                "coordination_task_ref": coordination_task_ref,
+                "adoption_mode": adoption_mode,
             },
             refs={"task_contract_ref": task_contract_ref},
         )
+        agent_run = AgentRun(
+            agent_run_id=agent_run_id,
+            task_run_id=task_run_id,
+            agent_id=agent_id,
+            agent_profile_id=agent_profile_id,
+            role="main_executor" if coordination_run is None else "coordinator",
+            spawn_mode=adoption_mode,
+            context_scope="task_default",
+            runtime_lane=runtime_lane,
+            coordination_run_ref=coordination_run.coordination_run_id if coordination_run is not None else "",
+            status="running",
+            created_at=now,
+            updated_at=now,
+            diagnostics={
+                "task_agent_binding_ref": task_agent_binding_ref,
+                "skill_workflow_ref": skill_workflow_ref,
+                "health_issue_ref": health_issue_ref,
+            },
+        )
+        agent_run_event = self.event_log.append(
+            task_run_id,
+            "agent_run_created",
+            payload={"agent_run": agent_run.to_dict()},
+            refs={"agent_run_ref": agent_run.agent_run_id},
+        )
+        coordination_run_event = None
+        if coordination_run is not None:
+            coordination_run_event = self.event_log.append(
+                task_run_id,
+                "coordination_run_created",
+                payload={"coordination_run": coordination_run.to_dict()},
+                refs={"coordination_run_ref": coordination_run.coordination_run_id},
+            )
         iteration = self.event_log.append(
             task_run_id,
             "loop_iteration_started",
@@ -208,6 +307,8 @@ class TaskRunLoop:
             execution_refs=(),
             execution_state_ref="",
             execution_summary=self.execution_store.build_summary(task_run_id),
+            agent_runs=(agent_run,),
+            coordination_runs=((coordination_run,) if coordination_run is not None else ()),
         )
         checkpoint_event = self.event_log.append(
             task_run_id,
@@ -217,6 +318,7 @@ class TaskRunLoop:
                 "event_offset": checkpoint.event_offset,
                 "checksum": checkpoint.checksum,
                 "execution_summary": checkpoint.execution_summary,
+                "runtime_objects_summary": checkpoint.runtime_objects_summary,
             },
             refs={"checkpoint_ref": checkpoint.checkpoint_id},
         )
@@ -235,24 +337,36 @@ class TaskRunLoop:
             latest_checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics={
                 "loop_owner": "OrchestrationSystem.TaskRunLoop",
-                "single_agent": True,
+                "single_agent": coordination_run is None,
                 "agent_id": agent_id,
                 "agent_profile_id": agent_profile_id,
                 "runtime_lane": runtime_lane,
                 "task_agent_binding_ref": task_agent_binding_ref,
                 "skill_workflow_ref": skill_workflow_ref,
                 "health_issue_ref": health_issue_ref,
-                "multi_agent_enabled": False,
+                "main_agent_run_ref": agent_run.agent_run_id,
+                "adoption_mode": adoption_mode,
+                "coordination_task_ref": coordination_task_ref,
+                "multi_agent_enabled": coordination_run is not None,
                 "loop_limits": self.limits.to_dict(),
                 **dict(diagnostics or {}),
             },
         )
         self.state_index.upsert_task_run(task_run)
+        self.state_index.upsert_agent_run(agent_run)
+        if coordination_run is not None:
+            self.state_index.upsert_coordination_run(coordination_run)
+        ordered_events = [started.to_dict(), agent_run_event.to_dict()]
+        if coordination_run_event is not None:
+            ordered_events.append(coordination_run_event.to_dict())
+        ordered_events.extend((iteration.to_dict(), checkpoint_event.to_dict()))
         return TaskRunLoopStartResult(
             task_run=task_run,
+            agent_run=agent_run,
+            coordination_run=coordination_run,
             loop_state=state,
             checkpoint=checkpoint,
-            events=(started.to_dict(), iteration.to_dict(), checkpoint_event.to_dict()),
+            events=tuple(ordered_events),
         )
 
     async def run_single_agent_stream(
@@ -285,6 +399,8 @@ class TaskRunLoop:
         yield {
             "type": "runtime_loop_started",
             "task_run": start.task_run.to_dict(),
+            "agent_run": start.agent_run.to_dict(),
+            "coordination_run": start.coordination_run.to_dict() if start.coordination_run is not None else None,
             "checkpoint": start.checkpoint.to_dict(),
             "events": [dict(item) for item in start.events],
         }
@@ -318,6 +434,7 @@ class TaskRunLoop:
         agent_runtime_spec_payload = dict(chain_runtime.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {})
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
+        adoption_mode = str(task_agent_adoption_plan_payload.get("adoption_mode") or "adopt_existing")
 
         task_contract_ref = str(task_contract.get("task_id") or task_id)
         runtime_task_ledger = _build_initial_task_run_ledger(
@@ -374,6 +491,17 @@ class TaskRunLoop:
             },
         )
         yield {"type": "runtime_loop_event", "event": task_event.to_dict()}
+        runtime_object_events = self._sync_runtime_objects_after_task_contract(
+            start_result=start,
+            event_offset=task_event.offset,
+            adoption_mode=adoption_mode,
+            task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
+            coordination_task_payload=coordination_task_payload,
+            communication_protocol_payload=task_communication_protocol_payload,
+            task_agent_adoption_plan_payload=task_agent_adoption_plan_payload,
+        )
+        for runtime_event in runtime_object_events:
+            yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
         if runtime_task_ledger is not None:
             current_step = current_task_step_run(runtime_task_ledger)
             if current_step is not None:
@@ -598,9 +726,12 @@ class TaskRunLoop:
             yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
             self._upsert_finished_task_run(
                 start_task_run=start.task_run,
+                start_agent_run=start.agent_run,
+                start_coordination_run=start.coordination_run,
                 task_contract_ref=task_contract_ref,
                 terminal_state=terminal_state,
                 checkpoint_event=checkpoint_event,
+                final_content="",
                 diagnostics={"runtime_loop_control_reason": control_decision.reason},
             )
             return
@@ -721,9 +852,12 @@ class TaskRunLoop:
             yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
             self._upsert_finished_task_run(
                 start_task_run=start.task_run,
+                start_agent_run=start.agent_run,
+                start_coordination_run=start.coordination_run,
                 task_contract_ref=task_contract_ref,
                 terminal_state=terminal_state,
                 checkpoint_event=checkpoint_event,
+                final_content="",
                 diagnostics={"operation_gate_reason": gate_result.reason},
             )
             return
@@ -1727,9 +1861,12 @@ class TaskRunLoop:
         yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
         self._upsert_finished_task_run(
             start_task_run=start.task_run,
+            start_agent_run=start.agent_run,
+            start_coordination_run=start.coordination_run,
             task_contract_ref=task_contract_ref,
             terminal_state=terminal_state,
             checkpoint_event=checkpoint_event,
+            final_content=final_content,
             diagnostics={"final_content_chars": len(final_content)},
         )
 
@@ -1737,9 +1874,12 @@ class TaskRunLoop:
         self,
         *,
         start_task_run: TaskRun,
+        start_agent_run: AgentRun,
+        start_coordination_run: CoordinationRun | None,
         task_contract_ref: str,
         terminal_state: RuntimeLoopState,
         checkpoint_event: Any,
+        final_content: str,
         diagnostics: dict[str, Any] | None = None,
     ) -> None:
         self.state_index.upsert_task_run(
@@ -1763,17 +1903,194 @@ class TaskRunLoop:
                 },
             )
         )
+        agent_run_result = AgentRunResult(
+            agent_run_result_id=f"agresult:{start_agent_run.agent_run_id}",
+            agent_run_id=start_agent_run.agent_run_id,
+            task_run_id=start_agent_run.task_run_id,
+            agent_id=start_agent_run.agent_id,
+            status="completed" if terminal_state.status == "completed" else "failed",
+            output_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+            summary=final_content[:280],
+            created_at=time.time(),
+            diagnostics={
+                "terminal_reason": terminal_state.terminal_reason,
+                "task_contract_ref": task_contract_ref,
+            },
+        )
+        self.state_index.upsert_agent_run(
+            AgentRun(
+                agent_run_id=start_agent_run.agent_run_id,
+                task_run_id=start_agent_run.task_run_id,
+                agent_id=start_agent_run.agent_id,
+                agent_profile_id=start_agent_run.agent_profile_id,
+                role=start_agent_run.role,
+                spawn_mode=start_agent_run.spawn_mode,
+                context_scope=start_agent_run.context_scope,
+                runtime_lane=start_agent_run.runtime_lane,
+                parent_agent_run_ref=start_agent_run.parent_agent_run_ref,
+                coordination_run_ref=start_agent_run.coordination_run_ref,
+                status="completed" if terminal_state.status == "completed" else "failed",
+                latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+                result_ref=agent_run_result.agent_run_result_id,
+                created_at=start_agent_run.created_at,
+                updated_at=time.time(),
+                diagnostics={
+                    **dict(start_agent_run.diagnostics),
+                    "terminal_reason": terminal_state.terminal_reason,
+                },
+            )
+        )
+        self.state_index.upsert_agent_run_result(agent_run_result)
+        current_agent_runs = self.state_index.list_task_agent_runs(start_task_run.task_run_id)
+        for agent_run in current_agent_runs:
+            if agent_run.agent_run_id == start_agent_run.agent_run_id:
+                continue
+            participant_status = "completed" if terminal_state.status == "completed" else "failed"
+            participant_result = AgentRunResult(
+                agent_run_result_id=f"agresult:{agent_run.agent_run_id}",
+                agent_run_id=agent_run.agent_run_id,
+                task_run_id=agent_run.task_run_id,
+                agent_id=agent_run.agent_id,
+                status=participant_status,
+                output_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+                summary=final_content[:200],
+                created_at=time.time(),
+                diagnostics={
+                    "terminal_reason": terminal_state.terminal_reason,
+                    "derived_from_coordination_finalize": True,
+                    "parent_agent_run_ref": agent_run.parent_agent_run_ref,
+                },
+            )
+            self.state_index.upsert_agent_run_result(participant_result)
+            self.state_index.upsert_agent_run(
+                AgentRun(
+                    agent_run_id=agent_run.agent_run_id,
+                    task_run_id=agent_run.task_run_id,
+                    agent_id=agent_run.agent_id,
+                    agent_profile_id=agent_run.agent_profile_id,
+                    role=agent_run.role,
+                    spawn_mode=agent_run.spawn_mode,
+                    context_scope=agent_run.context_scope,
+                    runtime_lane=agent_run.runtime_lane,
+                    parent_agent_run_ref=agent_run.parent_agent_run_ref,
+                    coordination_run_ref=agent_run.coordination_run_ref,
+                    status=participant_status,
+                    latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+                    result_ref=participant_result.agent_run_result_id,
+                    created_at=agent_run.created_at,
+                    updated_at=time.time(),
+                    diagnostics={
+                        **dict(agent_run.diagnostics),
+                        "terminal_reason": terminal_state.terminal_reason,
+                    },
+                )
+            )
+        current_coordination_runs = self.state_index.list_task_coordination_runs(start_task_run.task_run_id)
+        target_coordination_run = current_coordination_runs[0] if current_coordination_runs else start_coordination_run
+        if target_coordination_run is not None:
+            finalized_flow, unresolved_issue_refs = finalize_coordination_flow_state(
+                dict(target_coordination_run.diagnostics.get("coordination_flow") or {}),
+                accepted=terminal_state.status == "completed",
+                final_result_ref=agent_run_result.agent_run_result_id,
+            )
+            finalized_node_status_map = build_coordination_node_status_map(finalized_flow)
+            merge_result = CoordinationMergeResult(
+                merge_result_id=f"coordmerge:{target_coordination_run.coordination_run_id}",
+                coordination_run_id=target_coordination_run.coordination_run_id,
+                task_run_id=target_coordination_run.task_run_id,
+                merge_policy=target_coordination_run.merge_policy or "coordinator_final_merge",
+                final_result_ref=agent_run_result.agent_run_result_id,
+                accepted=terminal_state.status == "completed",
+                unresolved_issue_refs=unresolved_issue_refs,
+                created_at=time.time(),
+                diagnostics={
+                    "terminal_reason": terminal_state.terminal_reason,
+                    "final_agent_run_result_ref": agent_run_result.agent_run_result_id,
+                    "coordination_flow": finalized_flow,
+                },
+            )
+            self.state_index.upsert_coordination_merge_result(merge_result)
+            self.event_log.append(
+                start_task_run.task_run_id,
+                "coordination_merge_result_created",
+                payload={"coordination_merge_result": merge_result.to_dict()},
+                refs={"coordination_merge_result_ref": merge_result.merge_result_id},
+            )
+            if finalized_flow:
+                self.event_log.append(
+                    start_task_run.task_run_id,
+                    "coordination_flow_finalized",
+                    payload={"coordination_flow": finalized_flow},
+                    refs={"coordination_run_ref": target_coordination_run.coordination_run_id},
+                )
+            current_node_runs = self.state_index.list_coordination_node_runs(target_coordination_run.coordination_run_id)
+            for node_run in current_node_runs:
+                node_flow = dict(finalized_node_status_map.get(node_run.node_id) or {})
+                updated_node_run = CoordinationNodeRun(
+                    node_run_id=node_run.node_run_id,
+                    coordination_run_id=node_run.coordination_run_id,
+                    task_run_id=node_run.task_run_id,
+                    node_id=node_run.node_id,
+                    role=node_run.role,
+                    assigned_agent_id=node_run.assigned_agent_id,
+                    assigned_agent_run_ref=node_run.assigned_agent_run_ref,
+                    status=str(node_flow.get("node_run_status") or node_run.status),
+                    handoff_count=node_run.handoff_count,
+                    latest_handoff_ref=node_run.latest_handoff_ref,
+                    created_at=node_run.created_at,
+                    updated_at=time.time(),
+                    diagnostics={
+                        **dict(node_run.diagnostics),
+                        "stage_id": str(node_flow.get("stage_id") or node_run.diagnostics.get("stage_id") or ""),
+                        "message_type": str(node_flow.get("message_type") or node_run.diagnostics.get("message_type") or ""),
+                        "stage_status": str(node_flow.get("stage_status") or node_run.diagnostics.get("stage_status") or ""),
+                    },
+                )
+                self.state_index.upsert_coordination_node_run(updated_node_run)
+                self.event_log.append(
+                    start_task_run.task_run_id,
+                    "coordination_node_run_updated",
+                    payload={"coordination_node_run": updated_node_run.to_dict()},
+                    refs={"coordination_node_run_ref": updated_node_run.node_run_id},
+                )
+            self.state_index.upsert_coordination_run(
+                CoordinationRun(
+                    coordination_run_id=target_coordination_run.coordination_run_id,
+                    task_run_id=target_coordination_run.task_run_id,
+                    coordination_task_ref=target_coordination_run.coordination_task_ref,
+                    coordinator_agent_id=target_coordination_run.coordinator_agent_id,
+                    topology_template_id=target_coordination_run.topology_template_id,
+                    communication_protocol_id=target_coordination_run.communication_protocol_id,
+                    handoff_policy=target_coordination_run.handoff_policy,
+                    failure_policy=target_coordination_run.failure_policy,
+                    merge_policy=target_coordination_run.merge_policy,
+                    status="completed" if terminal_state.status == "completed" else "failed",
+                    latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+                    latest_merge_result_ref=merge_result.merge_result_id,
+                    created_at=target_coordination_run.created_at,
+                    updated_at=time.time(),
+                    diagnostics={
+                        **dict(target_coordination_run.diagnostics),
+                        "terminal_reason": terminal_state.terminal_reason,
+                        "coordination_flow": finalized_flow,
+                    },
+                )
+            )
 
     def _write_checkpoint_event(self, state: RuntimeLoopState, *, event_offset: int):
         execution_summary = self.execution_store.build_summary(state.task_run_id)
         execution_refs = tuple(str(item) for item in list(execution_summary.get("execution_refs") or []))
         execution_state_ref = str(execution_summary.get("latest_execution_id") or "")
+        agent_runs = tuple(self.state_index.list_task_agent_runs(state.task_run_id))
+        coordination_runs = tuple(self.state_index.list_task_coordination_runs(state.task_run_id))
         checkpoint = self.checkpoints.write(
             state,
             event_offset=event_offset,
             execution_refs=execution_refs,
             execution_state_ref=execution_state_ref,
             execution_summary=execution_summary,
+            agent_runs=agent_runs,
+            coordination_runs=coordination_runs,
         )
         return self.event_log.append(
             state.task_run_id,
@@ -1783,9 +2100,613 @@ class TaskRunLoop:
                 "event_offset": checkpoint.event_offset,
                 "checksum": checkpoint.checksum,
                 "execution_summary": execution_summary,
+                "runtime_objects_summary": checkpoint.runtime_objects_summary,
             },
             refs={"checkpoint_ref": checkpoint.checkpoint_id},
         )
+
+    def _sync_runtime_objects_after_task_contract(
+        self,
+        *,
+        start_result: TaskRunLoopStartResult,
+        event_offset: int,
+        adoption_mode: str,
+        task_agent_binding_ref: str,
+        coordination_task_payload: dict[str, Any],
+        communication_protocol_payload: dict[str, Any],
+        task_agent_adoption_plan_payload: dict[str, Any] | None = None,
+    ) -> tuple[Any, ...]:
+        events: list[Any] = []
+        adoption_plan_payload = dict(task_agent_adoption_plan_payload or {})
+        coordination_run_id = f"coordrun:{start_result.task_run.task_run_id}:primary"
+        updated_agent_run = AgentRun(
+            agent_run_id=start_result.agent_run.agent_run_id,
+            task_run_id=start_result.agent_run.task_run_id,
+            agent_id=start_result.agent_run.agent_id,
+            agent_profile_id=start_result.agent_run.agent_profile_id,
+            role="coordinator" if coordination_task_payload else start_result.agent_run.role,
+            spawn_mode=adoption_mode,
+            context_scope=start_result.agent_run.context_scope,
+            runtime_lane=start_result.agent_run.runtime_lane,
+            parent_agent_run_ref=start_result.agent_run.parent_agent_run_ref,
+            coordination_run_ref=(
+                start_result.agent_run.coordination_run_ref
+                or (coordination_run_id if coordination_task_payload else "")
+            ),
+            status="running",
+            latest_checkpoint_ref=start_result.agent_run.latest_checkpoint_ref,
+            result_ref=start_result.agent_run.result_ref,
+            created_at=start_result.agent_run.created_at,
+            updated_at=time.time(),
+            diagnostics={
+                **dict(start_result.agent_run.diagnostics),
+                "adoption_mode": adoption_mode,
+                "task_agent_binding_ref": task_agent_binding_ref,
+            },
+        )
+        self.state_index.upsert_agent_run(updated_agent_run)
+        events.append(
+            self.event_log.append(
+                start_result.task_run.task_run_id,
+                "agent_run_updated",
+                payload={"agent_run": updated_agent_run.to_dict()},
+                refs={"agent_run_ref": updated_agent_run.agent_run_id},
+            )
+        )
+        current_coordination_run: CoordinationRun | None = None
+        if coordination_task_payload:
+            topology_template_payload = self._resolve_topology_template(
+                str(coordination_task_payload.get("topology_template_id") or "")
+            )
+            coordination_flow = build_coordination_flow_state(
+                coordination_task_payload=coordination_task_payload,
+                topology_template=topology_template_payload,
+                communication_protocol_payload=communication_protocol_payload,
+            )
+            coordination_run = CoordinationRun(
+                coordination_run_id=coordination_run_id,
+                task_run_id=start_result.task_run.task_run_id,
+                coordination_task_ref=str(coordination_task_payload.get("coordination_task_id") or ""),
+                coordinator_agent_id=str(coordination_task_payload.get("coordinator_agent_id") or updated_agent_run.agent_id),
+                topology_template_id=str(coordination_task_payload.get("topology_template_id") or ""),
+                communication_protocol_id=str(communication_protocol_payload.get("protocol_id") or ""),
+                handoff_policy=str(coordination_task_payload.get("handoff_policy") or ""),
+                failure_policy=str(coordination_task_payload.get("conflict_resolution_policy") or ""),
+                merge_policy=str(coordination_task_payload.get("output_merge_policy") or ""),
+                status="running",
+                latest_checkpoint_ref="",
+                created_at=time.time(),
+                updated_at=time.time(),
+                diagnostics={
+                    "shared_context_policy": str(coordination_task_payload.get("shared_context_policy") or ""),
+                    "memory_sharing_policy": str(coordination_task_payload.get("memory_sharing_policy") or ""),
+                    "coordination_flow": coordination_flow,
+                },
+            )
+            self.state_index.upsert_coordination_run(coordination_run)
+            events.append(
+                self.event_log.append(
+                    start_result.task_run.task_run_id,
+                    "coordination_run_created",
+                    payload={"coordination_run": coordination_run.to_dict()},
+                    refs={"coordination_run_ref": coordination_run.coordination_run_id},
+                )
+            )
+            if coordination_flow:
+                events.append(
+                    self.event_log.append(
+                        start_result.task_run.task_run_id,
+                        "coordination_flow_registered",
+                        payload={"coordination_flow": coordination_flow},
+                        refs={"coordination_run_ref": coordination_run.coordination_run_id},
+                    )
+                )
+            current_coordination_run = coordination_run
+        else:
+            existing_coordination_runs = self.state_index.list_task_coordination_runs(start_result.task_run.task_run_id)
+            current_coordination_run = existing_coordination_runs[0] if existing_coordination_runs else None
+
+        spawn_events, current_coordination_run = self._sync_worker_spawn_runtime_objects(
+            task_run_id=start_result.task_run.task_run_id,
+            parent_agent_run=updated_agent_run,
+            coordination_run=current_coordination_run,
+            adoption_mode=adoption_mode,
+            task_agent_binding_ref=task_agent_binding_ref,
+            adoption_plan_payload=adoption_plan_payload,
+            event_offset=event_offset,
+        )
+        events.extend(spawn_events)
+
+        if current_coordination_run is not None:
+            coordination_events = self._sync_coordination_runtime_objects(
+                task_run_id=start_result.task_run.task_run_id,
+                coordinator_agent_run=updated_agent_run,
+                coordination_run=current_coordination_run,
+                communication_protocol_payload=communication_protocol_payload,
+            )
+            events.extend(coordination_events)
+        return tuple(events)
+
+    def _sync_worker_spawn_runtime_objects(
+        self,
+        *,
+        task_run_id: str,
+        parent_agent_run: AgentRun,
+        coordination_run: CoordinationRun | None,
+        adoption_mode: str,
+        task_agent_binding_ref: str,
+        adoption_plan_payload: dict[str, Any],
+        event_offset: int,
+    ) -> tuple[list[Any], CoordinationRun | None]:
+        events: list[Any] = []
+        allow_spawn = bool(adoption_plan_payload.get("allow_worker_agent_spawn") is True)
+        blueprint_id = str(adoption_plan_payload.get("worker_agent_blueprint_id") or "").strip()
+        if not allow_spawn:
+            return events, coordination_run
+        if not blueprint_id:
+            blocked_result = WorkerAgentSpawnResult(
+                spawn_result_id=f"spawnresult:{task_run_id}:blocked",
+                spawn_request_id=f"spawnreq:{task_run_id}:blocked",
+                task_run_id=task_run_id,
+                parent_agent_run_ref=parent_agent_run.agent_run_id,
+                blueprint_id="",
+                status="blocked",
+                created_at=time.time(),
+                diagnostics={
+                    "reason": "missing_worker_blueprint",
+                    "task_agent_binding_ref": task_agent_binding_ref,
+                    "event_offset": event_offset,
+                },
+            )
+            self.state_index.upsert_worker_spawn_result(blocked_result)
+            events.append(
+                self.event_log.append(
+                    task_run_id,
+                    "worker_agent_spawn_completed",
+                    payload={"worker_spawn_result": blocked_result.to_dict()},
+                    refs={"spawn_result_ref": blocked_result.spawn_result_id},
+                )
+            )
+            return events, coordination_run
+        blueprint = self.worker_agent_factory.get_blueprint(blueprint_id)
+        if blueprint is None:
+            blocked_result = WorkerAgentSpawnResult(
+                spawn_result_id=f"spawnresult:{task_run_id}:blocked",
+                spawn_request_id=f"spawnreq:{task_run_id}:blocked",
+                task_run_id=task_run_id,
+                parent_agent_run_ref=parent_agent_run.agent_run_id,
+                blueprint_id=blueprint_id,
+                status="blocked",
+                created_at=time.time(),
+                diagnostics={
+                    "reason": "worker_blueprint_not_found",
+                    "task_agent_binding_ref": task_agent_binding_ref,
+                    "event_offset": event_offset,
+                },
+            )
+            self.state_index.upsert_worker_spawn_result(blocked_result)
+            events.append(
+                self.event_log.append(
+                    task_run_id,
+                    "worker_agent_spawn_completed",
+                    payload={"worker_spawn_result": blocked_result.to_dict()},
+                    refs={"spawn_result_ref": blocked_result.spawn_result_id},
+                )
+            )
+            return events, coordination_run
+        existing_results = self.state_index.list_task_worker_spawn_results(task_run_id)
+        already_spawned = next(
+            (
+                item
+                for item in existing_results
+                if item.blueprint_id == blueprint_id and item.parent_agent_run_ref == parent_agent_run.agent_run_id and item.status == "spawned"
+            ),
+            None,
+        )
+        if already_spawned is not None:
+            return events, coordination_run
+        existing_count = len(existing_results) + 1
+        requested_agent_name = self._render_worker_agent_name(
+            naming_rule=str(adoption_plan_payload.get("worker_agent_naming_rule") or "").strip(),
+            blueprint_template=blueprint.agent_name_template,
+            index=existing_count,
+        )
+        spawn_request = WorkerAgentSpawnRequest(
+            spawn_request_id=f"spawnreq:{task_run_id}:{existing_count}",
+            task_run_id=task_run_id,
+            parent_agent_run_ref=parent_agent_run.agent_run_id,
+            blueprint_id=blueprint_id,
+            requested_agent_name=requested_agent_name,
+            runtime_lane=(
+                blueprint.default_runtime_lanes[0]
+                if blueprint.default_runtime_lanes
+                else parent_agent_run.runtime_lane
+            ),
+            context_scope=parent_agent_run.context_scope,
+            requested_by_agent_id=parent_agent_run.agent_id,
+            spawn_reason="task_agent_adoption_plan_authorized",
+            requested_at=time.time(),
+            diagnostics={
+                "adoption_mode": adoption_mode,
+                "task_agent_binding_ref": task_agent_binding_ref,
+                "event_offset": event_offset,
+            },
+        )
+        self.state_index.upsert_worker_spawn_request(spawn_request)
+        events.append(
+            self.event_log.append(
+                task_run_id,
+                "worker_agent_spawn_requested",
+                payload={"worker_spawn_request": spawn_request.to_dict()},
+                refs={"spawn_request_ref": spawn_request.spawn_request_id},
+            )
+        )
+        provisioned = self.worker_agent_factory.provision_worker_agent(
+            request=spawn_request,
+            requested_agent_name=requested_agent_name,
+            task_scope=blueprint.allowed_task_modes,
+        )
+        child_agent_run = AgentRun(
+            agent_run_id=f"agrun:{task_run_id}:worker:{existing_count}",
+            task_run_id=task_run_id,
+            agent_id=provisioned.agent.agent_id,
+            agent_profile_id=provisioned.runtime_profile.agent_profile_id,
+            role="worker_participant",
+            spawn_mode="worker_spawn",
+            context_scope=spawn_request.context_scope,
+            runtime_lane=spawn_request.runtime_lane,
+            parent_agent_run_ref=parent_agent_run.agent_run_id,
+            coordination_run_ref=coordination_run.coordination_run_id if coordination_run is not None else "",
+            status="pending",
+            created_at=time.time(),
+            updated_at=time.time(),
+            diagnostics={
+                "spawn_request_ref": spawn_request.spawn_request_id,
+                "worker_blueprint_id": blueprint_id,
+            },
+        )
+        self.state_index.upsert_agent_run(child_agent_run)
+        finalized_spawn_result = WorkerAgentSpawnResult(
+            spawn_result_id=provisioned.spawn_result.spawn_result_id,
+            spawn_request_id=provisioned.spawn_result.spawn_request_id,
+            task_run_id=provisioned.spawn_result.task_run_id,
+            parent_agent_run_ref=provisioned.spawn_result.parent_agent_run_ref,
+            blueprint_id=provisioned.spawn_result.blueprint_id,
+            spawned_agent_id=provisioned.spawn_result.spawned_agent_id,
+            spawned_agent_run_ref=child_agent_run.agent_run_id,
+            spawned_agent_profile_id=provisioned.spawn_result.spawned_agent_profile_id,
+            status=provisioned.spawn_result.status,
+            created_at=provisioned.spawn_result.created_at,
+            diagnostics={
+                **dict(provisioned.spawn_result.diagnostics),
+                "task_agent_binding_ref": task_agent_binding_ref,
+            },
+        )
+        self.state_index.upsert_worker_spawn_result(finalized_spawn_result)
+        events.append(
+            self.event_log.append(
+                task_run_id,
+                "agent_run_created",
+                payload={"agent_run": child_agent_run.to_dict()},
+                refs={"agent_run_ref": child_agent_run.agent_run_id},
+            )
+        )
+        events.append(
+            self.event_log.append(
+                task_run_id,
+                "worker_agent_spawn_completed",
+                payload={"worker_spawn_result": finalized_spawn_result.to_dict()},
+                refs={"spawn_result_ref": finalized_spawn_result.spawn_result_id},
+            )
+        )
+        if coordination_run is None and adoption_mode == "adopt_with_projection":
+            coordination_run = CoordinationRun(
+                coordination_run_id=f"coordrun:{task_run_id}:spawn",
+                task_run_id=task_run_id,
+                coordination_task_ref=f"coord.auto:{task_run_id}",
+                coordinator_agent_id=parent_agent_run.agent_id,
+                topology_template_id="",
+                communication_protocol_id="",
+                handoff_policy="runtime_authorized_handoff",
+                failure_policy="fail_closed",
+                merge_policy="coordinator_final_merge",
+                status="running",
+                created_at=time.time(),
+                updated_at=time.time(),
+                diagnostics={
+                    "autogenerated": True,
+                    "reason": "worker_spawn_authorized_without_coordination_task",
+                },
+            )
+            self.state_index.upsert_coordination_run(coordination_run)
+            events.append(
+                self.event_log.append(
+                    task_run_id,
+                    "coordination_run_created",
+                    payload={"coordination_run": coordination_run.to_dict()},
+                    refs={"coordination_run_ref": coordination_run.coordination_run_id},
+                )
+            )
+            self.state_index.upsert_agent_run(
+                AgentRun(
+                    agent_run_id=child_agent_run.agent_run_id,
+                    task_run_id=child_agent_run.task_run_id,
+                    agent_id=child_agent_run.agent_id,
+                    agent_profile_id=child_agent_run.agent_profile_id,
+                    role=child_agent_run.role,
+                    spawn_mode=child_agent_run.spawn_mode,
+                    context_scope=child_agent_run.context_scope,
+                    runtime_lane=child_agent_run.runtime_lane,
+                    parent_agent_run_ref=child_agent_run.parent_agent_run_ref,
+                    coordination_run_ref=coordination_run.coordination_run_id,
+                    status=child_agent_run.status,
+                    latest_checkpoint_ref=child_agent_run.latest_checkpoint_ref,
+                    result_ref=child_agent_run.result_ref,
+                    created_at=child_agent_run.created_at,
+                    updated_at=time.time(),
+                    diagnostics=dict(child_agent_run.diagnostics),
+                )
+            )
+        return events, coordination_run
+
+    def _sync_coordination_runtime_objects(
+        self,
+        *,
+        task_run_id: str,
+        coordinator_agent_run: AgentRun,
+        coordination_run: CoordinationRun,
+        communication_protocol_payload: dict[str, Any],
+        ) -> tuple[Any, ...]:
+        events: list[Any] = []
+        existing_node_runs = {item.node_id: item for item in self.state_index.list_coordination_node_runs(coordination_run.coordination_run_id)}
+        existing_agent_runs = {item.agent_run_id: item for item in self.state_index.list_task_agent_runs(task_run_id)}
+        topology_template = self._resolve_topology_template(coordination_run.topology_template_id)
+        coordination_flow = dict(coordination_run.diagnostics.get("coordination_flow") or {})
+        node_status_map = build_coordination_node_status_map(coordination_flow)
+        emitted_stage_ids: set[str] = set()
+        protocol_message_types = tuple(str(item).strip() for item in list(communication_protocol_payload.get("message_types") or []) if str(item).strip())
+        handoff_message_type = protocol_message_types[0] if protocol_message_types else "structured_handoff"
+        nodes = list(topology_template.get("nodes") or [])
+        if not nodes:
+            nodes = [
+                {
+                    "node_id": "coordinator",
+                    "agent_id": coordinator_agent_run.agent_id,
+                    "lane": coordinator_agent_run.runtime_lane,
+                    "role": "coordinator",
+                }
+            ]
+            for item in self.state_index.list_task_worker_spawn_results(task_run_id):
+                if item.status != "spawned":
+                    continue
+                nodes.append(
+                    {
+                        "node_id": f"worker_{item.spawned_agent_id.replace(':', '_')}",
+                        "agent_id": item.spawned_agent_id,
+                        "lane": "",
+                        "role": "worker_participant",
+                    }
+                )
+        node_agent_run_by_node_id: dict[str, AgentRun] = {}
+        for index, node in enumerate(nodes, start=1):
+            node_id = str(node.get("node_id") or f"node_{index}").strip()
+            assigned_agent_id = str(node.get("agent_id") or "").strip() or coordinator_agent_run.agent_id
+            role = str(node.get("role") or ("coordinator" if assigned_agent_id == coordinator_agent_run.agent_id else "participant")).strip()
+            runtime_lane = str(node.get("lane") or "").strip()
+            if assigned_agent_id == coordinator_agent_run.agent_id:
+                assigned_agent_run = coordinator_agent_run
+            else:
+                assigned_agent_run = next(
+                    (
+                        item
+                        for item in existing_agent_runs.values()
+                        if item.agent_id == assigned_agent_id and item.parent_agent_run_ref == coordinator_agent_run.agent_run_id
+                    ),
+                    None,
+                )
+                if assigned_agent_run is None:
+                    runtime_profile = self.agent_runtime_registry.get_profile(assigned_agent_id)
+                    assigned_agent_run = AgentRun(
+                        agent_run_id=f"agrun:{task_run_id}:participant:{node_id}",
+                        task_run_id=task_run_id,
+                        agent_id=assigned_agent_id,
+                        agent_profile_id=(
+                            runtime_profile.agent_profile_id
+                            if runtime_profile is not None
+                            else f"{assigned_agent_id.removeprefix('agent:').replace(':', '_')}_runtime"
+                        ),
+                        role=role,
+                        spawn_mode="coordination_participant",
+                        context_scope=coordinator_agent_run.context_scope,
+                        runtime_lane=runtime_lane or coordinator_agent_run.runtime_lane,
+                        parent_agent_run_ref=coordinator_agent_run.agent_run_id,
+                        coordination_run_ref=coordination_run.coordination_run_id,
+                        status="pending",
+                        created_at=time.time(),
+                        updated_at=time.time(),
+                        diagnostics={"node_id": node_id, "autocreated": True},
+                    )
+                    self.state_index.upsert_agent_run(assigned_agent_run)
+                    events.append(
+                        self.event_log.append(
+                            task_run_id,
+                            "agent_run_created",
+                            payload={"agent_run": assigned_agent_run.to_dict()},
+                            refs={"agent_run_ref": assigned_agent_run.agent_run_id},
+                        )
+                    )
+            node_agent_run_by_node_id[node_id] = assigned_agent_run
+            if node_id not in existing_node_runs:
+                node_flow = dict(node_status_map.get(node_id) or {})
+                node_run = CoordinationNodeRun(
+                    node_run_id=f"coordnode:{coordination_run.coordination_run_id}:{node_id}",
+                    coordination_run_id=coordination_run.coordination_run_id,
+                    task_run_id=task_run_id,
+                    node_id=node_id,
+                    role=role,
+                    assigned_agent_id=assigned_agent_run.agent_id,
+                    assigned_agent_run_ref=assigned_agent_run.agent_run_id,
+                    status=str(node_flow.get("node_run_status") or ("pending" if role != "coordinator" else "running")),
+                    created_at=time.time(),
+                    updated_at=time.time(),
+                    diagnostics={
+                        "lane": runtime_lane or assigned_agent_run.runtime_lane,
+                        **(
+                            {
+                                "stage_id": str(node_flow.get("stage_id") or ""),
+                                "message_type": str(node_flow.get("message_type") or ""),
+                                "stage_status": str(node_flow.get("stage_status") or ""),
+                            }
+                            if node_flow
+                            else {}
+                        ),
+                    },
+                )
+                self.state_index.upsert_coordination_node_run(node_run)
+                events.append(
+                    self.event_log.append(
+                        task_run_id,
+                        "coordination_node_run_created",
+                        payload={"coordination_node_run": node_run.to_dict()},
+                        refs={"coordination_node_run_ref": node_run.node_run_id},
+                    )
+                )
+                stage_id = str(node_flow.get("stage_id") or "").strip()
+                if stage_id and stage_id not in emitted_stage_ids:
+                    events.append(
+                        self.event_log.append(
+                            task_run_id,
+                            "coordination_stage_updated",
+                            payload={
+                                "stage": {
+                                    "stage_id": stage_id,
+                                    "node_id": node_id,
+                                    "message_type": str(node_flow.get("message_type") or ""),
+                                    "status": str(node_flow.get("stage_status") or ""),
+                                }
+                            },
+                            refs={"coordination_run_ref": coordination_run.coordination_run_id},
+                        )
+                    )
+                    emitted_stage_ids.add(stage_id)
+            else:
+                existing = existing_node_runs[node_id]
+                node_flow = dict(node_status_map.get(node_id) or {})
+                target_status = str(node_flow.get("node_run_status") or existing.status)
+                target_stage_id = str(node_flow.get("stage_id") or existing.diagnostics.get("stage_id") or "")
+                target_message_type = str(node_flow.get("message_type") or existing.diagnostics.get("message_type") or "")
+                target_stage_status = str(node_flow.get("stage_status") or existing.diagnostics.get("stage_status") or "")
+                if (
+                    target_status != existing.status
+                    or target_stage_id != str(existing.diagnostics.get("stage_id") or "")
+                    or target_stage_status != str(existing.diagnostics.get("stage_status") or "")
+                ):
+                    updated = CoordinationNodeRun(
+                        node_run_id=existing.node_run_id,
+                        coordination_run_id=existing.coordination_run_id,
+                        task_run_id=existing.task_run_id,
+                        node_id=existing.node_id,
+                        role=existing.role,
+                        assigned_agent_id=existing.assigned_agent_id,
+                        assigned_agent_run_ref=existing.assigned_agent_run_ref,
+                        status=target_status,
+                        handoff_count=existing.handoff_count,
+                        latest_handoff_ref=existing.latest_handoff_ref,
+                        created_at=existing.created_at,
+                        updated_at=time.time(),
+                        diagnostics={
+                            **dict(existing.diagnostics),
+                            "stage_id": target_stage_id,
+                            "message_type": target_message_type,
+                            "stage_status": target_stage_status,
+                        },
+                    )
+                    self.state_index.upsert_coordination_node_run(updated)
+                    events.append(
+                        self.event_log.append(
+                            task_run_id,
+                            "coordination_node_run_updated",
+                            payload={"coordination_node_run": updated.to_dict()},
+                            refs={"coordination_node_run_ref": updated.node_run_id},
+                        )
+                    )
+                if target_stage_id and target_stage_id not in emitted_stage_ids:
+                    events.append(
+                        self.event_log.append(
+                            task_run_id,
+                            "coordination_stage_updated",
+                            payload={
+                                "stage": {
+                                    "stage_id": target_stage_id,
+                                    "node_id": node_id,
+                                    "message_type": target_message_type,
+                                    "status": target_stage_status,
+                                }
+                            },
+                            refs={"coordination_run_ref": coordination_run.coordination_run_id},
+                        )
+                    )
+                    emitted_stage_ids.add(target_stage_id)
+        existing_handoffs = {
+            item.handoff_id: item
+            for item in self.state_index.list_coordination_handoffs(coordination_run.coordination_run_id)
+        }
+        edges = list(topology_template.get("edges") or [])
+        if not edges and len(node_agent_run_by_node_id) > 1:
+            for node_id, agent_run in node_agent_run_by_node_id.items():
+                if node_id == "coordinator":
+                    continue
+                edges.append({"from": node_id, "to": "coordinator", "policy": coordination_run.handoff_policy or "filtered_handoff"})
+        for index, edge in enumerate(edges, start=1):
+            source_node_id = str(edge.get("from") or "").strip()
+            target_node_id = str(edge.get("to") or "").strip()
+            source_agent_run = node_agent_run_by_node_id.get(source_node_id)
+            target_agent_run = node_agent_run_by_node_id.get(target_node_id)
+            if source_agent_run is None or target_agent_run is None:
+                continue
+            handoff_id = f"handoff:{coordination_run.coordination_run_id}:{index}"
+            if handoff_id in existing_handoffs:
+                continue
+            handoff = AgentHandoffEnvelope(
+                handoff_id=handoff_id,
+                task_run_id=task_run_id,
+                coordination_run_id=coordination_run.coordination_run_id,
+                source_agent_run_ref=source_agent_run.agent_run_id,
+                target_agent_run_ref=target_agent_run.agent_run_id,
+                protocol_id=coordination_run.communication_protocol_id,
+                message_type=handoff_message_type,
+                payload_ref=f"handoff_payload:{handoff_id}",
+                ack_state="pending",
+                created_at=time.time(),
+                diagnostics={"handoff_policy": str(edge.get("policy") or coordination_run.handoff_policy or "")},
+            )
+            self.state_index.upsert_handoff_envelope(handoff)
+            events.append(
+                self.event_log.append(
+                    task_run_id,
+                    "handoff_envelope_created",
+                    payload={"handoff_envelope": handoff.to_dict()},
+                    refs={"handoff_ref": handoff.handoff_id},
+                )
+            )
+        return tuple(events)
+
+    def _resolve_topology_template(self, template_id: str) -> dict[str, Any]:
+        target = str(template_id or "").strip()
+        if not target:
+            return {}
+        match = next((item for item in self.task_flow_registry.list_topology_templates() if item.template_id == target), None)
+        return match.to_dict() if match is not None else {}
+
+    @staticmethod
+    def _render_worker_agent_name(*, naming_rule: str, blueprint_template: str, index: int) -> str:
+        template = naming_rule or blueprint_template or "工作Agent {n}"
+        safe_template = template.replace("{index}", "{n}")
+        try:
+            rendered = safe_template.format(n=index)
+        except Exception:
+            rendered = f"{template} {index}"
+        return str(rendered or f"工作Agent {index}").strip()
 
     def _state_with_task_run_ledger(
         self,
