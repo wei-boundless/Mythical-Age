@@ -7,9 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capabilities.validation import validate_capability_catalog
-from operations import build_default_operation_registry
-from workers import build_worker_catalog
+from capability_system.validation import validate_capability_catalog
+from capability_system import build_default_operation_registry, build_worker_catalog
 
 
 def test_workers_are_registered_as_local_mcp_operation_endpoints() -> None:

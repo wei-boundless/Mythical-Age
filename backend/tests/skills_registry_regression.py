@@ -6,11 +6,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCANNER_PATH = ROOT / "tools" / "skills_scanner.py"
+SCANNER_PATH = ROOT / "capability_system" / "skill_scanner.py"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from skill_system import SkillRegistry
+from capability_system.paths import CapabilitySystemPaths
+from capability_system.skill_registry import SkillRegistry
 
 
 def load_scanner_module():
@@ -24,6 +25,7 @@ def load_scanner_module():
 
 
 def main() -> None:
+    capability_paths = CapabilitySystemPaths.from_base_dir(ROOT)
     scanner = load_scanner_module()
     scanner.refresh_snapshot(ROOT)
 
@@ -60,7 +62,7 @@ def main() -> None:
 
     assert "gold-price" not in by_name
 
-    registry = json.loads((ROOT / "SKILLS_REGISTRY.json").read_text(encoding="utf-8"))
+    registry = json.loads(capability_paths.skills_registry_path.read_text(encoding="utf-8"))
     assert registry["version"] == 3
     assert registry["skill_count"] == len(skills)
     assert all(item["schema_version"] == 3 for item in registry["skills"])
@@ -71,7 +73,7 @@ def main() -> None:
     assert skill_registry.get_by_name("get-weather") is None
     assert skill_registry.get_by_name("gold-price") is None
 
-    snapshot_text = (ROOT / "SKILLS_SNAPSHOT.md").read_text(encoding="utf-8")
+    snapshot_text = capability_paths.skills_snapshot_path.read_text(encoding="utf-8")
     assert "Skill registry snapshot for admin display" in snapshot_text
     assert "Available local capabilities" not in snapshot_text
     assert "<use_when>" in snapshot_text

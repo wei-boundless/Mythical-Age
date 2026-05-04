@@ -39,7 +39,7 @@ export type WorkspaceView =
   | "memory"
   | "test-system"
   | "health-system"
-  | "operations"
+  | "capability-system"
   | "evidence"
   | "task-system"
   | "orchestration"
@@ -128,3 +128,4 @@ export type AppStore = StoreState &
   StoreActions & {
     editableFiles: string[];
   };
+

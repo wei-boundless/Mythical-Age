@@ -17,11 +17,11 @@
 主要目录：
 
 - `api`
-- `runtime`
+- `bootstrap`
 
 职责：
 
-- HTTP / stream / app runtime 接入
+- HTTP / stream / app host 接入
 - 外部调用入口
 
 ## 2.2 Control Plane Layer
@@ -58,10 +58,12 @@
 - `soul`
 - `operations`
 - `health_system`
+- `sessions`
 
 职责：
 
 - 给编排系统提供正式输入材料
+- 给主链提供会话连续体与持久化
 
 ## 2.5 Execution / Output Layer
 
@@ -79,23 +81,44 @@
 
 ## 三、当前重叠目录
 
-以下目录当前应视为重叠或历史残留，不应继续无边界扩张：
+以下目录当前应视为实现层或历史残留，不应继续无边界扩张：
 
 - `memory`
 - `structured_memory`
-- `session-memory`
-- `health-system`
-- `runtime-loop`
 
 说明：
 
 - `memory` 更接近兼容层
 - `structured_memory` 更接近记忆底层实现层
-- `session-memory` 更接近旧命名残留
-- `health-system` 与 `health_system` 重叠
-- `runtime-loop` 当前是持久化数据目录，不是正式系统包
 
-## 四、当前目录阅读建议
+## 四、数据根边界
+
+从 2026-05-04 起，`backend/` 只作为代码根使用。
+
+所有运行生成数据、索引、checkpoint、会话态、健康记录统一进入项目根 `storage/`。
+
+正式数据根包括：
+
+- `storage/durable_memory`
+- `storage/session_memory`
+- `storage/sessions`
+- `storage/runtime_state`
+- `storage/health_system`
+- `storage/indexes_v2`
+- `storage/document_cache_v2`
+- `storage/modality_artifacts`
+- `storage/capability_system`
+- `storage/tasks`
+- `storage/orchestration`
+- `storage/health_system/maintenance/test_system`
+
+因此：
+
+- `backend/` 不再承载持久化运行数据
+- `storage/` 是唯一正式数据根
+- 旧 `backend/storage`、`backend/session-memory`、`backend/health-system`、`backend/runtime-loop` 已清退
+
+## 五、当前目录阅读建议
 
 如果你要理解当前主链，建议按下面顺序看目录：
 
@@ -106,10 +129,11 @@
 5. `memory_system`
 6. `soul`
 7. `operations`
-8. `execution`
-9. `output_boundary`
+8. `sessions`
+9. `execution`
+10. `output_boundary`
 
-## 五、目录治理规则
+## 六、目录治理规则
 
 后续目录重构统一遵守：
 
@@ -118,7 +142,7 @@
 3. 数据目录和代码目录命名必须可区分
 4. 新能力优先接到正式系统目录，不再接到历史重叠目录
 
-## 六、当前冻结结论
+## 七、当前冻结结论
 
 从现在开始，后续新代码优先落到这些正式系统目录：
 
@@ -128,12 +152,19 @@
 - `soul`
 - `operations`
 - `health_system`
+- `bootstrap`
+- `sessions`
+- `execution`
 
-而以下目录默认不再作为新系统边界继续扩展：
+而以下对象默认不再作为新系统边界继续扩展：
 
 - `memory`
 - `structured_memory`
-- `session-memory`
-- `health-system`
-- `runtime-loop`
 
+## 八、显式维护动作
+
+旧目录清理不再放在启动链路里自动执行。
+
+如果需要主动清理历史数据目录，使用：
+
+`python -m maintenance.cleanup_legacy_runtime_data`

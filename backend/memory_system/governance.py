@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from memory_layout import durable_memory_layout_from_backend_dir
 from structured_memory.models import utc_now_iso
 
 from .contracts import MemoryCommitAction, MemoryCommitLayer, MemoryCommitRecord
@@ -14,7 +15,7 @@ class MemoryGovernance:
 
     def __init__(self, base_dir: str | Path) -> None:
         self.base_dir = Path(base_dir)
-        self.log_dir = self.base_dir / "durable_memory" / "meta"
+        self.log_dir = durable_memory_layout_from_backend_dir(self.base_dir).meta_dir
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.log_dir / "governance_log.jsonl"
 

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from test_system.service import test_system_service
+from project_layout import ProjectLayout
 
 from context_management.budget_presets import (
     get_context_budget_preset,
@@ -29,15 +29,16 @@ class HealthWorkbenchBuilder:
     def build_overview(self) -> dict[str, Any]:
         registry = HealthRegistry(self.base_dir)
         health = registry.build_overview()
-        harness = self._load_harness_map()
-        recent_runs = self._load_recent_runs()
 
         issues = [dict(item) for item in list(health.get("issues") or [])]
-        cases = [dict(item) for item in list(harness.get("cases") or [])]
-        features = [dict(item) for item in list(harness.get("features") or [])]
+        verification_runs = [dict(item) for item in list(health.get("verification_runs") or [])]
+        gate_projection = dict(health.get("gate_projection") or {})
+        verification_resources = registry.verification_service.build_verification_resource_catalog()
+        cases = [dict(item) for item in list(verification_resources.get("cases") or [])]
+        features = [dict(item) for item in list(gate_projection.get("decisions") or [])]
         open_issues = [item for item in issues if str(item.get("status") or "").lower() not in CLOSED_ISSUE_STATES]
-        failed_runs = [item for item in recent_runs if _run_failed(item)]
-        efficiency = self._build_efficiency_summary(recent_runs=recent_runs)
+        failed_runs = [item for item in verification_runs if _verification_run_failed(item)]
+        efficiency = self._build_efficiency_summary(recent_runs=verification_runs)
         evidence_gaps = self._build_evidence_gaps(open_issues=open_issues)
         inbox_items = self._build_inbox_items(
             open_issues=open_issues,
@@ -56,20 +57,21 @@ class HealthWorkbenchBuilder:
                 "slow_run_count": int(efficiency["latency"].get("slow_run_count") or 0),
                 "efficiency_alert_count": len(efficiency["signals"]),
                 "feature_count": len(features),
-                "active_case_count": int(dict(harness.get("summary") or {}).get("active_case_count") or 0),
+                "active_case_count": int(dict(verification_resources.get("summary") or {}).get("case_count") or 0),
             },
             "inbox_items": inbox_items,
             "selected_context": inbox_items[0] if inbox_items else {},
             "features": features,
             "verification_resources": cases,
-            "recent_runs": recent_runs,
+            "recent_runs": verification_runs,
             "evidence_gaps": evidence_gaps,
             "efficiency": efficiency,
             "context_budget": self._build_context_budget_summary(),
             "recommended_actions": self._recommended_actions(inbox_items=inbox_items, evidence_gaps=evidence_gaps),
             "source_refs": {
                 "health_overview": str(health.get("authority") or "health_system.registry"),
-                "harness_map": str(harness.get("authority") or "test_system.harness_map"),
+                "verification_resources": str(verification_resources.get("authority") or "health_system.verification_resources"),
+                "gate_projection": str(gate_projection.get("authority") or "health_system.gate_projection"),
             },
         }
 
@@ -83,24 +85,6 @@ class HealthWorkbenchBuilder:
             "presets": list_context_budget_presets(),
             "authority": "runtime.context_budget_presets",
         }
-
-    def _load_harness_map(self) -> dict[str, Any]:
-        try:
-            return dict(test_system_service.harness_map())
-        except Exception as exc:  # pragma: no cover - defensive projection fallback
-            return {
-                "authority": "test_system.harness_map.unavailable",
-                "summary": {},
-                "features": [],
-                "cases": [],
-                "error": str(exc),
-            }
-
-    def _load_recent_runs(self) -> list[dict[str, Any]]:
-        try:
-            return [dict(item) for item in test_system_service.list_runs(limit=10)]
-        except Exception:  # pragma: no cover - experiment artifacts are optional for this projection
-            return []
 
     def _build_evidence_gaps(
         self,
@@ -153,7 +137,7 @@ class HealthWorkbenchBuilder:
                 }
             )
         for run in failed_runs:
-            run_id = str(run.get("run_id") or "")
+            run_id = str(run.get("verification_run_id") or run.get("source_run_ref") or run.get("run_id") or "")
             summary = dict(run.get("summary") or {})
             items.append(
                 {
@@ -209,7 +193,7 @@ class HealthWorkbenchBuilder:
         }
 
     def _build_token_usage_summary(self) -> dict[str, Any]:
-        checkpoints_dir = self.base_dir / "runtime-loop" / "checkpoints"
+        checkpoints_dir = ProjectLayout.from_backend_dir(self.base_dir).runtime_state_dir / "checkpoints"
         now = time.time()
         today = datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0)
         daily_start = today - timedelta(days=6)
@@ -265,7 +249,7 @@ class HealthWorkbenchBuilder:
 
         return {
             "status": "recorded_from_runtime_accounting",
-            "source": "backend.runtime-loop.checkpoints.token_pressure.token_accounting",
+            "source": "storage.runtime_state.checkpoints.token_pressure.token_accounting",
             "granularity": ["daily", "six_hour"],
             "total_tokens": total_tokens,
             "session_count": record_count,
@@ -322,10 +306,11 @@ class HealthWorkbenchBuilder:
         return actions[:3]
 
 
-def _run_failed(run: dict[str, Any]) -> bool:
+def _verification_run_failed(run: dict[str, Any]) -> bool:
+    verdict = str(run.get("verdict") or "").lower()
     status = str(run.get("status") or "").lower()
     summary = dict(run.get("summary") or {})
-    return status == "failed" or int(summary.get("failed") or 0) > 0
+    return verdict == "failed" or status == "failed" or int(summary.get("failed") or 0) > 0
 
 
 def _runtime_token_accounting(payload: dict[str, Any]) -> dict[str, Any]:

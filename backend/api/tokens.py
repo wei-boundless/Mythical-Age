@@ -35,10 +35,11 @@ async def session_tokens(session_id: str) -> dict[str, Any]:
 
     system_tokens = _count_tokens(system_prompt)
     message_tokens = _count_tokens("\n".join(message_text))
-    adapter = runtime.memory_facade.adapter
-    py_messages = adapter.to_messages(record.get("messages", []), session_id=session_id)
-    compactor = runtime.memory_facade.session_memory.compactor(session_id)
-    raw_history_tokens = compactor.conversation_tokens(py_messages)
+    token_diagnostics = runtime.memory_facade.inspect_session_history_tokens(
+        session_id=session_id,
+        messages=list(record.get("messages", [])),
+    )
+    raw_history_tokens = int(token_diagnostics.get("raw_history_tokens", 0))
     context_compaction: dict[str, Any] = {}
     try:
         _compacted_history, context_compaction = runtime.memory_facade.inspect_memory_context_compaction(
@@ -48,7 +49,7 @@ async def session_tokens(session_id: str) -> dict[str, Any]:
     except Exception:
         context_compaction = {}
     history_tokens = int(context_compaction.get("estimated_tokens_after") or raw_history_tokens)
-    history_budget_tokens = int(compactor.effective_history_token_budget)
+    history_budget_tokens = int(token_diagnostics.get("history_budget_tokens", 0))
     history_remaining_tokens = max(history_budget_tokens - history_tokens, 0)
     history_usage_ratio = (
         min(history_tokens / history_budget_tokens, 1.0)
@@ -62,7 +63,7 @@ async def session_tokens(session_id: str) -> dict[str, Any]:
     )
     history_pressure_level = str(
         context_compaction.get("pressure_level")
-        or compactor.pressure_level(raw_history_tokens, len(py_messages))
+        or token_diagnostics.get("history_pressure_level", "normal")
     )
     return {
         "system_tokens": system_tokens,

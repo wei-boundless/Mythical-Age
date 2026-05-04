@@ -12,6 +12,8 @@ class StageProjectionSnapshot:
     task_id: str
     projection_ref: str
     prompt_manifest_ref: str
+    task_body_orchestration_ref: str = ""
+    runtime_spec_ref: str = ""
     soul_runtime_view: dict[str, Any] = field(default_factory=dict)
     prompt_manifest: dict[str, Any] = field(default_factory=dict)
     projection_requirement: dict[str, Any] = field(default_factory=dict)
@@ -37,25 +39,29 @@ class StageProjectionSnapshot:
 
 
 class StageProjectionCycle:
-    """Adapts the current SoulSystem projection into the runtime loop."""
+    """Builds runtime-safe stage projection from formal orchestration objects."""
 
-    def build_from_task_operation(
+    def build_from_orchestration(
         self,
-        task_operation: dict[str, Any],
         *,
+        task_id: str,
+        task_body_orchestration: dict[str, Any],
+        agent_runtime_spec: dict[str, Any],
         context_snapshot_ref: str = "",
     ) -> StageProjectionSnapshot:
-        task_contract = dict(task_operation.get("task_contract") or {})
-        task_id = str(task_contract.get("task_id") or "task-runtime")
-        raw_soul_runtime_view = dict(task_operation.get("soul_runtime_view") or {})
-        raw_prompt_manifest = dict(task_operation.get("prompt_manifest") or {})
+        raw_soul_runtime_view = dict(task_body_orchestration.get("soul_runtime_view") or {})
+        raw_prompt_manifest = dict(task_body_orchestration.get("prompt_manifest") or {})
         soul_runtime_view = _runtime_safe_soul_runtime_view(raw_soul_runtime_view)
         prompt_manifest = _runtime_safe_prompt_manifest(raw_prompt_manifest, soul_runtime_view)
-        projection_requirement = dict(task_operation.get("projection_requirement") or {})
-        projection_ref = str(prompt_manifest.get("projection_id") or task_operation.get("projection_id") or "")
+        projection_requirement = dict(task_body_orchestration.get("projection_requirement") or {})
+        projection_ref = str(
+            task_body_orchestration.get("projection_ref")
+            or prompt_manifest.get("projection_id")
+            or ""
+        )
         if not projection_ref:
             projection_ref = _stable_ref("projection", task_id, soul_runtime_view)
-        prompt_manifest_ref = str(prompt_manifest.get("manifest_id") or "")
+        prompt_manifest_ref = str(task_body_orchestration.get("prompt_manifest_ref") or prompt_manifest.get("manifest_id") or "")
         if not prompt_manifest_ref:
             prompt_manifest_ref = _stable_ref("manifest", task_id, prompt_manifest)
         sections = list(soul_runtime_view.get("sections") or ())
@@ -76,6 +82,8 @@ class StageProjectionCycle:
             task_id=task_id,
             projection_ref=projection_ref,
             prompt_manifest_ref=prompt_manifest_ref,
+            task_body_orchestration_ref=str(task_body_orchestration.get("orchestration_id") or ""),
+            runtime_spec_ref=str(agent_runtime_spec.get("runtime_spec_id") or ""),
             soul_runtime_view=soul_runtime_view,
             prompt_manifest=prompt_manifest,
             projection_requirement=projection_requirement,
@@ -83,11 +91,12 @@ class StageProjectionCycle:
             visible_tool_ids=visible_tools,
             visible_skill_ids=visible_skills,
             diagnostics={
-                "projection_owner": "SoulSystem",
+                "projection_owner": "OrchestrationSystem",
                 "cycle_owner": "TaskRunLoop",
                 "context_snapshot_ref": context_snapshot_ref,
                 "permission_expansion_allowed": False,
                 "control_plane_sections_filtered": True,
+                "source": "task_body_orchestration",
             },
         )
 

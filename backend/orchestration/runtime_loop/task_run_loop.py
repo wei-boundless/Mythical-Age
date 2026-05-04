@@ -9,7 +9,8 @@ from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from operations import OperationGate, OperationGatePipelineContext, build_default_operation_registry
+from capability_system import build_default_operation_registry
+from orchestration.resource_gate import OperationGate, OperationGatePipelineContext
 from output_boundary.boundary import AssistantOutputBoundary
 from tasks.run_models import (
     TaskRunLedger,
@@ -32,7 +33,7 @@ from tasks.run_models import (
 from tasks.spec_models import TaskSpec
 from tasks.step_models import StepInputBinding, TaskStepBlueprint
 from tasks.template_models import TaskTemplate, TaskValidationRule
-from tools.authorization import resolve_tool_operation_id
+from capability_system.tool_authorization import resolve_tool_operation_id
 
 from context_management.projection import (
     ContextProjection,
@@ -293,9 +294,11 @@ class TaskRunLoop:
         chain_runtime = agent_runtime_chain.build_runtime(
             session_id=session_id,
             task_id=task_id,
+            turn_id=str(dict(task_selection or {}).get("turn_id") or ""),
             message=user_message,
             source=source,
             task_selection=dict(task_selection or {}),
+            agent_runtime_profile=agent_runtime_profile,
         )
         task_operation = dict(chain_runtime.get("task_operation") or {})
         task_contract = dict(task_operation.get("task_contract") or {})
@@ -311,6 +314,8 @@ class TaskRunLoop:
         task_memory_request_profile_payload = dict(task_operation.get("task_memory_request_profile") or {})
         task_communication_protocol_payload = dict(task_operation.get("task_communication_protocol") or {})
         coordination_task_payload = dict(task_operation.get("coordination_task_record") or {})
+        task_body_orchestration_payload = dict(chain_runtime.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {})
+        agent_runtime_spec_payload = dict(chain_runtime.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {})
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
 
@@ -344,6 +349,8 @@ class TaskRunLoop:
                 "task_memory_request_profile": task_memory_request_profile_payload,
                 "task_communication_protocol": task_communication_protocol_payload,
                 "coordination_task_record": coordination_task_payload,
+                "task_body_orchestration": task_body_orchestration_payload,
+                "agent_runtime_spec": agent_runtime_spec_payload,
                 "task_run_ledger": runtime_task_ledger.to_dict() if runtime_task_ledger is not None else {},
                 "source": source,
             },
@@ -360,6 +367,8 @@ class TaskRunLoop:
                 "task_memory_request_profile_ref": str(task_memory_request_profile_payload.get("profile_id") or ""),
                 "task_communication_protocol_ref": str(task_communication_protocol_payload.get("protocol_id") or ""),
                 "coordination_task_ref": str(coordination_task_payload.get("coordination_task_id") or ""),
+                "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
+                "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
                 "bundle_spec_ref": str(bundle_spec_payload.get("bundle_id") or ""),
                 "task_run_ledger_ref": runtime_task_ledger.ledger_id if runtime_task_ledger is not None else "",
             },
@@ -412,16 +421,24 @@ class TaskRunLoop:
         )
         yield {"type": "runtime_loop_event", "event": memory_event.to_dict()}
         projection_cycle = stage_projection_cycle or StageProjectionCycle()
-        stage_projection = projection_cycle.build_from_task_operation(
-            task_operation,
+        stage_projection = projection_cycle.build_from_orchestration(
+            task_id=task_id,
+            task_body_orchestration=task_body_orchestration_payload,
+            agent_runtime_spec=agent_runtime_spec_payload,
         )
         projection_event = self.event_log.append(
             state.task_run_id,
             "stage_projection_built",
-            payload={"stage_projection": stage_projection.to_dict()},
+            payload={
+                "stage_projection": stage_projection.to_dict(),
+                "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
+                "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
+            },
             refs={
                 "projection_ref": stage_projection.projection_ref,
                 "prompt_manifest_ref": stage_projection.prompt_manifest_ref,
+                "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
+                "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
             },
         )
         yield {"type": "runtime_loop_event", "event": projection_event.to_dict()}
@@ -449,6 +466,8 @@ class TaskRunLoop:
                 "context_policy_ref": context_snapshot.context_policy_ref,
                 "projection_ref": stage_projection.projection_ref,
                 "prompt_manifest_ref": stage_projection.prompt_manifest_ref,
+                "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
+                "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
             },
         )
         yield {"type": "runtime_loop_event", "event": context_event.to_dict()}
@@ -492,6 +511,8 @@ class TaskRunLoop:
                 "runtime_chain_built": True,
                 "runtime_context_manager_applied": True,
                 "stage_projection_cycle_applied": True,
+                "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
+                "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
                 "context_invariant_checked": True,
                 "context_needs_compaction": invariant_report.needs_compaction,
                 "task_template_id": str(selected_template_payload.get("template_id") or ""),
@@ -1431,6 +1452,12 @@ class TaskRunLoop:
                         final_answer_metadata = _forced_synthesis_answer_metadata(source="runtime_loop.repeated_tool_halt")
                         followup_messages = []
                         break
+                    final_content = _build_repeated_tool_halt_message(
+                        tool_observation_count=tool_observation_count,
+                    )
+                    final_answer_metadata = _repeated_tool_halt_answer_metadata()
+                    followup_messages = []
+                    break
                 followup_messages = [
                     *followup_messages,
                     AIMessage(
@@ -2002,7 +2029,7 @@ class TaskRunLoop:
         return record, events, "dispatch"
 
     def _tool_instances_for_resource_policy(self, tool_instances: list[Any] | None, resource_policy: Any) -> list[Any]:
-        from tools.authorization import build_authorized_tool_set
+        from capability_system.tool_authorization import build_authorized_tool_set
 
         allowed_operations = {
             self.operation_gate.registry.normalize_id(operation_id)
@@ -2020,8 +2047,8 @@ class TaskRunLoop:
         return list(authorized.instances)
 
     def _build_tool_authorization_index(self):
-        from tools.authorization import build_tool_authorization_index
-        from tools.definitions import get_tool_definitions
+        from capability_system.tool_authorization import build_tool_authorization_index
+        from capability_system.tool_definitions import get_tool_definitions
 
         return build_tool_authorization_index(get_tool_definitions())
 
@@ -2083,7 +2110,7 @@ class TaskRunLoop:
                 )
             ]
         if event_type == "tool_call_requested":
-            from tools.authorization import resolve_tool_operation_id
+            from capability_system.tool_authorization import resolve_tool_operation_id
 
             action_request = build_tool_action_request(task_run_id, event, step_id=current_step_id)
             requested_event = self.event_log.append(
@@ -2658,6 +2685,17 @@ def _runtime_budget_exhausted_answer_metadata() -> dict[str, str]:
     }
 
 
+def _repeated_tool_halt_answer_metadata() -> dict[str, str]:
+    return {
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_loop_control",
+        "answer_canonical_state": "progress_only",
+        "answer_persist_policy": "persist_debug_only",
+        "answer_finalization_policy": "none",
+        "answer_fallback_reason": "repeated_tool_halt",
+    }
+
+
 def _forced_synthesis_answer_metadata(*, source: str = "runtime_loop_synthesis") -> dict[str, str]:
     return {
         "answer_channel": "tool_visible_summary",
@@ -2687,6 +2725,18 @@ def _build_runtime_budget_exhausted_message(message: str = "", *, tool_observati
     return (
         f"{reason_text}，所以先停止继续调用工具。{evidence_text}，但模型还没有把这些结果收口成最终回答。"
         "请直接继续问“基于已读取内容总结”，我会从现有上下文继续收口。"
+    )
+
+
+def _build_repeated_tool_halt_message(*, tool_observation_count: int = 0) -> str:
+    evidence_text = (
+        f"已经连续收到了 {tool_observation_count} 条相似工具结果"
+        if tool_observation_count > 0
+        else "已经连续触发了相似工具调用"
+    )
+    return (
+        f"{evidence_text}，继续重复读取不会带来新的信息，所以我先停止本轮重复工具调用。"
+        "你可以直接继续基于当前已绑定对象提问，我会从现有上下文继续收口。"
     )
 
 

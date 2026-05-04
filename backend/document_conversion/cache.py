@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from document_conversion.models import ConversionBlock, ConversionResult
+from project_layout import ProjectLayout
 
 
 def _json_ready(value: Any) -> Any:
@@ -25,7 +26,7 @@ def _json_ready(value: Any) -> Any:
 class DocumentCacheV2Layout:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        self.root = base_dir / "storage" / "document_cache_v2"
+        self.root = ProjectLayout.from_backend_dir(base_dir).document_cache_v2_dir
         self.conversion_dir = self.root / "conversion"
         self.normalized_dir = self.root / "normalized"
         self.manifests_dir = self.root / "manifests"

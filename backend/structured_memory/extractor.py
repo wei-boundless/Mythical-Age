@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 
-from memory.admission_policy import DurableAdmissionPolicy
-from memory.manifest_scan import scan_memory_headers
-from memory.mutation_planner import DurableMutationPlanner
-from memory.store_writer import DurableStoreWriter
-from memory.write_agent import DurableWriteExtractorAgent
-from memory.write_models import DurableExtractionBundle
+from memory_system.admission_policy import DurableAdmissionPolicy
+from memory_system.manifest_scan import scan_memory_headers
+from memory_system.mutation_planner import DurableMutationPlanner
+from memory_system.store_writer import DurableStoreWriter
+from memory_system.write_agent import DurableWriteExtractorAgent
+from memory_system.write_models import DurableExtractionBundle
 from understanding.memory_policy import evaluate_memory_write
 
 from .memory_manager import MemoryManager

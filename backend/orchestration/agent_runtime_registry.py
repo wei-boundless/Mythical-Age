@@ -4,13 +4,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from operations import AgentRegistry
+from project_layout import ProjectLayout
 
+from .agent_registry import AgentRegistry
 from .agent_runtime_models import AgentRuntimeProfile
 
 
 def _storage_root(base_dir: Path) -> Path:
-    return Path(base_dir) / "storage" / "orchestration"
+    return ProjectLayout.from_backend_dir(base_dir).orchestration_dir
 
 
 def _profiles_path(base_dir: Path) -> Path:
@@ -153,8 +154,6 @@ class AgentRuntimeRegistry:
         aliases = {target}
         if target == "agent:main":
             aliases.add("agent:0")
-        if target == "agent:health:maintainer":
-            aliases.add("agent:3")
         return next((item for item in self.list_profiles() if item.agent_id in aliases), None)
 
     def upsert_profile(

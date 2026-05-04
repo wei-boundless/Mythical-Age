@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from operations import OperationGateResult
+from orchestration.resource_gate import OperationGateResult
 
 
 def build_task_safety_validators(*, root_dir: Path, safety_envelope: dict[str, Any] | None) -> dict[str, Any]:

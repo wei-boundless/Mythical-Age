@@ -4,17 +4,10 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from operations import AgentRegistry
-from tasks import TaskFlowRegistry, TaskWorkflowRegistry, build_task_runtime_contract
+from orchestration import AgentRegistry
+from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
 router = APIRouter()
-
-
-class TaskRuntimeContractRequest(BaseModel):
-    session_id: str = Field(default="session-runtime")
-    task_id: str = Field(default="task-runtime")
-    user_goal: str = Field(..., min_length=1)
-    source: str = Field(default="manual_runtime")
 
 
 class TaskAgentUpsertRequest(BaseModel):
@@ -639,13 +632,3 @@ async def upsert_task_system_communication_protocol(
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
-
-
-@router.post("/tasks/runtime-contract")
-async def task_runtime_contract(payload: TaskRuntimeContractRequest) -> dict[str, object]:
-    return build_task_runtime_contract(
-        session_id=payload.session_id,
-        task_id=payload.task_id,
-        user_goal=payload.user_goal,
-        source=payload.source,
-    )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from RAG.models import RetrievalHit
+from capability_system.units.mcp.local.retrieval.models import RetrievalHit
 from normalized_ingestion.models import IndexableUnit
 
 

@@ -1,7 +1,7 @@
 # Soul
 
-`soul/` 当前仍承担静态 prompt 层。
-新架构中它会升级为可管理的灵魂系统：管理 SoulProfile、SoulProjection、prompt sections、skills/tools 可见视图和多灵魂协作投影。
+`soul/` 现在已经是正式的灵魂系统目录。
+它管理静态身份素材、SoulProfile、Projection、prompt sections、skills/tools 可见视图和运行时身份装配。
 
 这里放的不是运行日志，也不是实现说明，而是会参与模型长期行为塑形的静态设定和后续灵魂契约。
 
@@ -28,7 +28,14 @@
 - `agent_core/SEED_CATALOG.md`
 - `agent_core/seeds/*.md`
 
-后续新增的 `contracts.py`、`registry.py`、`projection.py`、`prompt_assembly.py` 也不直接进入模型可见 prompt；它们只负责把灵魂档案装配成受控的 `SoulRuntimeView`。
+下面这些实现文件也不直接进入模型可见 prompt；它们只负责把灵魂档案装配成受控的 `SoulRuntimeView`：
+
+- `contracts.py`
+- `registry.py`
+- `projection_builder.py`
+- `runtime_assembly.py`
+- `view_mapping.py`
+- `prompt_assembly.py`
 
 ## 模型实际读到的顺序
 
@@ -114,7 +121,7 @@
 
 ## 新架构方向
 
-灵魂系统后续不再只是人格切换器。
+灵魂系统现在不再只是人格切换器。
 
 目标是：
 
@@ -124,8 +131,9 @@
 - `PromptManifest` 记录每段 prompt 的来源。
 - tools / skills 可以进入灵魂视图，但授权仍然由 `ControlKernel / ResourcePolicy` 决定。
 
-详细方案见：
+当前正式设计与收口审查见：
 
-- `docs/系统规划/01-灵魂系统完整构建方案-20260427.md`
-- `docs/系统规划/02-任务系统与灵魂意志联动方案-20260427.md`
-- `docs/系统规划/03-灵魂系统管理与多态投影方案-20260427.md`
+- `docs/系统规划/06-灵魂系统详细设计书-20260504.md`
+- `docs/系统规划/22-第六阶段灵魂系统正式收口与身份装配重构蓝图-20260504.md`
+- `docs/系统规划/23-第六阶段灵魂系统正式收口源码对照审查-20260504.md`
+- `docs/系统规划/24-第六阶段灵魂系统收口后框架与设计原则对照审查-20260504.md`

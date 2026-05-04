@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from memory.manifest_scan import MemoryHeader, scan_memory_headers
+from .manifest_scan import MemoryHeader, scan_memory_headers
 
 from .contracts import LongTermMemoryRecord, MemoryContextCandidate, MemoryWriteCandidate
 

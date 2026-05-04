@@ -4,12 +4,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from bootstrap.app_runtime import app_runtime
 from config import get_settings
-from runtime.app_runtime import app_runtime
+from project_layout import ensure_project_storage
 
 
 @asynccontextmanager
 async def runtime_lifespan(_: FastAPI):
     settings = get_settings()
+    ensure_project_storage(settings.backend_dir)
     app_runtime.initialize(settings.backend_dir)
     yield

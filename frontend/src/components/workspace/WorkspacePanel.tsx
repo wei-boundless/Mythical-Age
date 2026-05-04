@@ -5,7 +5,7 @@ import { ExperimentsView } from "@/components/workspace/views/ExperimentsView";
 import { HealthSystemView } from "@/components/workspace/views/HealthSystemView";
 import { MemoryView } from "@/components/workspace/views/MemoryView";
 import { OrchestrationView } from "@/components/workspace/views/OrchestrationView";
-import { OperationsView } from "@/components/workspace/views/OperationsView";
+import { CapabilitySystemView } from "@/components/workspace/views/CapabilitySystemView";
 import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
 import { SystemConfigView } from "@/components/workspace/views/SystemConfigView";
 import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
@@ -22,8 +22,8 @@ export function WorkspacePanel() {
     memory: <MemoryView />,
     "test-system": <HealthSystemView />,
     "health-system": <HealthSystemView />,
-    operations: <OperationsView />,
-    evidence: <OperationsView initialPanel="tools" />,
+    "capability-system": <CapabilitySystemView />,
+    evidence: <CapabilitySystemView initialPanel="tools" />,
     "task-system": <TaskSystemView />,
     orchestration: <OrchestrationView />,
     "system-framework": <TaskSystemView />,
@@ -38,8 +38,9 @@ export function WorkspacePanel() {
       <div
         className={`panel workspace-view-shell ${isSystemFramework ? "workspace-view-shell--map p-0" : "p-5"} flex min-h-0 flex-1 flex-col overflow-hidden`}
       >
-        {views[activeWorkspaceView]}
+        {views[activeWorkspaceView as keyof typeof views]}
       </div>
     </section>
   );
 }
+

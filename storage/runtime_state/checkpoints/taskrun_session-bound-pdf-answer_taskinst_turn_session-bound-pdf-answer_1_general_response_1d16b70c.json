@@ -1,0 +1,1040 @@
+{
+  "checkpoint_id": "rtchk:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:26",
+  "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+  "event_offset": 26,
+  "loop_state": {
+    "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 2,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.pdf.document_analysis",
+    "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+    "task_result_ref": "taskresult:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:session-bound-pdf-answer:1:general_response:0adc0e221fde",
+    "memory_state_ref": "",
+    "projection_ref": "6d88eb45da2a4d5b",
+    "prompt_manifest_ref": "manifest-6d88eb45da2a4d5b",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {},
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+      "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+      "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+      "taskrun-ledger:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+      "taskresult:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+      "commit_gate:commit-gate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "session-bound-pdf-answer",
+            "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+            "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+            "role": "assistant",
+            "content": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "session-bound-pdf-answer",
+          "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+            "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+            "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+            "template_id": "template.pdf.document_analysis",
+            "terminal_reason": "completed",
+            "final_content_chars": 42,
+            "task_result": {
+              "result_id": "taskresult:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+              "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+              "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+              "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+              "template_id": "template.pdf.document_analysis",
+              "status": "completed",
+              "terminal_reason": "completed",
+              "requested_outputs": [
+                "final_answer",
+                "task_summary_refs"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+                "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+                "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked"
+              ],
+              "output_refs": [
+                "result:pdf_answer:58d0d190be864fd1"
+              ],
+              "step_runs": [
+                {
+                  "step_id": "step.inspect_pdf",
+                  "title": "分析 PDF",
+                  "step_kind": "analyze",
+                  "executor_type": "tool",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.pdf_analysis"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [
+                    "input.path",
+                    "input.query"
+                  ],
+                  "output_contract_id": "PdfAnalysisResult",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [
+                    "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+                    "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+                    "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+                    "result:pdf_answer:58d0d190be864fd1"
+                  ],
+                  "entered_at": 1777851861.5192049,
+                  "completed_at": 1777851861.6502023,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+                  "executor_ref": "",
+                  "diagnostics": {
+                    "transition_reason": "terminal_finalize"
+                  },
+                  "authority": "task_system.task_step_run"
+                },
+                {
+                  "step_id": "step.finalize_pdf",
+                  "title": "整理 PDF 结果",
+                  "step_kind": "finalize",
+                  "executor_type": "model",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.model_response"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "GroundedAnswer",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [
+                    "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+                    "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+                    "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+                    "result:pdf_answer:58d0d190be864fd1"
+                  ],
+                  "entered_at": 1777851861.6502023,
+                  "completed_at": 1777851861.6502023,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+                  "executor_ref": "",
+                  "diagnostics": {
+                    "transition_reason": "terminal_finalize"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+                "main_context": {
+                  "active_goal": "把这份 PDF 的结论压成三条行动建议。",
+                  "active_work_item": "pdf",
+                  "active_binding_identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
+                  "active_object_handle_id": "source:pdf:8e896ca9f7b96d9e",
+                  "active_result_handle_id": "result:pdf_answer:58d0d190be864fd1",
+                  "active_subset_handle_id": "",
+                  "followup_mode": "binding_ref",
+                  "followup_resolution_source": "bound_answer_projection",
+                  "followup_target_task_id": "result:pdf_answer:58d0d190be864fd1",
+                  "followup_target_task_ids": [
+                    "result:pdf_answer:58d0d190be864fd1"
+                  ],
+                  "followup_binding_key": "active_pdf",
+                  "followup_binding_identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
+                  "active_constraints": {
+                    "active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                    "active_pdf_mode": "document",
+                    "source_kind": "pdf"
+                  }
+                },
+                "task_summary_refs": [
+                  {
+                    "task_id": "result:pdf_answer:58d0d190be864fd1",
+                    "query": "把这份 PDF 的结论压成三条行动建议。",
+                    "summary": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+                    "task_kind": "pdf",
+                    "key_points": [
+                      "pdf=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                      "pdf_mode=document",
+                      "artifact=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf#analysis"
+                    ],
+                    "source": "bound_answer_projection"
+                  }
+                ],
+                "bundle_summary_refs": [],
+                "answer_metadata": {
+                  "answer_channel": "answer_candidate",
+                  "answer_source": "runtime_directive:model_response",
+                  "answer_canonical_state": "stable_answer",
+                  "answer_persist_policy": "persist_canonical",
+                  "answer_finalization_policy": "none",
+                  "answer_fallback_reason": ""
+                }
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+                "template_id": "template.pdf.document_analysis"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+                "tool_observation_count": 0,
+                "final_content_chars": 42,
+                "bundle_result_count": 0,
+                "task_summary_count": 1
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+        "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+        "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+        "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+        "template_id": "template.pdf.document_analysis",
+        "status": "completed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "final_answer",
+          "task_summary_refs"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.inspect_pdf",
+            "title": "分析 PDF",
+            "step_kind": "analyze",
+            "executor_type": "tool",
+            "status": "completed",
+            "required_operations": [
+              "op.pdf_analysis"
+            ],
+            "optional_operations": [],
+            "input_refs": [
+              "input.path",
+              "input.query"
+            ],
+            "output_contract_id": "PdfAnalysisResult",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+              "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+              "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+              "result:pdf_answer:58d0d190be864fd1"
+            ],
+            "entered_at": 1777851861.5192049,
+            "completed_at": 1777851861.6502023,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.finalize_pdf",
+            "title": "整理 PDF 结果",
+            "step_kind": "finalize",
+            "executor_type": "model",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "GroundedAnswer",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+              "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+              "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+              "result:pdf_answer:58d0d190be864fd1"
+            ],
+            "entered_at": 1777851861.6502023,
+            "completed_at": 1777851861.6502023,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+          "template_id": "template.pdf.document_analysis"
+        },
+        "diagnostics": {
+          "current_step_id": "step.finalize_pdf",
+          "terminal_reason": "completed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+        "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+        "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+        "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+        "template_id": "template.pdf.document_analysis",
+        "status": "completed",
+        "terminal_reason": "completed",
+        "requested_outputs": [
+          "final_answer",
+          "task_summary_refs"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+          "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+          "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked"
+        ],
+        "output_refs": [
+          "result:pdf_answer:58d0d190be864fd1"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.inspect_pdf",
+            "title": "分析 PDF",
+            "step_kind": "analyze",
+            "executor_type": "tool",
+            "status": "completed",
+            "required_operations": [
+              "op.pdf_analysis"
+            ],
+            "optional_operations": [],
+            "input_refs": [
+              "input.path",
+              "input.query"
+            ],
+            "output_contract_id": "PdfAnalysisResult",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+              "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+              "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+              "result:pdf_answer:58d0d190be864fd1"
+            ],
+            "entered_at": 1777851861.5192049,
+            "completed_at": 1777851861.6502023,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.finalize_pdf",
+            "title": "整理 PDF 结果",
+            "step_kind": "finalize",
+            "executor_type": "model",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "GroundedAnswer",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+              "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+              "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+              "result:pdf_answer:58d0d190be864fd1"
+            ],
+            "entered_at": 1777851861.6502023,
+            "completed_at": 1777851861.6502023,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+          "main_context": {
+            "active_goal": "把这份 PDF 的结论压成三条行动建议。",
+            "active_work_item": "pdf",
+            "active_binding_identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
+            "active_object_handle_id": "source:pdf:8e896ca9f7b96d9e",
+            "active_result_handle_id": "result:pdf_answer:58d0d190be864fd1",
+            "active_subset_handle_id": "",
+            "followup_mode": "binding_ref",
+            "followup_resolution_source": "bound_answer_projection",
+            "followup_target_task_id": "result:pdf_answer:58d0d190be864fd1",
+            "followup_target_task_ids": [
+              "result:pdf_answer:58d0d190be864fd1"
+            ],
+            "followup_binding_key": "active_pdf",
+            "followup_binding_identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
+            "active_constraints": {
+              "active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+              "active_pdf_mode": "document",
+              "source_kind": "pdf"
+            }
+          },
+          "task_summary_refs": [
+            {
+              "task_id": "result:pdf_answer:58d0d190be864fd1",
+              "query": "把这份 PDF 的结论压成三条行动建议。",
+              "summary": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+              "task_kind": "pdf",
+              "key_points": [
+                "pdf=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "pdf_mode=document",
+                "artifact=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf#analysis"
+              ],
+              "source": "bound_answer_projection"
+            }
+          ],
+          "bundle_summary_refs": [],
+          "answer_metadata": {
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          }
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+          "template_id": "template.pdf.document_analysis"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+          "tool_observation_count": 0,
+          "final_content_chars": 42,
+          "bundle_result_count": 0,
+          "task_summary_count": 1
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": false,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 0,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:session-bound-pdf-answer:1:general_response",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.pdf.document_analysis",
+      "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+      "final_content_chars": 42,
+      "last_step_transition": "terminal_projection",
+      "result_ref_count": 7
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:session-bound-pdf-answer:1:general_response:0adc0e221fde",
+  "prompt_manifest_ref": "manifest-6d88eb45da2a4d5b",
+  "execution_refs": [],
+  "execution_state_ref": "",
+  "execution_summary": {
+    "execution_count": 0,
+    "completed_count": 0,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [],
+    "latest_execution_id": ""
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "session-bound-pdf-answer",
+          "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+          "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+          "role": "assistant",
+          "content": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "session-bound-pdf-answer",
+        "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+          "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+          "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+          "template_id": "template.pdf.document_analysis",
+          "terminal_reason": "completed",
+          "final_content_chars": 42,
+          "task_result": {
+            "result_id": "taskresult:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+            "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+            "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+            "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+            "template_id": "template.pdf.document_analysis",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "requested_outputs": [
+              "final_answer",
+              "task_summary_refs"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+              "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+              "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked"
+            ],
+            "output_refs": [
+              "result:pdf_answer:58d0d190be864fd1"
+            ],
+            "step_runs": [
+              {
+                "step_id": "step.inspect_pdf",
+                "title": "分析 PDF",
+                "step_kind": "analyze",
+                "executor_type": "tool",
+                "status": "completed",
+                "required_operations": [
+                  "op.pdf_analysis"
+                ],
+                "optional_operations": [],
+                "input_refs": [
+                  "input.path",
+                  "input.query"
+                ],
+                "output_contract_id": "PdfAnalysisResult",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [
+                  "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+                  "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+                  "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+                  "result:pdf_answer:58d0d190be864fd1"
+                ],
+                "entered_at": 1777851861.5192049,
+                "completed_at": 1777851861.6502023,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+                "executor_ref": "",
+                "diagnostics": {
+                  "transition_reason": "terminal_finalize"
+                },
+                "authority": "task_system.task_step_run"
+              },
+              {
+                "step_id": "step.finalize_pdf",
+                "title": "整理 PDF 结果",
+                "step_kind": "finalize",
+                "executor_type": "model",
+                "status": "completed",
+                "required_operations": [
+                  "op.model_response"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "GroundedAnswer",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [
+                  "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+                  "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+                  "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+                  "result:pdf_answer:58d0d190be864fd1"
+                ],
+                "entered_at": 1777851861.6502023,
+                "completed_at": 1777851861.6502023,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+                "executor_ref": "",
+                "diagnostics": {
+                  "transition_reason": "terminal_finalize"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+              "main_context": {
+                "active_goal": "把这份 PDF 的结论压成三条行动建议。",
+                "active_work_item": "pdf",
+                "active_binding_identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
+                "active_object_handle_id": "source:pdf:8e896ca9f7b96d9e",
+                "active_result_handle_id": "result:pdf_answer:58d0d190be864fd1",
+                "active_subset_handle_id": "",
+                "followup_mode": "binding_ref",
+                "followup_resolution_source": "bound_answer_projection",
+                "followup_target_task_id": "result:pdf_answer:58d0d190be864fd1",
+                "followup_target_task_ids": [
+                  "result:pdf_answer:58d0d190be864fd1"
+                ],
+                "followup_binding_key": "active_pdf",
+                "followup_binding_identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
+                "active_constraints": {
+                  "active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                  "active_pdf_mode": "document",
+                  "source_kind": "pdf"
+                }
+              },
+              "task_summary_refs": [
+                {
+                  "task_id": "result:pdf_answer:58d0d190be864fd1",
+                  "query": "把这份 PDF 的结论压成三条行动建议。",
+                  "summary": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+                  "task_kind": "pdf",
+                  "key_points": [
+                    "pdf=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                    "pdf_mode=document",
+                    "artifact=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf#analysis"
+                  ],
+                  "source": "bound_answer_projection"
+                }
+              ],
+              "bundle_summary_refs": [],
+              "answer_metadata": {
+                "answer_channel": "answer_candidate",
+                "answer_source": "runtime_directive:model_response",
+                "answer_canonical_state": "stable_answer",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": ""
+              }
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+              "template_id": "template.pdf.document_analysis"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+              "tool_observation_count": 0,
+              "final_content_chars": 42,
+              "bundle_result_count": 0,
+              "task_summary_count": 1
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+      "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+      "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+      "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+      "template_id": "template.pdf.document_analysis",
+      "status": "completed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "final_answer",
+        "task_summary_refs"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.inspect_pdf",
+          "title": "分析 PDF",
+          "step_kind": "analyze",
+          "executor_type": "tool",
+          "status": "completed",
+          "required_operations": [
+            "op.pdf_analysis"
+          ],
+          "optional_operations": [],
+          "input_refs": [
+            "input.path",
+            "input.query"
+          ],
+          "output_contract_id": "PdfAnalysisResult",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+            "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+            "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+            "result:pdf_answer:58d0d190be864fd1"
+          ],
+          "entered_at": 1777851861.5192049,
+          "completed_at": 1777851861.6502023,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.finalize_pdf",
+          "title": "整理 PDF 结果",
+          "step_kind": "finalize",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "GroundedAnswer",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+            "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+            "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+            "result:pdf_answer:58d0d190be864fd1"
+          ],
+          "entered_at": 1777851861.6502023,
+          "completed_at": 1777851861.6502023,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+        "template_id": "template.pdf.document_analysis"
+      },
+      "diagnostics": {
+        "current_step_id": "step.finalize_pdf",
+        "terminal_reason": "completed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+      "task_run_id": "taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+      "task_id": "taskinst:turn:session-bound-pdf-answer:1:general_response",
+      "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+      "template_id": "template.pdf.document_analysis",
+      "status": "completed",
+      "terminal_reason": "completed",
+      "requested_outputs": [
+        "final_answer",
+        "task_summary_refs"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+        "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+        "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked"
+      ],
+      "output_refs": [
+        "result:pdf_answer:58d0d190be864fd1"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.inspect_pdf",
+          "title": "分析 PDF",
+          "step_kind": "analyze",
+          "executor_type": "tool",
+          "status": "completed",
+          "required_operations": [
+            "op.pdf_analysis"
+          ],
+          "optional_operations": [],
+          "input_refs": [
+            "input.path",
+            "input.query"
+          ],
+          "output_contract_id": "PdfAnalysisResult",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+            "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+            "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+            "result:pdf_answer:58d0d190be864fd1"
+          ],
+          "entered_at": 1777851861.5192049,
+          "completed_at": 1777851861.6502023,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.finalize_pdf",
+          "title": "整理 PDF 结果",
+          "step_kind": "finalize",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "GroundedAnswer",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+            "output_boundary:rtevt:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:17:5156d43d",
+            "commit_gate:commit-gate:taskinst:turn:session-bound-pdf-answer:1:general_response:runtime-blocked",
+            "result:pdf_answer:58d0d190be864fd1"
+          ],
+          "entered_at": 1777851861.6502023,
+          "completed_at": 1777851861.6502023,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c:4c437de0",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+        "main_context": {
+          "active_goal": "把这份 PDF 的结论压成三条行动建议。",
+          "active_work_item": "pdf",
+          "active_binding_identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
+          "active_object_handle_id": "source:pdf:8e896ca9f7b96d9e",
+          "active_result_handle_id": "result:pdf_answer:58d0d190be864fd1",
+          "active_subset_handle_id": "",
+          "followup_mode": "binding_ref",
+          "followup_resolution_source": "bound_answer_projection",
+          "followup_target_task_id": "result:pdf_answer:58d0d190be864fd1",
+          "followup_target_task_ids": [
+            "result:pdf_answer:58d0d190be864fd1"
+          ],
+          "followup_binding_key": "active_pdf",
+          "followup_binding_identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
+          "active_constraints": {
+            "active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+            "active_pdf_mode": "document",
+            "source_kind": "pdf"
+          }
+        },
+        "task_summary_refs": [
+          {
+            "task_id": "result:pdf_answer:58d0d190be864fd1",
+            "query": "把这份 PDF 的结论压成三条行动建议。",
+            "summary": "这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。",
+            "task_kind": "pdf",
+            "key_points": [
+              "pdf=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+              "pdf_mode=document",
+              "artifact=knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf#analysis"
+            ],
+            "source": "bound_answer_projection"
+          }
+        ],
+        "bundle_summary_refs": [],
+        "answer_metadata": {
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        }
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:session-bound-pdf-answer:1:general_response",
+        "template_id": "template.pdf.document_analysis"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:session-bound-pdf-answer:taskinst:turn:session-bound-pdf-answer:1:general_response:1d16b70c",
+        "tool_observation_count": 0,
+        "final_content_chars": 42,
+        "bundle_result_count": 0,
+        "task_summary_count": 1
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": false,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 0,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777851861.7102442,
+  "checksum": "bb0f36deeb8d9d78ebc1314a943ebffb1e2c26835a9a034ec7a020f1460be811",
+  "authority": "orchestration.runtime_checkpoint"
+}

@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app import app
-from runtime.app_runtime import app_runtime
+from bootstrap.app_runtime import app_runtime
 
 
 async def _fake_astream(_request):

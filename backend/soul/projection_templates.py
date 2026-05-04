@@ -58,7 +58,7 @@ def default_projection_templates() -> tuple[ProjectionTemplate, ...]:
                 "只读取问题证据和显式 trace refs。",
                 "只输出候选分析、用例草案或修复验证建议。",
             ),
-            metadata={"default_agent_id": "agent:health:maintainer"},
+            metadata={"default_agent_id": "agent:3"},
         ),
         ProjectionTemplate(
             template_id="primary_agent_default",
@@ -74,7 +74,7 @@ def default_projection_templates() -> tuple[ProjectionTemplate, ...]:
             posture_tags=("dispatcher", "interactive", "coordination"),
             expression_density="normal",
             attention_focus=("task_intake", "delegation", "final_answer"),
-            risk_notes=("主 Agent 可以协调任务，但不直接绕过操作系统授权。",),
+            risk_notes=("主 Agent 可以协调任务，但不直接绕过能力系统授权。",),
             guardrails=("主 Agent 负责任务识别、委派和最终整合。",),
             metadata={"default_agent_id": "agent:main"},
         ),
@@ -102,3 +102,4 @@ class ProjectionTemplateRegistry:
                 "enabled_template_count": sum(1 for item in templates if item.enabled),
             },
         }
+

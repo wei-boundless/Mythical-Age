@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from harness.regression_gate import build_profile, detect_runner
+from health_system.maintenance.harness.regression_gate import build_profile, detect_runner
 
 
 def test_regression_gate_chain_profile_covers_runtime_loop_basics() -> None:

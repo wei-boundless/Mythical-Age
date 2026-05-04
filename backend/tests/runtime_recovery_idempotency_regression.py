@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from operations.registry import OperationDescriptor
+from capability_system.operation_registry import OperationDescriptor
 from orchestration import RuntimeActionRequest
 from orchestration.runtime_loop.task_run_loop import TaskRunLoop
 

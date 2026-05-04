@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from operations import AgentRegistry, build_default_operation_registry
-from orchestration import AgentRuntimeRegistry
+from capability_system import build_default_operation_registry
+from orchestration.agent_registry import AgentRegistry
+from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 
 from .match_contracts import TaskIntentContract, TemplateMatchResult
 from .definitions import TaskDefinition

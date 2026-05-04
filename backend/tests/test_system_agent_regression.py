@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from test_system.agent import TestAgentAdvisor
+from health_system.maintenance.test_system.agent import TestAgentAdvisor
 
 
 def test_test_agent_reports_registry_and_orphan_files(tmp_path: Path) -> None:

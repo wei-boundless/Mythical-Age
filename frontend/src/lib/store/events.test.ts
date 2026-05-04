@@ -36,7 +36,7 @@ describe("store stream reducer", () => {
       transition.state,
       transition.session,
       "tool_start",
-      { tool: "read_file", input: "skills/demo/SKILL.md", output: "" }
+      { tool: "read_file", input: "capability_system/units/skills/demo/SKILL.md", output: "" }
     );
     expect(transition.state.messages[1].toolCalls).toHaveLength(0);
 

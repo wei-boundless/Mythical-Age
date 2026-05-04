@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from pdf_analysis.catalog import PdfAnalysisCatalog
+from capability_system.units.mcp.local.pdf.analysis.catalog import PdfAnalysisCatalog
 from understanding.memory_intent import MemoryIntent
 
 

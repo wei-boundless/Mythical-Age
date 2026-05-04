@@ -7,10 +7,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REGISTRY_PATH = ROOT / "tools" / "tool_registry.py"
+REGISTRY_PATH = ROOT / "capability_system" / "tool_registry.py"
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from capability_system.paths import CapabilitySystemPaths
 
 
 def load_registry_module():
@@ -24,13 +26,14 @@ def load_registry_module():
 
 
 def main() -> None:
+    capability_paths = CapabilitySystemPaths.from_base_dir(ROOT)
     registry_module = load_registry_module()
     registry_module.refresh_tool_registry(ROOT)
 
-    search_tool_source = (ROOT / "tools" / "search_knowledge_tool.py").read_text(encoding="utf-8")
+    search_tool_source = (ROOT / "capability_system" / "units" / "tools" / "search_knowledge_tool.py").read_text(encoding="utf-8")
     assert 'name: str = "search_knowledge"' in search_tool_source
 
-    payload = json.loads((ROOT / "TOOLS_REGISTRY.json").read_text(encoding="utf-8"))
+    payload = json.loads(capability_paths.tools_registry_path.read_text(encoding="utf-8"))
     assert payload["version"] == 2
     assert payload["tool_count"] >= 6
 
@@ -45,7 +48,7 @@ def main() -> None:
     assert "typical_queries" not in by_name["get_gold_price"]
 
     assert by_name["structured_data_analysis"]["safe_for_auto_route"] is True
-    assert by_name["structured_data_analysis"]["runtime_visibility"] == "main_runtime"
+    assert by_name["structured_data_analysis"]["runtime_visibility"] == "agent_internal"
     assert by_name["structured_data_analysis"]["prompt_exposure_policy"] == "schema_only"
     assert by_name["structured_data_analysis"]["resource_exposure_policy"] == "explicit_resource"
     assert "table" in by_name["structured_data_analysis"]["supported_modalities"]
@@ -63,7 +66,7 @@ def main() -> None:
 
     assert by_name["pdf_analysis"]["contract"]["owner_scope"] == "active_binding_or_explicit_path"
     assert by_name["pdf_analysis"]["contract"]["required_bindings"] == ["active_pdf"]
-    assert by_name["pdf_analysis"]["runtime_visibility"] == "main_runtime"
+    assert by_name["pdf_analysis"]["runtime_visibility"] == "agent_internal"
     assert by_name["pdf_analysis"]["prompt_exposure_policy"] == "schema_only"
 
     assert by_name["python_repl"]["safe_for_auto_route"] is False

@@ -17,8 +17,6 @@ __all__ = [
     "TaskMemoryRequestProfile",
     "TaskCommunicationProtocol",
     "ProjectionSelectionResult",
-    "ProjectionRequirement",
-    "SkillRuntimeView",
     "TaskExecutionAssembly",
     "TaskSpec",
     "TaskIntentContract",
@@ -43,7 +41,6 @@ __all__ = [
     "TaskTemplateRegistry",
     "TaskValidationRule",
     "TaskEvent",
-    "TaskPromptContract",
     "TaskRecord",
     "TaskResultRef",
     "TaskResult",
@@ -51,7 +48,6 @@ __all__ = [
     "TaskRunLedger",
     "TaskStepRun",
     "build_task_execution_assembly_bundle",
-    "build_task_runtime_contract",
 ]
 
 
@@ -131,13 +127,11 @@ def __getattr__(name: str) -> Any:
         from tasks.bindings import TaskBindingRecord
 
         return TaskBindingRecord
-    if name in {"ProjectionRequirement", "SkillRuntimeView", "TaskPromptContract"}:
-        from tasks.runtime_contracts import ProjectionRequirement, SkillRuntimeView, TaskPromptContract
+    if name in {"SkillRuntimeView"}:
+        from tasks.runtime_contracts import SkillRuntimeView
 
         mapping = {
-            "ProjectionRequirement": ProjectionRequirement,
             "SkillRuntimeView": SkillRuntimeView,
-            "TaskPromptContract": TaskPromptContract,
         }
         return mapping[name]
     if name in {"TaskBindings", "TaskConstraints", "TaskContextRef", "TaskResultRef", "TaskSummary"}:
@@ -200,8 +194,4 @@ def __getattr__(name: str) -> Any:
         from tasks.assembly_builder import build_task_execution_assembly_bundle
 
         return build_task_execution_assembly_bundle
-    if name == "build_task_runtime_contract":
-        from tasks.contract_builder import build_task_runtime_contract
-
-        return build_task_runtime_contract
     raise AttributeError(name)

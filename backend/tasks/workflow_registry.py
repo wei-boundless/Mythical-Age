@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from project_layout import ProjectLayout
 from .workflow_models import TaskWorkflowBinding
 
 
@@ -193,7 +194,7 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
 
 
 def _storage_root(base_dir: Path) -> Path:
-    return Path(base_dir) / "storage" / "tasks"
+    return ProjectLayout.from_backend_dir(base_dir).tasks_dir
 
 
 def _workflows_path(base_dir: Path) -> Path:

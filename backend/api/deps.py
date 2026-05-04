@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from runtime.app_runtime import app_runtime
+from bootstrap.app_runtime import app_runtime
 
 
 def require_runtime():

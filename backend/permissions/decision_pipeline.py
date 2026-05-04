@@ -5,8 +5,8 @@ from typing import Any
 
 from permissions.models import PermissionDecision
 from permissions.policy import mode_allows_tool, normalize_permission_mode
-from tools.contracts import ToolScope, coerce_tool_scope
-from tools.definitions import ToolDefinition
+from capability_system.tool_contracts import ToolScope, coerce_tool_scope
+from capability_system.tool_definitions import ToolDefinition
 
 
 def list_allowed_tool_names(

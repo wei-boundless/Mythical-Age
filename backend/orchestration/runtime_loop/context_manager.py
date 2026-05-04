@@ -279,6 +279,8 @@ def _prompt_source_report(
 ) -> dict[str, Any]:
     prompt_manifest = dict(getattr(stage_projection_snapshot, "prompt_manifest", {}) or {})
     soul_runtime_view = dict(getattr(stage_projection_snapshot, "soul_runtime_view", {}) or {})
+    task_body_orchestration_ref = str(getattr(stage_projection_snapshot, "task_body_orchestration_ref", "") or "")
+    runtime_spec_ref = str(getattr(stage_projection_snapshot, "runtime_spec_ref", "") or "")
     context_package = dict((context_policy_result or {}).get("package") or {})
     manifest_sections = []
     for index, section in enumerate(list(prompt_manifest.get("sections") or ())):
@@ -320,6 +322,8 @@ def _prompt_source_report(
         "runtime_system_prompt_chars": runtime_system_prompt_chars,
         "projection_ref": str(getattr(stage_projection_snapshot, "projection_ref", "") or ""),
         "prompt_manifest_ref": str(getattr(stage_projection_snapshot, "prompt_manifest_ref", "") or ""),
+        "task_body_orchestration_ref": task_body_orchestration_ref,
+        "runtime_spec_ref": runtime_spec_ref,
         "manifest_section_count": len(manifest_sections),
         "runtime_section_count": len(model_visible_runtime_sections),
         "context_selected_sections": list(context_package.get("selected_sections") or ()),
@@ -361,7 +365,7 @@ def _render_projection_block(stage_projection_snapshot: Any | None) -> str:
     header = (
         "## Runtime Stage Projection\n"
         "当前投影只约束本次任务的关注点、角色姿态和输出形态；"
-        "它叠加在当前灵魂之上，不替代身份锚点和共同契约。"
+        "它来自正式编排层，不替代身份锚点和共同契约。"
     )
     return "\n\n".join([header, *sections])
 

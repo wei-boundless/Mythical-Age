@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from project_layout import ProjectLayout
+
 
 class RetrievalV2Layout:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        self.root = base_dir / "storage" / "indexes_v2"
+        self.root = ProjectLayout.from_backend_dir(base_dir).indexes_v2_dir
 
     def ensure(self, *, collections: tuple[str, ...] = ()) -> None:
         self.root.mkdir(parents=True, exist_ok=True)

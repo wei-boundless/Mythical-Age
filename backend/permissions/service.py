@@ -5,9 +5,9 @@ from typing import Iterable
 from permissions.decision_pipeline import decide_tool_permission, list_allowed_tool_names
 from permissions.models import PermissionDecision
 from permissions.policy import PERMISSION_MODES, normalize_permission_mode
-from runtime.settings import AppSettingsService
-from tools.contracts import ToolScope
-from tools.runtime import ToolRuntime
+from bootstrap.settings import AppSettingsService
+from capability_system.tool_contracts import ToolScope
+from capability_system.tool_runtime import ToolRuntime
 
 
 class PermissionService:

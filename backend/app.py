@@ -7,20 +7,18 @@ from fastapi.responses import JSONResponse
 from api.chat import router as chat_router
 from api.agents import router as agents_router
 from api.config_api import router as config_router
-from api.experiments import router as experiments_router
 from api.files import router as files_router
 from api.health_system import router as health_system_router
 from api.health_workbench import router as health_workbench_router
 from api.memory import router as memory_router
 from api.orchestration import router as orchestration_router
-from api.operations import router as operations_router
+from api.capability_system import router as capability_system_router
 from api.sessions import router as sessions_router
 from api.souls import router as souls_router
 from api.tasks import router as tasks_router
-from api.test_system import router as test_system_router
 from api.tokens import router as tokens_router
-from bootstrap import runtime_lifespan
-from runtime.session_store import InvalidSessionId
+from bootstrap.lifespan import runtime_lifespan
+from sessions import InvalidSessionId
 from runtime_encoding import configure_process_utf8
 
 configure_process_utf8()
@@ -48,12 +46,10 @@ app.include_router(memory_router, prefix="/api", tags=["memory"])
 app.include_router(tokens_router, prefix="/api", tags=["tokens"])
 app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(tasks_router, prefix="/api", tags=["tasks"])
-app.include_router(experiments_router, prefix="/api", tags=["experiments"])
-app.include_router(test_system_router, prefix="/api", tags=["test-system"])
 app.include_router(health_system_router, prefix="/api", tags=["health-system"])
 app.include_router(health_workbench_router, prefix="/api", tags=["health-workbench"])
 app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
-app.include_router(operations_router, prefix="/api", tags=["operations"])
+app.include_router(capability_system_router, prefix="/api", tags=["capability-system"])
 app.include_router(souls_router, prefix="/api", tags=["souls"])
 
 

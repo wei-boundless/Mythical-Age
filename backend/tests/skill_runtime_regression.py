@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from skill_system import SkillRegistry
-from skill_system.policy import SkillPolicyResolver
+from capability_system.skill_policy import SkillPolicyResolver
+from capability_system.skill_registry import SkillRegistry
 from understanding.query_understanding import analyze_query_understanding
 
 
@@ -36,8 +36,8 @@ def _assert_bounded_lookup(result, query: str) -> None:
 
 
 def main() -> None:
-    scanner = _load_module(ROOT / "tools" / "skills_scanner.py", "skills_scanner_runtime_test")
-    tool_registry_module = _load_module(ROOT / "tools" / "tool_registry.py", "tool_registry_runtime_test")
+    scanner = _load_module(ROOT / "capability_system" / "skill_scanner.py", "skills_scanner_runtime_test")
+    tool_registry_module = _load_module(ROOT / "capability_system" / "tool_registry.py", "tool_registry_runtime_test")
     scanner.refresh_snapshot(ROOT)
     tool_registry_module.refresh_tool_registry(ROOT)
 

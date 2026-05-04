@@ -1,3 +1,0 @@
-{
-  "backend/tests/test_system_agent_regression.py::test_test_agent_reports_registry_and_orphan_files": true
-}

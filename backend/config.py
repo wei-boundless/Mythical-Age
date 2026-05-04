@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from project_layout import ProjectLayout
 
 LLM_PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "zhipu": {
@@ -637,6 +638,7 @@ def _resolve_mineru_api_enabled() -> bool:
 def get_settings() -> Settings:
     backend_dir = _load_env_file()
     project_root = backend_dir.parent
+    layout = ProjectLayout.from_backend_dir(backend_dir)
     runtime_llm = _runtime_llm_override()
 
     llm_provider = _normalize_provider(
@@ -680,8 +682,8 @@ def get_settings() -> Settings:
         qdrant_url=_resolve_qdrant_url(),
         qdrant_api_key=_resolve_qdrant_api_key(),
         qdrant_collection_prefix=_resolve_qdrant_collection_prefix(),
-        indexes_v2_root=backend_dir / "storage" / "indexes_v2",
-        document_cache_v2_root=backend_dir / "storage" / "document_cache_v2",
+        indexes_v2_root=layout.indexes_v2_dir,
+        document_cache_v2_root=layout.document_cache_v2_dir,
         docling_enabled=_resolve_docling_enabled(),
         docling_prefer_ocr=_resolve_docling_prefer_ocr(),
         rerank_enabled=(

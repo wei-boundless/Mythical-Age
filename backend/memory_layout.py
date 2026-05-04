@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from project_layout import ProjectLayout
+
 
 @dataclass(frozen=True, slots=True)
 class DurableMemoryLayout:
@@ -33,3 +35,8 @@ class DurableMemoryLayout:
         self.notes_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
         self.meta_dir.mkdir(parents=True, exist_ok=True)
+
+
+def durable_memory_layout_from_backend_dir(base_dir: str | Path) -> DurableMemoryLayout:
+    layout = ProjectLayout.from_backend_dir(base_dir)
+    return DurableMemoryLayout(layout.durable_memory_dir)

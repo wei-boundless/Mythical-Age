@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from operations import OperationDescriptor
+from capability_system import OperationDescriptor
 
 from .action_request import RuntimeActionRequest
 

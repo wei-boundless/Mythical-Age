@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from operations import AgentRegistry
-from orchestration import AgentRuntimeRegistry
+from orchestration.agent_registry import AgentRegistry
+from project_layout import ProjectLayout
+from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 
 from .flow_models import (
     AgentTaskCarryingProfile,
@@ -131,7 +132,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
 
 
 def _storage_root(base_dir: Path) -> Path:
-    return Path(base_dir) / "storage" / "tasks"
+    return ProjectLayout.from_backend_dir(base_dir).tasks_dir
 
 
 def _flows_path(base_dir: Path) -> Path:

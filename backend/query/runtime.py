@@ -6,7 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from execution import ModelResponseRuntimeExecutor, ToolRuntimeExecutor
+from execution.model_response import ModelResponseRuntimeExecutor
+from execution.model_runtime import ModelRuntimeError
+from execution.tool_executor import ToolRuntimeExecutor
 from observability import build_debug_trace_event, start_turn_trace
 from orchestration import (
     AgentRuntimeRegistry,
@@ -15,11 +17,11 @@ from orchestration import (
     build_base_unit_catalog,
     build_user_message_commit_decision,
 )
+from project_layout import ProjectLayout
 from prompting import build_static_prompt, build_system_prompt
 from query.models import QueryRequest
-from runtime.agent_chain import AgentRuntimeChainAssembler
-from runtime.model_runtime import ModelRuntimeError
 from understanding import analyze_memory_intent
+from orchestration import AgentRuntimeChainAssembler
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +67,13 @@ class QueryRuntime:
         self.tool_runtime_executor = ToolRuntimeExecutor(tool_runtime=tool_runtime) if tool_runtime is not None else None
         self.agent_runtime_registry = AgentRuntimeRegistry(base_dir)
         self.agent_runtime_chain = AgentRuntimeChainAssembler(
+            base_dir=base_dir,
             memory_facade=memory_facade,
             skill_registry=skill_registry,
             tool_registry=getattr(tool_runtime, "registry", None),
         )
         self.runtime_context_manager = RuntimeContextManager(self.build_static_system_prompt_for_session)
-        self.task_run_loop = TaskRunLoop(base_dir / "runtime-loop")
+        self.task_run_loop = TaskRunLoop(ProjectLayout.from_backend_dir(base_dir).runtime_state_dir)
 
         self.legacy_query_chain_removed = True
         self.legacy_runtime_components = {
@@ -122,7 +125,9 @@ class QueryRuntime:
             request.session_id,
             include_compressed_context=False,
         )
-        task_id = f"turn:{request.session_id}:{len(history_record.get('messages', [])) + 1}"
+        turn_index = len(history_record.get("messages", [])) + 1
+        turn_id = f"turn:{request.session_id}:{turn_index}"
+        task_id = f"taskinst:{turn_id}:{_task_instance_suffix(dict(request.task_selection or {}))}"
         input_commit_gate = self._commit_user_message(
             session_id=request.session_id,
             content=request.message,
@@ -146,6 +151,7 @@ class QueryRuntime:
                 }
 
                 memory_intent = analyze_memory_intent(request.message)
+                agent_runtime_profile = self.agent_runtime_registry.get_profile("agent:0")
                 async for event in self.task_run_loop.run_single_agent_stream(
                     session_id=request.session_id,
                     task_id=task_id,
@@ -156,14 +162,14 @@ class QueryRuntime:
                     model_response_executor=self.model_response_executor,
                     runtime_context_manager=self.runtime_context_manager,
                     memory_intent=memory_intent,
-                    task_selection=dict(request.task_selection or {}),
+                    task_selection={"turn_id": turn_id, **dict(request.task_selection or {})},
                     assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
                         request.session_id,
                         payload,
                     ),
                     tool_runtime_executor=self.tool_runtime_executor,
                     tool_instances=self._all_tool_instances(),
-                    agent_runtime_profile=self.agent_runtime_registry.get_profile("agent:0"),
+                    agent_runtime_profile=agent_runtime_profile,
                 ):
                     yield event
         except Exception as exc:
@@ -405,3 +411,12 @@ class QueryRuntime:
         if isinstance(exc, ModelRuntimeError):
             return str(exc)
         return "请求处理失败，运行时已按 fail-closed 策略停止。"
+
+
+def _task_instance_suffix(task_selection: dict[str, Any]) -> str:
+    selected_task_id = str(task_selection.get("selected_task_id") or "").strip()
+    if selected_task_id:
+        tail = selected_task_id.split(".")[-1].split(":")[-1].strip()
+        if tail:
+            return tail
+    return "general_response"

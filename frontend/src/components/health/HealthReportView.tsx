@@ -36,7 +36,7 @@ function statusLabel(status?: string) {
 function systemLabel(system?: string) {
   const labels: Record<string, string> = {
     task_system: "任务系统",
-    operation_system: "操作系统",
+    capability_system: "能力系统",
     memory_system: "记忆系统",
     soul_system: "灵魂系统",
     skill_system: "技能系统",

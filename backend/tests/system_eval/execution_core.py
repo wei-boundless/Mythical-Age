@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from harness.contracts import TimingSnapshot
+from health_system.maintenance.harness.contracts import TimingSnapshot
 
 
 def iso_now() -> str:

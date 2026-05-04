@@ -55,9 +55,9 @@ const railGroups = [
       },
       {
         icon: Wrench,
-        label: "操作系统",
-        description: "管理 skills、工具类型和模型可见提示",
-        view: "operations"
+        label: "能力系统",
+        description: "管理 skills、工具类型、能力端点和模型可见提示",
+        view: "capability-system"
       },
       {
         icon: Sparkles,
@@ -126,3 +126,4 @@ export function RightRail() {
     </aside>
   );
 }
+

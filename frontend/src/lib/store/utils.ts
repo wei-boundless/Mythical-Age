@@ -5,8 +5,7 @@ import type { Message, SkillSummary } from "./types";
 export const FIXED_FILES = [
   "soul/agent_core/CORE.md",
   "soul/agent_core/ACTIVE_SEED.md",
-  "durable_memory/index/MEMORY.md",
-  "SKILLS_SNAPSHOT.md"
+  "durable_memory/index/MEMORY.md"
 ];
 
 export function makeId() {
@@ -26,7 +25,7 @@ export function appendMessageContent(base: string, extra: string) {
 export function isInternalSkillRead(toolCall: ToolCall) {
   const toolName = (toolCall.tool || "").toLowerCase();
   const io = `${toolCall.input ?? ""}\n${toolCall.output ?? ""}`.toLowerCase();
-  return toolName === "read_file" && io.includes("skills/") && io.includes("/skill.md");
+  return toolName === "read_file" && io.includes("/skills/") && io.includes("/skill.md");
 }
 
 export function looksLikeSkillDocument(text: string) {

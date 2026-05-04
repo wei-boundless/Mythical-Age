@@ -227,15 +227,15 @@ const graphNodes: GraphNode[] = [
   },
   {
     id: "tooling",
-    label: "操作系统",
+    label: "能力系统",
     source: "tools/runtime.py",
     kind: "能力入口",
-    view: "operations",
+    view: "capability-system",
     icon: Cpu,
     x: 82,
     y: 11,
     cluster: [
-      { label: "工具注册", source: "TOOLS_REGISTRY.json", relation: "发现", dx: -8, dy: -9 },
+      { label: "工具注册", source: "capability_system/units/registries/TOOLS_REGISTRY.json", relation: "发现", dx: -8, dy: -9 },
       { label: "技能注册", source: "SkillRegistry", relation: "发现", dx: 8, dy: -9 },
       { label: "调用闸门", source: "ToolContractGate", relation: "约束", dx: -8, dy: 13 },
       { label: "工具桥接", source: "RuntimeToolBridge", relation: "执行", dx: 8, dy: 13 }
@@ -425,7 +425,7 @@ const graphEdges: GraphEdge[] = [
     label: "调用能力",
     route: "capability",
     bidirectional: true,
-    detail: "执行核心通过工具桥接层进入操作系统；权限服务和工具契约闸门会约束工具能否被调用。"
+    detail: "执行核心通过工具桥接层进入能力系统；权限服务和工具契约闸门会约束工具能否被调用。"
   },
   {
     id: "orchestration-evidence",
@@ -1162,7 +1162,7 @@ export function SystemFrameworkView() {
         <footer className="project-network__legend">
           <span className="legend-route legend-route--request">请求与流式链路</span>
           <span className="legend-route legend-route--context">上下文与记忆链路</span>
-          <span className="legend-route legend-route--capability">操作系统链路</span>
+          <span className="legend-route legend-route--capability">能力系统链路</span>
           <span className="legend-route legend-route--identity">身份与提示词链路</span>
           <span className="legend-route legend-route--evidence">证据与测试链路</span>
           <span className="legend-route legend-route--storage">文件与索引链路</span>
@@ -1171,3 +1171,5 @@ export function SystemFrameworkView() {
     </div>
   );
 }
+
+

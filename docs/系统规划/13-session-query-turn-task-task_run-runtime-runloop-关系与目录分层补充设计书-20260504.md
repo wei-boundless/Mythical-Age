@@ -453,6 +453,12 @@ taskrun:session:...:taskinst:...:a1b2c3d4
 - `health-system` 和 `health_system` 双目录并行
 - `runtime-loop` 既像数据目录又像系统目录
 
+当前已落实到源码的结论：
+
+- `backend/memory_system` 是记忆系统唯一正式入口
+- `backend/structured_memory` 是其内部实现层
+- 原 `backend/memory` 已被吸收并删除
+
 ## 8.2 包目录和持久化目录必须分离
 
 代码包应该是：
@@ -461,7 +467,7 @@ taskrun:session:...:taskinst:...:a1b2c3d4
 
 持久化数据目录应该是：
 
-- `backend/runtime-loop/`
+- `storage/runtime_state/`
 
 但命名上建议后续进一步区分：
 

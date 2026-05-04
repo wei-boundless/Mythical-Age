@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from test_system.case_registry import case_registry_payload, cases_for_profile, legacy_cases
-from test_system.harness_map import build_harness_map
-from test_system.harness_records import HarnessRecordBook, ManagedTestCase
-from test_system.service import TestSystemService
+from health_system.maintenance.test_system.case_registry import case_registry_payload, cases_for_profile
+from health_system.maintenance.test_system.harness_map import build_harness_map
+from health_system.maintenance.test_system.harness_records import HarnessRecordBook, ManagedTestCase
+from health_system.maintenance.test_system.service import TestSystemService
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -26,11 +26,6 @@ def test_active_registered_test_files_exist() -> None:
     for profile in ("chain", "functional", "system", "scenario"):
         for case in cases_for_profile(profile):
             assert (BACKEND_DIR / case.path).exists(), f"missing registered test file: {case.path}"
-
-
-def test_legacy_cases_have_been_removed_from_curated_registry() -> None:
-    assert legacy_cases() == []
-    assert case_registry_payload()["legacy_cases"] == []
 
 
 def test_harness_map_makes_cases_traceable_to_features_and_pass_criteria() -> None:

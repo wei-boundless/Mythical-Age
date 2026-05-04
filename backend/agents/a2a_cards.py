@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from tools.mcp_adapter import MCP_COMPATIBLE_PROTOCOL_VERSION, get_mcp_tool_view
+from capability_system.mcp_adapter import MCP_COMPATIBLE_PROTOCOL_VERSION, get_mcp_tool_view
 
 
 A2A_COMPATIBLE_PROTOCOL_VERSION = "a2a-compatible.v1"

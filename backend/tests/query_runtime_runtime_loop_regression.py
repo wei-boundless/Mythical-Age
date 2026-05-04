@@ -18,7 +18,8 @@ from orchestration.runtime_loop.task_run_loop import _direct_tool_answer_from_ob
 from orchestration.runtime_loop.observation_aggregator import ObservationAggregator
 from context_management.projection import projection_from_file_work
 from orchestration.runtime_loop.tool_adoption import build_tool_request_runtime_adoption
-from operations import ResourceDecision, ResourcePolicy, OperationGatePipelineContext, build_default_operation_registry
+from orchestration import ResourceDecision, ResourcePolicy, OperationGatePipelineContext
+from capability_system import build_default_operation_registry
 
 
 class _SettingsStub:
@@ -74,7 +75,7 @@ class _ToolRuntimeStub:
 
 class _LoopToolRuntimeStub:
     def __init__(self, base_dir: Path) -> None:
-        from tools.definitions import build_tool_instances, get_tool_definition_map
+        from capability_system.tool_definitions import build_tool_instances, get_tool_definition_map
 
         self.instances = build_tool_instances(base_dir)
         self.definition_map = get_tool_definition_map()

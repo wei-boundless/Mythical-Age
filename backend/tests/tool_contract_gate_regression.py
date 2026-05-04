@@ -8,8 +8,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from tools.contracts import SkillToolScope, ToolContractGate
-from tools.runtime import ToolRuntime
+from capability_system.tool_contracts import SkillToolScope, ToolContractGate
+from capability_system.tool_runtime import ToolRuntime
 
 
 def test_pdf_contract_shadow_mode_marks_missing_owner_without_blocking() -> None:

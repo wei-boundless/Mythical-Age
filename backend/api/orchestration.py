@@ -7,8 +7,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from operations import build_default_operation_registry
-from orchestration import AgentRuntimeRegistry, ControlKernel, TaskContract, build_base_unit_catalog
+from capability_system import build_default_operation_registry
+from orchestration import (
+    AgentRuntimeRegistry,
+    ControlKernel,
+    TaskContract,
+    build_base_unit_catalog,
+)
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
 router = APIRouter()
@@ -38,6 +43,15 @@ class AgentRuntimeProfileRequest(BaseModel):
     trace_policy: str = Field(default="runtime_event_log", max_length=120)
     lifecycle_policy: str = Field(default="orchestration_managed", max_length=120)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OrchestrationPreviewRequest(BaseModel):
+    session_id: str = Field(default="session-preview")
+    turn_id: str = Field(default="turn:session-preview:1")
+    task_id: str = Field(default="taskinst:turn:session-preview:1:general_response")
+    user_goal: str = Field(..., min_length=1)
+    source: str = Field(default="orchestration_preview")
+    task_selection: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/orchestration/dry-run")
@@ -133,6 +147,58 @@ async def orchestration_agents() -> dict[str, Any]:
             "approval_policies": ["default", "read_only_first", "manual_approval_required", "deny_destructive"],
             "trace_policies": ["runtime_event_log", "full_trace", "minimal_trace"],
         },
+    }
+
+
+@router.post("/orchestration/body-preview")
+async def orchestration_body_preview(payload: OrchestrationPreviewRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    agent_profile = runtime.query_runtime.agent_runtime_registry.get_profile("agent:0")
+    chain = runtime.query_runtime.agent_runtime_chain.build_runtime(
+        session_id=payload.session_id,
+        task_id=payload.task_id,
+        turn_id=payload.turn_id,
+        message=payload.user_goal,
+        source=payload.source,
+        task_selection={"turn_id": payload.turn_id, **dict(payload.task_selection or {})},
+        agent_runtime_profile=agent_profile,
+    )
+    task_operation = dict(chain.get("task_operation") or {})
+    return {
+        "authority": "orchestration.body_preview",
+        "task_execution_assembly": dict(chain.get("task_execution_assembly") or task_operation.get("task_execution_assembly") or {}),
+        "task_body_orchestration": dict(chain.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {}),
+        "agent_body_profile": dict(task_operation.get("agent_body_profile") or {}),
+        "prompt_structure_profile": dict(task_operation.get("prompt_structure_profile") or {}),
+        "memory_scope_profile": dict(task_operation.get("memory_scope_profile") or {}),
+        "runtime_lane_profile": dict(task_operation.get("runtime_lane_profile") or {}),
+        "output_boundary_profile": dict(task_operation.get("output_boundary_profile") or {}),
+        "memory_runtime_view": dict(chain.get("memory_runtime_view") or {}),
+        "context_policy_result": dict(chain.get("context_policy_result") or {}),
+    }
+
+
+@router.post("/orchestration/runtime-spec-preview")
+async def orchestration_runtime_spec_preview(payload: OrchestrationPreviewRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    agent_profile = runtime.query_runtime.agent_runtime_registry.get_profile("agent:0")
+    chain = runtime.query_runtime.agent_runtime_chain.build_runtime(
+        session_id=payload.session_id,
+        task_id=payload.task_id,
+        turn_id=payload.turn_id,
+        message=payload.user_goal,
+        source=payload.source,
+        task_selection={"turn_id": payload.turn_id, **dict(payload.task_selection or {})},
+        agent_runtime_profile=agent_profile,
+    )
+    task_operation = dict(chain.get("task_operation") or {})
+    return {
+        "authority": "orchestration.runtime_spec_preview",
+        "task_execution_assembly": dict(chain.get("task_execution_assembly") or task_operation.get("task_execution_assembly") or {}),
+        "task_body_orchestration": dict(chain.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {}),
+        "agent_runtime_spec": dict(chain.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {}),
+        "memory_runtime_view": dict(chain.get("memory_runtime_view") or {}),
+        "context_policy_result": dict(chain.get("context_policy_result") or {}),
     }
 
 

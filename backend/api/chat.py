@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from query import QueryRequest
-from runtime.session_store import validate_session_id
+from sessions import validate_session_id
 
 router = APIRouter()
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from memory.facade import MemoryFacade
-from memory_system import MemoryRuntimeView
+from memory_system import MemoryFacade, MemoryRuntimeView
 from memory_system.contracts import MemoryContextCandidate
 from context_policy import build_context_package_result
 from structured_memory import MemoryNote

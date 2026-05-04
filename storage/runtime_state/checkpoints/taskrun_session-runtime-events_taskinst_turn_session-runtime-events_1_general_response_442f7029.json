@@ -1,0 +1,870 @@
+{
+  "checkpoint_id": "rtchk:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:26",
+  "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+  "event_offset": 26,
+  "loop_state": {
+    "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 2,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.rag.knowledge_answer",
+    "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+    "task_result_ref": "taskresult:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:session-runtime-events:1:general_response:ab7fb26ffb93",
+    "memory_state_ref": "",
+    "projection_ref": "f7b1d7e9fb4efcf5",
+    "prompt_manifest_ref": "manifest-f7b1d7e9fb4efcf5",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {},
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+      "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+      "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked",
+      "taskrun-ledger:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+      "taskresult:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+      "commit_gate:commit-gate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "session-runtime-events",
+            "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+            "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+            "role": "assistant",
+            "content": "single-agent runtime directive answer",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "session-runtime-events",
+          "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+            "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+            "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+            "template_id": "template.rag.knowledge_answer",
+            "terminal_reason": "completed",
+            "final_content_chars": 37,
+            "task_result": {
+              "result_id": "taskresult:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+              "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+              "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+              "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+              "template_id": "template.rag.knowledge_answer",
+              "status": "completed",
+              "terminal_reason": "completed",
+              "requested_outputs": [
+                "final_answer",
+                "citations"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+                "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+                "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+              ],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.retrieve",
+                  "title": "检索知识",
+                  "step_kind": "analyze",
+                  "executor_type": "tool",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.search_knowledge"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "KnowledgeEvidence",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [
+                    "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+                    "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+                    "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+                  ],
+                  "entered_at": 1777859217.8734457,
+                  "completed_at": 1777859217.9982147,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+                  "executor_ref": "",
+                  "diagnostics": {
+                    "transition_reason": "terminal_finalize"
+                  },
+                  "authority": "task_system.task_step_run"
+                },
+                {
+                  "step_id": "step.answer",
+                  "title": "基于证据回答",
+                  "step_kind": "finalize",
+                  "executor_type": "model",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.model_response"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "GroundedAnswer",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [
+                    "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+                    "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+                    "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+                  ],
+                  "entered_at": 1777859217.9982147,
+                  "completed_at": 1777859217.9982147,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+                  "executor_ref": "",
+                  "diagnostics": {
+                    "transition_reason": "terminal_finalize"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "single-agent runtime directive answer",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {
+                  "answer_channel": "answer_candidate",
+                  "answer_source": "runtime_directive:model_response",
+                  "answer_canonical_state": "stable_answer",
+                  "answer_persist_policy": "persist_canonical",
+                  "answer_finalization_policy": "none",
+                  "answer_fallback_reason": ""
+                }
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+                "template_id": "template.rag.knowledge_answer"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+                "tool_observation_count": 0,
+                "final_content_chars": 37,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+        "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+        "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+        "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+        "template_id": "template.rag.knowledge_answer",
+        "status": "completed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "final_answer",
+          "citations"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.retrieve",
+            "title": "检索知识",
+            "step_kind": "analyze",
+            "executor_type": "tool",
+            "status": "completed",
+            "required_operations": [
+              "op.search_knowledge"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "KnowledgeEvidence",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+              "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+              "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+            ],
+            "entered_at": 1777859217.8734457,
+            "completed_at": 1777859217.9982147,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.answer",
+            "title": "基于证据回答",
+            "step_kind": "finalize",
+            "executor_type": "model",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "GroundedAnswer",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+              "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+              "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+            ],
+            "entered_at": 1777859217.9982147,
+            "completed_at": 1777859217.9982147,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:session-runtime-events:1:general_response",
+          "template_id": "template.rag.knowledge_answer"
+        },
+        "diagnostics": {
+          "current_step_id": "step.answer",
+          "terminal_reason": "completed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+        "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+        "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+        "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+        "template_id": "template.rag.knowledge_answer",
+        "status": "completed",
+        "terminal_reason": "completed",
+        "requested_outputs": [
+          "final_answer",
+          "citations"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+          "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+          "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+        ],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.retrieve",
+            "title": "检索知识",
+            "step_kind": "analyze",
+            "executor_type": "tool",
+            "status": "completed",
+            "required_operations": [
+              "op.search_knowledge"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "KnowledgeEvidence",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+              "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+              "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+            ],
+            "entered_at": 1777859217.8734457,
+            "completed_at": 1777859217.9982147,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          },
+          {
+            "step_id": "step.answer",
+            "title": "基于证据回答",
+            "step_kind": "finalize",
+            "executor_type": "model",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "GroundedAnswer",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+              "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+              "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+            ],
+            "entered_at": 1777859217.9982147,
+            "completed_at": 1777859217.9982147,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "single-agent runtime directive answer",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          }
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+          "template_id": "template.rag.knowledge_answer"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+          "tool_observation_count": 0,
+          "final_content_chars": 37,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": false,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 0,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:session-runtime-events:1:general_response",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:session-runtime-events:1:general_response",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:session-runtime-events:1:general_response",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.rag.knowledge_answer",
+      "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+      "final_content_chars": 37,
+      "last_step_transition": "terminal_projection",
+      "result_ref_count": 7
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:session-runtime-events:1:general_response:ab7fb26ffb93",
+  "prompt_manifest_ref": "manifest-f7b1d7e9fb4efcf5",
+  "execution_refs": [],
+  "execution_state_ref": "",
+  "execution_summary": {
+    "execution_count": 0,
+    "completed_count": 0,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [],
+    "latest_execution_id": ""
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "session-runtime-events",
+          "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+          "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+          "role": "assistant",
+          "content": "single-agent runtime directive answer",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "session-runtime-events",
+        "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+          "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+          "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+          "template_id": "template.rag.knowledge_answer",
+          "terminal_reason": "completed",
+          "final_content_chars": 37,
+          "task_result": {
+            "result_id": "taskresult:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+            "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+            "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+            "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+            "template_id": "template.rag.knowledge_answer",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "requested_outputs": [
+              "final_answer",
+              "citations"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+              "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+              "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+            ],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.retrieve",
+                "title": "检索知识",
+                "step_kind": "analyze",
+                "executor_type": "tool",
+                "status": "completed",
+                "required_operations": [
+                  "op.search_knowledge"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "KnowledgeEvidence",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [
+                  "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+                  "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+                  "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+                ],
+                "entered_at": 1777859217.8734457,
+                "completed_at": 1777859217.9982147,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+                "executor_ref": "",
+                "diagnostics": {
+                  "transition_reason": "terminal_finalize"
+                },
+                "authority": "task_system.task_step_run"
+              },
+              {
+                "step_id": "step.answer",
+                "title": "基于证据回答",
+                "step_kind": "finalize",
+                "executor_type": "model",
+                "status": "completed",
+                "required_operations": [
+                  "op.model_response"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "GroundedAnswer",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [
+                  "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+                  "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+                  "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+                ],
+                "entered_at": 1777859217.9982147,
+                "completed_at": 1777859217.9982147,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+                "executor_ref": "",
+                "diagnostics": {
+                  "transition_reason": "terminal_finalize"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "single-agent runtime directive answer",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {
+                "answer_channel": "answer_candidate",
+                "answer_source": "runtime_directive:model_response",
+                "answer_canonical_state": "stable_answer",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": ""
+              }
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+              "template_id": "template.rag.knowledge_answer"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+              "tool_observation_count": 0,
+              "final_content_chars": 37,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+      "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+      "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+      "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+      "template_id": "template.rag.knowledge_answer",
+      "status": "completed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "final_answer",
+        "citations"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.retrieve",
+          "title": "检索知识",
+          "step_kind": "analyze",
+          "executor_type": "tool",
+          "status": "completed",
+          "required_operations": [
+            "op.search_knowledge"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "KnowledgeEvidence",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+            "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+            "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+          ],
+          "entered_at": 1777859217.8734457,
+          "completed_at": 1777859217.9982147,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.answer",
+          "title": "基于证据回答",
+          "step_kind": "finalize",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "GroundedAnswer",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+            "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+            "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+          ],
+          "entered_at": 1777859217.9982147,
+          "completed_at": 1777859217.9982147,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:session-runtime-events:1:general_response",
+        "template_id": "template.rag.knowledge_answer"
+      },
+      "diagnostics": {
+        "current_step_id": "step.answer",
+        "terminal_reason": "completed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+      "task_run_id": "taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+      "task_id": "taskinst:turn:session-runtime-events:1:general_response",
+      "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+      "template_id": "template.rag.knowledge_answer",
+      "status": "completed",
+      "terminal_reason": "completed",
+      "requested_outputs": [
+        "final_answer",
+        "citations"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+        "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+        "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+      ],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.retrieve",
+          "title": "检索知识",
+          "step_kind": "analyze",
+          "executor_type": "tool",
+          "status": "completed",
+          "required_operations": [
+            "op.search_knowledge"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "KnowledgeEvidence",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+            "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+            "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+          ],
+          "entered_at": 1777859217.8734457,
+          "completed_at": 1777859217.9982147,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "step.answer",
+          "title": "基于证据回答",
+          "step_kind": "finalize",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "GroundedAnswer",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+            "output_boundary:rtevt:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:17:f730f68e",
+            "commit_gate:commit-gate:taskinst:turn:session-runtime-events:1:general_response:runtime-blocked"
+          ],
+          "entered_at": 1777859217.9982147,
+          "completed_at": 1777859217.9982147,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029:4a05fe06",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "single-agent runtime directive answer",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        }
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:session-runtime-events:1:general_response",
+        "template_id": "template.rag.knowledge_answer"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:session-runtime-events:taskinst:turn:session-runtime-events:1:general_response:442f7029",
+        "tool_observation_count": 0,
+        "final_content_chars": 37,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": false,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 0,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777859218.0590546,
+  "checksum": "9c0f3dfe2cf384e67a982c1f2dea5d8c73eec357489a66b0030845cb5dea99d5",
+  "authority": "orchestration.runtime_checkpoint"
+}

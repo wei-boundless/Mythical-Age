@@ -4,8 +4,8 @@ from typing import Any, Callable
 
 from output_boundary.boundary import sanitize_visible_assistant_content
 from output_boundary.models import ToolResultEnvelope
-from runtime.model_runtime import stringify_content
-from tools.definitions import get_tool_definition_map
+from execution.model_runtime import stringify_content
+from capability_system.tool_definitions import get_tool_definition_map
 
 
 VISIBLE_TEXT_KEYS = ("answer", "summary", "result", "output", "text", "content")

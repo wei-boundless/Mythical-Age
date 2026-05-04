@@ -5,11 +5,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from project_layout import ProjectLayout
+
 
 class ModalityArtifactStore:
     def __init__(self, root_dir: Path) -> None:
         self.root_dir = root_dir.resolve()
-        self.base_dir = self.root_dir / "storage" / "modality_artifacts"
+        self.base_dir = ProjectLayout.from_backend_dir(self.root_dir).modality_artifacts_dir
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def load_json(self, modality: str, relative_source: str, kind: str) -> dict[str, Any] | None:

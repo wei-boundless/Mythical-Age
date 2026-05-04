@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from structured_memory.session_memory import SessionMemoryManager
 from structured_memory.text_utils import normalize_storage_text
 
 from .contracts import ConversationMemorySnapshot, MemoryContextCandidate, MemoryWriteCandidate
+from .legacy_types import SessionMemoryManager
 
 
 CONVERSATION_SECTION_HEADERS: tuple[str, ...] = (

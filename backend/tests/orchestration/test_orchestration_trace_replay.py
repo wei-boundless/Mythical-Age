@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from experiments.orchestration_trace import build_turn_orchestration_snapshot
+from health_system.maintenance.experiments.orchestration_trace import build_turn_orchestration_snapshot
 
 
 def test_turn_replay_marks_orchestration_diff_mismatch(tmp_path: Path) -> None:

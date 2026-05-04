@@ -4,7 +4,7 @@ import asyncio
 
 from health_system import HealthRegistry
 from orchestration import AgentRuntimeRegistry
-from operations import AgentRegistry
+from orchestration import AgentRegistry
 from tasks import TaskFlowRegistry
 
 
@@ -58,7 +58,7 @@ def test_health_command_admission_rejects_blocked_operation(tmp_path) -> None:
                 "command_id": "health-command:test-blocked-operation",
                 "command_type": "analyze_trace",
                 "initiator_type": "agent",
-                "initiator_ref": "agent:health:maintainer",
+                "initiator_ref": "agent:3",
                 "target_scope": "health_issue",
                 "target_ref": "health:issue:sample-task-system-chain",
                 "task_mode": "issue_triage",
@@ -70,12 +70,16 @@ def test_health_command_admission_rejects_blocked_operation(tmp_path) -> None:
     assert response["receipt"]["accepted"] is False
     assert response["receipt"]["status"] == "rejected"
     assert "operation_blocked:op.write_file" in response["receipt"]["blocked_reasons"]
+    admission = dict(response["receipt"]["diagnostics"]["admission"])
+    assert admission["task_execution_assembly_ref"].startswith("taskasm:")
+    assert admission["task_body_orchestration_ref"].startswith("orchestration:")
+    assert admission["runtime_spec_ref"].startswith("rtspec:")
 
 
 def test_task_system_exposes_generic_agent_task_connection_profile(tmp_path) -> None:
     overview = TaskFlowRegistry(tmp_path).build_agent_task_connection_overview(task_family="health")
     profiles = overview["profiles"]
-    health_profile = next(item for item in profiles if item["agent_id"] == "agent:health:maintainer")
+    health_profile = next(item for item in profiles if item["agent_id"] == "agent:3")
 
     assert overview["authority"] == "task_system.agent_task_connections"
     assert health_profile["owner_system"] == "health_system"
@@ -99,6 +103,9 @@ def test_health_agent_run_preview_does_not_expose_projection_instance(tmp_path) 
 
     assert preview["status"] == "ready"
     assert "projection_instance" not in preview
+    assert preview["task_execution_assembly"]["authority"] == "task_system.task_execution_assembly"
+    assert preview["task_body_orchestration"]["authority"] == "orchestration.task_body_orchestration"
+    assert preview["agent_runtime_spec"]["authority"] == "orchestration.agent_runtime_spec"
 
 
 def test_launch_health_test_command_records_health_test_run(tmp_path) -> None:
@@ -126,11 +133,11 @@ def test_launch_health_test_command_records_health_test_run(tmp_path) -> None:
 
 def test_default_health_management_agent_configuration_is_bound_and_guarded(tmp_path) -> None:
     agent_registry = AgentRegistry(tmp_path)
-    profile = AgentRuntimeRegistry(tmp_path).get_profile("agent:health:maintainer")
+    profile = AgentRuntimeRegistry(tmp_path).get_profile("agent:3")
     connection = next(
         item
         for item in TaskFlowRegistry(tmp_path).list_agent_task_connection_profiles()
-        if item.agent_id == "agent:health:maintainer"
+        if item.agent_id == "agent:3"
     )
 
     assert profile is not None

@@ -110,7 +110,7 @@ const ownerLabels: Record<string, string> = {
   test_system: "测试系统",
   query_runtime: "入口适配",
   task_system: "任务系统",
-  operation_system: "操作系统",
+  capability_system: "能力系统",
   memory_system: "记忆系统",
   soul_system: "灵魂系统",
   skill_system: "技能系统",
@@ -120,7 +120,7 @@ const ownerLabels: Record<string, string> = {
   runtime_loop: "运行链路",
   prompt: "提示上下文",
   memory: "记忆系统",
-  operation: "操作系统",
+  operation: "能力系统",
   soul: "灵魂系统",
 };
 
@@ -450,7 +450,7 @@ function issueProblemKind(issue: HealthIssue): ProblemKind {
   ) {
     return "test";
   }
-  if (["runtime_loop", "runtime", "orchestration_system", "task_system", "operation_system", "memory_system", "soul_system", "prompt", "context"].includes(owner)) {
+  if (["runtime_loop", "runtime", "orchestration_system", "task_system", "capability_system", "memory_system", "soul_system", "prompt", "context"].includes(owner)) {
     return "system";
   }
   return "system";

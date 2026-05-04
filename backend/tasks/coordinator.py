@@ -9,7 +9,7 @@ from typing import Any
 
 from agents import EXPLORER_AGENT, WORKER_AGENT
 from tasks.binding_models import StructuredDatasetBinding
-from structured_data.subset_selection import extract_structured_subset_selection
+from capability_system.units.mcp.local.structured_data.subset_selection import extract_structured_subset_selection
 from tasks.context_models import TaskBindings, TaskConstraints, TaskContextRef, TaskResultRef, TaskSummary
 from tasks.models import TaskRecord
 

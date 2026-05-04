@@ -598,9 +598,7 @@ export function ExperimentsView() {
   const runtimeControlEvent = [...snapshot.events].reverse().find((event) => event.event === "orchestration_runtime_control");
   const runtimeControl = runtimeControlSummary(toRecord(runtimeControlEvent?.data));
   const runtimeDiagnostics = runtimeControl.diagnostics;
-  const runtimeExecutionSpecs = Array.isArray(runtimeDiagnostics.execution_specs)
-    ? runtimeDiagnostics.execution_specs
-    : [];
+  const runtimeExecutionSpecSource = runtimeDiagnostics.execution_specs;
   const phase7Readiness = toRecord(runtimeDiagnostics.phase7_readiness);
   const phase7Decommission = toRecord(phase7Readiness.legacy_decommission);
   const phase7PrincipleAlignment = toRecord(phase7Readiness.principle_alignment);
@@ -683,8 +681,8 @@ export function ExperimentsView() {
     [runtimeDiagnostics.execution_mismatches]
   );
   const runtimeExecutionEntries = useMemo(
-    () => toRuntimeExecutionEntries(runtimeExecutionSpecs),
-    [runtimeExecutionSpecs]
+    () => toRuntimeExecutionEntries(runtimeExecutionSpecSource),
+    [runtimeExecutionSpecSource]
   );
   const diffItems = useMemo(() => toDiffItems(orchestrationDiff.items), [orchestrationDiff.items]);
   const executionDiffItems = useMemo(
@@ -1877,7 +1875,7 @@ export function ExperimentsView() {
                   </button>
                 ) : null}
                 {selectedNode.id === "tool" ? (
-                  <button onClick={() => setWorkspaceView("operations")} type="button">
+                  <button onClick={() => setWorkspaceView("capability-system")} type="button">
                     <TerminalSquare size={14} />
                     查看工具管理
                   </button>
@@ -1941,3 +1939,4 @@ export function ExperimentsView() {
     </div>
   );
 }
+

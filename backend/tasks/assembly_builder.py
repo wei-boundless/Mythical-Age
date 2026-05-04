@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from operations import RuntimeApprovalContext, build_operation_requirement
+from orchestration.resource_policy_builder import RuntimeApprovalContext
+from tasks.capability_requirements import build_operation_requirement
 
 from .assembly_models import ProjectionSelectionResult, TaskExecutionAssembly
 from .assembly_support import (
@@ -31,6 +33,7 @@ from .workflow_registry import TaskWorkflowRegistry
 
 def build_task_execution_assembly_bundle(
     *,
+    base_dir: Path | None = None,
     session_id: str,
     user_goal: str,
     task_id: str = "task-runtime",
@@ -42,15 +45,16 @@ def build_task_execution_assembly_bundle(
     runtime_required_operations: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, Any]:
     _ = approval_context
+    registry_base_dir = Path(base_dir) if base_dir is not None else _registry_base_dir()
     definitions = select_runtime_task_definitions(
         user_goal,
         query_understanding=query_understanding,
     )
     current_turn_payload = dict(current_turn_context or {})
     active_skill_payload = dict(active_skill or {})
-    template_registry = TaskTemplateRegistry(_registry_base_dir())
-    flow_registry = TaskFlowRegistry(_registry_base_dir())
-    workflow_registry = TaskWorkflowRegistry(_registry_base_dir())
+    template_registry = TaskTemplateRegistry(registry_base_dir)
+    flow_registry = TaskFlowRegistry(registry_base_dir)
+    workflow_registry = TaskWorkflowRegistry(registry_base_dir)
     registered_task = _resolve_registered_task(
         flow_registry=flow_registry,
         current_turn_context=current_turn_payload,

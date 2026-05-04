@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from execution.model_runtime import stringify_content
 from orchestration import RuntimeDirective, build_blocked_runtime_commit_gate
 from output_boundary.boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
-from runtime.model_runtime import stringify_content
 
 class ModelResponseRuntimeExecutor:
     """Directive-only executor for the current single-agent runtime lane."""

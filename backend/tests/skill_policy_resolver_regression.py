@@ -7,7 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from skill_system import SkillPolicyResolver, SkillRegistry
+from capability_system.skill_policy import SkillPolicyResolver
+from capability_system.skill_registry import SkillRegistry
 from understanding.query_understanding import QueryUnderstanding
 
 

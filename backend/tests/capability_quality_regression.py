@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.pdf_analysis_tool import PdfAnalysisTool
-from tools.search_knowledge_tool import SearchKnowledgeBaseTool
-from tools.structured_data_analysis_tool import StructuredDataAnalysisTool
+from capability_system.units.tools.pdf_analysis_tool import PdfAnalysisTool
+from capability_system.units.tools.search_knowledge_tool import SearchKnowledgeBaseTool
+from capability_system.units.tools.structured_data_analysis_tool import StructuredDataAnalysisTool
 
 
 def main() -> None:

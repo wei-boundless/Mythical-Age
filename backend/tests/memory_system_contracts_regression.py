@@ -4,8 +4,7 @@ from structured_memory import MemoryNote
 from structured_memory.process_state import ContextSlots, FlowState, ProcessState, TaskState
 from structured_memory.session_memory import SessionMemoryManager
 
-from memory.facade import MemoryFacade
-from memory_system import ConversationMemoryStoreAdapter, LongTermMemoryStoreAdapter, StateMemoryStoreAdapter
+from memory_system import ConversationMemoryStoreAdapter, LongTermMemoryStoreAdapter, MemoryFacade, StateMemoryStoreAdapter
 from memory_system.contracts import (
     ConversationMemorySnapshot,
     LongTermMemoryRecord,
@@ -15,6 +14,12 @@ from memory_system.contracts import (
 )
 from memory_system.gate import MemoryGateDecision
 from memory_system.runtime_view import MemoryRuntimeView
+from memory_system.supply import (
+    MemoryBundle,
+    MemoryWritebackProposal,
+    build_memory_request,
+    build_memory_scope_policy,
+)
 
 
 def test_state_memory_restore_candidates_remain_candidate_only(tmp_path) -> None:
@@ -377,3 +382,87 @@ def test_memory_gate_preview_blocks_write_candidates(tmp_path) -> None:
     assert gate.write_candidates == candidates
     assert gate.diagnostics["write_candidate_count"] == len(candidates)
     assert facade.memory_manager.list_notes() == []
+
+
+def test_memory_request_and_scope_policy_follow_task_profile(tmp_path) -> None:
+    _ = MemoryFacade(tmp_path)
+
+    request = build_memory_request(
+        task_id="task.memory.review",
+        session_id="session-k",
+        agent_id="agent:0",
+        memory_request_profile={
+            "requested_memory_layers": ["conversation", "state", "long_term"],
+            "requested_topics": ["memory", "contracts"],
+            "memory_priority": "high",
+            "allow_long_term_memory": True,
+        },
+    )
+    policy = build_memory_scope_policy(
+        agent_id="agent:0",
+        memory_request_profile={
+            "requested_memory_layers": ["conversation", "state", "long_term"],
+            "allow_long_term_memory": True,
+        },
+    )
+
+    assert request.requested_memory_layers == ("conversation", "state", "long_term")
+    assert request.requested_topics == ("memory", "contracts")
+    assert request.allow_long_term_memory is True
+    assert policy.allowed_layers == ("conversation", "state", "long_term")
+    assert policy.allow_long_term_read is True
+
+
+def test_memory_facade_builds_formal_memory_bundle(tmp_path) -> None:
+    session_id = "session-l"
+    facade = MemoryFacade(tmp_path)
+    manager = facade.session_memory.manager(session_id)
+    manager.overwrite(
+        """# Key User Requests
+_Stable instructions or constraints from the user within this session._
+- 记忆系统要正式建模
+
+# Key Results
+_Current-turn outputs, conclusions, or artifacts that remain active._
+- 已建立正式 MemoryBundle
+"""
+    )
+
+    bundle = facade.build_memory_bundle(
+        task_id="task.memory.bundle",
+        session_id=session_id,
+        agent_id="agent:0",
+        query="请整理记忆系统正式边界",
+        memory_request_profile={
+            "requested_memory_layers": ["conversation"],
+            "requested_topics": ["memory_bundle"],
+        },
+    )
+
+    assert isinstance(bundle, MemoryBundle)
+    assert bundle.authority == "memory_system.memory_bundle"
+    assert bundle.selected_layers == ("conversation",)
+    assert bundle.context_package
+    assert bundle.runtime_view.read_only is True
+    assert bundle.diagnostics["context_policy_attached"] is True
+
+
+def test_memory_writeback_proposal_remains_candidate_only(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    write_candidates = facade.build_durable_memory_write_candidates(
+        "session-m",
+        [{"role": "user", "content": "请记住：我偏好复杂问题先讲结论。"}],
+    )
+
+    proposal = facade.build_memory_writeback_proposal(
+        session_id="session-m",
+        task_id="task.memory.writeback",
+        write_candidates=write_candidates,
+    )
+
+    assert write_candidates
+    assert isinstance(proposal, MemoryWritebackProposal)
+    assert proposal.authority == "memory_system.memory_writeback_proposal"
+    assert proposal.adopted is False
+    assert proposal.target_layers == ("long_term",)
+    assert proposal.diagnostics["candidate_only"] is True

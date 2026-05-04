@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from test_system.assertions import evaluate_turn_assertions
-from test_system.runtime_loop_probe import runtime_events_from_turn_payload, runtime_loop_summary_from_turn_payload
+from health_system.maintenance.test_system.assertions import evaluate_turn_assertions
+from health_system.maintenance.test_system.runtime_loop_probe import (
+    runtime_events_from_turn_payload,
+    runtime_loop_summary_from_turn_payload,
+)
 
 
 def _runtime_event(event_type: str, *, payload=None, payload_summary=None, offset=1):

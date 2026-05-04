@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from harness.contracts import RunContext, RunResult, ScenarioResult, TimingSnapshot
-from harness.reporter import render_markdown
+from health_system.maintenance.harness.contracts import RunContext, RunResult, ScenarioResult, TimingSnapshot
+from health_system.maintenance.harness.reporter import render_markdown
 from tests.system_eval.long_runner import TurnResult, _collect_quality_warnings, _issues_from_result
 
 

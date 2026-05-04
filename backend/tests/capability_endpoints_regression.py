@@ -7,9 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from capabilities.endpoints import build_capability_endpoints
-from operations import build_default_operation_registry
-from workers import build_worker_catalog
+from capability_system.endpoints import build_capability_endpoints
+from capability_system import build_default_operation_registry, build_worker_catalog
 
 
 def test_capability_endpoints_only_include_local_workers() -> None:

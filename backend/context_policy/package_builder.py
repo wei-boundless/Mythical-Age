@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from context_management import ContextBudget, ContextPackage
-from memory_system import MemoryRuntimeView
+from memory_system.runtime_view import MemoryRuntimeView
 from memory_system.contracts import MemoryContextCandidate
 
 from .contracts import ContextCandidateDecision, ContextPolicyResult

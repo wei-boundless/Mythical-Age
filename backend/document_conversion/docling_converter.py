@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING
 from document_conversion.models import ConversionBlock, ConversionResult, SourceFileRecord
 from document_conversion.quality import infer_quality_flags
 from document_conversion.structured_text import build_markdown_conversion_result
-from pdf_analysis.parser import PdfSegment, PdfTextParser
+from capability_system.units.mcp.local.pdf.analysis.parser import PdfSegment, PdfTextParser
 
 if TYPE_CHECKING:
-    from RAG.models import ParsedChunk
-    from RAG.parser_adapter import MultimodalParserAdapter
+    from capability_system.units.mcp.local.retrieval.models import ParsedChunk
+    from capability_system.units.mcp.local.retrieval.parser_adapter import MultimodalParserAdapter
 
 
 class DoclingConverter:
@@ -190,7 +190,7 @@ class DoclingConverter:
         if self.repo_root is None:
             return None
         if self._legacy_adapter is None:
-            from RAG.parser_adapter import MultimodalParserAdapter
+            from capability_system.units.mcp.local.retrieval.parser_adapter import MultimodalParserAdapter
 
             self._legacy_adapter = MultimodalParserAdapter(
                 repo_root=self.repo_root,

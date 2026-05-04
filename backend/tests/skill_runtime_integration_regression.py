@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from runtime.agent_chain import AgentRuntimeChainAssembler
-from skill_system import SkillRegistry
-from tools.tool_registry import ToolRegistry
+from orchestration import AgentRuntimeChainAssembler
+from capability_system.skill_registry import SkillRegistry
+from capability_system.tool_registry import ToolRegistry
 
 
 class _MemoryFacadeStub:
@@ -47,6 +47,7 @@ class _FileBindingMemoryFacadeStub(_MemoryFacadeStub):
 
 def test_agent_runtime_chain_injects_active_skill_and_runtime_operations() -> None:
     assembler = AgentRuntimeChainAssembler(
+        base_dir=ROOT,
         memory_facade=_MemoryFacadeStub(),
         skill_registry=SkillRegistry(ROOT),
         tool_registry=ToolRegistry(ROOT),
@@ -63,7 +64,7 @@ def test_agent_runtime_chain_injects_active_skill_and_runtime_operations() -> No
     active_skill = dict(task_operation.get("active_skill") or {})
     understanding = dict(task_operation.get("query_understanding") or {})
     operation_requirement = dict(task_operation.get("operation_requirement") or {})
-    task_prompt_contract = dict(task_operation.get("task_prompt_contract") or {})
+    task_body_orchestration = dict(task_operation.get("task_body_orchestration") or {})
     memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
 
     assert active_skill
@@ -71,12 +72,15 @@ def test_agent_runtime_chain_injects_active_skill_and_runtime_operations() -> No
     assert understanding["tool_name"] == "web_search"
     assert "op.web_search" in list(operation_requirement.get("required_operations") or [])
     assert memory_request_profile["requested_memory_layers"] == ["conversation"]
-    assert "OpenAI API 最新更新" in str(task_prompt_contract.get("task_section") or "")
-    assert "Workflow ID: workflow.general.main_conversation" in str(task_prompt_contract.get("workflow_section") or "")
+    sections = list(dict(task_body_orchestration.get("soul_runtime_view") or {}).get("sections") or [])
+    contents = "\n".join(str(dict(item).get("content") or "") for item in sections)
+    assert "OpenAI API 最新更新" in contents
+    assert "Workflow ID: workflow.general.main_conversation" in contents
 
 
 def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:
     assembler = AgentRuntimeChainAssembler(
+        base_dir=ROOT,
         memory_facade=_FileBindingMemoryFacadeStub(),
         skill_registry=SkillRegistry(ROOT),
         tool_registry=ToolRegistry(ROOT),

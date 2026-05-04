@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from health_system.maintenance.experiments.artifacts import read_json_file
+from orchestration import summarize_runtime_loop_events, summarize_runtime_loop_trace
+
+
+def runtime_events_from_sse_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    runtime_events: list[dict[str, Any]] = []
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("event") or "") != "runtime_loop_event":
+            continue
+        data = dict(item.get("data") or {})
+        event = dict(data.get("event") or data)
+        if not event:
+            continue
+        runtime_events.append(event)
+    return runtime_events
+
+
+def runtime_events_from_turn_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    direct = list(payload.get("runtime_loop_events") or [])
+    if direct:
+        return [dict(item) for item in direct if isinstance(item, dict)]
+    return runtime_events_from_sse_events([dict(item) for item in list(payload.get("events") or []) if isinstance(item, dict)])
+
+
+def runtime_loop_summary_from_turn_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    events = runtime_events_from_turn_payload(payload)
+    task_run_id = ""
+    for item in events:
+        task_run_id = str(item.get("task_run_id") or "")
+        if task_run_id:
+            break
+    return summarize_runtime_loop_events(events, task_run_id=task_run_id)
+
+
+def runtime_loop_summary_from_turn_artifact(path: str | Path) -> dict[str, Any]:
+    payload = read_json_file(Path(path), {})
+    if not isinstance(payload, dict):
+        return summarize_runtime_loop_trace(None)
+    return runtime_loop_summary_from_turn_payload(payload)
+
+
+def runtime_loop_events_by_type(payload: dict[str, Any], event_type: str) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in runtime_events_from_turn_payload(payload)
+        if str(item.get("event_type") or "") == event_type
+    ]
+
+
+def runtime_loop_tool_names(payload: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for item in runtime_events_by_type(payload, "tool_call_requested"):
+        summary = dict(item.get("payload_summary") or {})
+        if summary.get("tool_name"):
+            names.append(str(summary.get("tool_name")))
+            continue
+        action = dict(dict(item.get("payload") or {}).get("action_request") or {})
+        action_payload = dict(action.get("payload") or {})
+        tool_name = str(action_payload.get("tool_name") or "")
+        if tool_name:
+            names.append(tool_name)
+    return names

@@ -7,11 +7,11 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from operations import ResourcePolicy
-from operations import OperationGate, build_default_operation_registry
+from capability_system import build_default_operation_registry
+from orchestration import OperationGate, ResourcePolicy
 from orchestration.runtime_loop.task_run_loop import TaskRunLoop
-from tools.authorization import build_authorized_tool_set, build_tool_authorization_index, resolve_tool_operation_id
-from tools.definitions import build_tool_instances, get_tool_definitions
+from capability_system.tool_authorization import build_authorized_tool_set, build_tool_authorization_index, resolve_tool_operation_id
+from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 
 
 def test_all_builtin_tools_have_explicit_operation_id() -> None:

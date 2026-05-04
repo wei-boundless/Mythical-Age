@@ -22,10 +22,17 @@ if str(BACKEND_DIR) not in sys.path:
 
 from app import app
 from config import get_settings
-from harness.contracts import IssueEntry, RunContext, RunResult, ScenarioResult, TimingSnapshot, TraceSpan
-from harness.persistence import render_and_persist_run_result
+from health_system.maintenance.harness.contracts import (
+    IssueEntry,
+    RunContext,
+    RunResult,
+    ScenarioResult,
+    TimingSnapshot,
+    TraceSpan,
+)
+from health_system.maintenance.harness.persistence import render_and_persist_run_result
 from observability import current_trace_backend, is_langsmith_tracing_enabled, is_trace_capture_enabled
-from runtime.app_runtime import app_runtime
+from bootstrap.app_runtime import app_runtime
 from tests.system_eval.execution_core import collect_sse_events, extract_langsmith_trace_reference, final_text, iso_now
 from tests.system_eval.long_scenarios import LongScenario, LongScenarioTurn, SCENARIO_SETS, scenario_map
 

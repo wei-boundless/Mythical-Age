@@ -512,7 +512,7 @@ export type TaskSystemOverview = {
   };
 };
 
-export type OperationAgentCatalog = {
+export type CapabilitySystemAgentCatalog = {
   authority: string;
   agents: Array<Record<string, unknown>>;
   summary: Record<string, number>;
@@ -1151,12 +1151,46 @@ export type OperationBindingGraph = {
   recommendations: string[];
 };
 
-export type OperationCatalog = {
+export type CapabilitySystemCatalog = {
   skills: OperationSkill[];
   tools: OperationTool[];
   workers?: OperationWorker[];
   capability_endpoints?: CapabilityEndpoint[];
   operations?: OperationDescriptor[];
+  capability_supply_package?: {
+    package_id: string;
+    task_id: string;
+    agent_id: string;
+    tool_refs: Array<{
+      tool_name: string;
+      operation_id: string;
+      tool_type: string;
+      runtime_visibility: string;
+      prompt_exposure_policy: string;
+      risk_level: string;
+      source_class: string;
+    }>;
+    skill_refs: Array<{
+      skill_name: string;
+      title: string;
+      activation_policy: string;
+      context_mode: string;
+      allowed_tools: string[];
+      allowed_operations: string[];
+    }>;
+    worker_refs: Array<{
+      worker_id: string;
+      operation_id: string;
+      route: string;
+      agent_id: string;
+      transport: string;
+      model_visibility: string;
+    }>;
+    capability_constraints: Record<string, unknown>;
+    visibility_rules: Record<string, unknown>;
+    diagnostics: Record<string, unknown>;
+    authority: string;
+  };
   binding_graph: OperationBindingGraph;
   tool_type_options: string[];
   summary: {
@@ -1835,51 +1869,51 @@ export async function mergeDurableMemories(payload: {
 }
 
 export async function listExperimentProfiles() {
-  return request<ExperimentProfile[]>("/experiments/profiles");
+  return request<ExperimentProfile[]>("/health-system/maintenance/experiments/profiles");
 }
 
 export async function listExperimentRuns(limit = 20) {
-  return request<ExperimentRun[]>(`/experiments/runs?limit=${limit}`);
+  return request<ExperimentRun[]>(`/health-system/maintenance/experiments/runs?limit=${limit}`);
 }
 
 export async function startExperimentRun(profile: string) {
-  return request<ExperimentRun>("/experiments/runs", {
+  return request<ExperimentRun>("/health-system/maintenance/experiments/runs", {
     method: "POST",
     body: JSON.stringify({ profile })
   });
 }
 
 export async function getExperimentRun(runId: string) {
-  return request<ExperimentRun>(`/experiments/runs/${encodeURIComponent(runId)}`);
+  return request<ExperimentRun>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}`);
 }
 
 export async function getExperimentArtifacts(runId: string) {
-  return request<ExperimentArtifacts>(`/experiments/runs/${encodeURIComponent(runId)}/artifacts`);
+  return request<ExperimentArtifacts>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/artifacts`);
 }
 
 export async function listExperimentTurns(runId: string) {
-  return request<ExperimentTurn[]>(`/experiments/runs/${encodeURIComponent(runId)}/turns`);
+  return request<ExperimentTurn[]>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns`);
 }
 
 export async function getExperimentGraphOverlay(runId: string) {
-  return request<SystemGraphOverlay>(`/experiments/runs/${encodeURIComponent(runId)}/graph-overlay`);
+  return request<SystemGraphOverlay>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/graph-overlay`);
 }
 
 export async function getExperimentTurnGraphOverlay(runId: string, turnId: string) {
   return request<SystemGraphOverlay>(
-    `/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/graph-overlay`
+    `/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/graph-overlay`
   );
 }
 
 export async function getExperimentTurnPromptManifest(runId: string, turnId: string) {
   return request<PromptManifestResponse>(
-    `/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/prompt-manifest`
+    `/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/prompt-manifest`
   );
 }
 
 export async function getExperimentTurnMemoryTrace(runId: string, turnId: string) {
   return request<ExperimentTurnMemoryTraceResponse>(
-    `/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/memory-trace`
+    `/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/memory-trace`
   );
 }
 
@@ -1890,7 +1924,7 @@ export async function getExperimentTurnOrchestration(runId: string, turnId: stri
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return request<OrchestrationSnapshot>(
-    `/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/orchestration${suffix}`
+    `/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/orchestration${suffix}`
   );
 }
 
@@ -1940,36 +1974,36 @@ export async function updateOrchestrationAgentRuntimeProfile(
   );
 }
 
-export async function getOperationCatalog() {
-  return request<OperationCatalog>("/operations/catalog");
+export async function getCapabilitySystemCatalog() {
+  return request<CapabilitySystemCatalog>("/capability-system/catalog");
 }
 
-export async function refreshOperationCatalog() {
-  return request<OperationCatalog>("/operations/catalog/refresh", {
+export async function refreshCapabilitySystemCatalog() {
+  return request<CapabilitySystemCatalog>("/capability-system/catalog/refresh", {
     method: "POST"
   });
 }
 
-export async function createOperationSkill(payload: {
+export async function createCapabilitySystemSkill(payload: {
   name: string;
   title: string;
   description: string;
   content?: string;
 }) {
-  return request<OperationCatalog>("/operations/skills", {
+  return request<CapabilitySystemCatalog>("/capability-system/skills", {
     method: "POST",
     body: JSON.stringify(payload)
   });
 }
 
-export async function saveOperationSkill(skillName: string, content: string) {
-  return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}`, {
+export async function saveCapabilitySystemSkill(skillName: string, content: string) {
+  return request<CapabilitySystemCatalog>(`/capability-system/skills/${encodeURIComponent(skillName)}`, {
     method: "PUT",
     body: JSON.stringify({ content })
   });
 }
 
-export async function updateOperationSkillPromptView(
+export async function updateCapabilitySystemSkillPromptView(
   skillName: string,
   payload: {
     title: string;
@@ -1978,27 +2012,27 @@ export async function updateOperationSkillPromptView(
     output_rule: string;
   }
 ) {
-  return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}/prompt-view`, {
+  return request<CapabilitySystemCatalog>(`/capability-system/skills/${encodeURIComponent(skillName)}/prompt-view`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });
 }
 
-export async function deleteOperationSkill(skillName: string) {
-  return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}`, {
+export async function deleteCapabilitySystemSkill(skillName: string) {
+  return request<CapabilitySystemCatalog>(`/capability-system/skills/${encodeURIComponent(skillName)}`, {
     method: "DELETE"
   });
 }
 
-export async function updateOperationSkillTools(skillName: string, allowedTools: string[]) {
-  return request<OperationCatalog>(`/operations/skills/${encodeURIComponent(skillName)}/tools`, {
+export async function updateCapabilitySystemSkillTools(skillName: string, allowedTools: string[]) {
+  return request<CapabilitySystemCatalog>(`/capability-system/skills/${encodeURIComponent(skillName)}/tools`, {
     method: "PUT",
     body: JSON.stringify({ allowed_tools: allowedTools })
   });
 }
 
-export async function updateOperationTool(toolName: string, payload: { tool_type: string; note?: string }) {
-  return request<OperationCatalog>(`/operations/tools/${encodeURIComponent(toolName)}`, {
+export async function updateCapabilitySystemTool(toolName: string, payload: { tool_type: string; note?: string }) {
+  return request<CapabilitySystemCatalog>(`/capability-system/tools/${encodeURIComponent(toolName)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });
@@ -2070,8 +2104,8 @@ export async function getProjectionTemplates() {
   return request<ProjectionTemplateCatalog>("/soul/projection-templates");
 }
 
-export async function getOperationAgents() {
-  return request<OperationAgentCatalog>("/operations/agents");
+export async function getCapabilitySystemAgents() {
+  return request<CapabilitySystemAgentCatalog>("/capability-system/agents");
 }
 
 export async function getTaskWorkflows() {
@@ -2251,33 +2285,35 @@ export async function uploadSoulPortrait(key: string, file: File) {
 }
 
 export async function cancelExperimentRun(runId: string) {
-  return request<ExperimentRun>(`/experiments/runs/${encodeURIComponent(runId)}/cancel`, {
+  return request<ExperimentRun>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST"
   });
 }
 
 export async function listTestProfiles() {
-  return request<TestProfile[]>("/test-system/profiles");
+  return request<TestProfile[]>("/health-system/maintenance/test-system/profiles");
 }
 
 export async function getTestCases(includeLegacy = true) {
-  return request<TestCaseRegistry>(`/test-system/cases?include_legacy=${includeLegacy ? "true" : "false"}`);
+  const params = new URLSearchParams();
+  params.set("include_legacy", includeLegacy ? "true" : "false");
+  return request<TestCaseRegistry>(`/health-system/maintenance/test-system/cases?${params.toString()}`);
 }
 
 export async function getTestAgentReport() {
-  return request<TestAgentReport>("/test-system/agent/report");
+  return request<TestAgentReport>("/health-system/maintenance/test-system/agent/report");
 }
 
 export async function getHarnessMap() {
-  return request<HarnessMap>("/test-system/harness-map");
+  return request<HarnessMap>("/health-system/maintenance/test-system/harness-map");
 }
 
 export async function getTestCaseTemplates() {
-  return request<{ authority: string; templates: TestCaseTemplate[] }>("/test-system/case-templates");
+  return request<{ authority: string; templates: TestCaseTemplate[] }>("/health-system/maintenance/test-system/case-templates");
 }
 
 export async function listLongScenarios() {
-  return request<LongScenarioCatalog>("/test-system/long-scenarios");
+  return request<LongScenarioCatalog>("/health-system/maintenance/test-system/long-scenarios");
 }
 
 export async function createManagedTestCase(payload: {
@@ -2302,50 +2338,50 @@ export async function createManagedTestCase(payload: {
   tags?: string[] | string;
   source_template_id?: string;
 }) {
-  return request<HarnessMapCase>("/test-system/managed-cases", {
+  return request<HarnessMapCase>("/health-system/maintenance/test-system/managed-cases", {
     method: "POST",
     body: JSON.stringify(payload)
   });
 }
 
 export async function deleteManagedTestCase(caseId: string) {
-  return request<{ ok: boolean; case_id: string }>(`/test-system/managed-cases/${encodeURIComponent(caseId)}`, {
+  return request<{ ok: boolean; case_id: string }>(`/health-system/maintenance/test-system/managed-cases/${encodeURIComponent(caseId)}`, {
     method: "DELETE"
   });
 }
 
 export async function listTestRuns(limit = 20) {
-  return request<TestRun[]>(`/test-system/runs?limit=${limit}`);
+  return request<TestRun[]>(`/health-system/maintenance/test-system/runs?limit=${limit}`);
 }
 
 export async function startTestRun(profile: string, scenarioIds: string[] = []) {
-  return request<TestRun>("/test-system/runs", {
+  return request<TestRun>("/health-system/maintenance/test-system/runs", {
     method: "POST",
     body: JSON.stringify({ profile, scenario_ids: scenarioIds })
   });
 }
 
 export async function getTestRun(runId: string) {
-  return request<TestRun>(`/test-system/runs/${encodeURIComponent(runId)}`);
+  return request<TestRun>(`/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}`);
 }
 
 export async function cancelTestRun(runId: string) {
-  return request<TestRun>(`/test-system/runs/${encodeURIComponent(runId)}/cancel`, {
+  return request<TestRun>(`/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST"
   });
 }
 
 export async function getTestArtifacts(runId: string) {
-  return request<TestArtifacts>(`/test-system/runs/${encodeURIComponent(runId)}/artifacts`);
+  return request<TestArtifacts>(`/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/artifacts`);
 }
 
 export async function listTestTurns(runId: string) {
-  return request<TestTurn[]>(`/test-system/runs/${encodeURIComponent(runId)}/turns`);
+  return request<TestTurn[]>(`/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/turns`);
 }
 
 export async function getTestTurnRuntimeLoop(runId: string, turnId: string) {
   return request<Record<string, unknown>>(
-    `/test-system/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/runtime-loop`
+    `/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/runtime-loop`
   );
 }
 

@@ -17,13 +17,13 @@ import {
 } from "lucide-react";
 
 import {
-  getOperationCatalog,
+  getCapabilitySystemCatalog,
   getRuntimeConfigConsole,
   setContextBudgetPreset,
   setRuntimeConfigGroup,
   type ContextBudgetConfig,
   type ContextBudgetPreset,
-  type OperationCatalog,
+  type CapabilitySystemCatalog,
   type RuntimeConfigConsole,
   type RuntimeConfigField,
   type RuntimeConfigGroup
@@ -76,7 +76,7 @@ function fieldTone(field: RuntimeConfigField) {
 
 export function SystemConfigView() {
   const [consoleConfig, setConsoleConfig] = useState<RuntimeConfigConsole | null>(null);
-  const [operationCatalog, setOperationCatalog] = useState<OperationCatalog | null>(null);
+  const [capabilityCatalog, setCapabilityCatalog] = useState<CapabilitySystemCatalog | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<SystemConfigGroupId>("model");
   const [draft, setDraft] = useState<Record<string, string | number | boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -110,8 +110,8 @@ export function SystemConfigView() {
         setActiveGroupId(nextGroup.group_id as SystemConfigGroupId);
       }
       setDraft(buildDraft(nextGroup));
-      const catalog = await getOperationCatalog();
-      setOperationCatalog(catalog);
+      const catalog = await getCapabilitySystemCatalog();
+      setCapabilityCatalog(catalog);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "加载系统配置失败");
     } finally {
@@ -233,16 +233,16 @@ export function SystemConfigView() {
     return [{ title: group?.title ?? "配置项", fields }];
   }
 
-  const capabilitySummary = operationCatalog?.summary;
-  const validationIssues = operationCatalog?.validation_issues ?? [];
-  const mainVisibleTools = (operationCatalog?.tools ?? []).filter(
+  const capabilitySummary = capabilityCatalog?.summary;
+  const validationIssues = capabilityCatalog?.validation_issues ?? [];
+  const mainVisibleTools = (capabilityCatalog?.tools ?? []).filter(
     (tool) => tool.runtime_visibility === "main_runtime" && tool.prompt_exposure_policy === "schema_only"
   );
-  const internalTools = (operationCatalog?.tools ?? []).filter((tool) => tool.runtime_visibility === "agent_internal");
-  const highRiskTools = (operationCatalog?.tools ?? []).filter((tool) => ["高", "极高"].includes(tool.operation_metadata.risk_level));
+  const internalTools = (capabilityCatalog?.tools ?? []).filter((tool) => tool.runtime_visibility === "agent_internal");
+  const highRiskTools = (capabilityCatalog?.tools ?? []).filter((tool) => ["高", "极高"].includes(tool.operation_metadata.risk_level));
 
   function renderCapabilitiesPanel() {
-    if (!operationCatalog) {
+    if (!capabilityCatalog) {
       return (
         <div className="workspace-alert">
           <Loader2 className="spin" size={16} />
@@ -255,17 +255,17 @@ export function SystemConfigView() {
         <div className="system-config-capability-metrics">
           <article>
             <span>Tools</span>
-            <strong>{capabilitySummary?.tool_count ?? operationCatalog.tools.length}</strong>
+            <strong>{capabilitySummary?.tool_count ?? capabilityCatalog.tools.length}</strong>
             <em>{mainVisibleTools.length} 个可进入主模型工具面</em>
           </article>
           <article>
             <span>Endpoints</span>
-            <strong>{capabilitySummary?.capability_endpoint_count ?? operationCatalog.capability_endpoints?.length ?? 0}</strong>
+            <strong>{capabilitySummary?.capability_endpoint_count ?? capabilityCatalog.capability_endpoints?.length ?? 0}</strong>
             <em>当前为本地 worker 端点，后续可并入外部 MCP</em>
           </article>
           <article>
             <span>Operations</span>
-            <strong>{capabilitySummary?.operation_count ?? operationCatalog.operations?.length ?? 0}</strong>
+            <strong>{capabilitySummary?.operation_count ?? capabilityCatalog.operations?.length ?? 0}</strong>
             <em>ResourcePolicy 授权原子</em>
           </article>
           <article>

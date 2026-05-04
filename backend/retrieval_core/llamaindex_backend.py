@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from config import get_settings
-from RAG.models import RetrievalHit
+from capability_system.units.mcp.local.retrieval.models import RetrievalHit
 from normalized_ingestion.models import IndexableUnit
 from retrieval_core.adapters import to_retrieval_hit
 from retrieval_core.index_store import RetrievalV2Layout

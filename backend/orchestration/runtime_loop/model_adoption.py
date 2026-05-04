@@ -2,14 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from capability_system.operation_registry import OperationDescriptor, OperationRegistry
 from orchestration.agent_runtime_models import AgentRuntimeProfile
-from operations import (
-    OperationDescriptor,
-    OperationRegistry,
-    ResourceDecision,
-    ResourcePolicy,
-    RuntimeApprovalContext,
-)
+from orchestration.resource_policy import ResourceDecision, ResourcePolicy
+from orchestration.resource_policy_builder import RuntimeApprovalContext
 from ..runtime_directive import RuntimeDirective
 
 
@@ -31,6 +27,8 @@ def build_model_response_runtime_adoption(
     context = approval_context or RuntimeApprovalContext()
     task_contract = dict(task_operation.get("task_contract") or {})
     task_execution_assembly = dict(task_operation.get("task_execution_assembly") or {})
+    task_body_orchestration = dict(task_operation.get("task_body_orchestration") or {})
+    agent_runtime_spec = dict(task_operation.get("agent_runtime_spec") or {})
     task_id = str(task_contract.get("task_id") or "task-runtime")
     policy_ref = f"respol:{task_id}:model-response:runtime"
     decisions = _build_runtime_decisions(
@@ -93,13 +91,13 @@ def build_model_response_runtime_adoption(
     directive = RuntimeDirective(
         directive_id=f"runtime-directive:{task_id}:model-response",
         task_id=task_id,
-        plan_ref=f"orchplan:{task_id}:runtime",
-        stage_ref=f"orchstage:{task_id}:model",
+        plan_ref=str(task_body_orchestration.get("orchestration_id") or f"orchplan:{task_id}:runtime"),
+        stage_ref=str(agent_runtime_spec.get("projection_snapshot_ref") or f"orchstage:{task_id}:model"),
         executor_type="model",
         adopted_resource_policy_ref=policy_ref,
         operation_refs=operation_refs,
-        input_contract_ref=str(task_execution_assembly.get("input_contract_id") or task_contract.get("input_contract_id") or ""),
-        output_contract_ref=str(task_execution_assembly.get("output_contract_id") or task_contract.get("output_contract_id") or ""),
+        input_contract_ref=str(agent_runtime_spec.get("input_contract_ref") or task_execution_assembly.get("input_contract_id") or task_contract.get("input_contract_id") or ""),
+        output_contract_ref=str(agent_runtime_spec.get("output_contract_ref") or task_execution_assembly.get("output_contract_id") or task_contract.get("output_contract_id") or ""),
         execution_graph_ref=f"execgraph:{task_id}:runtime",
         runtime_executable=True,
         diagnostics={
@@ -107,6 +105,8 @@ def build_model_response_runtime_adoption(
             "legacy_query_chain_removed": True,
             "adoption_owner": "TaskRunLoop",
             "task_execution_assembly_ref": str(task_execution_assembly.get("assembly_id") or ""),
+            "task_body_orchestration_ref": str(task_body_orchestration.get("orchestration_id") or ""),
+            "agent_runtime_spec_ref": str(agent_runtime_spec.get("runtime_spec_id") or ""),
         },
     )
     return directive, resource_policy

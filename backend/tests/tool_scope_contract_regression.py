@@ -9,8 +9,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from permissions.service import PermissionService
-from tools.contracts import SkillToolScope, ToolContractGate, ToolExecutionContract, ToolScope
-from tools.runtime import ToolRuntime
+from capability_system.tool_contracts import SkillToolScope, ToolContractGate, ToolExecutionContract, ToolScope
+from capability_system.tool_runtime import ToolRuntime
 
 
 class _SettingsStub:

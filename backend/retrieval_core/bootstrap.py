@@ -7,7 +7,7 @@ from typing import Any
 from document_conversion import DocumentCacheV2Layout, DoclingConverter, discover_source_files
 from document_conversion.models import build_conversion_doc_id
 from normalized_ingestion import NormalizedDocumentBuilder, build_cleaning_manifest, build_indexable_units
-from RAG.collections import CollectionConfig
+from capability_system.units.mcp.local.retrieval.collections import CollectionConfig
 from retrieval_core.llamaindex_backend import LlamaIndexRetrievalBackend
 
 

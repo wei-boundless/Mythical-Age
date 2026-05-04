@@ -94,7 +94,7 @@
       }
     ]
   },
-  "operation_system": {
+  "capability_system": {
     "tool_overrides": {
       "python_repl": {
         "tool_type": "系统执行",

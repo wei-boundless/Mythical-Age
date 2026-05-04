@@ -3,7 +3,7 @@
 后端测试体系现在以 `test_system.case_registry` 为登记权威，按四层组织：
 
 - `chain`：验证真实主链的关键接线，例如 RuntimeLoop 事件、测试登记表、QueryRuntime adapter、任务-操作 preview。
-- `functional`：验证单个系统合同，例如操作系统、记忆系统、灵魂系统、工具注册、权限服务。
+- `functional`：验证单个系统合同，例如能力系统、记忆系统、灵魂系统、工具注册、权限服务。
 - `system`：验证跨系统装配、应用 smoke、测试产物持久化和门禁运行。
 - `scenario`：验证长场景与真实实测报告，不作为快速开发门禁。
 
@@ -20,22 +20,22 @@
 
 统一 harness 入口也支持同样的 profile：
 
-- `python -m harness.run --profile chain`
-- `python -m harness.run --profile functional`
-- `python -m harness.run --profile system`
-- `python -m harness.run --profile scenario`
+- `python -m health_system.maintenance.harness.run --profile chain`
+- `python -m health_system.maintenance.harness.run --profile functional`
+- `python -m health_system.maintenance.harness.run --profile system`
+- `python -m health_system.maintenance.harness.run --profile scenario`
 
 ## Case Governance
 
-- 活跃用例必须登记在 `backend/test_system/case_registry.py` 的 `ACTIVE_CASES`。
+- 活跃用例必须登记在 `backend/health_system/maintenance/test_system/case_registry.py` 的 `ACTIVE_CASES`。
 - 旧链路参考用例已退出用例库；需要保留的行为必须重写为 `ACTIVE_CASES` 或前端管理的候选用例。
 - 未确认是否保留的历史用例由登记表自动暴露为 `candidate`，不进入 curated gate。
 - 新增测试文件时，先决定它属于 `chain / functional / system / scenario` 哪一层，再登记 owner、profile、tags 和断言边界。
 
 测试 agent 的治理报告入口：
 
-- API：`GET /api/test-system/agent/report`
-- Python：`from test_system.agent import TestAgentAdvisor`
+- API：`GET /api/health-system/maintenance/test-system/agent/report`
+- Python：`from health_system.maintenance.test_system.agent import TestAgentAdvisor`
 
 ## RuntimeLoop Assertions
 

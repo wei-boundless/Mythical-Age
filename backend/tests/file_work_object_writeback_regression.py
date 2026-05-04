@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from memory.facade import MemoryFacade
+from memory_system import MemoryFacade
 from orchestration.runtime_loop.task_run_loop import _project_file_work_context_from_tool_observation
 from query.runtime import QueryRuntime
 

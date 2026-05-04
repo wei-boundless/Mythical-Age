@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tools.definitions import ToolDefinition
+from capability_system.tool_definitions import ToolDefinition
 
 PERMISSION_MODES = ("default", "plan", "accept_edits", "bypass")
 

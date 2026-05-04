@@ -1,0 +1,382 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from soul import SoulFacade
+
+from .agent_registry import AgentRegistry
+from .agent_runtime_models import AgentRuntimeProfile
+from .agent_runtime_registry import AgentRuntimeRegistry
+from .assembly_models import AgentRuntimeSpec, TaskBodyOrchestration
+from .body_registry import BodyProfileRegistry
+
+
+def build_orchestration_runtime_bundle(
+    *,
+    base_dir: Path,
+    session_id: str,
+    task_id: str,
+    user_goal: str,
+    task_assembly_bundle: dict[str, Any],
+    memory_runtime_view: dict[str, Any] | None = None,
+    context_policy_result: dict[str, Any] | None = None,
+    current_turn_context: dict[str, Any] | None = None,
+    active_skill: dict[str, Any] | None = None,
+    agent_runtime_profile: AgentRuntimeProfile | None = None,
+) -> dict[str, Any]:
+    base_dir = Path(base_dir)
+    task_contract = dict(task_assembly_bundle.get("task_contract") or {})
+    task_execution_assembly = dict(task_assembly_bundle.get("task_execution_assembly") or {})
+    task_spec = dict(task_assembly_bundle.get("task_spec") or {})
+    selected_template = dict(task_assembly_bundle.get("selected_template") or {})
+    projection_selection = dict(task_assembly_bundle.get("projection_selection") or {})
+    task_workflow = dict(task_assembly_bundle.get("_task_workflow_obj") or {})
+    binding = dict(task_assembly_bundle.get("binding") or {})
+    operation_requirement = dict(task_assembly_bundle.get("operation_requirement") or {})
+    memory_request_profile = dict(task_assembly_bundle.get("task_memory_request_profile") or {})
+    skill_runtime_views = [
+        dict(item)
+        for item in list(task_assembly_bundle.get("skill_runtime_views") or ())
+        if isinstance(item, dict)
+    ]
+    registered_task = dict(task_assembly_bundle.get("registered_task") or {})
+    current_turn_payload = dict(current_turn_context or task_assembly_bundle.get("current_turn_context") or {})
+    active_skill_payload = dict(active_skill or task_assembly_bundle.get("active_skill") or {})
+    memory_view = dict(memory_runtime_view or {})
+    context_policy = dict(context_policy_result or {})
+
+    agent_id = str(task_execution_assembly.get("selected_agent_id") or "agent:0").strip() or "agent:0"
+    runtime_profile = agent_runtime_profile or AgentRuntimeRegistry(base_dir).get_profile(agent_id)
+    descriptor = AgentRegistry(base_dir).get_agent(agent_id)
+    profile_registry = BodyProfileRegistry(base_dir)
+
+    body_profile = profile_registry.build_agent_body_profile(
+        agent_id=agent_id,
+        runtime_profile=runtime_profile,
+    )
+    prompt_profile = profile_registry.build_prompt_structure_profile(
+        agent_id=agent_id,
+        task_mode=str(task_execution_assembly.get("task_mode") or ""),
+        output_contract_id=str(task_execution_assembly.get("output_contract_id") or ""),
+    )
+    memory_scope_profile = profile_registry.build_memory_scope_profile(
+        agent_id=agent_id,
+        runtime_profile=runtime_profile,
+        memory_request_profile=memory_request_profile,
+    )
+    runtime_lane_profile = profile_registry.build_runtime_lane_profile(
+        agent_id=agent_id,
+        runtime_profile=runtime_profile,
+        task_mode=str(task_execution_assembly.get("task_mode") or ""),
+    )
+    output_boundary_profile = profile_registry.build_output_boundary_profile(
+        agent_id=agent_id,
+        runtime_profile=runtime_profile,
+        output_contract_id=str(task_execution_assembly.get("output_contract_id") or ""),
+    )
+
+    projection_requirement = _build_projection_requirement(
+        task_id=task_id,
+        projection_selection=projection_selection,
+        agent_descriptor=descriptor,
+        task_mode=str(task_execution_assembly.get("task_mode") or ""),
+    )
+    prompt_contract = _build_runtime_prompt_contract(
+        task_id=task_id,
+        user_goal=user_goal,
+        task_contract=task_contract,
+        task_execution_assembly=task_execution_assembly,
+        task_spec=task_spec,
+        selected_template=selected_template,
+        task_workflow=task_workflow,
+        binding=binding,
+        registered_task=registered_task,
+        skill_runtime_views=skill_runtime_views,
+        projection_requirement=projection_requirement,
+        operation_requirement=operation_requirement,
+        active_skill=active_skill_payload,
+    )
+    soul_runtime = SoulFacade(base_dir).build_runtime_view(
+        task_prompt_contract=prompt_contract,
+        projection_requirement=projection_requirement,
+        skill_views=skill_runtime_views,
+        resource_views=[],
+        soul_id=str(getattr(descriptor, "default_soul_id", "") or "runtime"),
+        agent_profile_id=str(getattr(runtime_profile, "agent_profile_id", "") or "runtime_agent"),
+    )
+    soul_runtime_view = dict(soul_runtime.get("runtime_view") or {})
+    prompt_manifest = dict(soul_runtime.get("prompt_manifest") or {})
+    projection_ref = str(soul_runtime.get("projection_id") or prompt_manifest.get("projection_id") or "")
+    prompt_manifest_ref = str(prompt_manifest.get("manifest_id") or "")
+
+    orchestration = TaskBodyOrchestration(
+        orchestration_id=f"orchestration:{task_id}",
+        task_id=task_id,
+        agent_id=agent_id,
+        task_execution_assembly_ref=str(task_execution_assembly.get("assembly_id") or ""),
+        body_profile_ref=body_profile.body_profile_id,
+        prompt_structure_profile_ref=prompt_profile.profile_id,
+        memory_scope_profile_ref=memory_scope_profile.profile_id,
+        runtime_lane_profile_ref=runtime_lane_profile.profile_id,
+        output_boundary_profile_ref=output_boundary_profile.profile_id,
+        stage_plan={
+            "stage_owner": "orchestration",
+            "section_order": list(prompt_profile.section_order),
+            "projection_policy": prompt_profile.stage_projection_policy,
+            "current_turn_ref": str(current_turn_payload.get("turn_id") or ""),
+        },
+        resource_binding_plan={
+            "operation_requirement_ref": str(operation_requirement.get("requirement_id") or ""),
+            "required_operations": list(operation_requirement.get("required_operations") or ()),
+            "optional_operations": list(operation_requirement.get("optional_operations") or ()),
+            "approval_policy": str(dict(operation_requirement.get("metadata") or {}).get("approval_policy") or "default"),
+        },
+        verification_gate_plan={
+            "task_constraints": dict(task_execution_assembly.get("task_constraints") or {}),
+            "safety_envelope": dict(task_execution_assembly.get("safety_envelope") or {}),
+        },
+        fallback_plan={
+            "runtime_executable_default": True,
+            "fallback_policy": "fail_closed",
+            "on_projection_gap": "continue_with_minimal_projection",
+        },
+        projection_requirement=projection_requirement,
+        soul_runtime_view=soul_runtime_view,
+        prompt_manifest=prompt_manifest,
+        projection_ref=projection_ref,
+        prompt_manifest_ref=prompt_manifest_ref,
+        diagnostics={
+            "builder": "orchestration.build_orchestration_runtime_bundle",
+            "projection_provider": "soul.build_soul_runtime_view",
+            "memory_view_ref": str(memory_view.get("view_id") or ""),
+            "context_policy_ref": _context_policy_ref(context_policy),
+            "runtime_lane": runtime_lane_profile.lane_id,
+            "active_skill_name": str(active_skill_payload.get("name") or ""),
+        },
+    )
+    runtime_spec = AgentRuntimeSpec(
+        runtime_spec_id=f"rtspec:{task_id}",
+        task_id=task_id,
+        session_id=session_id,
+        agent_id=agent_id,
+        task_execution_assembly_ref=str(task_execution_assembly.get("assembly_id") or ""),
+        task_body_orchestration_ref=orchestration.orchestration_id,
+        context_input_refs=tuple(
+            item
+            for item in (
+                str(memory_view.get("view_id") or ""),
+                _context_policy_ref(context_policy),
+                str(current_turn_payload.get("turn_id") or ""),
+            )
+            if item
+        ),
+        projection_snapshot_ref=f"stageproj:{task_id}",
+        resource_policy_candidate_ref=str(operation_requirement.get("requirement_id") or ""),
+        input_contract_ref=str(task_execution_assembly.get("input_contract_id") or task_contract.get("input_contract_id") or ""),
+        output_contract_ref=str(task_execution_assembly.get("output_contract_id") or task_contract.get("output_contract_id") or ""),
+        runtime_lane=runtime_lane_profile.lane_id,
+        runtime_executable=True,
+        diagnostics={
+            "builder": "orchestration.build_orchestration_runtime_bundle",
+            "body_profile_ref": body_profile.body_profile_id,
+            "prompt_structure_profile_ref": prompt_profile.profile_id,
+            "memory_scope_profile_ref": memory_scope_profile.profile_id,
+            "runtime_lane_profile_ref": runtime_lane_profile.profile_id,
+            "output_boundary_profile_ref": output_boundary_profile.profile_id,
+        },
+    )
+    return {
+        "agent_body_profile": body_profile.to_dict(),
+        "prompt_structure_profile": prompt_profile.to_dict(),
+        "memory_scope_profile": memory_scope_profile.to_dict(),
+        "runtime_lane_profile": runtime_lane_profile.to_dict(),
+        "output_boundary_profile": output_boundary_profile.to_dict(),
+        "task_body_orchestration": orchestration.to_dict(),
+        "agent_runtime_spec": runtime_spec.to_dict(),
+        "runtime_executable": True,
+    }
+
+
+def _build_projection_requirement(
+    *,
+    task_id: str,
+    projection_selection: dict[str, Any],
+    agent_descriptor: Any | None,
+    task_mode: str,
+) -> dict[str, Any]:
+    selected_projection_id = str(projection_selection.get("selected_projection_id") or "").strip()
+    default_projection_id = str(getattr(agent_descriptor, "default_projection_id", "") or "").strip()
+    default_soul_id = str(getattr(agent_descriptor, "default_soul_id", "") or "").strip()
+    selection_source = str(projection_selection.get("selection_source") or "task_binding").strip() or "task_binding"
+    reason = str(projection_selection.get("selection_reason") or "").strip() or "derived from task-side projection selection"
+    return {
+        "task_id": task_id,
+        "role_type": str(projection_selection.get("role_type") or "task_default"),
+        "posture_tags": list(projection_selection.get("posture_tags") or ("concise",)),
+        "expression_density": "normal",
+        "attention_focus": ["task_goal", "workflow", "output"],
+        "projection_id": selected_projection_id or default_projection_id,
+        "soul_id": default_soul_id,
+        "projection_title": "",
+        "projection_prompt": "",
+        "reason": reason,
+        "selection_source": selection_source,
+        "task_mode": task_mode,
+    }
+
+
+def _build_runtime_prompt_contract(
+    *,
+    task_id: str,
+    user_goal: str,
+    task_contract: dict[str, Any],
+    task_execution_assembly: dict[str, Any],
+    task_spec: dict[str, Any],
+    selected_template: dict[str, Any],
+    task_workflow: dict[str, Any],
+    binding: dict[str, Any],
+    registered_task: dict[str, Any],
+    skill_runtime_views: list[dict[str, Any]],
+    projection_requirement: dict[str, Any],
+    operation_requirement: dict[str, Any],
+    active_skill: dict[str, Any],
+) -> dict[str, Any]:
+    workflow_steps = [
+        str(item.get("title") or item.get("step_id") or "").strip()
+        for item in list(task_workflow.get("steps") or ())
+        if isinstance(item, dict) and str(item.get("title") or item.get("step_id") or "").strip()
+    ]
+    if not workflow_steps:
+        workflow_steps = [
+            str(item.get("title") or item.get("step_id") or "").strip()
+            for item in list(selected_template.get("step_blueprints") or ())
+            if isinstance(item, dict) and str(item.get("title") or item.get("step_id") or "").strip()
+        ]
+    skill_ids = [
+        str(item.get("skill_id") or "").strip()
+        for item in skill_runtime_views
+        if str(item.get("skill_id") or "").strip()
+    ]
+    if not skill_ids and active_skill:
+        skill_ids.append(str(active_skill.get("name") or "").strip())
+    return {
+        "contract_id": f"orchprompt:{task_id}",
+        "task_id": task_id,
+        "definition_id": str(binding.get("definition_id") or task_execution_assembly.get("task_family") or "runtime"),
+        "binding_id": str(binding.get("binding_id") or ""),
+        "task_section": "\n".join(
+            [
+                f"Goal: {str(task_contract.get('user_goal') or user_goal).strip()}",
+                f"Task family: {str(task_execution_assembly.get('task_family') or '').strip() or 'general'}",
+                f"Task mode: {str(task_execution_assembly.get('task_mode') or '').strip() or 'general_qa'}",
+                f"Requested outputs: {', '.join(list(task_execution_assembly.get('requested_outputs') or ()) or ['AssistantFinalAnswer'])}",
+            ]
+        ).strip(),
+        "workflow_section": _workflow_section(
+            task_workflow=task_workflow,
+            selected_template=selected_template,
+            workflow_steps=workflow_steps,
+            skill_ids=skill_ids,
+        ),
+        "resource_section": "",
+        "projection_section": _projection_section(projection_requirement),
+        "output_section": _output_section(task_execution_assembly=task_execution_assembly, task_spec=task_spec),
+        "guardrail_section": "",
+        "metadata": {
+            "agent_id": str(task_execution_assembly.get("selected_agent_id") or "agent:0"),
+            "resource_policy_ref": str(operation_requirement.get("requirement_id") or ""),
+            "registered_task_id": str(registered_task.get("task_id") or ""),
+            "selected_template_id": str(selected_template.get("template_id") or ""),
+        },
+    }
+
+
+def _workflow_section(
+    *,
+    task_workflow: dict[str, Any],
+    selected_template: dict[str, Any],
+    workflow_steps: list[str],
+    skill_ids: list[str],
+) -> str:
+    title = str(task_workflow.get("title") or selected_template.get("title") or "未命名工作流").strip()
+    workflow_id = str(task_workflow.get("workflow_id") or "").strip() or "template_runtime"
+    task_mode = str(task_workflow.get("task_mode") or selected_template.get("task_mode") or "").strip() or "runtime"
+    lines = [
+        f"Workflow: {title}",
+        f"Workflow ID: {workflow_id}",
+        f"Task mode: {task_mode}",
+    ]
+    if workflow_steps:
+        lines.append(f"Steps: {' -> '.join(workflow_steps)}")
+    if skill_ids:
+        lines.append(f"Visible skills: {', '.join(skill_ids)}")
+    stop_conditions = [str(item).strip() for item in list(task_workflow.get("stop_conditions") or ()) if str(item).strip()]
+    if stop_conditions:
+        lines.append(f"Stop conditions: {'; '.join(stop_conditions)}")
+    output_boundary = str(
+        task_workflow.get("output_boundary")
+        or task_workflow.get("output_contract_id")
+        or selected_template.get("output_schema")
+        or ""
+    ).strip()
+    if output_boundary:
+        lines.append(f"Output boundary: {output_boundary}")
+    return "\n".join(lines)
+
+
+def _projection_section(projection_requirement: dict[str, Any]) -> str:
+    posture_tags = [str(item).strip() for item in list(projection_requirement.get("posture_tags") or ()) if str(item).strip()]
+    attention_focus = [str(item).strip() for item in list(projection_requirement.get("attention_focus") or ()) if str(item).strip()]
+    lines = [
+        f"Projection role: {str(projection_requirement.get('role_type') or 'task_default')}.",
+        f"Posture tags: {', '.join(posture_tags) or 'none'}.",
+    ]
+    projection_id = str(projection_requirement.get("projection_id") or "").strip()
+    if projection_id:
+        lines.append(f"Projection ID: {projection_id}.")
+    soul_id = str(projection_requirement.get("soul_id") or "").strip()
+    if soul_id:
+        lines.append(f"Soul: {soul_id}.")
+    if attention_focus:
+        lines.append(f"Attention focus: {', '.join(attention_focus)}.")
+    reason = str(projection_requirement.get("reason") or "").strip()
+    if reason:
+        lines.append(f"Projection reason: {reason}.")
+    return "\n".join(lines)
+
+
+def _output_section(
+    *,
+    task_execution_assembly: dict[str, Any],
+    task_spec: dict[str, Any],
+) -> str:
+    requested_outputs = [str(item).strip() for item in list(task_execution_assembly.get("requested_outputs") or ()) if str(item).strip()]
+    task_mode = str(task_execution_assembly.get("task_mode") or "").strip()
+    if task_mode == "capability_execution":
+        return (
+            f"Output should satisfy task mode {task_mode}. "
+            "If required inputs are already present, execute the capability directly and return the result."
+        )
+    output_contract = str(task_execution_assembly.get("output_contract_id") or "").strip()
+    return "\n".join(
+        line
+        for line in (
+            f"Output should satisfy task mode: {task_mode or 'general_qa'}.",
+            f"Requested outputs: {', '.join(requested_outputs) if requested_outputs else 'AssistantFinalAnswer'}.",
+            f"Output contract: {output_contract}." if output_contract else "",
+            f"Deliverable summary: {str(task_spec.get('summary') or '').strip()}" if str(task_spec.get("summary") or "").strip() else "",
+        )
+        if line
+    )
+
+
+def _context_policy_ref(context_policy_result: dict[str, Any]) -> str:
+    package = dict(context_policy_result.get("package") or {})
+    return str(
+        context_policy_result.get("result_id")
+        or package.get("package_id")
+        or package.get("id")
+        or package.get("rebuild_reason")
+        or ""
+    )

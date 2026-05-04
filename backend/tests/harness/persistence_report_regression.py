@@ -7,8 +7,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from harness.contracts import RunContext, RunResult, ScenarioResult, TimingSnapshot
-from harness.persistence import render_and_persist_run_result
+from health_system.maintenance.harness.contracts import RunContext, RunResult, ScenarioResult, TimingSnapshot
+from health_system.maintenance.harness.persistence import render_and_persist_run_result
 
 
 def test_render_and_persist_run_result_includes_artifacts_in_report(tmp_path: Path) -> None:

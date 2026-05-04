@@ -94,7 +94,7 @@ const ownerLabels: Record<string, string> = {
   test_system: "测试系统",
   query_runtime: "入口适配",
   task_system: "任务系统",
-  operation_system: "操作系统",
+  capability_system: "能力系统",
   memory_system: "记忆系统",
   soul_system: "灵魂系统",
   skill_system: "技能系统",
@@ -132,7 +132,7 @@ const systems = [
   "任务系统",
   "记忆系统",
   "测试系统",
-  "操作系统",
+  "能力系统",
   "灵魂系统",
   "前端工作台",
   "模型入口"
@@ -901,7 +901,7 @@ export function TestSystemView() {
               </div>
               <textarea
                 onChange={(event) => setAnalysisPrompt(event.target.value)}
-                placeholder="例如：请分析这次 skills 调试失败是不是操作系统工具合同的问题，并生成一个功能级复现用例。"
+                placeholder="例如：请分析这次 skills 调试失败是不是能力系统工具合同的问题，并生成一个功能级复现用例。"
                 value={analysisPrompt}
               />
               <div className="test-report-actions">

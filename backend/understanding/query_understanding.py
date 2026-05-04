@@ -7,8 +7,8 @@ from understanding.memory_intent import MemoryIntent
 from understanding.task_understanding import TaskUnderstanding, analyze_task_understanding
 
 if TYPE_CHECKING:
-    from skill_system import SkillRegistry
-    from tools.tool_registry import ToolRegistry
+    from capability_system.skill_registry import SkillRegistry
+    from capability_system.tool_registry import ToolRegistry
 
 
 @dataclass(slots=True)

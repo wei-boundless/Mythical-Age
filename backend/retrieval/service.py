@@ -10,7 +10,7 @@ from config import get_settings
 from config import runtime_config
 
 if TYPE_CHECKING:
-    from RAG.router import RAGQueryRouter
+    from capability_system.units.mcp.local.retrieval.router import RAGQueryRouter
     from retrieval_core import RetrievalRequest, RetrievalV2Bootstrapper
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class RetrievalService:
     @property
     def router(self) -> Any:
         if self._router is None:
-            from RAG.router import RAGQueryRouter
+            from capability_system.units.mcp.local.retrieval.router import RAGQueryRouter
 
             self._router = RAGQueryRouter(self.base_dir)
         return self._router
@@ -135,7 +135,7 @@ class RetrievalService:
         self.rebuild_collection_v2("knowledge")
 
     def rebuild_collection_v2(self, name: str) -> dict[str, Any]:
-        from RAG.collections import build_default_collections
+        from capability_system.units.mcp.local.retrieval.collections import build_default_collections
 
         config = build_default_collections(self.base_dir).get(name)
         if config is None:
@@ -193,7 +193,7 @@ class RetrievalService:
 
     def audit_memory_sources(self) -> dict[str, Any]:
         from document_conversion import discover_source_files
-        from RAG.collections import build_default_collections
+        from capability_system.units.mcp.local.retrieval.collections import build_default_collections
 
         payload: dict[str, Any] = {}
         collections = build_default_collections(self.base_dir)

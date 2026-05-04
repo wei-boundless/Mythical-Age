@@ -4,13 +4,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from structured_memory.session_memory import SessionMemoryManager
-
 from .contracts import (
     MemoryContextCandidate,
     StateMemoryRestoreCandidate,
     StateMemorySnapshot,
 )
+from .legacy_types import SessionMemoryManager
 
 
 class StateMemoryStoreAdapter:
@@ -197,7 +196,7 @@ class StateMemoryStoreAdapter:
             preview_parts.append("当前有一个表格/数据集工作对象可继续处理。")
         for key, value in snapshot.active_handles.items():
             if value:
-                preview_parts.append("当前有一个已完成的分析结果可继续展开。")
+                preview_parts.append(f"当前有一个已完成的分析结果可继续展开：{key}={value}。")
                 break
         if snapshot.bundle_result_refs:
             preview_parts.append(f"上一轮包含 {len(snapshot.bundle_result_refs)} 个子任务结果，可按序号继续处理。")

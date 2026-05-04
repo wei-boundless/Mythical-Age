@@ -11,14 +11,14 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "goumang",
-      "default_projection_id": "goumang__primary",
+      "default_soul_id": "",
+      "default_projection_id": "",
       "task_scope": [
         "general_task",
         "final_integration"
       ],
-      "created_at": 1777781576.8679068,
-      "updated_at": 1777781576.8679068,
+      "created_at": 1777848117.7623565,
+      "updated_at": 1777848117.7623565,
       "metadata": {
         "role": "main_conversation_entry",
         "system_key": "task_system",
@@ -41,8 +41,8 @@
       "task_scope": [
         "permission_management"
       ],
-      "created_at": 1777781576.8679068,
-      "updated_at": 1777781576.8679068,
+      "created_at": 1777848117.7623565,
+      "updated_at": 1777848117.7623565,
       "metadata": {
         "role": "system_manager",
         "system_key": "permission_system",
@@ -65,8 +65,8 @@
       "task_scope": [
         "memory_management"
       ],
-      "created_at": 1777781576.8679068,
-      "updated_at": 1777781576.8679068,
+      "created_at": 1777848117.7623565,
+      "updated_at": 1777848117.7623565,
       "metadata": {
         "role": "system_manager",
         "system_key": "memory_system",
@@ -90,8 +90,8 @@
         "health_management",
         "health_issue_triage"
       ],
-      "created_at": 1777781576.8679068,
-      "updated_at": 1777781576.8679068,
+      "created_at": 1777848117.7623565,
+      "updated_at": 1777848117.7623565,
       "metadata": {
         "role": "system_manager",
         "system_key": "health_system",
@@ -115,8 +115,8 @@
         "operation_management",
         "execution_management"
       ],
-      "created_at": 1777781576.8679068,
-      "updated_at": 1777781576.8679068,
+      "created_at": 1777848117.7623565,
+      "updated_at": 1777848117.7623565,
       "metadata": {
         "role": "system_manager",
         "system_key": "operation_system",
@@ -140,8 +140,8 @@
         "soul_management",
         "projection_management"
       ],
-      "created_at": 1777781576.8679068,
-      "updated_at": 1777781576.8679068,
+      "created_at": 1777848117.7623565,
+      "updated_at": 1777848117.7623565,
       "metadata": {
         "role": "system_manager",
         "system_key": "soul_system",

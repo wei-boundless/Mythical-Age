@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from pdf_agent import PDFCanonicalResult
+from capability_system.units.mcp.local.pdf.agent import PDFCanonicalResult
 from output_boundary.models import OutputCandidate, OutputDecision
 
 
