@@ -12,7 +12,7 @@ from langchain_core.callbacks.manager import (
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from RAG.parser_adapter import MultimodalParserAdapter
+from capability_system.units.mcp.local.retrieval.parser_adapter import MultimodalParserAdapter
 
 
 class AnalyzeMultimodalFileInput(BaseModel):

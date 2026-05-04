@@ -5,11 +5,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from context_policy.runtime_models import MainContextState, TaskSummaryRef
-from .worker_models import CanonicalResult, WorkerResult
+from .mcp_models import CanonicalResult, MCPResult
 
 
 @dataclass(frozen=True, slots=True)
-class WorkerProjection:
+class MCPProjection:
     main_context: MainContextState
     task_summary_refs: list[TaskSummaryRef] = field(default_factory=list)
     candidate_refs: list[str] = field(default_factory=list)
@@ -20,15 +20,15 @@ class WorkerProjection:
     memory_policy: str = "session_context_only"
 
 
-class WorkerProjectionAdapter:
+class MCPProjectionAdapter:
     def project_done_event(
         self,
         *,
         query: str,
         canonical_result: CanonicalResult,
-        worker_result: WorkerResult | None,
+        mcp_result: MCPResult | None,
         previous_main_context: MainContextState | Any,
-    ) -> WorkerProjection:
+    ) -> MCPProjection:
         main_context = self._project_main_context(
             query=query,
             canonical_result=canonical_result,
@@ -38,18 +38,18 @@ class WorkerProjectionAdapter:
             query=query,
             canonical_result=canonical_result,
         )
-        return WorkerProjection(
+        return MCPProjection(
             main_context=main_context,
             task_summary_refs=task_summary_refs,
             candidate_refs=[
                 str(candidate.candidate_id)
-                for candidate in list(getattr(worker_result, "binding_candidates", []) or [])
+                for candidate in list(getattr(mcp_result, "binding_candidates", []) or [])
                 if str(candidate.candidate_id or "").strip()
             ],
             object_handle_ids=list(canonical_result.object_handle_ids or []),
             result_handle_ids=list(canonical_result.result_handle_ids or []),
             binding_owner_task_id=str(
-                getattr(worker_result, "binding_owner_task_id", "")
+                getattr(mcp_result, "binding_owner_task_id", "")
                 or getattr(canonical_result, "diagnostics", {}).get("binding_owner_task_id", "")
                 or ""
             ).strip(),
@@ -118,7 +118,7 @@ class WorkerProjectionAdapter:
         if result_handle_ids:
             projected.active_result_handle_id = result_handle_ids[0]
             projected.followup_mode = "task_ref"
-            synthetic_task_id = f"{canonical_result.result_kind or 'worker'}:{_slug(query)}"
+            synthetic_task_id = f"{canonical_result.result_kind or 'mcp'}:{_slug(query)}"
             projected.followup_target_task_id = projected.followup_target_task_id or synthetic_task_id
             projected.followup_target_task_ids = list(projected.followup_target_task_ids or [synthetic_task_id])
         subset_handle_id = str(dict(canonical_result.presentation_hints or {}).get("subset_handle_id", "") or "").strip()
@@ -139,7 +139,7 @@ class WorkerProjectionAdapter:
             return []
         bindings = dict(canonical_result.bindings or {})
         key_points: list[str] = []
-        task_kind = str(canonical_result.result_kind or "worker")
+        task_kind = str(canonical_result.result_kind or "mcp")
         if bindings.get("active_dataset"):
             key_points.append(f"dataset={bindings['active_dataset']}")
             task_kind = "structured_data"
@@ -159,7 +159,7 @@ class WorkerProjectionAdapter:
         key_points.extend(f"artifact={item}" for item in canonical_result.artifact_refs[:3] if str(item).strip())
         return [
             TaskSummaryRef(
-                task_id=f"{canonical_result.result_kind or 'worker'}:{_slug(query)}",
+                task_id=f"{canonical_result.result_kind or 'mcp'}:{_slug(query)}",
                 query=str(query or "").strip(),
                 summary=summary[:280],
                 task_kind=task_kind,

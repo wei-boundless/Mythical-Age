@@ -14,7 +14,7 @@ from evidence.models import (
     EvidenceItem,
     SourceObjectRef,
 )
-from .worker_models import CanonicalResult, WorkerRequest, WorkerResult
+from .mcp_models import CanonicalResult, MCPRequest, MCPResult
 
 
 class PDFWorker:
@@ -27,11 +27,11 @@ class PDFWorker:
         self.root_dir = root_dir.resolve()
         self.runtime = runtime or PDFReadAgentRuntime(root_dir=self.root_dir)
 
-    async def run(self, request: WorkerRequest) -> WorkerResult:
+    async def run(self, request: MCPRequest) -> MCPResult:
         pdf_path = self._request_pdf_path(request)
         if not pdf_path:
-            return WorkerResult(
-                worker_name="pdf",
+            return MCPResult(
+                mcp_name="pdf",
                 status="clarify",
                 canonical_result=CanonicalResult(
                     result_kind="pdf_answer",
@@ -47,8 +47,8 @@ class PDFWorker:
         try:
             file_path = self._resolve_pdf_path(pdf_path)
         except ValueError as exc:
-            return WorkerResult(
-                worker_name="pdf",
+            return MCPResult(
+                mcp_name="pdf",
                 status="error",
                 canonical_result=CanonicalResult(
                     result_kind="pdf_answer",
@@ -74,8 +74,8 @@ class PDFWorker:
             ),
             file_path=file_path,
         )
-        return WorkerResult(
-            worker_name="pdf",
+        return MCPResult(
+            mcp_name="pdf",
             status="ok" if canonical.ok else "degraded" if canonical.status == "degraded" else "error",
             evidence_envelope=self._to_evidence_envelope(
                 request=request,
@@ -104,7 +104,7 @@ class PDFWorker:
     def _to_evidence_envelope(
         self,
         *,
-        request: WorkerRequest,
+        request: MCPRequest,
         canonical: PDFCanonicalResult,
         active_pdf: str,
     ) -> EvidenceEnvelope:
@@ -177,7 +177,7 @@ class PDFWorker:
         )
         return EvidenceEnvelope(
             query=str(request.query or "").strip(),
-            source_worker="pdf",
+            source_mcp="pdf",
             evidence_items=evidence_items,
             source_objects=[source_object],
             derived_artifacts=artifacts,
@@ -191,7 +191,7 @@ class PDFWorker:
             },
         )
 
-    def _request_pdf_path(self, request: WorkerRequest) -> str:
+    def _request_pdf_path(self, request: MCPRequest) -> str:
         candidates = [
             request.bindings.get("active_pdf"),
             request.constraints.get("active_pdf"),

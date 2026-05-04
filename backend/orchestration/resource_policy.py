@@ -32,8 +32,8 @@ class ResourcePolicy:
     not_executable_operations: tuple[str, ...] = ()
     allowed_tools: tuple[str, ...] = ()
     denied_tools: tuple[str, ...] = ()
-    allowed_workers: tuple[str, ...] = ()
-    denied_workers: tuple[str, ...] = ()
+    allowed_mcps: tuple[str, ...] = ()
+    denied_mcps: tuple[str, ...] = ()
     allowed_agents: tuple[str, ...] = ()
     denied_agents: tuple[str, ...] = ()
     memory_read_scope: str = "none"

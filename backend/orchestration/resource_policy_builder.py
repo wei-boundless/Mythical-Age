@@ -26,7 +26,7 @@ DENY_BY_DEFAULT_RISK_TAGS = {
     "session_write_candidate",
     "artifact_write_candidate",
 }
-NOT_EXECUTABLE_TYPES = {"worker", "agent"}
+NOT_EXECUTABLE_TYPES = {"mcp", "agent"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,8 +103,8 @@ def build_resource_policy_candidate(
         not_executable_operations=not_executable_tuple,
         allowed_tools=allowed_tuple,
         denied_tools=denied_tuple,
-        allowed_workers=(),
-        denied_workers=tuple(op for op in denied_tuple if _operation_type(registry, op) == "worker"),
+        allowed_mcps=(),
+        denied_mcps=tuple(op for op in denied_tuple if _operation_type(registry, op) == "mcp"),
         allowed_agents=(),
         denied_agents=tuple(op for op in denied_tuple if _operation_type(registry, op) == "agent"),
         approval_policy=str(requirement.metadata.get("approval_policy") or "default"),
@@ -164,7 +164,7 @@ def _decide_operation(
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="not_executable",
-            reason="worker and agent operations are not exposed to the model as direct tools",
+            reason="mcp and agent operations are not exposed to the model as direct tools",
             risk_tags=descriptor.risk_tags,
         )
     if descriptor.requires_approval_by_default or descriptor.destructive or set(descriptor.risk_tags) & APPROVAL_RISK_TAGS:

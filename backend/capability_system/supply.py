@@ -6,13 +6,13 @@ from typing import Any
 from .operation_registry import build_default_operation_registry
 from .skill_registry import SkillRegistry
 from .tool_registry import ToolRegistry
-from .worker_registry import build_worker_catalog
+from .mcp_registry import build_mcp_catalog
 from .catalog import MAIN_AGENT_ID, build_capability_catalog
 from .models import (
+    CapabilitySupplyMCPRef,
     CapabilitySupplyPackage,
     CapabilitySupplySkillRef,
     CapabilitySupplyToolRef,
-    CapabilitySupplyWorkerRef,
 )
 from .endpoints import build_capability_endpoints
 
@@ -45,7 +45,7 @@ def build_capability_supply_package_from_base_dir(
     skill_registry = SkillRegistry(resolved_base_dir)
     tool_registry = ToolRegistry(resolved_base_dir)
     operation_registry = build_default_operation_registry()
-    workers = build_worker_catalog(operation_registry)
+    mcps = build_mcp_catalog(operation_registry)
     catalog = {
         "skills": [
             {
@@ -65,8 +65,8 @@ def build_capability_supply_package_from_base_dir(
             for skill in skill_registry.skills
         ],
         "tools": [tool.to_registry_record() for tool in tool_registry.tools],
-        "workers": workers,
-        "capability_endpoints": build_capability_endpoints(workers=workers),
+        "mcps": mcps,
+        "capability_endpoints": build_capability_endpoints(mcps=mcps),
     }
     return build_capability_supply_package_from_catalog(
         catalog,
@@ -86,15 +86,15 @@ def build_capability_supply_package_from_catalog(
     normalized_scope = _normalize_operation_scope(operation_scope)
     tools = list(catalog.get("tools") or [])
     skills = list(catalog.get("skills") or [])
-    workers = list(catalog.get("workers") or [])
+    mcps = list(catalog.get("mcps") or [])
 
     filtered_tools = [
         tool for tool in tools
         if not normalized_scope or str(tool.get("operation_id") or "").strip() in normalized_scope
     ]
-    filtered_workers = [
-        worker for worker in workers
-        if not normalized_scope or str(worker.get("operation_id") or "").strip() in normalized_scope
+    filtered_mcps = [
+        mcp for mcp in mcps
+        if not normalized_scope or str(mcp.get("operation_id") or "").strip() in normalized_scope
     ]
     filtered_skills = [
         skill for skill in skills
@@ -124,21 +124,21 @@ def build_capability_supply_package_from_catalog(
         )
         for skill in filtered_skills
     ]
-    worker_refs = [
-        CapabilitySupplyWorkerRef(
-            worker_id=str(worker.get("worker_id") or ""),
-            operation_id=str(worker.get("operation_id") or ""),
-            route=str(worker.get("route") or ""),
-            agent_id=str(worker.get("agent_id") or ""),
-            transport=str(worker.get("transport") or ""),
-            model_visibility=str(worker.get("model_visibility") or ""),
+    mcp_refs = [
+        CapabilitySupplyMCPRef(
+            mcp_id=str(mcp.get("mcp_id") or ""),
+            operation_id=str(mcp.get("operation_id") or ""),
+            route=str(mcp.get("route") or ""),
+            agent_id=str(mcp.get("agent_id") or ""),
+            transport=str(mcp.get("transport") or ""),
+            model_visibility=str(mcp.get("model_visibility") or ""),
         )
-        for worker in filtered_workers
+        for mcp in filtered_mcps
     ]
 
     available_operation_ids = sorted({
         *[ref.operation_id for ref in tool_refs if ref.operation_id],
-        *[ref.operation_id for ref in worker_refs if ref.operation_id],
+        *[ref.operation_id for ref in mcp_refs if ref.operation_id],
         *[
             operation_id
             for ref in skill_refs
@@ -156,8 +156,8 @@ def build_capability_supply_package_from_catalog(
     model_visible_skills = sorted(
         ref.skill_name for ref in skill_refs if ref.activation_policy == "model_visible"
     )
-    hidden_worker_refs = sorted(
-        ref.worker_id for ref in worker_refs if ref.model_visibility == "not_direct_model_tool"
+    hidden_mcp_refs = sorted(
+        ref.mcp_id for ref in mcp_refs if ref.model_visibility == "not_direct_model_tool"
     )
 
     return CapabilitySupplyPackage(
@@ -166,7 +166,7 @@ def build_capability_supply_package_from_catalog(
         agent_id=agent_id,
         tool_refs=tool_refs,
         skill_refs=skill_refs,
-        worker_refs=worker_refs,
+        mcp_refs=mcp_refs,
         capability_constraints={
             "operation_scope": sorted(normalized_scope),
             "available_operation_ids": available_operation_ids,
@@ -175,12 +175,12 @@ def build_capability_supply_package_from_catalog(
             "main_runtime_tools": main_runtime_tools,
             "agent_internal_tools": agent_internal_tools,
             "model_visible_skills": model_visible_skills,
-            "hidden_worker_refs": hidden_worker_refs,
+            "hidden_mcp_refs": hidden_mcp_refs,
         },
         diagnostics={
             "tool_count": len(tool_refs),
             "skill_count": len(skill_refs),
-            "worker_count": len(worker_refs),
+            "mcp_count": len(mcp_refs),
             "filtered": bool(normalized_scope),
         },
     )

@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-ExecutionNodeType = Literal["model", "tool", "worker", "agent"]
+ExecutionNodeType = Literal["model", "tool", "mcp", "agent"]
 CommitType = Literal["session_message", "session_memory", "durable_memory", "task_result", "artifact_graph", "title"]
 
 

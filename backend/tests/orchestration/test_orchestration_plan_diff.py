@@ -13,14 +13,14 @@ from orchestration import CommitCandidate, ExecutionGraph, ExecutionNode
 def test_execution_graph_nodes_require_runtime_directive_authority() -> None:
     node = ExecutionNode(
         node_id="node-1",
-        node_type="worker",
-        executor="worker.pdf",
+        node_type="mcp",
+        executor="mcp.pdf",
         directive_ref="directive-1",
     )
     graph = ExecutionGraph(graph_id="graph-1", task_id="task-1", nodes=(node,))
 
     assert graph.nodes[0].authority == "runtime_directive"
-    assert graph.to_dict()["nodes"][0]["executor"] == "worker.pdf"
+    assert graph.to_dict()["nodes"][0]["executor"] == "mcp.pdf"
 
 
 def test_commit_candidate_is_denied_until_commit_gate_exists() -> None:

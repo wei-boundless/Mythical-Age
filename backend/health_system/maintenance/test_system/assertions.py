@@ -72,9 +72,9 @@ def _evaluate_legacy_assertion(expression: str, turn: dict[str, Any], result: di
         expected = expression.split("=", 1)[1]
         actual = list(result.get("tool_names") or [])
         return _pass(expression, expected in actual, actual=actual)
-    if expression.startswith("event.worker="):
+    if expression.startswith("event.mcp="):
         expected = expression.split("=", 1)[1]
-        actual = list(result.get("worker_names") or [])
+        actual = list(result.get("mcp_names") or [])
         return _pass(expression, expected in actual, actual=actual)
     if expression.startswith("plan."):
         return AssertionResult(

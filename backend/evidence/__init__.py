@@ -1,5 +1,21 @@
 from evidence.adapter import build_evidence_envelope_from_retrieval
 from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
+from evidence.mcp_models import (
+    A2A_COMPATIBLE_PROTOCOL_VERSION,
+    AGENT_ID_BY_MCP_ROUTE,
+    CanonicalResult,
+    MCPExecutionPlan,
+    MCPRequest,
+    MCPResult,
+    MCPRoute,
+    MCPStatus,
+    MCPTaskStatus,
+    agent_id_for_mcp_route,
+    request_agent_id,
+    result_agent_id,
+    stream_event_type_from_mcp_status,
+    task_status_from_mcp_status,
+)
 from evidence.models import (
     BindingCandidate,
     DatasetCandidate,
@@ -14,31 +30,15 @@ from evidence.models import (
 )
 from evidence.orchestrator import EvidenceOrchestrator
 from evidence.pdf_worker import PDFWorker
-from evidence.projection import WorkerProjection, WorkerProjectionAdapter
+from evidence.projection import MCPProjection, MCPProjectionAdapter
 from evidence.retrieval_worker import RetrievalWorker
 from evidence.store import BindingCandidateStore, EvidenceGraphStore
 from evidence.structured_data_worker import StructuredDataWorker
 from evidence.table_materializer import MaterializedTable, TableMaterializer
-from evidence.worker_models import (
-    A2A_COMPATIBLE_PROTOCOL_VERSION,
-    AGENT_ID_BY_WORKER_ROUTE,
-    CanonicalResult,
-    WorkerExecutionPlan,
-    WorkerRequest,
-    WorkerResult,
-    WorkerRoute,
-    WorkerStatus,
-    WorkerTaskStatus,
-    agent_id_for_worker_route,
-    request_agent_id,
-    result_agent_id,
-    stream_event_type_from_worker_status,
-    task_status_from_worker_status,
-)
 
 __all__ = [
     "A2A_COMPATIBLE_PROTOCOL_VERSION",
-    "AGENT_ID_BY_WORKER_ROUTE",
+    "AGENT_ID_BY_MCP_ROUTE",
     "BindingCandidate",
     "BindingCandidateStore",
     "CanonicalResult",
@@ -59,20 +59,20 @@ __all__ = [
     "TableCandidate",
     "TableMaterializer",
     "RetrievalWorker",
-    "WorkerExecutionPlan",
-    "WorkerProjection",
-    "WorkerProjectionAdapter",
-    "WorkerRequest",
-    "WorkerResult",
-    "WorkerRoute",
-    "WorkerStatus",
-    "WorkerTaskStatus",
-    "agent_id_for_worker_route",
+    "MCPExecutionPlan",
+    "MCPProjection",
+    "MCPProjectionAdapter",
+    "MCPRequest",
+    "MCPResult",
+    "MCPRoute",
+    "MCPStatus",
+    "MCPTaskStatus",
+    "agent_id_for_mcp_route",
     "build_evidence_envelope_from_retrieval",
     "request_agent_id",
     "result_agent_id",
     "result_handle_from_payload",
-    "stream_event_type_from_worker_status",
+    "stream_event_type_from_mcp_status",
     "subset_handle_from_payload",
-    "task_status_from_worker_status",
+    "task_status_from_mcp_status",
 ]

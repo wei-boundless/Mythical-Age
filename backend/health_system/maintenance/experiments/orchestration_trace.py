@@ -9,15 +9,15 @@ from health_system.maintenance.experiments.artifacts import read_json_file
 NODE_DEFS: tuple[tuple[str, str, str], ...] = (
     ("input", "用户输入", "接收本轮用户请求，并绑定 session 与历史上下文。"),
     ("followup", "Follow-up 仲裁", "判断本轮是否续接已有任务、bundle item 或绑定对象。"),
-    ("planner", "任务规划", "形成 route、execution mode、tool、skill 和 worker 决策。"),
+    ("planner", "任务规划", "形成 route、execution mode、tool、skill 和 mcp 决策。"),
     ("execution-mode", "执行模式", "选择 single_execution、bundle_execution 或 explicit_fanout。"),
     ("context", "上下文压缩", "整理历史窗口，决定是否压缩与保留哪些上下文。"),
     ("memory", "记忆读取", "读取状态记忆、长期记忆和上下文包。"),
     ("restore", "恢复仲裁", "把状态记忆、长期记忆和上下文句柄恢复结果投影为候选，并预检是否允许采用。"),
     ("prompt", "Prompt 装配", "组合 soul、core、memory、skill、turn 等提示词片段。"),
-    ("capability", "能力调度", "决定是否进入工具、worker、证据编排或模型直答。"),
+    ("capability", "能力调度", "决定是否进入工具、mcp、证据编排或模型直答。"),
     ("model", "模型生成", "请求模型流式生成，并处理中途工具调用。"),
-    ("worker", "Worker / Agent", "执行 retrieval、PDF、结构化数据等 worker 分支。"),
+    ("mcp", "MCP / Agent", "执行 retrieval、PDF、结构化数据等 mcp 分支。"),
     ("tool", "工具执行", "执行 direct tool 或模型发起的工具调用。"),
     ("output", "输出收口", "通过 output boundary 选择最终可见答案。"),
     ("persistence", "状态写回", "写回会话、状态记忆和长期记忆抽取任务。"),
@@ -33,10 +33,10 @@ EDGE_DEFS: tuple[tuple[str, str, str, str], ...] = (
     ("restore-prompt", "restore", "prompt", "注入允许使用的上下文"),
     ("prompt-capability", "prompt", "capability", "交给能力调度"),
     ("capability-model", "capability", "model", "模型主链"),
-    ("capability-worker", "capability", "worker", "证据/worker 分支"),
+    ("capability-mcp", "capability", "mcp", "证据/mcp 分支"),
     ("capability-tool", "capability", "tool", "工具分支"),
     ("model-output", "model", "output", "模型候选答案"),
-    ("worker-output", "worker", "output", "worker canonical result"),
+    ("mcp-output", "mcp", "output", "mcp canonical result"),
     ("tool-output", "tool", "output", "工具结果续写"),
     ("output-persistence", "output", "persistence", "答案与状态落盘"),
 )
@@ -242,8 +242,8 @@ def _visited_node_ids(
     route = str(plan.get("route") or result.get("runtime_effective_route") or result.get("plan_route") or "")
     if route:
         visited.add("model")
-    if any(name.startswith("worker") or name == "retrieval" for name in event_names) or result.get("worker_names"):
-        visited.add("worker")
+    if any(name.startswith("mcp") or name == "retrieval" for name in event_names) or result.get("mcp_names"):
+        visited.add("mcp")
     if any(name.startswith("tool") for name in event_names) or result.get("tool_names"):
         visited.add("tool")
     if any(name in event_names for name in ["token", "done"]) or result.get("response_text"):
@@ -266,8 +266,8 @@ def _problem_node_id(
     fallback = str(result.get("answer_source") or "").lower()
     fallback_reason = str(result.get("answer_fallback_reason") or "").lower()
     if not failed_checks and ("fallback" in fallback or fallback_reason):
-        if result.get("worker_names"):
-            return "worker"
+        if result.get("mcp_names"):
+            return "mcp"
         if result.get("tool_names"):
             return "tool"
         return "output"
@@ -280,8 +280,8 @@ def _problem_node_id(
         return "memory"
     if "tool" in text or "search_knowledge" in text:
         return "tool"
-    if "worker" in text or "retrieval" in text or "evidence" in text:
-        return "worker"
+    if "mcp" in text or "retrieval" in text or "evidence" in text:
+        return "mcp"
     if "prompt" in text:
         return "prompt"
     if "response" in text or "contains" in text:
@@ -311,7 +311,7 @@ def _node_summary(
     if node_id == "followup":
         return str(result.get("followup_mode") or _dict(result.get("main_context")).get("followup_mode") or "未记录 follow-up 模式。")
     if node_id == "planner":
-        return f"route={plan.get('route') or result.get('plan_route') or 'unknown'} / tool={plan.get('tool') or '-'} / worker={plan.get('worker') or '-'} / skill={plan.get('skill') or '-'}"
+        return f"route={plan.get('route') or result.get('plan_route') or 'unknown'} / tool={plan.get('tool') or '-'} / mcp={plan.get('mcp') or '-'} / skill={plan.get('skill') or '-'}"
     if node_id == "execution-mode":
         return f"execution_mode={plan.get('execution_mode') or result.get('execution_mode') or 'unknown'} / subqueries={len(plan.get('subqueries') or [])}"
     if node_id == "context":
@@ -334,11 +334,11 @@ def _node_summary(
     if node_id == "prompt":
         return "prompt_manifest" if "prompt_manifest" in event_names or result.get("prompt_manifest_id") else "该 turn 未记录 prompt manifest。"
     if node_id == "capability":
-        return f"tools={', '.join(result.get('tool_names') or []) or '-'} / workers={', '.join(result.get('worker_names') or []) or '-'}"
+        return f"tools={', '.join(result.get('tool_names') or []) or '-'} / mcps={', '.join(result.get('mcp_names') or []) or '-'}"
     if node_id == "model":
         return f"terminal={_dict(result.get('timing')).get('terminal_event') or 'unknown'} / first_token={_dict(result.get('timing')).get('first_token_ms') or '-'}"
-    if node_id == "worker":
-        return ", ".join(result.get("worker_names") or []) or "本轮没有 worker 分支。"
+    if node_id == "mcp":
+        return ", ".join(result.get("mcp_names") or []) or "本轮没有 mcp 分支。"
     if node_id == "tool":
         return ", ".join(result.get("tool_names") or []) or "本轮没有 direct/tool-call 分支。"
     if node_id == "output":
@@ -354,7 +354,7 @@ def _node_source_event(node_id: str, event_names: list[str]) -> str:
         "memory": "memory_context",
         "restore": "orchestration_runtime_control",
         "prompt": "prompt_manifest",
-        "worker": "worker_end",
+        "mcp": "mcp_end",
         "tool": "tool_end",
         "output": "done",
         "persistence": "done",
@@ -376,8 +376,8 @@ def _event_node_id(event_name: str) -> str:
         return "memory"
     if event_name == "prompt_manifest":
         return "prompt"
-    if event_name.startswith("worker") or event_name == "retrieval":
-        return "worker"
+    if event_name.startswith("mcp") or event_name == "retrieval":
+        return "mcp"
     if event_name.startswith("tool"):
         return "tool"
     if event_name in {"token", "debug"}:
@@ -400,8 +400,8 @@ def _event_summary(event_name: str, data: dict[str, Any]) -> str:
         return str(data.get("error") or "执行失败")
     if event_name.startswith("tool"):
         return str(data.get("tool") or "tool")
-    if event_name.startswith("worker"):
-        return str(data.get("worker") or data.get("task_status") or "worker")
+    if event_name.startswith("mcp"):
+        return str(data.get("mcp") or data.get("task_status") or "mcp")
     if event_name == "prompt_manifest":
         manifest = _dict(data.get("prompt_manifest"))
         return f"{manifest.get('total_sections') or 0} sections / {manifest.get('total_chars') or 0} chars"
@@ -596,10 +596,10 @@ def _decision_summary(node_id: str, outputs: dict[str, Any], reasons: list[str])
         )
     if node_id == "capability":
         selected_tool = _dict(outputs.get("selected_tool"))
-        selected_worker = _dict(outputs.get("selected_worker"))
+        selected_mcp = _dict(outputs.get("selected_mcp"))
         return (
             f"tool={selected_tool.get('tool_name') or outputs.get('tool_name') or '-'} / "
-            f"worker={outputs.get('worker_route') or selected_worker.get('worker_route') or '-'}"
+            f"mcp={outputs.get('mcp_route') or selected_mcp.get('mcp_route') or '-'}"
         )
     if node_id == "tool":
         return (

@@ -95,13 +95,13 @@ class BindingCandidateStore:
         for raw in raw_candidates:
             if not isinstance(raw, dict):
                 continue
-            candidate = BindingCandidate(
-                candidate_id=str(raw.get("candidate_id", "") or ""),
-                kind=str(raw.get("kind", "") or ""),
-                identity=str(raw.get("identity", "") or ""),
-                display_label=str(raw.get("display_label", "") or ""),
-                source_worker=str(raw.get("source_worker", "") or ""),
-                artifact_id=str(raw.get("artifact_id", "") or ""),
+                candidate = BindingCandidate(
+                    candidate_id=str(raw.get("candidate_id", "") or ""),
+                    kind=str(raw.get("kind", "") or ""),
+                    identity=str(raw.get("identity", "") or ""),
+                    display_label=str(raw.get("display_label", "") or ""),
+                    source_mcp=str(raw.get("source_mcp", raw.get("source_worker", "")) or ""),
+                    artifact_id=str(raw.get("artifact_id", "") or ""),
                 confidence=float(raw.get("confidence", 0.0) or 0.0),
                 evidence_refs=[str(item) for item in list(raw.get("evidence_refs", []) or [])],
                 expires_after_turns=int(raw.get("expires_after_turns", 3) or 3),

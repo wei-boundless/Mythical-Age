@@ -6,13 +6,13 @@ from typing import Any, Literal
 from evidence.models import BindingCandidate, EvidenceArtifact, EvidenceEnvelope
 
 
-WorkerRoute = Literal["none", "retrieval", "pdf", "structured_data", "evidence_orchestrator"]
-WorkerStatus = Literal["ok", "degraded", "clarify", "error"]
-WorkerTaskStatus = Literal["submitted", "working", "completed", "failed", "requires_input"]
+MCPRoute = Literal["none", "retrieval", "pdf", "structured_data", "evidence_orchestrator"]
+MCPStatus = Literal["ok", "degraded", "clarify", "error"]
+MCPTaskStatus = Literal["submitted", "working", "completed", "failed", "requires_input"]
 
 A2A_COMPATIBLE_PROTOCOL_VERSION = "a2a-compatible.v1"
 
-AGENT_ID_BY_WORKER_ROUTE: dict[str, str] = {
+AGENT_ID_BY_MCP_ROUTE: dict[str, str] = {
     "retrieval": "agent:knowledge:retrieval",
     "evidence_orchestrator": "agent:knowledge:retrieval",
     "pdf": "agent:document:pdf",
@@ -21,11 +21,11 @@ AGENT_ID_BY_WORKER_ROUTE: dict[str, str] = {
 
 
 @dataclass(frozen=True, slots=True)
-class WorkerRequest:
+class MCPRequest:
     request_id: str
     session_id: str = ""
     query: str = ""
-    worker_route: WorkerRoute = "none"
+    mcp_route: MCPRoute = "none"
     task_frame: dict[str, Any] = field(default_factory=dict)
     bindings: dict[str, Any] = field(default_factory=dict)
     constraints: dict[str, Any] = field(default_factory=dict)
@@ -74,9 +74,9 @@ class CanonicalResult:
 
 
 @dataclass(frozen=True, slots=True)
-class WorkerResult:
-    worker_name: str
-    status: WorkerStatus = "ok"
+class MCPResult:
+    mcp_name: str
+    status: MCPStatus = "ok"
     evidence_envelope: EvidenceEnvelope | None = None
     artifact_updates: list[EvidenceArtifact] = field(default_factory=list)
     canonical_result: CanonicalResult | None = None
@@ -86,17 +86,17 @@ class WorkerResult:
     emitted_result_handles: list[dict[str, Any]] = field(default_factory=list)
     binding_owner_task_id: str = ""
     agent_id: str = ""
-    task_status: WorkerTaskStatus | str = ""
+    task_status: MCPTaskStatus | str = ""
     stream_event_type: str = ""
     extensions: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "worker_name": self.worker_name,
+            "mcp_name": self.mcp_name,
             "status": self.status,
             "agent_id": result_agent_id(self),
-            "task_status": self.task_status or task_status_from_worker_status(self.status),
-            "stream_event_type": self.stream_event_type or stream_event_type_from_worker_status(self.status),
+            "task_status": self.task_status or task_status_from_mcp_status(self.status),
+            "stream_event_type": self.stream_event_type or stream_event_type_from_mcp_status(self.status),
             "extensions": dict(self.extensions or {}),
             "evidence_envelope": self.evidence_envelope.to_dict() if self.evidence_envelope is not None else None,
             "artifact_updates": [item.to_dict() for item in self.artifact_updates],
@@ -110,9 +110,9 @@ class WorkerResult:
 
 
 @dataclass(frozen=True, slots=True)
-class WorkerExecutionPlan:
-    worker_route: WorkerRoute = "none"
-    request: WorkerRequest | None = None
+class MCPExecutionPlan:
+    mcp_route: MCPRoute = "none"
+    request: MCPRequest | None = None
     expected_result: Literal["evidence", "canonical", "clarification"] = "evidence"
     artifact_refs: list[str] = field(default_factory=list)
     candidate_refs: list[str] = field(default_factory=list)
@@ -121,7 +121,7 @@ class WorkerExecutionPlan:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "worker_route": self.worker_route,
+            "mcp_route": self.mcp_route,
             "request": self.request.to_dict() if self.request is not None else None,
             "expected_result": self.expected_result,
             "artifact_refs": list(self.artifact_refs),
@@ -131,23 +131,23 @@ class WorkerExecutionPlan:
         }
 
 
-def agent_id_for_worker_route(worker_route: str | None) -> str:
-    return AGENT_ID_BY_WORKER_ROUTE.get(str(worker_route or "").strip(), "agent:local:unknown")
+def agent_id_for_mcp_route(mcp_route: str | None) -> str:
+    return AGENT_ID_BY_MCP_ROUTE.get(str(mcp_route or "").strip(), "agent:local:unknown")
 
 
-def request_agent_id(request: WorkerRequest | None, *, fallback_worker_route: str = "") -> str:
+def request_agent_id(request: MCPRequest | None, *, fallback_mcp_route: str = "") -> str:
     if request is None:
-        return agent_id_for_worker_route(fallback_worker_route)
-    return str(request.agent_id or "").strip() or agent_id_for_worker_route(request.worker_route or fallback_worker_route)
+        return agent_id_for_mcp_route(fallback_mcp_route)
+    return str(request.agent_id or "").strip() or agent_id_for_mcp_route(request.mcp_route or fallback_mcp_route)
 
 
-def result_agent_id(result: WorkerResult | None, *, fallback_worker_route: str = "") -> str:
+def result_agent_id(result: MCPResult | None, *, fallback_mcp_route: str = "") -> str:
     if result is None:
-        return agent_id_for_worker_route(fallback_worker_route)
-    return str(result.agent_id or "").strip() or agent_id_for_worker_route(result.worker_name or fallback_worker_route)
+        return agent_id_for_mcp_route(fallback_mcp_route)
+    return str(result.agent_id or "").strip() or agent_id_for_mcp_route(result.mcp_name or fallback_mcp_route)
 
 
-def task_status_from_worker_status(status: str | None) -> WorkerTaskStatus:
+def task_status_from_mcp_status(status: str | None) -> MCPTaskStatus:
     normalized = str(status or "").strip()
     if normalized == "ok":
         return "completed"
@@ -158,7 +158,7 @@ def task_status_from_worker_status(status: str | None) -> WorkerTaskStatus:
     return "working"
 
 
-def stream_event_type_from_worker_status(status: str | None) -> str:
+def stream_event_type_from_mcp_status(status: str | None) -> str:
     normalized = str(status or "").strip()
     if normalized == "ok":
         return "task.completed"

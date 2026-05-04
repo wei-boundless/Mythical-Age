@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-RuntimeDirectiveExecutor = Literal["model", "tool", "worker", "agent"]
+RuntimeDirectiveExecutor = Literal["model", "tool", "mcp", "agent"]
 
 
 @dataclass(slots=True, frozen=True)

@@ -133,23 +133,23 @@ def test_headless_requires_approval_can_route_to_hook_without_allowing_execution
     assert policy.runtime_executable is False
 
 
-def test_worker_and_memory_write_candidate_stay_hidden_or_denied() -> None:
+def test_mcp_and_memory_write_candidate_stay_hidden_or_denied() -> None:
     registry = build_default_operation_registry()
     requirement = build_operation_requirement(
         task_id="task-6",
         source="task_binding_preview",
-        operation_scope=("op.worker_pdf", "op.memory_write_candidate"),
+        operation_scope=("op.mcp_pdf", "op.memory_write_candidate"),
     )
 
     policy = build_resource_policy_candidate(requirement, registry)
     decisions = {decision.operation_id: decision for decision in policy.decisions}
     views = {view.resource_id: view for view in build_resource_runtime_views(policy, registry)}
 
-    assert decisions["op.worker_pdf"].decision == "not_executable"
+    assert decisions["op.mcp_pdf"].decision == "not_executable"
     assert decisions["op.memory_write_candidate"].decision == "deny"
-    assert views["op.worker_pdf"].available_to_model is False
-    assert views["op.worker_pdf"].authorized is False
-    assert views["op.worker_pdf"].runtime_executable is False
+    assert views["op.mcp_pdf"].available_to_model is False
+    assert views["op.mcp_pdf"].authorized is False
+    assert views["op.mcp_pdf"].runtime_executable is False
 
 
 def test_operation_gate_rejects_preview_policy_even_for_allowed_preview_operation() -> None:

@@ -5,10 +5,10 @@ from typing import Any
 
 from agents.a2a_cards import A2A_COMPATIBLE_PROTOCOL_VERSION, build_default_agent_cards
 from capability_system.local_mcp_registry import build_local_mcp_catalog
+from capability_system.mcp_registry import build_mcp_catalog
 from capability_system.operation_registry import build_default_operation_registry
-from capability_system.worker_registry import build_worker_catalog
 from .endpoints import build_capability_endpoints
-from .models import AgentCapability, CapabilityBindingEdge, CapabilityBindingGraph, WorkerCapability
+from .models import AgentCapability, CapabilityBindingEdge, CapabilityBindingGraph, MCPCapability
 from .search_policy import classify_tool_source, search_policy_labels, tool_text_set
 from .skill_authoring import read_text
 from .validation import validate_capability_catalog
@@ -188,7 +188,7 @@ def agent_binding_nodes(agent_bindings: dict[str, list[str]]) -> list[AgentCapab
             AgentCapability(
                 agent_id=card.agent_id,
                 name=card.name,
-                kind=str(card.extensions.get("x-langchain-agent.worker_route") or "sub_agent"),
+                kind=str(card.extensions.get("x-langchain-agent.mcp_route") or "sub_agent"),
                 description=card.description,
                 bound_tools=list(agent_bindings.get(card.agent_id, [])),
                 protocol_version=card.protocol_version,
@@ -279,7 +279,7 @@ def build_binding_graph(
     skills: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     bindings_by_agent: dict[str, list[str]],
-    workers: list[dict[str, Any]] | None = None,
+    mcps: list[dict[str, Any]] | None = None,
 ) -> CapabilityBindingGraph:
     tool_lookup = {str(tool.get("name") or ""): tool for tool in tools}
     skill_edges: list[CapabilityBindingEdge] = []
@@ -315,30 +315,30 @@ def build_binding_graph(
                 )
             )
 
-    worker_nodes = [
-        WorkerCapability(
-            worker_id=str(worker.get("worker_id") or ""),
-            route=str(worker.get("route") or ""),
-            name=str(worker.get("name") or ""),
-            description=str(worker.get("description") or ""),
-            operation_id=str(worker.get("operation_id") or ""),
-            agent_id=str(worker.get("agent_id") or ""),
-            transport=str(worker.get("transport") or ""),
-            model_visibility=str(worker.get("model_visibility") or ""),
-            tags=[str(tag) for tag in list(worker.get("tags") or [])],
+    mcp_nodes = [
+        MCPCapability(
+            mcp_id=str(mcp.get("mcp_id") or ""),
+            route=str(mcp.get("route") or ""),
+            name=str(mcp.get("name") or ""),
+            description=str(mcp.get("description") or ""),
+            operation_id=str(mcp.get("operation_id") or ""),
+            agent_id=str(mcp.get("agent_id") or ""),
+            transport=str(mcp.get("transport") or ""),
+            model_visibility=str(mcp.get("model_visibility") or ""),
+            tags=[str(tag) for tag in list(mcp.get("tags") or [])],
         )
-        for worker in list(workers or [])
+        for mcp in list(mcps or [])
     ]
-    worker_edges = [
+    mcp_edges = [
         CapabilityBindingEdge(
-            from_id=str(worker.get("worker_id") or ""),
-            from_label=str(worker.get("name") or worker.get("route") or ""),
-            to_id=str(worker.get("operation_id") or ""),
-            to_label=str(worker.get("operation_id") or ""),
-            relation="worker 由 operation 系统调度",
+            from_id=str(mcp.get("mcp_id") or ""),
+            from_label=str(mcp.get("name") or mcp.get("route") or ""),
+            to_id=str(mcp.get("operation_id") or ""),
+            to_label=str(mcp.get("operation_id") or ""),
+            relation="mcp capability 由 orchestration/internal endpoint 调度",
         )
-        for worker in list(workers or [])
-        if str(worker.get("operation_id") or "").strip()
+        for mcp in list(mcps or [])
+        if str(mcp.get("operation_id") or "").strip()
     ]
 
     recommendations = []
@@ -352,10 +352,10 @@ def build_binding_graph(
             recommendations.append(f"{name} 尚未绑定智能体，建议明确归属后再参与自动路由。")
     return CapabilityBindingGraph(
         agent_nodes=nodes,
-        worker_nodes=worker_nodes,
+        mcp_nodes=mcp_nodes,
         skill_tool_edges=skill_edges,
         agent_tool_edges=agent_edges,
-        worker_operation_edges=worker_edges,
+        mcp_operation_edges=mcp_edges,
         recommendations=recommendations,
     )
 
@@ -366,7 +366,7 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
     raw_tools = [definition.to_registry_record() for definition in runtime.tool_runtime.definitions]
     operation_registry = build_default_operation_registry()
     operations = [operation.to_dict() for operation in operation_registry.list_operations()]
-    workers = build_worker_catalog(operation_registry)
+    mcps = build_mcp_catalog(operation_registry)
     local_mcp_units = build_local_mcp_catalog()
     bindings_by_agent = agent_tool_bindings(raw_tools)
     bound_agents_by_tool = tool_agent_bindings(bindings_by_agent)
@@ -382,7 +382,7 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         )
     tools_by_name = {str(tool.get("name") or ""): tool for tool in tools}
     capability_endpoints = build_capability_endpoints(
-        workers=workers,
+        mcps=mcps,
     )
     skills = [
         {
@@ -405,26 +405,26 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         skills=skills,
         tools=tools,
         agent_bindings=bindings_by_agent,
-        workers=workers,
+        mcps=mcps,
         capability_endpoints=capability_endpoints,
         operations=operations,
     )
     return {
         "skills": skills,
         "tools": tools,
-        "workers": workers,
+        "mcps": mcps,
         "local_mcp_units": local_mcp_units,
         "capability_endpoints": capability_endpoints,
         "operations": operations,
-        "binding_graph": build_binding_graph(skills, tools, bindings_by_agent, workers).to_operation_payload(),
+        "binding_graph": build_binding_graph(skills, tools, bindings_by_agent, mcps).to_operation_payload(),
         "validation_issues": [issue.to_dict() for issue in validation_issues],
         "tool_type_options": TOOL_TYPE_OPTIONS,
         "summary": {
             "skill_count": len(skills),
             "tool_count": len(tools),
-            "worker_count": len(workers),
+            "mcp_count": len(mcps),
             "local_mcp_unit_count": len(local_mcp_units),
-            "local_mcp_endpoint_count": len(workers),
+            "local_mcp_endpoint_count": len(mcps),
             "capability_endpoint_count": len(capability_endpoints),
             "model_visible_skills": sum(1 for item in skills if item["runtime"].get("activation_policy") == "model_visible"),
             "tool_types": sorted({tool["operation_metadata"]["tool_type"] for tool in tools}),

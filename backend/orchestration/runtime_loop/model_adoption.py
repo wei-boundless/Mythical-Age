@@ -55,8 +55,8 @@ def build_model_response_runtime_adoption(
         not_executable_operations=not_executable_operations,
         allowed_tools=tuple(operation for operation in allowed_operations if operation != "op.model_response"),
         denied_tools=denied_operations,
-        allowed_workers=(),
-        denied_workers=not_executable_operations,
+        allowed_mcps=(),
+        denied_mcps=not_executable_operations,
         allowed_agents=(),
         denied_agents=(),
         memory_read_scope="context_package",
@@ -70,7 +70,7 @@ def build_model_response_runtime_adoption(
             "runtime_executable": True,
             "adopted": True,
             "tools_allowed": any(operation != "op.model_response" for operation in allowed_operations),
-            "workers_allowed": False,
+            "mcps_allowed": False,
             "memory_write_allowed": False,
             "filesystem_write_allowed": any(
                 operation in {"op.write_file", "op.edit_file"} for operation in allowed_operations
@@ -205,11 +205,11 @@ def _decide_runtime_operation(
             reason="unknown operation",
             diagnostics={"fail_closed": True},
         )
-    if descriptor.operation_type in {"worker", "agent"}:
+    if descriptor.operation_type in {"mcp", "agent"}:
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="not_executable",
-            reason="worker and agent operations are not exposed to the model as direct tools",
+            reason="mcp and agent operations are not exposed to the model as direct tools",
             risk_tags=descriptor.risk_tags,
         )
     if approval_policy == "task_bounded_write" and descriptor.operation_id in {"op.write_file", "op.edit_file"}:

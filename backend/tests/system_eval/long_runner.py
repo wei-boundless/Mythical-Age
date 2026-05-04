@@ -45,12 +45,12 @@ class TurnResult:
     message: str
     plan_route: str
     plan_tool: str
-    plan_worker: str
+    plan_mcp: str
     plan_skill: str
     subquery_count: int
     event_types: list[str]
     tool_names: list[str]
-    worker_names: list[str]
+    mcp_names: list[str]
     response_text: str
     execution_mode: str = ""
     bundle_item_count: int = 0
@@ -128,9 +128,9 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             if turn.plan_tool != expected:
                 failures.append(f"{check} (actual={turn.plan_tool})")
             continue
-        if check.startswith("plan.worker="):
+        if check.startswith("plan.mcp="):
             expected = check.split("=", 1)[1]
-            worker_tool_compat = (
+            mcp_tool_compat = (
                 expected == "pdf"
                 and (
                     turn.plan_tool == "pdf_analysis"
@@ -145,8 +145,8 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
                     or turn.answer_source == "direct_tool.structured_data_analysis"
                 )
             )
-            if turn.plan_worker != expected and not worker_tool_compat:
-                failures.append(f"{check} (actual={turn.plan_worker})")
+            if turn.plan_mcp != expected and not mcp_tool_compat:
+                failures.append(f"{check} (actual={turn.plan_mcp})")
             continue
         if check.startswith("plan.skill="):
             expected = check.split("=", 1)[1]
@@ -183,7 +183,7 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             if expected not in turn.tool_names:
                 failures.append(f"{check} (actual={turn.tool_names})")
             continue
-        if check.startswith("event.worker="):
+        if check.startswith("event.mcp="):
             expected = check.split("=", 1)[1]
             pdf_tool_compat = (
                 expected == "pdf"
@@ -201,8 +201,8 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
                     or str(turn.answer_source or "") == "direct_tool.structured_data_analysis"
                 )
             )
-            if expected not in turn.worker_names and not pdf_tool_compat and not structured_tool_compat:
-                failures.append(f"{check} (actual={turn.worker_names})")
+            if expected not in turn.mcp_names and not pdf_tool_compat and not structured_tool_compat:
+                failures.append(f"{check} (actual={turn.mcp_names})")
             continue
         if check.startswith("event="):
             expected = check.split("=", 1)[1]
@@ -487,13 +487,13 @@ def _infer_plan_fields_from_runtime(events: list[dict[str, Any]]) -> dict[str, A
     return {
         "route": str(task_contract.get("route") or route),
         "tool": primary_tool,
-        "worker": "",
+        "mcp": "",
         "skill": str(stage_projection.get("skill_ref") or task_contract.get("skill_name") or ""),
         "execution_mode": execution_mode,
         "bundle_item_count": len(bundle_items),
         "subquery_count": len(bundle_items),
         "tool_names": tool_names,
-        "worker_names": [],
+        "mcp_names": [],
         "runtime_effective_route": route,
         "task_contract": task_contract,
         "current_turn_context": current_turn_context,
@@ -654,8 +654,8 @@ def _execute_user_turn(
         runtime_effective_route = "followup_direct"
     elif any(item.get("event") in {"tool_start", "tool_call_requested", "tool_result_received"} for item in events):
         runtime_effective_route = "tool"
-    elif any(item.get("event") == "worker_start" for item in events):
-        runtime_effective_route = "worker"
+    elif any(item.get("event") in {"mcp_start", "mcp_requested", "mcp_result_received"} for item in events):
+        runtime_effective_route = "mcp"
     elif any(item.get("event") == "retrieval" for item in events):
         runtime_effective_route = "rag"
     tool_names = [
@@ -664,10 +664,10 @@ def _execute_user_turn(
         if item.get("event") == "tool_start"
     ]
     tool_names.extend(name for name in list(inferred.get("tool_names") or []) if name and name not in tool_names)
-    worker_names = [
-        str(dict(item.get("data") or {}).get("worker", "") or "")
+    mcp_names = [
+        str(dict(item.get("data") or {}).get("mcp", "") or "")
         for item in events
-        if item.get("event") == "worker_start"
+        if item.get("event") in {"mcp_start", "mcp_end"}
     ]
     orchestration_topology = dict(orchestration_plan.get("topology") or {})
     orchestration_executions = [
@@ -678,7 +678,7 @@ def _execute_user_turn(
     orchestration_execution = orchestration_executions[0] if orchestration_executions else {}
     effective_plan_route = str(orchestration_topology.get("route") or inferred.get("route") or "")
     effective_plan_tool = str(orchestration_execution.get("tool_name") or inferred.get("tool") or "")
-    effective_plan_worker = str(orchestration_execution.get("worker_route") or inferred.get("worker") or "")
+    effective_plan_mcp = str(orchestration_execution.get("mcp_route") or inferred.get("mcp") or "")
     effective_plan_skill = str(
         orchestration_execution.get("skill_name")
         or inferred.get("skill")
@@ -694,14 +694,14 @@ def _execute_user_turn(
         message=turn.content,
         plan_route=effective_plan_route,
         plan_tool=effective_plan_tool,
-        plan_worker=effective_plan_worker,
+        plan_mcp=effective_plan_mcp,
         plan_skill=effective_plan_skill,
         execution_mode=effective_execution_mode,
         bundle_item_count=int(inferred.get("bundle_item_count") or 0),
         subquery_count=int(inferred.get("subquery_count") or 0),
         event_types=[str(item.get("event", "")) for item in events],
         tool_names=[name for name in tool_names if name],
-        worker_names=[name for name in worker_names if name],
+        mcp_names=[name for name in mcp_names if name],
         response_text=response_text,
         runtime_effective_route=runtime_effective_route or str(inferred.get("runtime_effective_route") or ""),
         followup_mode=str(done_payload.get("followup_mode", "") or ("direct_task_handle" if active_work_item.startswith("followup_task_") else "")),
@@ -766,7 +766,7 @@ def _execute_user_turn(
                 "plan": {
                     "route": turn_result.plan_route,
                     "tool": turn_result.plan_tool,
-                    "worker": turn_result.plan_worker,
+                    "mcp": turn_result.plan_mcp,
                     "skill": turn_result.plan_skill,
                     "execution_mode": turn_result.execution_mode,
                     "bundle_item_count": turn_result.bundle_item_count,

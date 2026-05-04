@@ -29,8 +29,8 @@ class AgentCapability:
 
 
 @dataclass(frozen=True, slots=True)
-class WorkerCapability:
-    worker_id: str
+class MCPCapability:
+    mcp_id: str
     route: str
     name: str
     description: str
@@ -65,19 +65,19 @@ class CapabilityBindingEdge:
 @dataclass(frozen=True, slots=True)
 class CapabilityBindingGraph:
     agent_nodes: list[AgentCapability] = field(default_factory=list)
-    worker_nodes: list[WorkerCapability] = field(default_factory=list)
+    mcp_nodes: list[MCPCapability] = field(default_factory=list)
     skill_tool_edges: list[CapabilityBindingEdge] = field(default_factory=list)
     agent_tool_edges: list[CapabilityBindingEdge] = field(default_factory=list)
-    worker_operation_edges: list[CapabilityBindingEdge] = field(default_factory=list)
+    mcp_operation_edges: list[CapabilityBindingEdge] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
 
     def to_operation_payload(self) -> dict[str, Any]:
         return {
             "agent_nodes": [node.to_dict() for node in self.agent_nodes],
-            "worker_nodes": [node.to_dict() for node in self.worker_nodes],
+            "mcp_nodes": [node.to_dict() for node in self.mcp_nodes],
             "skill_tool_edges": [edge.to_operation_edge() for edge in self.skill_tool_edges],
             "agent_tool_edges": [edge.to_operation_edge() for edge in self.agent_tool_edges],
-            "worker_operation_edges": [edge.to_operation_edge() for edge in self.worker_operation_edges],
+            "mcp_operation_edges": [edge.to_operation_edge() for edge in self.mcp_operation_edges],
             "recommendations": list(self.recommendations),
         }
 
@@ -124,8 +124,8 @@ class CapabilitySupplySkillRef:
 
 
 @dataclass(frozen=True, slots=True)
-class CapabilitySupplyWorkerRef:
-    worker_id: str
+class CapabilitySupplyMCPRef:
+    mcp_id: str
     operation_id: str
     route: str
     agent_id: str
@@ -143,7 +143,7 @@ class CapabilitySupplyPackage:
     agent_id: str
     tool_refs: list[CapabilitySupplyToolRef] = field(default_factory=list)
     skill_refs: list[CapabilitySupplySkillRef] = field(default_factory=list)
-    worker_refs: list[CapabilitySupplyWorkerRef] = field(default_factory=list)
+    mcp_refs: list[CapabilitySupplyMCPRef] = field(default_factory=list)
     capability_constraints: dict[str, Any] = field(default_factory=dict)
     visibility_rules: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -153,5 +153,5 @@ class CapabilitySupplyPackage:
         payload = asdict(self)
         payload["tool_refs"] = [item.to_dict() for item in self.tool_refs]
         payload["skill_refs"] = [item.to_dict() for item in self.skill_refs]
-        payload["worker_refs"] = [item.to_dict() for item in self.worker_refs]
+        payload["mcp_refs"] = [item.to_dict() for item in self.mcp_refs]
         return payload

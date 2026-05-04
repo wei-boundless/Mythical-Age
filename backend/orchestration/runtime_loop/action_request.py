@@ -9,14 +9,14 @@ from typing import Any, Literal
 RuntimeActionRequestType = Literal[
     "model_response",
     "tool_call",
-    "worker_call",
+    "mcp_call",
     "agent_call",
 ]
 
 RuntimeObservationType = Literal[
     "model_response",
     "tool_result",
-    "worker_result",
+    "mcp_result",
     "agent_result",
     "executor_error",
 ]

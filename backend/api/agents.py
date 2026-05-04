@@ -30,7 +30,7 @@ def _default_control_agents() -> list[dict[str, Any]]:
             "name": "执行智能体",
             "description": "承接实现、修复、验证和文件级任务，把结果回传主会话。",
             "kind": "execution",
-            "worker_route": "worker",
+            "mcp_route": "worker",
             "protocol_version": A2A_COMPATIBLE_PROTOCOL_VERSION,
             "supports_streaming": True,
             "supports_long_task": True,
@@ -47,22 +47,22 @@ def _default_control_agents() -> list[dict[str, Any]]:
                 }
             ],
             "mcp_profile": {"protocol_version": "mcp-compatible.v1", "tools": []},
-            "extensions": {"x-langchain-agent.worker_route": "worker"},
+            "extensions": {"x-langchain-agent.mcp_route": "worker"},
         },
         {
             **cards["agent:knowledge:retrieval"].to_dict(),
             "kind": "retrieval",
-            "worker_route": "retrieval",
+            "mcp_route": "retrieval",
         },
         {
             **cards["agent:document:pdf"].to_dict(),
             "kind": "document",
-            "worker_route": "pdf",
+            "mcp_route": "pdf",
         },
         {
             **cards["agent:data:structured"].to_dict(),
             "kind": "data",
-            "worker_route": "structured_data",
+            "mcp_route": "structured_data",
         },
     ]
 

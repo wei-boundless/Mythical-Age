@@ -12,7 +12,7 @@ class EvidenceEdge:
     to_id: str
     relation: str
     confidence: float = 0.0
-    worker: str = ""
+    mcp: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -43,7 +43,7 @@ class EvidenceArtifactGraph:
         for artifact in envelope.derived_artifacts:
             graph.add_artifact(
                 artifact,
-                worker=envelope.source_worker,
+                mcp=envelope.source_mcp,
                 relation="derived_from",
             )
         return graph
@@ -103,7 +103,7 @@ class EvidenceArtifactGraph:
                     to_id=str(raw.get("to_id", "") or ""),
                     relation=str(raw.get("relation", "") or ""),
                     confidence=float(raw.get("confidence", 0.0) or 0.0),
-                    worker=str(raw.get("worker", "") or ""),
+                    mcp=str(raw.get("mcp", raw.get("worker", "")) or ""),
                     metadata=dict(raw.get("metadata", {}) or {}),
                 )
             )
@@ -118,7 +118,7 @@ class EvidenceArtifactGraph:
         self,
         artifact: EvidenceArtifact,
         *,
-        worker: str = "",
+        mcp: str = "",
         relation: str = "derived_from",
     ) -> None:
         if not artifact.artifact_id:
@@ -132,7 +132,7 @@ class EvidenceArtifactGraph:
                     to_id=artifact.artifact_id,
                     relation=relation,
                     confidence=float(artifact.metadata.get("confidence", 0.0) or 0.0),
-                    worker=worker,
+                    mcp=mcp,
                 )
             )
 
@@ -140,7 +140,7 @@ class EvidenceArtifactGraph:
         self,
         result: ResultHandle,
         *,
-        worker: str = "",
+        mcp: str = "",
         relation: str = "produced_result",
     ) -> None:
         if not result.result_id:
@@ -154,7 +154,7 @@ class EvidenceArtifactGraph:
                     to_id=result.result_id,
                     relation=relation,
                     confidence=float(result.metadata.get("confidence", 0.0) or 0.0),
-                    worker=worker,
+                    mcp=mcp,
                 )
             )
 
@@ -162,7 +162,7 @@ class EvidenceArtifactGraph:
         self,
         subset: SubsetHandle,
         *,
-        worker: str = "",
+        mcp: str = "",
         relation: str = "selected_subset",
     ) -> None:
         if not subset.subset_id:
@@ -176,7 +176,7 @@ class EvidenceArtifactGraph:
                     to_id=subset.subset_id,
                     relation=relation,
                     confidence=float(subset.metadata.get("confidence", 0.0) or 0.0),
-                    worker=worker,
+                    mcp=mcp,
                 )
             )
 

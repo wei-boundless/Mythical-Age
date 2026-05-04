@@ -10,7 +10,7 @@ def validate_capability_catalog(
     skills: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     agent_bindings: dict[str, list[str]],
-    workers: list[dict[str, Any]] | None = None,
+    mcps: list[dict[str, Any]] | None = None,
     capability_endpoints: list[dict[str, Any]] | None = None,
     operations: list[dict[str, Any]] | None = None,
     task_operation_ids: list[str] | None = None,
@@ -102,16 +102,16 @@ def validate_capability_catalog(
                     )
                 )
 
-    for worker in list(workers or []):
-        worker_id = str(worker.get("worker_id") or "")
-        operation_id = str(worker.get("operation_id") or "")
+    for mcp in list(mcps or []):
+        mcp_id = str(mcp.get("mcp_id") or "")
+        operation_id = str(mcp.get("operation_id") or "")
         if not operation_id:
             issues.append(
                 CapabilityValidationIssue(
                     severity="error",
-                    code="worker_missing_operation_id",
-                    message=f"Worker {worker_id} is missing operation_id.",
-                    subject=worker_id,
+                    code="mcp_missing_operation_id",
+                    message=f"MCP {mcp_id} is missing operation_id.",
+                    subject=mcp_id,
                 )
             )
             continue
@@ -120,28 +120,28 @@ def validate_capability_catalog(
             issues.append(
                 CapabilityValidationIssue(
                     severity="error",
-                    code="worker_unknown_operation",
-                    message=f"Worker {worker_id} maps to unknown operation {operation_id}.",
-                    subject=worker_id,
+                    code="mcp_unknown_operation",
+                    message=f"MCP {mcp_id} maps to unknown operation {operation_id}.",
+                    subject=mcp_id,
                 )
             )
             continue
-        if operation is not None and str(operation.get("operation_type") or "") != "worker":
+        if operation is not None and str(operation.get("operation_type") or "") != "mcp":
             issues.append(
                 CapabilityValidationIssue(
                     severity="error",
-                    code="worker_operation_type_mismatch",
-                    message=f"Worker {worker_id} maps to non-worker operation {operation_id}.",
-                    subject=worker_id,
+                    code="mcp_operation_type_mismatch",
+                    message=f"MCP {mcp_id} maps to non-MCP operation {operation_id}.",
+                    subject=mcp_id,
                 )
             )
-        if str(worker.get("model_visibility") or "") != "not_direct_model_tool":
+        if str(mcp.get("model_visibility") or "") != "not_direct_model_tool":
             issues.append(
                 CapabilityValidationIssue(
                     severity="error",
-                    code="worker_model_visibility_invalid",
-                    message=f"Worker {worker_id} must not be exposed as a direct model tool.",
-                    subject=worker_id,
+                    code="mcp_model_visibility_invalid",
+                    message=f"MCP {mcp_id} must not be exposed as a direct model tool.",
+                    subject=mcp_id,
                 )
             )
 
@@ -170,7 +170,7 @@ def validate_capability_catalog(
             continue
         operation = operations_by_id.get(operation_id)
         operation_type = str((operation or {}).get("operation_type") or "")
-        if kind == "tool" and operation is not None and operation_type in {"worker", "agent"}:
+        if kind == "tool" and operation is not None and operation_type in {"mcp", "agent"}:
             issues.append(
                 CapabilityValidationIssue(
                     severity="error",
@@ -179,21 +179,21 @@ def validate_capability_catalog(
                     subject=endpoint_id,
                 )
             )
-        if kind == "local_worker" and operation is not None and operation_type != "worker":
+        if kind == "mcp_endpoint" and operation is not None and operation_type != "mcp":
             issues.append(
                 CapabilityValidationIssue(
                     severity="error",
-                    code="endpoint_worker_operation_type_mismatch",
-                    message=f"Worker endpoint {endpoint_id} maps to non-worker operation {operation_id}.",
+                    code="endpoint_mcp_operation_type_mismatch",
+                    message=f"MCP endpoint {endpoint_id} maps to non-MCP operation {operation_id}.",
                     subject=endpoint_id,
                 )
             )
-        if kind == "local_worker" and str(endpoint.get("model_visibility") or "") != "not_direct_model_tool":
+        if kind == "mcp_endpoint" and str(endpoint.get("model_visibility") or "") != "not_direct_model_tool":
             issues.append(
                 CapabilityValidationIssue(
                     severity="error",
-                    code="endpoint_worker_model_visibility_invalid",
-                    message=f"Worker endpoint {endpoint_id} must stay out of direct model tool exposure.",
+                    code="endpoint_mcp_model_visibility_invalid",
+                    message=f"MCP endpoint {endpoint_id} must stay out of direct model tool exposure.",
                     subject=endpoint_id,
                 )
             )

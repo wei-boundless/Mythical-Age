@@ -7,7 +7,7 @@ from capability_system.mcp_adapter import MCP_COMPATIBLE_PROTOCOL_VERSION, get_m
 
 
 A2A_COMPATIBLE_PROTOCOL_VERSION = "a2a-compatible.v1"
-AGENT_ID_BY_WORKER_ROUTE: dict[str, str] = {
+AGENT_ID_BY_MCP_ROUTE: dict[str, str] = {
     "retrieval": "agent:knowledge:retrieval",
     "evidence_orchestrator": "agent:knowledge:retrieval",
     "pdf": "agent:document:pdf",
@@ -50,8 +50,8 @@ class A2AAgentCard:
 
 def build_default_agent_cards() -> dict[str, A2AAgentCard]:
     return {
-        AGENT_ID_BY_WORKER_ROUTE["retrieval"]: A2AAgentCard(
-            agent_id=AGENT_ID_BY_WORKER_ROUTE["retrieval"],
+        AGENT_ID_BY_MCP_ROUTE["retrieval"]: A2AAgentCard(
+            agent_id=AGENT_ID_BY_MCP_ROUTE["retrieval"],
             name="检索智能体",
             description="查询本地知识证据，返回可追踪的候选证据与对象句柄。",
             supports_long_task=True,
@@ -66,10 +66,10 @@ def build_default_agent_cards() -> dict[str, A2AAgentCard]:
                 )
             ],
             mcp_profile=_mcp_profile(["search_knowledge"]),
-            extensions={"x-langchain-agent.worker_route": "retrieval"},
+            extensions={"x-langchain-agent.mcp_route": "retrieval"},
         ),
-        AGENT_ID_BY_WORKER_ROUTE["pdf"]: A2AAgentCard(
-            agent_id=AGENT_ID_BY_WORKER_ROUTE["pdf"],
+        AGENT_ID_BY_MCP_ROUTE["pdf"]: A2AAgentCard(
+            agent_id=AGENT_ID_BY_MCP_ROUTE["pdf"],
             name="文档智能体",
             description="读取 PDF 与文档产物，抽取页级/章节级证据，并把表格产物继续移交。",
             supports_long_task=True,
@@ -84,10 +84,10 @@ def build_default_agent_cards() -> dict[str, A2AAgentCard]:
                 )
             ],
             mcp_profile=_mcp_profile(["pdf_analysis", "analyze_multimodal_file"]),
-            extensions={"x-langchain-agent.worker_route": "pdf"},
+            extensions={"x-langchain-agent.mcp_route": "pdf"},
         ),
-        AGENT_ID_BY_WORKER_ROUTE["structured_data"]: A2AAgentCard(
-            agent_id=AGENT_ID_BY_WORKER_ROUTE["structured_data"],
+        AGENT_ID_BY_MCP_ROUTE["structured_data"]: A2AAgentCard(
+            agent_id=AGENT_ID_BY_MCP_ROUTE["structured_data"],
             name="结构化数据智能体",
             description="围绕表格句柄执行结构识别、聚合分析和子集延续处理。",
             supports_long_task=False,
@@ -102,7 +102,7 @@ def build_default_agent_cards() -> dict[str, A2AAgentCard]:
                 )
             ],
             mcp_profile=_mcp_profile(["structured_data_analysis"]),
-            extensions={"x-langchain-agent.worker_route": "structured_data"},
+            extensions={"x-langchain-agent.mcp_route": "structured_data"},
         ),
     }
 

@@ -5,7 +5,7 @@ import hashlib
 from typing import Any
 
 from evidence.models import EvidenceArtifact, EvidenceEnvelope, EvidenceItem, SourceObjectRef
-from .worker_models import CanonicalResult, WorkerRequest, WorkerResult
+from .mcp_models import CanonicalResult, MCPRequest, MCPResult
 from capability_system.units.mcp.local.structured_data.subset_selection import extract_structured_subset_selection
 
 
@@ -13,12 +13,12 @@ class StructuredDataWorker:
     def __init__(self, *, tool_runtime) -> None:
         self.tool_runtime = tool_runtime
 
-    async def run(self, request: WorkerRequest) -> WorkerResult:
+    async def run(self, request: MCPRequest) -> MCPResult:
         dataset_path = str(request.bindings.get("active_dataset", "") or "").strip()
         active_table = str(request.bindings.get("active_table", "") or "").strip()
         if not dataset_path:
-            return WorkerResult(
-                worker_name="structured_data",
+            return MCPResult(
+                mcp_name="structured_data",
                 status="clarify",
                 canonical_result=CanonicalResult(
                     result_kind="structured_answer",
@@ -37,8 +37,8 @@ class StructuredDataWorker:
             )
         tool = self.tool_runtime.get_instance("structured_data_analysis")
         if tool is None:
-            return WorkerResult(
-                worker_name="structured_data",
+            return MCPResult(
+                mcp_name="structured_data",
                 status="error",
                 canonical_result=CanonicalResult(
                     result_kind="structured_answer",
@@ -62,8 +62,8 @@ class StructuredDataWorker:
         subset_selection = extract_structured_subset_selection(answer)
         subset_labels = list(subset_selection.labels)
         subset_handle_id = f"subset:selection:{source_object_id.split(':')[-1]}:primary" if subset_labels else ""
-        return WorkerResult(
-            worker_name="structured_data",
+        return MCPResult(
+            mcp_name="structured_data",
             status="ok" if ok else "degraded",
             evidence_envelope=self._to_evidence_envelope(
                 request=request,
@@ -129,7 +129,7 @@ class StructuredDataWorker:
     def _to_evidence_envelope(
         self,
         *,
-        request: WorkerRequest,
+        request: MCPRequest,
         dataset_path: str,
         answer: str,
         ok: bool,
@@ -171,7 +171,7 @@ class StructuredDataWorker:
         )
         return EvidenceEnvelope(
             query=str(request.query or "").strip(),
-            source_worker="structured_data",
+            source_mcp="structured_data",
             evidence_items=[evidence_item] if preview else [],
             source_objects=[source_object],
             derived_artifacts=[artifact],
@@ -206,7 +206,7 @@ def _typed_structured_degraded_reason(answer: str) -> str:
     return "evidence_insufficient_for_synthesis"
 
 
-def _semantic_hints_from_request(request: WorkerRequest) -> dict[str, Any]:
+def _semantic_hints_from_request(request: MCPRequest) -> dict[str, Any]:
     constraints = dict(request.constraints or {})
     semantic_hints = dict(constraints.get("semantic_hints") or {})
     for key in ("analysis_type_hint", "state_kind", "group_hint", "metric_hint", "query_mode_hint"):

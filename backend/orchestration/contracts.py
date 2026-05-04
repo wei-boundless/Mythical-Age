@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-UnitType = Literal["tool", "skill", "agent", "worker", "memory", "retrieval", "artifact", "session", "task"]
+UnitType = Literal["tool", "skill", "agent", "mcp", "memory", "retrieval", "artifact", "session", "task"]
 PortName = Literal["candidate", "policy", "execution", "artifact", "commit", "trace"]
 
 

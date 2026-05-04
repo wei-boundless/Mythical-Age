@@ -4,23 +4,23 @@ from typing import Any
 
 from evidence.adapter import build_evidence_envelope_from_retrieval
 from evidence.models import BindingCandidate, EvidenceEnvelope
-from .worker_models import WorkerRequest, WorkerResult
+from .mcp_models import MCPRequest, MCPResult
 
 
 class RetrievalWorker:
     def __init__(self, *, retrieval_service) -> None:
         self.retrieval_service = retrieval_service
 
-    def run(self, request: WorkerRequest, *, top_k: int = 5) -> WorkerResult:
+    def run(self, request: MCPRequest, *, top_k: int = 5) -> MCPResult:
         query = str(request.query or "").strip()
         raw_results = self.retrieval_service.retrieve(query, top_k=max(int(top_k or 1), 1))
         envelope = build_evidence_envelope_from_retrieval(
             query=query,
             retrieval_results=list(raw_results or []),
-            source_worker="retrieval",
+            source_mcp="retrieval",
         )
-        return WorkerResult(
-            worker_name="retrieval",
+        return MCPResult(
+            mcp_name="retrieval",
             status="ok",
             evidence_envelope=envelope,
             artifact_updates=list(envelope.derived_artifacts),
@@ -38,7 +38,7 @@ def _binding_candidates_from_envelope(envelope: EvidenceEnvelope) -> list[Bindin
                 kind="dataset",
                 identity=candidate.path,
                 display_label=candidate.target_object or candidate.path,
-                source_worker=envelope.source_worker,
+                source_mcp=envelope.source_mcp,
                 artifact_id=candidate.artifact_id,
                 confidence=candidate.confidence,
                 evidence_refs=[candidate.artifact_id] if candidate.artifact_id else [],
@@ -51,7 +51,7 @@ def _binding_candidates_from_envelope(envelope: EvidenceEnvelope) -> list[Bindin
                 kind="document",
                 identity=candidate.path,
                 display_label=candidate.path,
-                source_worker=envelope.source_worker,
+                source_mcp=envelope.source_mcp,
                 artifact_id=candidate.artifact_id,
                 confidence=candidate.confidence,
                 evidence_refs=[candidate.artifact_id] if candidate.artifact_id else [],
@@ -64,7 +64,7 @@ def _binding_candidates_from_envelope(envelope: EvidenceEnvelope) -> list[Bindin
                 kind="table",
                 identity=candidate.artifact_id,
                 display_label=candidate.artifact_id,
-                source_worker=envelope.source_worker,
+                source_mcp=envelope.source_mcp,
                 artifact_id=candidate.artifact_id,
                 confidence=candidate.confidence,
                 evidence_refs=[candidate.artifact_id],

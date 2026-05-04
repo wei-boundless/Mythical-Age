@@ -129,7 +129,7 @@ class BindingCandidate:
     kind: str
     identity: str
     display_label: str = ""
-    source_worker: str = ""
+    source_mcp: str = ""
     artifact_id: str = ""
     confidence: float = 0.0
     evidence_refs: list[str] = field(default_factory=list)
@@ -142,7 +142,7 @@ class BindingCandidate:
 @dataclass(frozen=True, slots=True)
 class EvidenceEnvelope:
     query: str
-    source_worker: str
+    source_mcp: str
     evidence_items: list[EvidenceItem] = field(default_factory=list)
     source_objects: list[SourceObjectRef] = field(default_factory=list)
     derived_artifacts: list[EvidenceArtifact] = field(default_factory=list)
@@ -156,7 +156,7 @@ class EvidenceEnvelope:
     def to_dict(self) -> dict[str, Any]:
         return {
             "query": self.query,
-            "source_worker": self.source_worker,
+            "source_mcp": self.source_mcp,
             "evidence_items": [item.to_dict() for item in self.evidence_items],
             "source_objects": [item.to_dict() for item in self.source_objects],
             "derived_artifacts": [item.to_dict() for item in self.derived_artifacts],

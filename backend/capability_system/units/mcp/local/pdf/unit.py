@@ -10,12 +10,12 @@ PDF_LOCAL_MCP_UNIT = LocalMCPUnitRecord(
     summary="本地 PDF 阅读与解析能力单元。",
     implementation_root="capability_system.units.mcp.local.pdf",
     tool_refs=["pdf_analysis"],
-    worker_refs=["pdf"],
+    mcp_refs=["pdf"],
     skill_refs=["pdf-analysis"],
     resource_kinds=["pdf_document", "pdf_page", "pdf_section", "canonical_pdf_answer"],
     normalization_contract={
         "tool_output": "finalize_then_display",
-        "worker_output": "canonical_result_and_evidence",
+        "mcp_output": "canonical_result_and_evidence",
     },
     tags=["pdf", "document", "analysis", "local_mcp"],
 )

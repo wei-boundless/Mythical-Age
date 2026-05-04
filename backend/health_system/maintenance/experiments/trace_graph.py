@@ -40,7 +40,7 @@ ORCHESTRATION_NODE_LABELS = {
     "prompt": "Prompt 装配",
     "capability": "能力调度",
     "model": "模型生成",
-    "worker": "Worker / Agent",
+    "mcp": "MCP / Agent",
     "tool": "工具执行",
     "output": "输出收口",
     "persistence": "状态写回",
@@ -57,7 +57,7 @@ EDGE_LABELS = {
     "orchestration-prompt": "Prompt 策略",
     "orchestration-memory": "上下文策略",
     "orchestration-tools": "契约预检",
-    "orchestration-evidence": "Worker 拓扑",
+    "orchestration-evidence": "MCP 拓扑",
     "query-prompt": "组装系统提示",
     "prompt-memory": "读取上下文",
     "query-memory": "召回与写回",
@@ -331,8 +331,8 @@ def _turn_problem_node_id(payload: dict[str, Any], failed_checks: list[Any]) -> 
     fallback = str(result.get("answer_source") or "").lower()
     fallback_reason = str(result.get("answer_fallback_reason") or "").lower()
     if not text and ("fallback" in fallback or fallback_reason):
-        if result.get("worker_names"):
-            return "worker"
+        if result.get("mcp_names"):
+            return "mcp"
         if result.get("tool_names"):
             return "tool"
         return "output"
@@ -344,8 +344,8 @@ def _turn_problem_node_id(payload: dict[str, Any], failed_checks: list[Any]) -> 
         return "prompt"
     if "tool" in text or "search_knowledge" in text:
         return "tool"
-    if "worker" in text or "retrieval" in text or "evidence" in text:
-        return "worker"
+    if "mcp" in text or "retrieval" in text or "evidence" in text:
+        return "mcp"
     if "response" in text or "contains" in text:
         return "output"
     return "output"
@@ -373,8 +373,8 @@ def _first_diff_field(diff: dict[str, Any]) -> str:
 
 def _problem_node_from_diff_field(field: str) -> str:
     if field.startswith("executions[") or field == "executions.count":
-        if ".worker_route" in field:
-            return "worker"
+        if ".mcp_route" in field:
+            return "mcp"
         if ".tool_name" in field:
             return "tool"
         return "execution-mode"
@@ -386,8 +386,8 @@ def _problem_node_from_diff_field(field: str) -> str:
         return "prompt"
     if "contract" in field or "permission" in field:
         return "tool"
-    if "worker" in field:
-        return "worker"
+    if "mcp" in field:
+        return "mcp"
     if "tool" in field:
         return "tool"
     return "planner"
@@ -478,15 +478,15 @@ def _has_memory_signal(payload: dict[str, Any], result: dict[str, Any], event_na
 def _has_evidence_signal(plan: dict[str, Any], result: dict[str, Any], event_names: list[str]) -> bool:
     text = " ".join(
         [
-            str(plan.get("worker") or ""),
+            str(plan.get("mcp") or ""),
             str(plan.get("skill") or ""),
-            str(result.get("plan_worker") or ""),
+            str(result.get("plan_mcp") or ""),
             str(result.get("answer_source") or ""),
             " ".join(event_names),
-            " ".join(str(item) for item in result.get("worker_names") or []),
+            " ".join(str(item) for item in result.get("mcp_names") or []),
         ]
     ).lower()
-    return any(token in text for token in ["retrieval", "rag", "pdf", "structured", "evidence", "worker"])
+    return any(token in text for token in ["retrieval", "rag", "pdf", "structured", "evidence", "mcp"])
 
 
 def _has_tool_signal(plan: dict[str, Any], result: dict[str, Any], event_names: list[str]) -> bool:
@@ -522,11 +522,11 @@ def _turn_event_notes(payload: dict[str, Any]) -> list[str]:
         f"effective={result.get('runtime_effective_route') or 'unknown'}",
     ]
     tool_names = [str(item) for item in result.get("tool_names") or []]
-    worker_names = [str(item) for item in result.get("worker_names") or []]
+    mcp_names = [str(item) for item in result.get("mcp_names") or []]
     if tool_names:
         notes.append(f"tools={', '.join(tool_names)}")
-    if worker_names:
-        notes.append(f"workers={', '.join(worker_names)}")
+    if mcp_names:
+        notes.append(f"mcps={', '.join(mcp_names)}")
     if result.get("answer_source"):
         notes.append(f"answer_source={result.get('answer_source')}")
     if result.get("answer_fallback_reason"):

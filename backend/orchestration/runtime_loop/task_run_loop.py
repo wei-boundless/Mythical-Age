@@ -919,7 +919,7 @@ class TaskRunLoop:
                             runtime_task_ledger is not None
                             and current_step is not None
                             and current_step.status == "running"
-                            and current_step.executor_type in {"tool", "worker", "agent"}
+                            and current_step.executor_type in {"tool", "mcp", "agent"}
                             and step_supports_operation(current_step, operation_id)
                         ):
                             runtime_task_ledger = complete_task_run_step(
@@ -987,7 +987,7 @@ class TaskRunLoop:
                             runtime_task_ledger is not None
                             and current_step is not None
                             and current_step.status == "running"
-                            and current_step.executor_type in {"tool", "worker", "agent"}
+                            and current_step.executor_type in {"tool", "mcp", "agent"}
                         ):
                             error_text = str(dict(observation.get("payload") or {}).get("error") or "executor_failed")
                             runtime_task_ledger = fail_task_run_step(
@@ -1035,7 +1035,7 @@ class TaskRunLoop:
                         runtime_task_ledger is not None
                         and current_step is not None
                         and current_step.status == "running"
-                        and current_step.executor_type in {"tool", "worker", "agent"}
+                        and current_step.executor_type in {"tool", "mcp", "agent"}
                     ):
                         error_text = str(runtime_event.payload.get("error") or "executor_failed")
                         runtime_task_ledger = fail_task_run_step(
@@ -1262,7 +1262,7 @@ class TaskRunLoop:
                                 runtime_task_ledger is not None
                                 and current_step is not None
                                 and current_step.status == "running"
-                                and current_step.executor_type in {"tool", "worker", "agent"}
+                                and current_step.executor_type in {"tool", "mcp", "agent"}
                                 and step_supports_operation(current_step, operation_id)
                             ):
                                 runtime_task_ledger = complete_task_run_step(
@@ -1330,7 +1330,7 @@ class TaskRunLoop:
                                 runtime_task_ledger is not None
                                 and current_step is not None
                                 and current_step.status == "running"
-                                and current_step.executor_type in {"tool", "worker", "agent"}
+                                and current_step.executor_type in {"tool", "mcp", "agent"}
                             ):
                                 error_text = str(dict(observation.get("payload") or {}).get("error") or "executor_failed")
                                 runtime_task_ledger = fail_task_run_step(
@@ -1378,7 +1378,7 @@ class TaskRunLoop:
                             runtime_task_ledger is not None
                             and current_step is not None
                             and current_step.status == "running"
-                            and current_step.executor_type in {"tool", "worker", "agent"}
+                            and current_step.executor_type in {"tool", "mcp", "agent"}
                         ):
                             error_text = str(runtime_event.payload.get("error") or "executor_failed")
                             runtime_task_ledger = fail_task_run_step(
@@ -2412,7 +2412,7 @@ def _finalize_runtime_task_run_ledger(
                 current_step is not None
                 and current_step.status == "running"
                 and current_step.stop_policy == "allow_unverified_completion"
-                and current_step.executor_type in {"tool", "worker", "agent"}
+                and current_step.executor_type in {"tool", "mcp", "agent"}
             ):
                 finalized = skip_task_run_step(
                     finalized,

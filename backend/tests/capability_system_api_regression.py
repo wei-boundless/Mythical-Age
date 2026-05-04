@@ -138,7 +138,7 @@ def test_capability_validation_detects_contract_edges() -> None:
             "requires_approval_by_default": True,
         },
         {
-            "operation_id": "op.worker_shell",
+            "operation_id": "op.mcp_shell",
             "aliases": ["terminal"],
             "requires_approval_by_default": False,
         },
@@ -167,7 +167,7 @@ def test_default_operation_registry_has_no_duplicate_aliases() -> None:
     assert not [issue for issue in issues if issue.code == "duplicate_operation_alias"]
 
 
-def test_operation_catalog_includes_workers_without_prompt_authorization_lists() -> None:
+def test_operation_catalog_includes_mcps_without_prompt_authorization_lists() -> None:
     class _Runtime:
         base_dir = ROOT
 
@@ -176,22 +176,22 @@ def test_operation_catalog_includes_workers_without_prompt_authorization_lists()
             self.tool_runtime = type("ToolRuntimeStub", (), {"definitions": []})()
 
     catalog = build_capability_catalog(_Runtime())
-    workers = catalog["workers"]
+    mcps = catalog["mcps"]
     endpoints = catalog["capability_endpoints"]
     text = str(catalog)
 
-    assert catalog["summary"]["worker_count"] == 3
+    assert catalog["summary"]["mcp_count"] == 3
     assert catalog["summary"]["capability_endpoint_count"] == len(endpoints)
-    assert {worker["operation_id"] for worker in workers} == {
-        "op.worker_retrieval",
-        "op.worker_pdf",
-        "op.worker_structured_data",
+    assert {mcp["operation_id"] for mcp in mcps} == {
+        "op.mcp_retrieval",
+        "op.mcp_pdf",
+        "op.mcp_structured_data",
     }
-    assert all(worker["model_visibility"] == "not_direct_model_tool" for worker in workers)
-    assert {endpoint["endpoint_id"] for endpoint in endpoints if endpoint["kind"] == "local_worker"} == {
-        "endpoint:worker:retrieval",
-        "endpoint:worker:pdf",
-        "endpoint:worker:structured_data",
+    assert all(mcp["model_visibility"] == "not_direct_model_tool" for mcp in mcps)
+    assert {endpoint["endpoint_id"] for endpoint in endpoints if endpoint["kind"] == "mcp_endpoint"} == {
+        "endpoint:mcp:retrieval",
+        "endpoint:mcp:pdf",
+        "endpoint:mcp:structured_data",
     }
     assert "Denied:" not in text
     assert "preview_only" not in text
@@ -236,10 +236,10 @@ def test_capability_supply_package_filters_to_requested_operation_scope() -> Non
                     },
                 },
             ],
-            "workers": [
+            "mcps": [
                 {
-                    "worker_id": "worker:document:pdf",
-                    "operation_id": "op.worker_pdf",
+                    "mcp_id": "mcp:document:pdf",
+                    "operation_id": "op.mcp_pdf",
                     "route": "pdf",
                     "agent_id": "agent:document:pdf",
                     "transport": "in_process",
@@ -254,7 +254,7 @@ def test_capability_supply_package_filters_to_requested_operation_scope() -> Non
     assert package.task_id == "task-pdf"
     assert [item.tool_name for item in package.tool_refs] == ["pdf_analysis"]
     assert [item.skill_name for item in package.skill_refs] == ["pdf-analysis"]
-    assert package.worker_refs == []
+    assert package.mcp_refs == []
     assert package.capability_constraints["operation_scope"] == ["op.pdf_analysis"]
     assert package.visibility_rules["agent_internal_tools"] == ["pdf_analysis"]
 

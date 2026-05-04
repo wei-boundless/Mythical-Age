@@ -19,7 +19,7 @@ RuntimeTransition = Literal[
     "next_turn",
     "continue_after_model_result",
     "continue_after_tool_result",
-    "continue_after_worker_result",
+    "continue_after_mcp_result",
     "continue_after_context_compaction",
     "continue_after_approval",
     "continue_after_recovery",

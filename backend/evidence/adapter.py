@@ -26,7 +26,7 @@ def build_evidence_envelope_from_retrieval(
     *,
     query: str,
     retrieval_results: list[dict[str, Any]] | None,
-    source_worker: str = "retrieval",
+    source_mcp: str = "retrieval",
 ) -> EvidenceEnvelope:
     evidence_items: list[EvidenceItem] = []
     source_objects_by_id: dict[str, SourceObjectRef] = {}
@@ -119,7 +119,7 @@ def build_evidence_envelope_from_retrieval(
 
     return EvidenceEnvelope(
         query=str(query or "").strip(),
-        source_worker=source_worker,
+        source_mcp=source_mcp,
         evidence_items=evidence_items,
         source_objects=list(source_objects_by_id.values()),
         derived_artifacts=list(artifacts_by_id.values()),

@@ -100,7 +100,7 @@ def test_terminal_finalize_skips_optional_verify_step() -> None:
             step_id="step.verify",
             title="Verify",
             step_kind="verify",
-            executor_type="worker",
+            executor_type="mcp",
             optional_operations=("op.shell",),
             stop_policy="allow_unverified_completion",
         ),
