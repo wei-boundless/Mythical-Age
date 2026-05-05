@@ -118,6 +118,14 @@ def _build_task_spec(
     operation_requirement: dict[str, Any],
 ) -> TaskSpec:
     explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+    registered_task_policy = dict((registered_task or {}).get("task_policy") or {})
+    task_structure = dict(registered_task_policy.get("task_structure") or {})
+    runtime_limits = _resolve_task_runtime_limits(
+        selected_template=selected_template,
+        registered_task_policy=registered_task_policy,
+        task_structure=task_structure,
+        current_turn_context=current_turn_context,
+    )
     resolved_bindings = [
         dict(item)
         for item in list(current_turn_context.get("resolved_bindings") or [])
@@ -159,6 +167,7 @@ def _build_task_spec(
             "confidence": float(current_turn_context.get("confidence") or query_understanding.get("confidence") or 0.0),
             "template_match_source": str(template_match.match_source or ""),
             "template_match_reasons": list(template_match.match_reasons),
+            "runtime_limits": runtime_limits,
             "candidate_tools": [
                 str(item).strip()
                 for item in list(query_understanding.get("candidate_tools") or [])
@@ -172,15 +181,39 @@ def _build_task_spec(
         bundle_item_ref=_single_bundle_item_ref(bundle_spec),
         requested_outputs=requested_outputs,
         step_input_bindings=step_input_bindings,
-        selected_agent_id=_resolve_selected_agent_id(
-            registered_task=registered_task,
-            current_turn_context=current_turn_context,
-            selected_template=selected_template,
-        ),
         selected_skill_ids=tuple(selected_skill_ids),
         operation_requirement_ref=operation_requirement_ref,
         safety_envelope=dict(dict(operation_requirement.get("metadata") or {}).get("safety_envelope") or {}),
     )
+
+
+def _resolve_task_runtime_limits(
+    *,
+    selected_template,
+    registered_task_policy: dict[str, Any],
+    task_structure: dict[str, Any],
+    current_turn_context: dict[str, Any],
+) -> dict[str, Any]:
+    template_metadata = dict(getattr(selected_template, "metadata", {}) or {})
+    template_limits = dict(template_metadata.get("runtime_limits") or {})
+    policy_limits = dict(registered_task_policy.get("runtime_limits") or {})
+    structure_limits = dict(task_structure.get("runtime_limits") or {})
+    explicit_limits = dict(current_turn_context.get("runtime_limits") or {})
+    merged = {**template_limits, **policy_limits, **structure_limits, **explicit_limits}
+    if not merged:
+        return {}
+    normalized = {
+        "authority": "task_system.runtime_limits",
+        "limit_mode": str(merged.get("limit_mode") or merged.get("runtime_limit_mode") or "bounded").strip(),
+        "max_turns": merged.get("max_turns"),
+        "max_model_calls": merged.get("max_model_calls"),
+        "max_runtime_seconds": merged.get("max_runtime_seconds"),
+        "max_events": merged.get("max_events"),
+    }
+    if normalized["limit_mode"] in {"unlimited", "no_time_limit"} or merged.get("unlimited_runtime") is True:
+        normalized["limit_mode"] = "unlimited"
+        normalized["max_runtime_seconds"] = None
+    return {key: value for key, value in normalized.items() if value is not None or key == "max_runtime_seconds"}
 
 
 def _resolve_registered_task(
@@ -198,7 +231,6 @@ def _resolve_registered_task(
     if specific_task_id:
         record = flow_registry.get_specific_task_record(specific_task_id)
         if record is not None:
-            adoption_plan = flow_registry.get_task_agent_adoption_plan(specific_task_id)
             projection_binding = flow_registry.get_projection_binding(specific_task_id)
             flow_contract_binding = flow_registry.get_flow_contract_binding(specific_task_id)
             flow = flow_registry.get_flow(str(flow_contract_binding.flow_contract_id if flow_contract_binding is not None else record.default_flow_contract_id or "").strip())
@@ -208,56 +240,43 @@ def _resolve_registered_task(
                 "task_title": record.task_title,
                 "task_family": record.task_family,
                 "task_mode": record.task_mode,
-                "default_agent_id": str(
-                    getattr(adoption_plan, "default_agent_id", "") or getattr(flow, "default_agent_id", "") or "agent:0"
-                ).strip() or "agent:0",
                 "workflow_id": str(record.default_workflow_id or getattr(flow, "default_workflow_id", "") or "").strip(),
                 "projection_id": str(getattr(projection_binding, "default_projection_id", "") or "").strip(),
                 "input_contract_id": record.input_contract_id,
                 "output_contract_id": record.output_contract_id,
                 "flow_id": str(getattr(flow_contract_binding, "flow_contract_id", "") or record.default_flow_contract_id or "").strip(),
                 "safety_policy": dict(dict(record.task_policy or {}).get("safety_policy") or {}),
+                "task_policy": dict(record.task_policy or {}),
                 "template_id": str((record.metadata or {}).get("template_id") or getattr(flow, "metadata", {}).get("template_id") or ""),
                 "metadata": dict(record.metadata or {}),
             }
-    default_general_profile = next(
+    explicit_general_profile_id = str(
+        current_turn_context.get("entry_policy_id")
+        or current_turn_context.get("general_profile_id")
+        or ""
+    ).strip()
+    if explicit_general_profile_id:
+        default_general_profile = flow_registry.get_general_task_profile(explicit_general_profile_id)
+    else:
+        default_general_profile = next(
         (profile for profile in flow_registry.list_general_task_profiles() if profile.enabled),
         None,
-    )
+        )
     if default_general_profile is None:
         return None
     return {
-        "task_type": "general_task",
+        "task_type": "conversation_entry_policy",
         "task_id": default_general_profile.profile_id,
         "task_title": default_general_profile.title,
-        "task_family": "general",
-        "task_mode": "general_task",
-        "default_agent_id": default_general_profile.default_agent_id,
+        "task_family": "conversation_entry",
+        "task_mode": "main_conversation_entry",
         "workflow_id": default_general_profile.default_workflow_id,
         "projection_id": default_general_profile.default_projection_id,
         "input_contract_id": default_general_profile.input_contract_id,
         "output_contract_id": default_general_profile.output_contract_id,
+        "conversation_entry_policy": default_general_profile.conversation_entry_policy,
         "metadata": dict(default_general_profile.metadata or {}),
     }
-
-
-def _resolve_selected_agent_id(
-    *,
-    registered_task: dict[str, Any] | None,
-    current_turn_context: dict[str, Any],
-    selected_template,
-) -> str:
-    explicit_agent_id = str(
-        current_turn_context.get("selected_agent_id")
-        or current_turn_context.get("agent_id")
-        or ""
-    ).strip()
-    if explicit_agent_id:
-        return explicit_agent_id
-    registered_agent_id = str((registered_task or {}).get("default_agent_id") or "").strip()
-    if registered_agent_id:
-        return registered_agent_id
-    return str(selected_template.default_agent_id or "agent:0")
 
 
 def _resolve_task_family(
@@ -357,10 +376,15 @@ def _resolve_operation_approval_policy(
     selected_template,
     registered_task: dict[str, Any] | None,
 ) -> str:
+    safety_policy = dict(getattr(selected_template, "safety_policy", {}) or {})
+    write_mode = str(safety_policy.get("write_mode") or "").strip()
     if (
         registered_task
         and str(registered_task.get("task_type") or "") == "specific_task"
-        and str(getattr(selected_template, "task_family", "") or "") == "development"
+        and (
+            str(getattr(selected_template, "task_family", "") or "") == "development"
+            or write_mode in {"bounded_create", "scoped_patch"}
+        )
     ):
         return "task_bounded_write"
     return str(merged_binding.approval_policy or "default")

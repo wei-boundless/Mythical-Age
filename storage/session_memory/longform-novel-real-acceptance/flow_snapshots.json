@@ -1,0 +1,38 @@
+[
+  {
+    "snapshot_id": "snap:coding_change_flow:write-file-docs-artifacts-20260505-e5-longform-n:2026-05-05T18:25:37+00:00",
+    "flow_id": "coding_change_flow:write-file-docs-artifacts-20260505-e5-longform-n",
+    "flow_type": "coding_change_flow",
+    "status": "suspended",
+    "goal": "按正式长篇小说项目立项任务启动《雾港回声》百万字项目。必须调用 write_file 写入 docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/project_spec.md，内容包含项目目标、百万字拆解、5卷结构、产物目录、验收闸门、禁止伪造全本完成声明。 验收约束： - 长篇项目固定设...",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "读取上一阶段目标，按正式小说圣经构建任务生成《雾港回声》小说圣经。必须调用 write_file 写入 docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_b..."
+    },
+    "recent_results": [],
+    "resume_hints": [
+      "继续处理当前用户请求：按正式长篇小说项目立项任务启动《雾港回声》百万字项目。必须调用 write_file 写入 docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/project_spec...."
+    ],
+    "updated_at": "2026-05-05T18:25:37+00:00"
+  },
+  {
+    "snapshot_id": "snap:general_problem_solving_flow:write-file-docs-artifacts-20260505-e5-longform-n:2026-05-05T17:21:51+00:00",
+    "flow_id": "general_problem_solving_flow:write-file-docs-artifacts-20260505-e5-longform-n",
+    "flow_type": "general_problem_solving_flow",
+    "status": "suspended",
+    "goal": "按正式全书编纂任务生成阶段性编纂清单。必须调用 write_file 写入 docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/final_compilation.md，只汇总已真实完成并验收的产物，明确未完成章节，禁止标记百万字全本完成。 硬性要求：必须使用 write_file 工具写...",
+    "binding_kind": "",
+    "binding_identity": "",
+    "binding_owner_task_id": "",
+    "key_slots": {
+      "active_rule": "读取上一阶段目标，按正式小说圣经构建任务生成《雾港回声》小说圣经。必须调用 write_file 写入 docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_b..."
+    },
+    "recent_results": [],
+    "resume_hints": [
+      "如果用户继续推进，优先沿着“按正式全书编纂任务生成阶段性编纂清单。必须调用 write_file 写入 docs/系统规划/任务系统实测记录/art...”继续细化。"
+    ],
+    "updated_at": "2026-05-05T17:21:51+00:00"
+  }
+]

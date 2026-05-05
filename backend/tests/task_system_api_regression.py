@@ -3,13 +3,32 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from api import orchestration as orchestration_api
 from api import tasks as tasks_api
+from orchestration import AgentGroupRegistry
 from tasks import TaskFlowRegistry
 
 
 class _RuntimeStub:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
+
+
+def test_orchestration_agents_payload_exposes_agent_groups(tmp_path: Path) -> None:
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(orchestration_api.orchestration_agents())
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    groups = payload["agent_groups"]
+    longform_group = next(item for item in groups if item["group_id"] == "group.writing.longform_novel_core")
+
+    assert payload["authority"] == "orchestration.agent_runtime_registry"
+    assert longform_group["authority"] == "orchestration.agent_group"
+    assert longform_group["coordinator_agent_id"] == "agent:20"
+    assert "agent:24" in longform_group["member_agent_ids"]
 
 
 def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Path) -> None:
@@ -29,14 +48,16 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     assert summary["specific_task_record_count"] >= 1
     assert summary["projection_binding_count"] >= 1
     assert summary["flow_contract_binding_count"] >= 1
-    assert summary["adoption_plan_count"] >= 1
+    assert summary["execution_policy_count"] >= 1
     assert summary["memory_request_profile_count"] >= 1
     assert summary["communication_protocol_count"] >= 1
+    assert "agent_management" not in payload
+    assert task_management["entry_policies"]
     assert task_management["specific_task_records"]
     assert task_management["task_flow_definitions"]
     assert task_management["projection_bindings"]
     assert task_management["flow_contract_bindings"]
-    assert task_management["agent_adoption_plans"]
+    assert task_management["execution_policies"]
     assert task_management["memory_request_profiles"]
     assert coordination_management["communication_protocols"]
     assert diagnostics["template_validation_matrix"]["authority"] == "task_system.template_validation_matrix"
@@ -98,17 +119,20 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
                 ),
             )
         )
-        adoption_payload = asyncio.run(
-            tasks_api.upsert_task_system_agent_adoption_plan(
+        execution_payload = asyncio.run(
+            tasks_api.upsert_task_system_execution_policy(
                 "task.dev.light_web_game",
-                tasks_api.TaskAgentAdoptionPlanUpsertRequest(
+                tasks_api.TaskExecutionPolicyUpsertRequest(
                     task_id="task.dev.light_web_game",
-                    adoption_mode="adopt_with_projection",
-                    default_agent_id="agent:0",
+                    execution_chain_type="coordination_chain",
+                    runtime_agent_selection_policy="orchestration_default",
+                    task_level="standard",
+                    task_privilege="bounded",
                     allowed_agent_categories=["main_agent", "worker_sub_agent"],
                     allow_worker_agent_spawn=True,
                     worker_agent_blueprint_id="worker.dev.prototype",
                     worker_agent_naming_rule="game-worker-{n}",
+                    agent_group_id="group.writing.longform_novel_core",
                     notes="test adoption plan",
                 ),
             )
@@ -150,13 +174,13 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     registry = TaskFlowRegistry(tmp_path)
     projection_binding = registry.get_projection_binding("task.dev.light_web_game")
     flow_binding = registry.get_flow_contract_binding("task.dev.light_web_game")
-    adoption_plan = registry.get_task_agent_adoption_plan("task.dev.light_web_game")
+    execution_policy = registry.get_task_agent_adoption_plan("task.dev.light_web_game")
     memory_profile = registry.get_task_memory_request_profile("task.dev.light_web_game")
     protocol = registry.get_task_communication_protocol("protocol.dev.parallel_review")
 
     assert projection_payload["task_management"]["projection_bindings"]
     assert flow_contract_payload["task_management"]["flow_contract_bindings"]
-    assert adoption_payload["task_management"]["agent_adoption_plans"]
+    assert execution_payload["task_management"]["execution_policies"]
     assert memory_payload["task_management"]["memory_request_profiles"]
     assert protocol_payload["coordination_management"]["communication_protocols"]
 
@@ -169,10 +193,12 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     assert flow_binding.override_policy == "strict_task_default"
     assert flow_binding.verification_gate_profile == "gate.dev.qa"
 
-    assert adoption_plan is not None
-    assert adoption_plan.adoption_mode == "adopt_with_projection"
-    assert adoption_plan.allow_worker_agent_spawn is True
-    assert adoption_plan.worker_agent_blueprint_id == "worker.dev.prototype"
+    assert execution_policy is not None
+    assert execution_policy.to_dict()["authority"] == "task_system.task_execution_policy"
+    assert execution_policy.to_dict()["execution_chain_type"] == "coordination_chain"
+    assert execution_policy.to_dict()["agent_group_id"] == "group.writing.longform_novel_core"
+    assert execution_policy.allow_worker_agent_spawn is True
+    assert execution_policy.worker_agent_blueprint_id == "worker.dev.prototype"
 
     assert memory_profile is not None
     assert "long_term" in memory_profile.requested_memory_layers
@@ -264,3 +290,44 @@ def test_task_system_includes_formal_short_story_task_objects(tmp_path: Path) ->
 
     assert coordination is not None
     assert coordination.enabled is True
+
+
+def test_task_system_includes_longform_novel_coordination_stack_and_agent_group(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    group_registry = AgentGroupRegistry(tmp_path)
+
+    flow = registry.get_flow("flow.writing.chapter_drafting")
+    record = registry.get_specific_task_record("task.writing.chapter_drafting")
+    protocol = registry.get_task_communication_protocol("protocol.writing.chapter_pipeline")
+    coordination = registry.get_coordination_task("coord.writing.chapter_pipeline")
+    memory_profile = registry.get_task_memory_request_profile("task.writing.chapter_drafting")
+    adoption_plan = registry.get_task_agent_adoption_plan("task.writing.chapter_drafting")
+    agent_group = group_registry.get_group("group.writing.longform_novel_core")
+
+    assert flow is not None
+    assert flow.default_agent_id == "agent:24"
+    assert flow.metadata.get("coordination_task_id") == "coord.writing.chapter_pipeline"
+
+    assert record is not None
+    assert record.task_mode == "chapter_drafting"
+
+    assert protocol is not None
+    assert protocol.enabled is True
+    assert "chapter_draft" in protocol.message_types
+
+    assert coordination is not None
+    assert coordination.enabled is True
+    assert coordination.agent_group_id == "group.writing.longform_novel_core"
+    assert "agent:24" in coordination.participant_agent_ids
+    assert "agent:25" in coordination.participant_agent_ids
+    assert "agent:26" in coordination.participant_agent_ids
+
+    assert memory_profile is not None
+    assert "novel_bible" in memory_profile.requested_topics
+
+    assert adoption_plan is not None
+    assert adoption_plan.to_dict()["agent_group_id"] == "group.writing.longform_novel_core"
+
+    assert agent_group is not None
+    assert agent_group.coordinator_agent_id == "agent:20"
+    assert "agent:24" in agent_group.member_agent_ids

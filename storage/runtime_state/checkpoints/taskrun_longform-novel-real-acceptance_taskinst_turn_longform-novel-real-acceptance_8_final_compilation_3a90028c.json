@@ -1,0 +1,677 @@
+{
+  "checkpoint_id": "rtchk:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:97",
+  "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+  "event_offset": 97,
+  "loop_state": {
+    "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+    "status": "completed",
+    "turn_count": 4,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.writing.final_compilation",
+    "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+    "task_result_ref": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:d18ae89a39d4",
+    "memory_state_ref": "memory-runtime:longform-novel-real-acceptance",
+    "projection_ref": "7a310319ed3a7986",
+    "prompt_manifest_ref": "manifest-7a310319ed3a7986",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 0,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 900000
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:cfed46bc",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8f9404df",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:342266a0",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:747b9802",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:f2f22532",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8821db07",
+      "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+      "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "longform-novel-real-acceptance",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+            "role": "assistant",
+            "content": "",
+            "answer_channel": "",
+            "answer_source": "",
+            "answer_canonical_state": "",
+            "answer_persist_policy": "",
+            "answer_finalization_policy": "",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": false,
+          "reason": "empty_assistant_message_blocked",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "blocked",
+        "reason": "empty_assistant_message_blocked",
+        "commit_allowed": false,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+          "assistant_session_write_allowed": false,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": false,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+            "template_id": "template.writing.final_compilation",
+            "terminal_reason": "completed",
+            "final_content_chars": 0,
+            "task_result": {
+              "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+              "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+              "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+              "template_id": "template.writing.final_compilation",
+              "status": "completed",
+              "terminal_reason": "completed",
+              "requested_outputs": [
+                "compilation"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:cfed46bc",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8f9404df",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:342266a0",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:747b9802",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:f2f22532",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8821db07"
+              ],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.final_compilation",
+                  "title": "编纂全书",
+                  "step_kind": "coordinate",
+                  "executor_type": "agent",
+                  "status": "running",
+                  "required_operations": [
+                    "op.model_response"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "LongformNovelCompilation",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [],
+                  "entered_at": 1777990977.7555299,
+                  "completed_at": 0.0,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "",
+                  "executor_ref": "",
+                  "diagnostics": {
+                    "transition_reason": "task_contract_built"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {}
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+                "template_id": "template.writing.final_compilation"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+                "tool_observation_count": 6,
+                "final_content_chars": 0,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+        "template_id": "template.writing.final_compilation",
+        "status": "completed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "compilation"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.final_compilation",
+            "title": "编纂全书",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "running",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "LongformNovelCompilation",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 1777990977.7555299,
+            "completed_at": 0.0,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "task_contract_built"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+          "template_id": "template.writing.final_compilation"
+        },
+        "diagnostics": {
+          "current_step_id": "step.final_compilation",
+          "terminal_reason": "completed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+        "template_id": "template.writing.final_compilation",
+        "status": "completed",
+        "terminal_reason": "completed",
+        "requested_outputs": [
+          "compilation"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:cfed46bc",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8f9404df",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:342266a0",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:747b9802",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:f2f22532",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8821db07"
+        ],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.final_compilation",
+            "title": "编纂全书",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "running",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "LongformNovelCompilation",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 1777990977.7555299,
+            "completed_at": 0.0,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "task_contract_built"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {}
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+          "template_id": "template.writing.final_compilation"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+          "tool_observation_count": 6,
+          "final_content_chars": 0,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": false,
+      "memory_write_allowed": false,
+      "session_memory_refresh_applied": false,
+      "durable_memory_commit_applied": false,
+      "session_memory_chars": 0,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 600.0,
+        "max_events": 260,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.writing.final_compilation",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+      "final_content_chars": 0,
+      "last_step_transition": "terminal_projection",
+      "result_ref_count": 10
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:d18ae89a39d4",
+  "prompt_manifest_ref": "manifest-7a310319ed3a7986",
+  "execution_refs": [
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:c541d7c8",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:f769875f",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:7f3af4fe",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:23fb4d95",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:d4008949",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:c4d56599"
+  ],
+  "execution_state_ref": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:c4d56599",
+  "execution_summary": {
+    "execution_count": 6,
+    "completed_count": 6,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:c541d7c8",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:f769875f",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:7f3af4fe",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:23fb4d95",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:d4008949",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:c4d56599"
+    ],
+    "latest_execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:c4d56599"
+  },
+  "agent_run_refs": [
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:main",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:participant:chapter_bundle",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:participant:final_quality",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:participant:final_continuity",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:participant:editor_final_merge"
+  ],
+  "coordination_run_refs": [
+    "coordrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:primary"
+  ],
+  "runtime_objects_summary": {
+    "agent_run_count": 5,
+    "coordination_run_count": 1,
+    "running_agent_run_count": 1,
+    "running_coordination_run_count": 1
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+          "role": "assistant",
+          "content": "",
+          "answer_channel": "",
+          "answer_source": "",
+          "answer_canonical_state": "",
+          "answer_persist_policy": "",
+          "answer_finalization_policy": "",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": false,
+        "reason": "empty_assistant_message_blocked",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "blocked",
+      "reason": "empty_assistant_message_blocked",
+      "commit_allowed": false,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "longform-novel-real-acceptance",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+        "assistant_session_write_allowed": false,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": false,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+          "template_id": "template.writing.final_compilation",
+          "terminal_reason": "completed",
+          "final_content_chars": 0,
+          "task_result": {
+            "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+            "template_id": "template.writing.final_compilation",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "requested_outputs": [
+              "compilation"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:cfed46bc",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8f9404df",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:342266a0",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:747b9802",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:f2f22532",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8821db07"
+            ],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.final_compilation",
+                "title": "编纂全书",
+                "step_kind": "coordinate",
+                "executor_type": "agent",
+                "status": "running",
+                "required_operations": [
+                  "op.model_response"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "LongformNovelCompilation",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [],
+                "entered_at": 1777990977.7555299,
+                "completed_at": 0.0,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "",
+                "executor_ref": "",
+                "diagnostics": {
+                  "transition_reason": "task_contract_built"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {}
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+              "template_id": "template.writing.final_compilation"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+              "tool_observation_count": 6,
+              "final_content_chars": 0,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+      "template_id": "template.writing.final_compilation",
+      "status": "completed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "compilation"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.final_compilation",
+          "title": "编纂全书",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "running",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "LongformNovelCompilation",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 1777990977.7555299,
+          "completed_at": 0.0,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "task_contract_built"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+        "template_id": "template.writing.final_compilation"
+      },
+      "diagnostics": {
+        "current_step_id": "step.final_compilation",
+        "terminal_reason": "completed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+      "template_id": "template.writing.final_compilation",
+      "status": "completed",
+      "terminal_reason": "completed",
+      "requested_outputs": [
+        "compilation"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:cfed46bc",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8f9404df",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:342266a0",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:747b9802",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:f2f22532",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c:8821db07"
+      ],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.final_compilation",
+          "title": "编纂全书",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "running",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "LongformNovelCompilation",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 1777990977.7555299,
+          "completed_at": 0.0,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "task_contract_built"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {}
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:8:final_compilation",
+        "template_id": "template.writing.final_compilation"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:8:final_compilation:3a90028c",
+        "tool_observation_count": 6,
+        "final_content_chars": 0,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": false,
+    "memory_write_allowed": false,
+    "session_memory_refresh_applied": false,
+    "durable_memory_commit_applied": false,
+    "session_memory_chars": 0,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777991069.3885436,
+  "checksum": "41e8c5e130c37f71605e34009e4b8a35b004edd83332dcc1785c11cb533179db",
+  "authority": "orchestration.runtime_checkpoint"
+}

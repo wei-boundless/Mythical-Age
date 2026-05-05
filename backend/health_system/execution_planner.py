@@ -108,8 +108,6 @@ def build_health_agent_execution_plan(
     blocked_reasons = list(binding.diagnostics.get("failures") or [])
     if binding.validation_state != "valid":
         blocked_reasons.append("binding_invalid")
-    if normalize_health_agent_id(str(task_execution_assembly.get("selected_agent_id") or "")) != normalize_health_agent_id(binding.agent_id):
-        blocked_reasons.append("task_execution_agent_mismatch")
     if normalize_health_agent_id(str(agent_runtime_spec.get("agent_id") or "")) != normalize_health_agent_id(binding.agent_id):
         blocked_reasons.append("runtime_spec_agent_mismatch")
     if str(agent_runtime_spec.get("runtime_lane") or "") != binding.runtime_lane:

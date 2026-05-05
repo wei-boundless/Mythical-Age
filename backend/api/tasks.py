@@ -4,57 +4,19 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from orchestration import AgentRegistry
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
 router = APIRouter()
 
 
-class TaskAgentUpsertRequest(BaseModel):
-    agent_id: str = Field(..., min_length=3)
-    agent_name: str = Field(..., min_length=1, max_length=120)
-    agent_category: str = Field(default="worker_sub_agent", max_length=40)
-    interface_target: str = Field(default="worker_task_console", max_length=120)
-    description: str = Field(default="", max_length=400)
-    enabled: bool = True
-    editable: bool = True
-    default_soul_id: str = Field(default="", max_length=80)
-    default_projection_id: str = Field(default="", max_length=160)
-    task_scope: list[str] = Field(default_factory=list)
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
-class GeneralTaskProfileUpsertRequest(BaseModel):
+class ConversationEntryPolicyUpsertRequest(BaseModel):
     profile_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
-    default_agent_id: str = Field(default="agent:0", min_length=3, max_length=160)
     default_workflow_id: str = Field(default="", max_length=160)
     default_projection_id: str = Field(default="", max_length=160)
     input_contract_id: str = Field(default="", max_length=160)
     output_contract_id: str = Field(default="", max_length=160)
     conversation_entry_policy: str = Field(default="user_dialogue_to_main_agent", max_length=160)
-    enabled: bool = True
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
-class SpecificTaskUpsertRequest(BaseModel):
-    task_id: str = Field(..., min_length=3, max_length=160)
-    task_title: str = Field(..., min_length=1, max_length=160)
-    task_kind: str = Field(default="specific_task", max_length=40)
-    task_family: str = Field(..., min_length=1, max_length=80)
-    task_mode: str = Field(..., min_length=1, max_length=80)
-    flow_id: str = Field(default="", max_length=160)
-    default_agent_id: str = Field(default="agent:0", min_length=3, max_length=160)
-    participant_agent_ids: list[str] = Field(default_factory=list)
-    workflow_id: str = Field(default="", max_length=160)
-    workflow_file_ref: str = Field(default="", max_length=260)
-    projection_id: str = Field(default="", max_length=160)
-    input_contract_id: str = Field(default="", max_length=160)
-    output_contract_id: str = Field(default="", max_length=160)
-    safety_policy: dict[str, object] = Field(default_factory=dict)
-    trigger_signals: list[str] = Field(default_factory=list)
-    notes: str = Field(default="", max_length=1000)
-    task_structure: dict[str, object] = Field(default_factory=dict)
     enabled: bool = True
     metadata: dict[str, object] = Field(default_factory=dict)
 
@@ -95,14 +57,20 @@ class TaskFlowContractBindingUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-class TaskAgentAdoptionPlanUpsertRequest(BaseModel):
+class TaskExecutionPolicyUpsertRequest(BaseModel):
     task_id: str = Field(..., min_length=3, max_length=160)
-    adoption_mode: str = Field(default="adopt_existing", max_length=120)
-    default_agent_id: str = Field(default="agent:0", min_length=3, max_length=160)
+    execution_chain_type: str = Field(default="single_agent_chain", max_length=120)
+    runtime_agent_selection_policy: str = Field(default="orchestration_default", max_length=120)
+    task_level: str = Field(default="standard", max_length=80)
+    task_privilege: str = Field(default="bounded", max_length=80)
     allowed_agent_categories: list[str] = Field(default_factory=list)
     allow_worker_agent_spawn: bool = False
     worker_agent_blueprint_id: str = Field(default="", max_length=160)
     worker_agent_naming_rule: str = Field(default="", max_length=160)
+    coordination_task_id: str = Field(default="", max_length=160)
+    communication_protocol_id: str = Field(default="", max_length=160)
+    topology_template_id: str = Field(default="", max_length=160)
+    agent_group_id: str = Field(default="", max_length=160)
     notes: str = Field(default="", max_length=1000)
     metadata: dict[str, object] = Field(default_factory=dict)
 
@@ -140,6 +108,7 @@ class CoordinationTaskUpsertRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=160)
     coordination_mode: str = Field(default="review_merge", max_length=80)
     coordinator_agent_id: str = Field(default="agent:0", min_length=3, max_length=160)
+    agent_group_id: str = Field(default="", max_length=160)
     participant_agent_ids: list[str] = Field(default_factory=list)
     topology_template_id: str = Field(default="", max_length=160)
     shared_context_policy: str = Field(default="explicit_refs_only", max_length=120)
@@ -189,15 +158,14 @@ def _display_number(internal_id: str, *, prefix: str, fallback: str) -> str:
 
 def _task_system_payload(base_dir) -> dict[str, object]:
     registry = TaskFlowRegistry(base_dir)
-    agent_catalog = AgentRegistry(base_dir).build_catalog()
     workflows = TaskWorkflowRegistry(base_dir).build_catalog()
     task_flows = [item.to_dict() for item in registry.list_flows()]
-    general_tasks = [item.to_dict() for item in registry.list_general_task_profiles()]
-    specific_tasks = [item.to_dict() for item in registry.list_task_assignments()]
+    entry_policies = [item.to_dict() for item in registry.list_general_task_profiles()]
+    compat_specific_tasks = [item.to_dict() for item in registry.list_task_assignments()]
     specific_task_records = [item.to_dict() for item in registry.list_specific_task_records()]
     projection_bindings = [item.to_dict() for item in registry.list_projection_bindings()]
     flow_contract_bindings = [item.to_dict() for item in registry.list_flow_contract_bindings()]
-    agent_adoption_plans = [item.to_dict() for item in registry.list_task_agent_adoption_plans()]
+    execution_policies = [item.to_dict() for item in registry.list_task_agent_adoption_plans()]
     memory_request_profiles = [item.to_dict() for item in registry.list_task_memory_request_profiles()]
     coordination_tasks = [item.to_dict() for item in registry.list_coordination_tasks()]
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
@@ -210,15 +178,14 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     return {
         "authority": "task_system.management_console",
         "summary": {
-            **agent_catalog["summary"],
-            "general_task_count": len(general_tasks),
-            "specific_task_count": len(specific_tasks),
+            "entry_policy_count": len(entry_policies),
             "specific_task_record_count": len(specific_task_records),
+            "specific_task_compat_view_count": len(compat_specific_tasks),
             "task_flow_count": len(task_flows),
             "workflow_count": workflows["summary"]["workflow_count"],
             "projection_binding_count": len(projection_bindings),
             "flow_contract_binding_count": len(flow_contract_bindings),
-            "adoption_plan_count": len(agent_adoption_plans),
+            "execution_policy_count": len(execution_policies),
             "memory_request_profile_count": len(memory_request_profiles),
             "coordination_task_count": len(coordination_tasks),
             "topology_template_count": len(topology_templates),
@@ -226,38 +193,18 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "invalid_task_connection_count": int(agent_task_connections["summary"]["invalid_profile_count"]),
             "connection_issue_count": int(connection_diagnostics["summary"]["issue_count"]),
         },
-        "agent_management": {
-            "categories": [
-                {
-                    "category_id": "main_agent",
-                    "title": "主 Agent",
-                    "editable": False,
-                    "agents": [item for item in agent_catalog["agents"] if item.get("agent_category") == "main_agent"],
-                },
-                {
-                    "category_id": "system_management_agent",
-                    "title": "系统管理 Agent",
-                    "editable": False,
-                    "agents": [item for item in agent_catalog["agents"] if item.get("agent_category") == "system_management_agent"],
-                },
-                {
-                    "category_id": "worker_sub_agent",
-                    "title": "工作子 Agent",
-                    "editable": True,
-                    "agents": [item for item in agent_catalog["agents"] if item.get("agent_category") == "worker_sub_agent"],
-                },
-            ]
-        },
         "task_management": {
-            "general_tasks": general_tasks,
-            "specific_tasks": specific_tasks,
+            "entry_policies": entry_policies,
             "specific_task_records": specific_task_records,
             "task_flow_definitions": task_flows,
             "workflow_resources": workflows["workflows"],
             "projection_bindings": projection_bindings,
             "flow_contract_bindings": flow_contract_bindings,
-            "agent_adoption_plans": agent_adoption_plans,
+            "execution_policies": execution_policies,
             "memory_request_profiles": memory_request_profiles,
+            "compatibility_views": {
+                "specific_tasks": compat_specific_tasks,
+            },
         },
         "coordination_management": {
             "coordination_tasks": coordination_tasks,
@@ -278,15 +225,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
 async def task_system_overview() -> dict[str, object]:
     runtime = require_runtime()
     return _task_system_payload(runtime.base_dir)
-
-
-@router.get("/tasks/agents/next-worker-id")
-async def task_system_next_worker_agent_id() -> dict[str, str]:
-    runtime = require_runtime()
-    return {
-        "agent_id": AgentRegistry(runtime.base_dir).next_worker_agent_id(),
-        "authority": "task_system.agent_registry",
-    }
 
 
 @router.get("/tasks/next-ids")
@@ -351,50 +289,8 @@ async def upsert_task_system_workflow(workflow_id: str, payload: TaskWorkflowUps
     return _task_system_payload(runtime.base_dir)
 
 
-@router.put("/tasks/agents/{agent_id}")
-async def upsert_task_system_agent(agent_id: str, payload: TaskAgentUpsertRequest) -> dict[str, object]:
-    runtime = require_runtime()
-    if payload.agent_id != agent_id:
-        payload = payload.model_copy(update={"agent_id": agent_id})
-    try:
-        AgentRegistry(runtime.base_dir).upsert_agent(
-            agent_id=payload.agent_id,
-            agent_name=payload.agent_name,
-            agent_category=payload.agent_category,
-            interface_target=payload.interface_target,
-            description=payload.description,
-            enabled=payload.enabled,
-            editable=payload.editable,
-            default_soul_id=payload.default_soul_id,
-            default_projection_id=payload.default_projection_id,
-            task_scope=tuple(payload.task_scope),
-            metadata=payload.metadata,
-        )
-    except (PermissionError, ValueError) as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _task_system_payload(runtime.base_dir)
-
-
-@router.delete("/tasks/agents/{agent_id}")
-async def delete_task_system_agent(agent_id: str) -> dict[str, object]:
-    runtime = require_runtime()
-    try:
-        AgentRegistry(runtime.base_dir).delete_agent(agent_id)
-    except KeyError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail="agent not found") from exc
-    except PermissionError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _task_system_payload(runtime.base_dir)
-
-
-@router.put("/tasks/general-profiles/{profile_id}")
-async def upsert_task_system_general_profile(profile_id: str, payload: GeneralTaskProfileUpsertRequest) -> dict[str, object]:
+@router.put("/tasks/entry-policies/{profile_id}")
+async def upsert_task_system_entry_policy(profile_id: str, payload: ConversationEntryPolicyUpsertRequest) -> dict[str, object]:
     runtime = require_runtime()
     if payload.profile_id != profile_id:
         payload = payload.model_copy(update={"profile_id": profile_id})
@@ -402,48 +298,12 @@ async def upsert_task_system_general_profile(profile_id: str, payload: GeneralTa
         TaskFlowRegistry(runtime.base_dir).upsert_general_task_profile(
             profile_id=payload.profile_id,
             title=payload.title,
-            default_agent_id=payload.default_agent_id,
+            default_agent_id="agent:0",
             default_workflow_id=payload.default_workflow_id,
             default_projection_id=payload.default_projection_id,
             input_contract_id=payload.input_contract_id,
             output_contract_id=payload.output_contract_id,
             conversation_entry_policy=payload.conversation_entry_policy,
-            enabled=payload.enabled,
-            metadata=payload.metadata,
-        )
-    except ValueError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _task_system_payload(runtime.base_dir)
-
-
-@router.put("/tasks/specific-assignments/{task_id}")
-async def upsert_task_system_specific_assignment(task_id: str, payload: SpecificTaskUpsertRequest) -> dict[str, object]:
-    runtime = require_runtime()
-    if payload.task_id != task_id:
-        payload = payload.model_copy(update={"task_id": task_id})
-    try:
-        TaskFlowRegistry(runtime.base_dir).upsert_task_assignment(
-            task_id=payload.task_id,
-            task_title=payload.task_title,
-            task_kind=payload.task_kind,
-            task_family=payload.task_family,
-            task_mode=payload.task_mode,
-            flow_id=payload.flow_id,
-            default_agent_id=payload.default_agent_id,
-            participant_agent_ids=tuple(payload.participant_agent_ids),
-            workflow_id=payload.workflow_id,
-            workflow_file_ref=payload.workflow_file_ref,
-            projection_id=payload.projection_id,
-            input_contract_id=payload.input_contract_id,
-            output_contract_id=payload.output_contract_id,
-            safety_policy=payload.safety_policy,
-            task_structure={
-                **payload.task_structure,
-                "trigger_signals": payload.trigger_signals,
-                "notes": payload.notes,
-            },
             enabled=payload.enabled,
             metadata=payload.metadata,
         )
@@ -532,10 +392,10 @@ async def upsert_task_system_flow_contract_binding(
     return _task_system_payload(runtime.base_dir)
 
 
-@router.put("/tasks/agent-adoption-plans/{task_id}")
-async def upsert_task_system_agent_adoption_plan(
+@router.put("/tasks/execution-policies/{task_id}")
+async def upsert_task_system_execution_policy(
     task_id: str,
-    payload: TaskAgentAdoptionPlanUpsertRequest,
+    payload: TaskExecutionPolicyUpsertRequest,
 ) -> dict[str, object]:
     runtime = require_runtime()
     if payload.task_id != task_id:
@@ -543,14 +403,28 @@ async def upsert_task_system_agent_adoption_plan(
     try:
         TaskFlowRegistry(runtime.base_dir).upsert_task_agent_adoption_plan(
             task_id=payload.task_id,
-            adoption_mode=payload.adoption_mode,
-            default_agent_id=payload.default_agent_id,
+            adoption_mode=(
+                "adopt_with_projection"
+                if payload.execution_chain_type == "coordination_chain" or payload.allow_worker_agent_spawn
+                else "adopt_existing"
+            ),
+            default_agent_id="agent:0",
             allowed_agent_categories=tuple(payload.allowed_agent_categories),
             allow_worker_agent_spawn=payload.allow_worker_agent_spawn,
             worker_agent_blueprint_id=payload.worker_agent_blueprint_id,
             worker_agent_naming_rule=payload.worker_agent_naming_rule,
             notes=payload.notes,
-            metadata=payload.metadata,
+            metadata={
+                **payload.metadata,
+                "runtime_agent_selection_policy": payload.runtime_agent_selection_policy,
+                "task_level": payload.task_level,
+                "task_privilege": payload.task_privilege,
+                "coordination_task_id": payload.coordination_task_id,
+                "communication_protocol_id": payload.communication_protocol_id,
+                "topology_template_id": payload.topology_template_id,
+                "agent_group_id": payload.agent_group_id,
+                "execution_chain_type": payload.execution_chain_type,
+            },
         )
     except ValueError as exc:
         from fastapi import HTTPException
@@ -599,6 +473,7 @@ async def upsert_task_system_coordination_task(
             title=payload.title,
             coordination_mode=payload.coordination_mode,
             coordinator_agent_id=payload.coordinator_agent_id,
+            agent_group_id=payload.agent_group_id,
             participant_agent_ids=tuple(payload.participant_agent_ids),
             topology_template_id=payload.topology_template_id,
             shared_context_policy=payload.shared_context_policy,

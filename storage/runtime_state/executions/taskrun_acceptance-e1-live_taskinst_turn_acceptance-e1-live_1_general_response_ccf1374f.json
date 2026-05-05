@@ -1,0 +1,41 @@
+{
+  "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+  "updated_at": 1777977354.6177843,
+  "records": [
+    {
+      "execution_id": "rtexec:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:95e996a3",
+      "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+      "step_id": "step.answer",
+      "request_ref": "rtact:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:5208ed87",
+      "directive_ref": "runtime-directive:taskinst:turn:acceptance-e1-live:1:general_response:tool:rtact:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:5208ed87",
+      "operation_id": "op.search_knowledge",
+      "executor_type": "tool",
+      "request_fingerprint": "9001cbc1e3e0a85fd10dd722dfb6fe313298c064a1c423fe9b42cefd470b0561",
+      "idempotency_token": "801fa6cf40c10a53c8cb7251afdc76c16343f080f120c8e1bed7a826fd539db7",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:95e996a3",
+      "result_payload": {
+        "tool_name": "search_knowledge",
+        "tool_call_id": "call_00_lplKZCN73hryyNX3lhs33699",
+        "tool_args": {
+          "query": "任务系统 编排系统 runtime 边界 架构",
+          "top_k": 5
+        },
+        "result": "Knowledge index is not ready. Rebuild the knowledge collection before searching.",
+        "result_chars": 80,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777977354.5962968,
+      "updated_at": 1777977354.6131184,
+      "diagnostics": {
+        "tool_name": "search_knowledge",
+        "directive_ref": "runtime-directive:taskinst:turn:acceptance-e1-live:1:general_response:tool:rtact:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:5208ed87"
+      },
+      "authority": "orchestration.operation_execution_record"
+    }
+  ],
+  "latest_execution_id": "rtexec:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:95e996a3"
+}

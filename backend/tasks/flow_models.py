@@ -63,6 +63,17 @@ class TaskAssignment:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload.pop("default_agent_id", None)
+        payload.pop("participant_agent_ids", None)
+        task_structure = dict(payload.get("task_structure") or {})
+        chain_type = str(task_structure.get("execution_chain_type") or task_structure.get("chain_type") or "").strip()
+        if not chain_type:
+            chain_type = "coordination_chain" if task_structure.get("coordination_task_id") else "single_agent_chain"
+        payload["execution_chain_type"] = chain_type
+        return payload
+
+    def to_legacy_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
         payload["participant_agent_ids"] = list(self.participant_agent_ids)
         return payload
 
@@ -161,6 +172,30 @@ class TaskAgentAdoptionPlan:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        metadata = dict(payload.get("metadata") or {})
+        payload["allowed_agent_categories"] = list(self.allowed_agent_categories)
+        payload["execution_policy_id"] = payload["plan_id"].replace("taskadopt:", "taskexecpol:", 1)
+        payload["execution_chain_type"] = (
+            "coordination_chain"
+            if self.allow_worker_agent_spawn
+            or str(metadata.get("coordination_task_id") or "")
+            or str(metadata.get("topology_template_id") or "")
+            or str(metadata.get("agent_group_id") or "")
+            else "single_agent_chain"
+        )
+        payload["authority"] = "task_system.task_execution_policy"
+        payload.pop("default_agent_id", None)
+        payload["runtime_agent_selection_policy"] = str(metadata.get("runtime_agent_selection_policy") or "orchestration_default")
+        payload["task_level"] = str(metadata.get("task_level") or "standard")
+        payload["task_privilege"] = str(metadata.get("task_privilege") or "bounded")
+        payload["coordination_task_id"] = str(metadata.get("coordination_task_id") or "")
+        payload["communication_protocol_id"] = str(metadata.get("communication_protocol_id") or "")
+        payload["topology_template_id"] = str(metadata.get("topology_template_id") or "")
+        payload["agent_group_id"] = str(metadata.get("agent_group_id") or "")
+        return payload
+
+    def to_legacy_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
         payload["allowed_agent_categories"] = list(self.allowed_agent_categories)
         return payload
 
@@ -246,6 +281,7 @@ class CoordinationTaskDefinition:
     title: str
     coordination_mode: str
     coordinator_agent_id: str
+    agent_group_id: str = ""
     participant_agent_ids: tuple[str, ...] = ()
     topology_template_id: str = ""
     shared_context_policy: str = "explicit_refs_only"

@@ -18,9 +18,12 @@ def _filesystem_validator(*, root_dir: Path, safety_envelope: dict[str, Any]):
     if workspace_root.name == "backend" and workspace_root.parent.exists():
         workspace_root = workspace_root.parent.resolve()
 
+    write_root_values = list(safety_envelope.get("write_roots") or [])
+    if not write_root_values:
+        write_root_values = list(safety_envelope.get("default_write_roots") or [])
     write_roots = [
         _normalize_relative_path(item)
-        for item in list(safety_envelope.get("write_roots") or [])
+        for item in write_root_values
         if _normalize_relative_path(item)
     ]
     forbidden_paths = [

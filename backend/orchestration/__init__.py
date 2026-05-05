@@ -10,12 +10,12 @@ from .contracts import ControlKernelCandidateContext, PolicyHint, TaskContract, 
 from .execution_graph import CommitCandidate, ExecutionGraph, ExecutionNode
 from .kernel import ControlKernel, ControlKernelResult
 from .monitor import summarize_runtime_loop_events, summarize_runtime_loop_trace
-from .agent_runtime_chain import AgentRuntimeChainAssembler
+from .agent_group_models import AgentGroup
+from .agent_group_registry import AgentGroupRegistry, default_agent_groups
 from .agent_models import AgentDescriptor, AgentLifecycleRecord
 from .agent_registry import AgentRegistry, default_agent_descriptors
 from .agent_runtime_models import AgentRuntimeProfile
 from .agent_runtime_registry import AgentRuntimeRegistry, default_agent_runtime_profiles
-from .assembly_builder import build_orchestration_runtime_bundle
 from .assembly_models import AgentRuntimeSpec, TaskBodyOrchestration
 from .body_models import (
     AgentBodyProfile,
@@ -39,53 +39,77 @@ from .resource_gate import (
 from .resource_policy import ResourceDecision, ResourcePolicy
 from .resource_policy_builder import RuntimeApprovalContext, build_resource_policy_candidate
 from .resource_runtime_view import ResourceRuntimeView, build_resource_runtime_views
-from .runtime_loop import (
-    RuntimeActionRequest,
-    RuntimeActionRequestType,
-    RuntimeCheckpoint,
-    RuntimeCheckpointStore,
-    AgentHandoffEnvelope,
-    AgentRun,
-    AgentRunResult,
-    CoordinationMergeResult,
-    CoordinationNodeRun,
-    CoordinationRun,
-    RuntimeContextInvariantReport,
-    RuntimeContextManager,
-    RuntimeContextObservationRecord,
-    RuntimeContextSnapshot,
-    ExecutionReceipt,
-    OperationExecutionRecord,
-    ReplayPolicy,
-    RuntimeEvent,
-    RuntimeEventLog,
-    RuntimeExecutionStore,
-    RuntimeLoopControlDecision,
-    RuntimeLoopLimits,
-    RuntimeLoopState,
-    RuntimeLoopTraceReader,
-    RuntimeObservation,
-    RuntimeObservationType,
-    RuntimeStateIndex,
-    StageProjectionCycle,
-    StageProjectionSnapshot,
-    TaskRunLoop,
-    TaskRunLoopStartResult,
-    build_executor_error_observation,
-    build_execution_receipt,
-    build_idempotency_token,
-    build_model_response_observation,
-    build_request_fingerprint,
-    build_tool_action_request,
-    build_tool_execution_error_observation,
-    build_tool_result_observation,
-    build_tool_request_runtime_adoption,
-    check_runtime_loop_control,
-    derive_replay_policy,
-)
 from .unit_registry import BASE_UNIT_DESCRIPTORS, UnitCatalog, build_base_unit_catalog
 from capability_system import build_default_operation_registry
 from tasks.capability_requirements import OperationRequirement, build_operation_requirement
+
+
+def build_orchestration_runtime_bundle(*args, **kwargs):
+    from .assembly_builder import build_orchestration_runtime_bundle as _build
+
+    return _build(*args, **kwargs)
+
+
+def AgentRuntimeChainAssembler(*args, **kwargs):
+    from .agent_runtime_chain import AgentRuntimeChainAssembler as _assembler
+
+    return _assembler(*args, **kwargs)
+
+
+_RUNTIME_LOOP_EXPORTS = {
+    "RuntimeActionRequest",
+    "RuntimeActionRequestType",
+    "RuntimeCheckpoint",
+    "RuntimeCheckpointStore",
+    "AgentHandoffEnvelope",
+    "AgentRun",
+    "AgentRunResult",
+    "CoordinationMergeResult",
+    "CoordinationNodeRun",
+    "CoordinationRun",
+    "RuntimeContextInvariantReport",
+    "RuntimeContextManager",
+    "RuntimeContextObservationRecord",
+    "RuntimeContextSnapshot",
+    "ExecutionReceipt",
+    "OperationExecutionRecord",
+    "ReplayPolicy",
+    "RuntimeEvent",
+    "RuntimeEventLog",
+    "RuntimeExecutionStore",
+    "RuntimeLoopControlDecision",
+    "RuntimeLoopLimits",
+    "RuntimeLoopState",
+    "RuntimeLoopTraceReader",
+    "RuntimeObservation",
+    "RuntimeObservationType",
+    "RuntimeStateIndex",
+    "StageProjectionCycle",
+    "StageProjectionSnapshot",
+    "TaskRunLoop",
+    "TaskRunLoopStartResult",
+    "build_executor_error_observation",
+    "build_execution_receipt",
+    "build_idempotency_token",
+    "build_model_response_observation",
+    "build_request_fingerprint",
+    "build_tool_action_request",
+    "build_tool_execution_error_observation",
+    "build_tool_result_observation",
+    "build_tool_request_runtime_adoption",
+    "check_runtime_loop_control",
+    "derive_replay_policy",
+}
+
+
+def __getattr__(name: str):
+    if name in _RUNTIME_LOOP_EXPORTS:
+        from . import runtime_loop
+
+        value = getattr(runtime_loop, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module 'orchestration' has no attribute {name!r}")
 
 __all__ = [
     "BASE_UNIT_DESCRIPTORS",
@@ -100,6 +124,8 @@ __all__ = [
     "PolicyHint",
     "RuntimeDirective",
     "AgentRuntimeProfile",
+    "AgentGroup",
+    "AgentGroupRegistry",
     "AgentRuntimeChainAssembler",
     "AgentBodyProfile",
     "AgentDescriptor",
@@ -177,6 +203,7 @@ __all__ = [
     "build_default_operation_registry",
     "build_operation_requirement",
     "default_agent_descriptors",
+    "default_agent_groups",
     "default_agent_runtime_profiles",
     "default_worker_agent_blueprints",
     "build_executor_error_observation",

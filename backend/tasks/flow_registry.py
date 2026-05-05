@@ -83,6 +83,174 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
             },
         ),
         TaskFlowDefinition(
+            flow_id="flow.writing.longform_novel_project",
+            task_mode="longform_novel_project",
+            task_family="writing",
+            title="长篇小说项目立项",
+            input_contract_id="LongformNovelProjectInput",
+            output_contract_id="NovelProjectSpec",
+            default_agent_id="agent:20",
+            default_workflow_id="workflow.writing.longform_novel_project",
+            default_runtime_lane="novel_project_control",
+            default_memory_scope="novel_project_state",
+            metadata={
+                "task_resource": "longform_novel_project",
+                "template_id": "template.writing.longform_novel_project",
+                "task_id": "task.writing.longform_novel_project",
+                "coordination_task_id": "coord.writing.longform_project_bootstrap",
+                "communication_protocol_id": "protocol.writing.longform_project_bootstrap",
+                "topology_template_id": "topology.writing.longform_project_bootstrap",
+                "agent_group_id": "group.writing.longform_novel_core",
+            },
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.writing.novel_bible_build",
+            task_mode="novel_bible_build",
+            task_family="writing",
+            title="长篇小说圣经构建",
+            input_contract_id="NovelBibleBuildInput",
+            output_contract_id="NovelBibleBundle",
+            default_agent_id="agent:20",
+            default_workflow_id="workflow.writing.novel_bible_build",
+            default_runtime_lane="novel_bible_gate",
+            default_memory_scope="novel_bible_read_write",
+            metadata={
+                "task_resource": "novel_bible_build",
+                "template_id": "template.writing.novel_bible_build",
+                "task_id": "task.writing.novel_bible_build",
+                "coordination_task_id": "coord.writing.novel_bible_build",
+                "communication_protocol_id": "protocol.writing.novel_bible_build",
+                "topology_template_id": "topology.writing.novel_bible_build",
+                "agent_group_id": "group.writing.longform_novel_core",
+            },
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.writing.volume_planning",
+            task_mode="volume_planning",
+            task_family="writing",
+            title="长篇小说卷规划",
+            input_contract_id="VolumePlanningInput",
+            output_contract_id="VolumePlan",
+            default_agent_id="agent:20",
+            default_workflow_id="workflow.writing.volume_planning",
+            default_runtime_lane="volume_acceptance",
+            default_memory_scope="novel_bible_read_write",
+            metadata={
+                "task_resource": "volume_planning",
+                "template_id": "template.writing.volume_planning",
+                "task_id": "task.writing.volume_planning",
+                "coordination_task_id": "coord.writing.volume_planning",
+                "communication_protocol_id": "protocol.writing.volume_planning",
+                "topology_template_id": "topology.writing.volume_planning",
+                "agent_group_id": "group.writing.longform_novel_core",
+            },
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.writing.chapter_planning",
+            task_mode="chapter_planning",
+            task_family="writing",
+            title="长篇小说章节规划",
+            input_contract_id="ChapterPlanningInput",
+            output_contract_id="ChapterPlan",
+            default_agent_id="agent:23",
+            default_workflow_id="workflow.writing.chapter_planning",
+            default_runtime_lane="chapter_plot_plan",
+            default_memory_scope="novel_chapter_refs",
+            metadata={
+                "task_resource": "chapter_planning",
+                "template_id": "template.writing.chapter_planning",
+                "task_id": "task.writing.chapter_planning",
+                "coordination_task_id": "coord.writing.chapter_pipeline",
+                "communication_protocol_id": "protocol.writing.chapter_pipeline",
+                "topology_template_id": "topology.writing.chapter_pipeline",
+                "agent_group_id": "group.writing.longform_novel_core",
+            },
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.writing.chapter_drafting",
+            task_mode="chapter_drafting",
+            task_family="writing",
+            title="长篇小说章节正文",
+            input_contract_id="ChapterDraftInput",
+            output_contract_id="ChapterDraft",
+            default_agent_id="agent:24",
+            default_workflow_id="workflow.writing.chapter_drafting",
+            default_runtime_lane="chapter_drafting",
+            default_memory_scope="chapter_draft_workspace",
+            metadata={
+                "task_resource": "chapter_drafting",
+                "template_id": "template.writing.chapter_drafting",
+                "task_id": "task.writing.chapter_drafting",
+                "coordination_task_id": "coord.writing.chapter_pipeline",
+                "communication_protocol_id": "protocol.writing.chapter_pipeline",
+                "topology_template_id": "topology.writing.chapter_pipeline",
+                "agent_group_id": "group.writing.longform_novel_core",
+            },
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.writing.chapter_revision",
+            task_mode="chapter_revision",
+            task_family="writing",
+            title="长篇小说章节修订",
+            input_contract_id="ChapterRevisionInput",
+            output_contract_id="ChapterRevision",
+            default_agent_id="agent:24",
+            default_workflow_id="workflow.writing.chapter_revision",
+            default_runtime_lane="chapter_revision",
+            default_memory_scope="chapter_draft_workspace",
+            metadata={
+                "task_resource": "chapter_revision",
+                "template_id": "template.writing.chapter_revision",
+                "task_id": "task.writing.chapter_revision",
+                "coordination_task_id": "coord.writing.chapter_pipeline",
+                "communication_protocol_id": "protocol.writing.chapter_pipeline",
+                "topology_template_id": "topology.writing.chapter_pipeline",
+                "agent_group_id": "group.writing.longform_novel_core",
+            },
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.writing.continuity_audit",
+            task_mode="continuity_audit",
+            task_family="writing",
+            title="长篇小说连续性审计",
+            input_contract_id="ContinuityAuditInput",
+            output_contract_id="ContinuityAuditReport",
+            default_agent_id="agent:26",
+            default_workflow_id="workflow.writing.continuity_audit",
+            default_runtime_lane="continuity_audit",
+            default_memory_scope="continuity_workspace",
+            metadata={
+                "task_resource": "continuity_audit",
+                "template_id": "template.writing.continuity_audit",
+                "task_id": "task.writing.continuity_audit",
+                "coordination_task_id": "coord.writing.continuity_audit",
+                "communication_protocol_id": "protocol.writing.continuity_audit",
+                "topology_template_id": "topology.writing.continuity_audit",
+                "agent_group_id": "group.writing.longform_novel_core",
+            },
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.writing.final_compilation",
+            task_mode="final_compilation",
+            task_family="writing",
+            title="长篇小说全书编纂",
+            input_contract_id="LongformCompilationInput",
+            output_contract_id="LongformNovelCompilation",
+            default_agent_id="agent:20",
+            default_workflow_id="workflow.writing.final_compilation",
+            default_runtime_lane="final_compilation",
+            default_memory_scope="novel_bible_read_write",
+            metadata={
+                "task_resource": "final_compilation",
+                "template_id": "template.writing.final_compilation",
+                "task_id": "task.writing.final_compilation",
+                "coordination_task_id": "coord.writing.final_compilation",
+                "communication_protocol_id": "protocol.writing.final_compilation",
+                "topology_template_id": "topology.writing.final_compilation",
+                "agent_group_id": "group.writing.longform_novel_core",
+            },
+        ),
+        TaskFlowDefinition(
             flow_id="flow.dev.arcade_game_bundle",
             task_mode="arcade_game_bundle",
             task_family="development",
@@ -235,6 +403,55 @@ def _merge_items_by_key(
     return list(merged.values())
 
 
+def _merge_default_overlay_by_key(
+    default_items: list[dict[str, Any]],
+    stored_items: list[dict[str, Any]],
+    *,
+    key: str,
+) -> list[dict[str, Any]]:
+    defaults_by_key = {
+        str(item.get(key) or "").strip(): dict(item)
+        for item in default_items
+        if str(item.get(key) or "").strip()
+    }
+    merged: dict[str, dict[str, Any]] = {}
+    for item_key, item in defaults_by_key.items():
+        merged[item_key] = dict(item)
+    for stored in stored_items:
+        item_key = str(stored.get(key) or "").strip()
+        if not item_key:
+            continue
+        base = dict(defaults_by_key.get(item_key) or {})
+        merged_item = {**base, **dict(stored)}
+        if isinstance(base.get("metadata"), dict) or isinstance(stored.get("metadata"), dict):
+            merged_item["metadata"] = {
+                **dict(base.get("metadata") or {}),
+                **{
+                    meta_key: meta_value
+                    for meta_key, meta_value in dict(stored.get("metadata") or {}).items()
+                    if meta_value not in ("", None, [], {})
+                    or meta_key not in dict(base.get("metadata") or {})
+                },
+            }
+        if isinstance(base.get("task_policy"), dict) or isinstance(stored.get("task_policy"), dict):
+            base_policy = dict(base.get("task_policy") or {})
+            stored_policy = dict(stored.get("task_policy") or {})
+            merged_policy = {**base_policy, **stored_policy}
+            if isinstance(base_policy.get("task_structure"), dict) or isinstance(stored_policy.get("task_structure"), dict):
+                merged_policy["task_structure"] = {
+                    **dict(base_policy.get("task_structure") or {}),
+                    **dict(stored_policy.get("task_structure") or {}),
+                }
+            if isinstance(base_policy.get("safety_policy"), dict) or isinstance(stored_policy.get("safety_policy"), dict):
+                merged_policy["safety_policy"] = {
+                    **dict(base_policy.get("safety_policy") or {}),
+                    **dict(stored_policy.get("safety_policy") or {}),
+                }
+            merged_item["task_policy"] = merged_policy
+        merged[item_key] = merged_item
+    return list(merged.values())
+
+
 def _next_prefixed_id(existing_ids: list[str], *, prefix: str, width: int = 6) -> str:
     max_value = 0
     for raw in existing_ids:
@@ -276,6 +493,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             title="健康修复协作草案",
             coordination_mode="review_merge",
             coordinator_agent_id="agent:0",
+            agent_group_id="",
             participant_agent_ids=("agent:3",),
             topology_template_id="topology.health.repair_review",
             stop_conditions=("all_participants_reported", "coordinator_final_merge"),
@@ -287,6 +505,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             title="短篇小说协作流水线",
             coordination_mode="staged_review_loop",
             coordinator_agent_id="agent:0",
+            agent_group_id="",
             participant_agent_ids=("agent:4", "agent:5"),
             topology_template_id="topology.writing.short_story_pipeline",
             shared_context_policy="structured_stage_refs_only",
@@ -354,6 +573,108 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
                 ],
             },
         ),
+        CoordinationTaskDefinition(
+            coordination_task_id="coord.writing.longform_project_bootstrap",
+            title="长篇小说项目立项协作",
+            coordination_mode="project_bootstrap",
+            coordinator_agent_id="agent:20",
+            agent_group_id="group.writing.longform_novel_core",
+            participant_agent_ids=("agent:21", "agent:22", "agent:23"),
+            topology_template_id="topology.writing.longform_project_bootstrap",
+            shared_context_policy="project_spec_refs_only",
+            memory_sharing_policy="shared_project_bible_refs",
+            handoff_policy="project_contract_handoff",
+            conflict_resolution_policy="editor_gate_review",
+            output_merge_policy="editor_gate_merge",
+            stop_conditions=("project_scope_locked", "bible_backlog_defined"),
+            enabled=True,
+            metadata={"task_id": "task.writing.longform_novel_project"},
+        ),
+        CoordinationTaskDefinition(
+            coordination_task_id="coord.writing.novel_bible_build",
+            title="长篇小说圣经构建协作",
+            coordination_mode="parallel_bible_build",
+            coordinator_agent_id="agent:20",
+            agent_group_id="group.writing.longform_novel_core",
+            participant_agent_ids=("agent:21", "agent:22", "agent:23"),
+            topology_template_id="topology.writing.novel_bible_build",
+            shared_context_policy="bible_section_refs_only",
+            memory_sharing_policy="shared_project_bible_refs",
+            handoff_policy="bible_section_contract_handoff",
+            conflict_resolution_policy="editor_gate_review",
+            output_merge_policy="editor_gate_merge",
+            stop_conditions=("story_bible_complete", "consistency_passed"),
+            enabled=True,
+            metadata={"task_id": "task.writing.novel_bible_build"},
+        ),
+        CoordinationTaskDefinition(
+            coordination_task_id="coord.writing.volume_planning",
+            title="长篇小说卷规划协作",
+            coordination_mode="staged_volume_planning",
+            coordinator_agent_id="agent:20",
+            agent_group_id="group.writing.longform_novel_core",
+            participant_agent_ids=("agent:22", "agent:23", "agent:25"),
+            topology_template_id="topology.writing.volume_planning",
+            shared_context_policy="volume_plan_refs_only",
+            memory_sharing_policy="shared_project_bible_refs",
+            handoff_policy="volume_contract_handoff",
+            conflict_resolution_policy="editor_gate_review",
+            output_merge_policy="editor_gate_merge",
+            stop_conditions=("volume_plan_accepted",),
+            enabled=True,
+            metadata={"task_id": "task.writing.volume_planning"},
+        ),
+        CoordinationTaskDefinition(
+            coordination_task_id="coord.writing.chapter_pipeline",
+            title="长篇小说章节流水线",
+            coordination_mode="chapter_review_loop",
+            coordinator_agent_id="agent:20",
+            agent_group_id="group.writing.longform_novel_core",
+            participant_agent_ids=("agent:23", "agent:24", "agent:25", "agent:26"),
+            topology_template_id="topology.writing.chapter_pipeline",
+            shared_context_policy="chapter_refs_only",
+            memory_sharing_policy="shared_project_bible_refs",
+            handoff_policy="chapter_contract_handoff",
+            conflict_resolution_policy="editor_gate_review",
+            output_merge_policy="editor_gate_merge",
+            stop_conditions=("chapter_accepted", "revision_budget_exhausted"),
+            enabled=True,
+            metadata={"task_id": "task.writing.chapter_drafting", "max_revision_cycles": 3, "required_revision_cycles": 1},
+        ),
+        CoordinationTaskDefinition(
+            coordination_task_id="coord.writing.continuity_audit",
+            title="长篇小说连续性审计协作",
+            coordination_mode="continuity_audit",
+            coordinator_agent_id="agent:20",
+            agent_group_id="group.writing.longform_novel_core",
+            participant_agent_ids=("agent:21", "agent:26", "agent:25"),
+            topology_template_id="topology.writing.continuity_audit",
+            shared_context_policy="audit_refs_only",
+            memory_sharing_policy="shared_project_bible_refs",
+            handoff_policy="audit_contract_handoff",
+            conflict_resolution_policy="editor_gate_review",
+            output_merge_policy="editor_gate_merge",
+            stop_conditions=("continuity_report_accepted",),
+            enabled=True,
+            metadata={"task_id": "task.writing.continuity_audit"},
+        ),
+        CoordinationTaskDefinition(
+            coordination_task_id="coord.writing.final_compilation",
+            title="长篇小说全书编纂协作",
+            coordination_mode="final_compilation",
+            coordinator_agent_id="agent:20",
+            agent_group_id="group.writing.longform_novel_core",
+            participant_agent_ids=("agent:24", "agent:25", "agent:26"),
+            topology_template_id="topology.writing.final_compilation",
+            shared_context_policy="book_refs_only",
+            memory_sharing_policy="shared_project_bible_refs",
+            handoff_policy="compilation_contract_handoff",
+            conflict_resolution_policy="editor_gate_review",
+            output_merge_policy="editor_final_book_merge",
+            stop_conditions=("book_compilation_accepted",),
+            enabled=True,
+            metadata={"task_id": "task.writing.final_compilation"},
+        ),
     )
 
 
@@ -401,6 +722,102 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
             enabled=True,
             metadata={"task_id": "task.writing.short_story"},
         ),
+        TaskCommunicationProtocol(
+            protocol_id="protocol.writing.longform_project_bootstrap",
+            title="长篇小说项目立项协议",
+            message_types=("project_goal", "world_seed", "character_seed", "plot_seed", "editor_project_spec"),
+            payload_contracts=("LongformNovelProjectInput", "WorldSeed", "CharacterSeed", "PlotSeed", "NovelProjectSpec"),
+            signal_rules=("participants_report_to_editor", "editor_locks_project_scope"),
+            handoff_rules=("project_refs_only", "structured_spec_only"),
+            ack_policy="explicit_ack",
+            timeout_policy="fail_closed",
+            error_signal_policy="raise_to_editor",
+            enabled=True,
+            metadata={"task_id": "task.writing.longform_novel_project", "agent_group_id": "group.writing.longform_novel_core"},
+        ),
+        TaskCommunicationProtocol(
+            protocol_id="protocol.writing.novel_bible_build",
+            title="长篇小说圣经构建协议",
+            message_types=("world_bible_section", "character_bible_section", "plot_bible_section", "bible_conflict_report", "editor_bible_merge"),
+            payload_contracts=("WorldBible", "CharacterBible", "PlotBible", "BibleConflictReport", "NovelBibleBundle"),
+            signal_rules=("parallel_section_submit", "conflict_report_required", "editor_merge_gate"),
+            handoff_rules=("section_refs_only", "conflict_refs_required", "structured_bible_bundle_only"),
+            ack_policy="explicit_ack",
+            timeout_policy="fail_closed",
+            error_signal_policy="raise_to_editor",
+            enabled=True,
+            metadata={"task_id": "task.writing.novel_bible_build", "agent_group_id": "group.writing.longform_novel_core"},
+        ),
+        TaskCommunicationProtocol(
+            protocol_id="protocol.writing.volume_planning",
+            title="长篇小说卷规划协议",
+            message_types=("volume_goal", "character_arc_plan", "plot_volume_plan", "volume_quality_review", "editor_volume_acceptance"),
+            payload_contracts=("VolumeGoal", "CharacterArcPlan", "VolumePlotPlan", "VolumeQualityReview", "VolumePlan"),
+            signal_rules=("stage_gate_required", "review_before_acceptance", "editor_acceptance_required"),
+            handoff_rules=("volume_refs_only", "structured_volume_plan_only"),
+            ack_policy="explicit_ack",
+            timeout_policy="fail_closed",
+            error_signal_policy="raise_to_editor",
+            enabled=True,
+            metadata={"task_id": "task.writing.volume_planning", "agent_group_id": "group.writing.longform_novel_core"},
+        ),
+        TaskCommunicationProtocol(
+            protocol_id="protocol.writing.chapter_pipeline",
+            title="长篇小说章节流水线协议",
+            message_types=(
+                "chapter_goal",
+                "chapter_plan",
+                "chapter_draft",
+                "style_review",
+                "continuity_review",
+                "revision_request",
+                "chapter_revision",
+                "editor_acceptance",
+            ),
+            payload_contracts=(
+                "ChapterGoal",
+                "ChapterPlan",
+                "ChapterDraft",
+                "ChapterQualityReview",
+                "ChapterContinuityReview",
+                "ChapterRevisionRequest",
+                "ChapterRevision",
+                "ChapterAcceptanceResult",
+            ),
+            signal_rules=("plan_before_draft", "dual_review_required", "revision_loop_until_acceptance", "editor_acceptance_required"),
+            handoff_rules=("chapter_refs_only", "draft_artifact_ref_required", "review_issue_refs_required"),
+            ack_policy="explicit_ack",
+            timeout_policy="fail_closed",
+            error_signal_policy="raise_to_editor",
+            enabled=True,
+            metadata={"task_id": "task.writing.chapter_drafting", "agent_group_id": "group.writing.longform_novel_core"},
+        ),
+        TaskCommunicationProtocol(
+            protocol_id="protocol.writing.continuity_audit",
+            title="长篇小说连续性审计协议",
+            message_types=("audit_scope", "world_consistency_report", "timeline_report", "style_risk_report", "editor_audit_merge"),
+            payload_contracts=("ContinuityAuditScope", "WorldConsistencyReport", "TimelineReport", "StyleRiskReport", "ContinuityAuditReport"),
+            signal_rules=("evidence_refs_required", "blocking_conflicts_must_be_marked", "editor_merge_gate"),
+            handoff_rules=("chapter_range_refs_only", "issue_refs_required"),
+            ack_policy="explicit_ack",
+            timeout_policy="fail_closed",
+            error_signal_policy="raise_to_editor",
+            enabled=True,
+            metadata={"task_id": "task.writing.continuity_audit", "agent_group_id": "group.writing.longform_novel_core"},
+        ),
+        TaskCommunicationProtocol(
+            protocol_id="protocol.writing.final_compilation",
+            title="长篇小说全书编纂协议",
+            message_types=("compilation_scope", "chapter_bundle_refs", "quality_final_report", "continuity_final_report", "editor_final_merge"),
+            payload_contracts=("LongformCompilationInput", "ChapterBundleRefs", "FinalQualityReport", "FinalContinuityReport", "LongformNovelCompilation"),
+            signal_rules=("all_chapters_refs_required", "final_reviews_required", "editor_final_merge_gate"),
+            handoff_rules=("artifact_refs_only", "structured_final_book_manifest_only"),
+            ack_policy="explicit_ack",
+            timeout_policy="fail_closed",
+            error_signal_policy="raise_to_editor",
+            enabled=True,
+            metadata={"task_id": "task.writing.final_compilation", "agent_group_id": "group.writing.longform_novel_core"},
+        ),
     )
 
 
@@ -442,6 +859,108 @@ def default_topology_templates() -> tuple[TopologyTemplate, ...]:
             ),
             enabled=True,
         ),
+        TopologyTemplate(
+            template_id="topology.writing.longform_project_bootstrap",
+            title="长篇小说项目立项拓扑",
+            nodes=(
+                {"node_id": "editor_gate", "agent_id": "agent:20", "lane": "novel_project_control", "role": "coordinator"},
+                {"node_id": "world_seed", "agent_id": "agent:21", "lane": "world_bible_build", "role": "participant"},
+                {"node_id": "character_seed", "agent_id": "agent:22", "lane": "character_bible_build", "role": "participant"},
+                {"node_id": "plot_seed", "agent_id": "agent:23", "lane": "volume_plot_plan", "role": "participant"},
+            ),
+            edges=(
+                {"from": "world_seed", "to": "editor_gate", "policy": "project_contract_handoff"},
+                {"from": "character_seed", "to": "editor_gate", "policy": "project_contract_handoff"},
+                {"from": "plot_seed", "to": "editor_gate", "policy": "project_contract_handoff"},
+            ),
+            enabled=True,
+        ),
+        TopologyTemplate(
+            template_id="topology.writing.novel_bible_build",
+            title="长篇小说圣经构建拓扑",
+            nodes=(
+                {"node_id": "world_bible", "agent_id": "agent:21", "lane": "world_bible_build", "role": "participant"},
+                {"node_id": "character_bible", "agent_id": "agent:22", "lane": "character_bible_build", "role": "participant"},
+                {"node_id": "plot_bible", "agent_id": "agent:23", "lane": "volume_plot_plan", "role": "participant"},
+                {"node_id": "editor_merge", "agent_id": "agent:20", "lane": "novel_bible_gate", "role": "coordinator"},
+            ),
+            edges=(
+                {"from": "world_bible", "to": "editor_merge", "policy": "bible_section_contract_handoff"},
+                {"from": "character_bible", "to": "editor_merge", "policy": "bible_section_contract_handoff"},
+                {"from": "plot_bible", "to": "editor_merge", "policy": "bible_section_contract_handoff"},
+            ),
+            enabled=True,
+        ),
+        TopologyTemplate(
+            template_id="topology.writing.volume_planning",
+            title="长篇小说卷规划拓扑",
+            nodes=(
+                {"node_id": "character_arc", "agent_id": "agent:22", "lane": "volume_character_arc", "role": "participant"},
+                {"node_id": "volume_plot", "agent_id": "agent:23", "lane": "volume_plot_plan", "role": "participant"},
+                {"node_id": "quality_review", "agent_id": "agent:25", "lane": "arc_review", "role": "participant"},
+                {"node_id": "editor_acceptance", "agent_id": "agent:20", "lane": "volume_acceptance", "role": "coordinator"},
+            ),
+            edges=(
+                {"from": "character_arc", "to": "volume_plot", "policy": "volume_contract_handoff"},
+                {"from": "volume_plot", "to": "quality_review", "policy": "volume_contract_handoff"},
+                {"from": "quality_review", "to": "editor_acceptance", "policy": "volume_contract_handoff"},
+            ),
+            enabled=True,
+        ),
+        TopologyTemplate(
+            template_id="topology.writing.chapter_pipeline",
+            title="长篇小说章节流水线拓扑",
+            nodes=(
+                {"node_id": "chapter_plan", "agent_id": "agent:23", "lane": "chapter_plot_plan", "role": "participant"},
+                {"node_id": "chapter_draft", "agent_id": "agent:24", "lane": "chapter_drafting", "role": "participant"},
+                {"node_id": "style_review", "agent_id": "agent:25", "lane": "chapter_quality_review", "role": "participant"},
+                {"node_id": "continuity_review", "agent_id": "agent:26", "lane": "chapter_continuity_review", "role": "participant"},
+                {"node_id": "chapter_revision", "agent_id": "agent:24", "lane": "chapter_revision", "role": "participant"},
+                {"node_id": "editor_acceptance", "agent_id": "agent:20", "lane": "chapter_acceptance", "role": "coordinator"},
+            ),
+            edges=(
+                {"from": "chapter_plan", "to": "chapter_draft", "policy": "chapter_contract_handoff"},
+                {"from": "chapter_draft", "to": "style_review", "policy": "chapter_contract_handoff"},
+                {"from": "chapter_draft", "to": "continuity_review", "policy": "chapter_contract_handoff"},
+                {"from": "style_review", "to": "chapter_revision", "policy": "chapter_contract_handoff"},
+                {"from": "continuity_review", "to": "chapter_revision", "policy": "chapter_contract_handoff"},
+                {"from": "chapter_revision", "to": "editor_acceptance", "policy": "chapter_contract_handoff"},
+            ),
+            enabled=True,
+        ),
+        TopologyTemplate(
+            template_id="topology.writing.continuity_audit",
+            title="长篇小说连续性审计拓扑",
+            nodes=(
+                {"node_id": "world_consistency", "agent_id": "agent:21", "lane": "continuity_audit", "role": "participant"},
+                {"node_id": "timeline_audit", "agent_id": "agent:26", "lane": "continuity_audit", "role": "participant"},
+                {"node_id": "style_risk", "agent_id": "agent:25", "lane": "style_audit", "role": "participant"},
+                {"node_id": "editor_audit_merge", "agent_id": "agent:20", "lane": "arc_review", "role": "coordinator"},
+            ),
+            edges=(
+                {"from": "world_consistency", "to": "editor_audit_merge", "policy": "audit_contract_handoff"},
+                {"from": "timeline_audit", "to": "editor_audit_merge", "policy": "audit_contract_handoff"},
+                {"from": "style_risk", "to": "editor_audit_merge", "policy": "audit_contract_handoff"},
+            ),
+            enabled=True,
+        ),
+        TopologyTemplate(
+            template_id="topology.writing.final_compilation",
+            title="长篇小说全书编纂拓扑",
+            nodes=(
+                {"node_id": "chapter_bundle", "agent_id": "agent:24", "lane": "chapter_revision", "role": "participant"},
+                {"node_id": "final_quality", "agent_id": "agent:25", "lane": "style_audit", "role": "participant"},
+                {"node_id": "final_continuity", "agent_id": "agent:26", "lane": "arc_continuity_review", "role": "participant"},
+                {"node_id": "editor_final_merge", "agent_id": "agent:20", "lane": "final_compilation", "role": "coordinator"},
+            ),
+            edges=(
+                {"from": "chapter_bundle", "to": "final_quality", "policy": "compilation_contract_handoff"},
+                {"from": "chapter_bundle", "to": "final_continuity", "policy": "compilation_contract_handoff"},
+                {"from": "final_quality", "to": "editor_final_merge", "policy": "compilation_contract_handoff"},
+                {"from": "final_continuity", "to": "editor_final_merge", "policy": "compilation_contract_handoff"},
+            ),
+            enabled=True,
+        ),
     )
 
 
@@ -479,6 +998,8 @@ def _default_flow_contract_binding(task: TaskAssignment) -> TaskFlowContractBind
 
 def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
     participant_ids = tuple(str(item).strip() for item in task.participant_agent_ids if str(item).strip())
+    task_structure = dict(task.task_structure or {})
+    runtime_limits = dict(task_structure.get("runtime_limits") or {})
     return TaskAgentAdoptionPlan(
         plan_id=f"taskadopt:{task.task_id}",
         task_id=task.task_id,
@@ -489,7 +1010,17 @@ def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
         worker_agent_blueprint_id="",
         worker_agent_naming_rule="",
         notes="Derived from task assignment defaults.",
-        metadata={"derived_from": "task_assignment", "participant_agent_ids": list(participant_ids)},
+        metadata={
+            "derived_from": "task_assignment",
+            "participant_agent_ids": list(participant_ids),
+            "agent_group_id": str(task_structure.get("agent_group_id") or dict(task.metadata or {}).get("agent_group_id") or ""),
+            "coordination_task_id": str(task_structure.get("coordination_task_id") or dict(task.metadata or {}).get("coordination_task_id") or ""),
+            "communication_protocol_id": str(
+                task_structure.get("communication_protocol_id") or dict(task.metadata or {}).get("communication_protocol_id") or ""
+            ),
+            "topology_template_id": str(task_structure.get("topology_template_id") or dict(task.metadata or {}).get("topology_template_id") or ""),
+            "runtime_limits": runtime_limits,
+        },
     )
 
 
@@ -510,6 +1041,22 @@ def _default_memory_request_profile(task: TaskAssignment) -> TaskMemoryRequestPr
     elif task_family == "writing":
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["story_goal", "story_style", task_mode or "writing"]
+        if task_mode.startswith("longform_") or task_mode in {
+            "novel_bible_build",
+            "volume_planning",
+            "chapter_planning",
+            "chapter_drafting",
+            "chapter_revision",
+            "continuity_audit",
+            "final_compilation",
+        }:
+            requested_topics = [
+                "novel_project_spec",
+                "novel_bible",
+                "volume_plan",
+                "chapter_refs",
+                task_mode,
+            ]
         allow_long_term_memory = True
     elif task_mode == "general_task":
         requested_layers = ["conversation"]
@@ -545,6 +1092,7 @@ def _specific_task_record_from_assignment(task: TaskAssignment) -> SpecificTaskR
         task_policy={
             "safety_policy": dict(task.safety_policy or {}),
             "task_structure": dict(task.task_structure or {}),
+            "runtime_limits": dict(dict(task.task_structure or {}).get("runtime_limits") or {}),
         },
         metadata=dict(task.metadata or {}),
     )
@@ -596,6 +1144,22 @@ def _default_memory_request_profile_from_specific_record(record: SpecificTaskRec
     elif task_family == "writing":
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["story_goal", "story_style", task_mode or "writing"]
+        if task_mode.startswith("longform_") or task_mode in {
+            "novel_bible_build",
+            "volume_planning",
+            "chapter_planning",
+            "chapter_drafting",
+            "chapter_revision",
+            "continuity_audit",
+            "final_compilation",
+        }:
+            requested_topics = [
+                "novel_project_spec",
+                "novel_bible",
+                "volume_plan",
+                "chapter_refs",
+                task_mode,
+            ]
         allow_long_term_memory = True
     return TaskMemoryRequestProfile(
         profile_id=f"taskmem:{record.task_id}",
@@ -639,6 +1203,7 @@ class TaskFlowRegistry:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
         self.agent_registry = AgentRegistry(self.base_dir)
+        self.agent_group_registry = None
         self.agent_runtime_registry = AgentRuntimeRegistry(self.base_dir)
         self.template_registry = TaskTemplateRegistry(self.base_dir)
         self.workflow_registry = TaskWorkflowRegistry(self.base_dir)
@@ -710,7 +1275,7 @@ class TaskFlowRegistry:
             _flows_path(self.base_dir),
             {"flows": default_payload},
         )
-        merged_payload = _merge_items_by_key(
+        merged_payload = _merge_default_overlay_by_key(
             default_payload,
             [item for item in list(payload.get("flows") or []) if isinstance(item, dict)],
             key="flow_id",
@@ -825,7 +1390,7 @@ class TaskFlowRegistry:
             {"specific_task_records": default_records},
         )
         records: list[SpecificTaskRecord] = []
-        merged_payload = _merge_items_by_key(
+        merged_payload = _merge_default_overlay_by_key(
             default_records,
             [item for item in list(payload.get("specific_task_records") or []) if isinstance(item, dict)],
             key="task_id",
@@ -1029,6 +1594,10 @@ class TaskFlowRegistry:
                 "memory_scope_hint": flow.default_memory_scope,
                 "workflow_steps": [dict(item) for item in workflow.steps] if workflow is not None else [],
                 "task_resource_kind": str(flow.metadata.get("task_resource") or ""),
+                "agent_group_id": str(flow.metadata.get("agent_group_id") or ""),
+                "coordination_task_id": str(flow.metadata.get("coordination_task_id") or ""),
+                "communication_protocol_id": str(flow.metadata.get("communication_protocol_id") or ""),
+                "topology_template_id": str(flow.metadata.get("topology_template_id") or ""),
             },
             enabled=flow.enabled,
             metadata={**flow.metadata, "source_flow_id": flow.flow_id},
@@ -1226,7 +1795,7 @@ class TaskFlowRegistry:
             {"adoption_plans": [_default_adoption_plan(item).to_dict() for item in default_tasks]},
         )
         default_plans = [_default_adoption_plan(item).to_dict() for item in default_tasks]
-        merged_payload = _merge_items_by_key(
+        merged_payload = _merge_default_overlay_by_key(
             default_plans,
             [item for item in list(payload.get("adoption_plans") or []) if isinstance(item, dict)],
             key="plan_id",
@@ -1407,7 +1976,12 @@ class TaskFlowRegistry:
                     title=str(item.get("title") or ""),
                     coordination_mode=str(item.get("coordination_mode") or "review_merge"),
                     coordinator_agent_id=str(item.get("coordinator_agent_id") or "agent:0"),
-                    participant_agent_ids=tuple(str(value) for value in list(item.get("participant_agent_ids") or []) if str(value)),
+                    agent_group_id=str(item.get("agent_group_id") or ""),
+                    participant_agent_ids=self._resolve_coordination_participants(
+                        coordinator_agent_id=str(item.get("coordinator_agent_id") or "agent:0"),
+                        agent_group_id=str(item.get("agent_group_id") or ""),
+                        participant_agent_ids=tuple(str(value) for value in list(item.get("participant_agent_ids") or []) if str(value)),
+                    ),
                     topology_template_id=str(item.get("topology_template_id") or ""),
                     shared_context_policy=str(item.get("shared_context_policy") or "explicit_refs_only"),
                     memory_sharing_policy=str(item.get("memory_sharing_policy") or "isolated_by_default"),
@@ -1570,6 +2144,7 @@ class TaskFlowRegistry:
         title: str,
         coordination_mode: str,
         coordinator_agent_id: str,
+        agent_group_id: str = "",
         participant_agent_ids: tuple[str, ...] = (),
         topology_template_id: str = "",
         shared_context_policy: str = "explicit_refs_only",
@@ -1589,7 +2164,12 @@ class TaskFlowRegistry:
             title=str(title or target).strip(),
             coordination_mode=str(coordination_mode or "review_merge").strip(),
             coordinator_agent_id=str(coordinator_agent_id or "agent:0").strip() or "agent:0",
-            participant_agent_ids=tuple(str(item).strip() for item in participant_agent_ids if str(item).strip()),
+            agent_group_id=str(agent_group_id or "").strip(),
+            participant_agent_ids=self._resolve_coordination_participants(
+                coordinator_agent_id=str(coordinator_agent_id or "agent:0").strip() or "agent:0",
+                agent_group_id=str(agent_group_id or "").strip(),
+                participant_agent_ids=tuple(str(item).strip() for item in participant_agent_ids if str(item).strip()),
+            ),
             topology_template_id=str(topology_template_id or "").strip(),
             shared_context_policy=str(shared_context_policy or "explicit_refs_only").strip(),
             memory_sharing_policy=str(memory_sharing_policy or "isolated_by_default").strip(),
@@ -1604,6 +2184,28 @@ class TaskFlowRegistry:
         tasks.append(task)
         _write_json(_coordination_tasks_path(self.base_dir), {"coordination_tasks": [item.to_dict() for item in tasks]})
         return task
+
+    def _resolve_coordination_participants(
+        self,
+        *,
+        coordinator_agent_id: str,
+        agent_group_id: str,
+        participant_agent_ids: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        explicit = tuple(str(item).strip() for item in participant_agent_ids if str(item).strip())
+        if explicit:
+            return explicit
+        from orchestration.agent_group_registry import AgentGroupRegistry
+
+        group = AgentGroupRegistry(self.base_dir).get_group(agent_group_id)
+        if group is None:
+            return ()
+        coordinator = str(coordinator_agent_id or group.coordinator_agent_id or "").strip()
+        return tuple(
+            item
+            for item in group.member_agent_ids
+            if item and item != coordinator
+        )
 
     def upsert_topology_template(
         self,

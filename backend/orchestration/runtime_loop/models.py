@@ -35,6 +35,7 @@ RuntimeTerminalReason = Literal[
     "max_turns",
     "context_unrecoverable",
     "executor_failed",
+    "artifact_validation_failed",
     "commit_failed",
     "user_aborted",
     "internal_error",

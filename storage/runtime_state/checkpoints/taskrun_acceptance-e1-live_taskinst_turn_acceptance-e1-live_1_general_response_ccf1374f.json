@@ -1,0 +1,709 @@
+{
+  "checkpoint_id": "rtchk:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:36",
+  "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+  "event_offset": 36,
+  "loop_state": {
+    "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+    "status": "completed",
+    "turn_count": 2,
+    "step_count": 1,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.chat.general_response",
+    "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+    "task_result_ref": "taskresult:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:acceptance-e1-live:1:general_response:74a7296f858e",
+    "memory_state_ref": "memory-runtime:acceptance-e1-live",
+    "projection_ref": "2231fddb973258fd",
+    "prompt_manifest_ref": "manifest-2231fddb973258fd",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 0,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 900000
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+      "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+      "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+      "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked",
+      "taskrun-ledger:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+      "taskresult:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+      "commit_gate:commit-gate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "acceptance-e1-live",
+            "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+            "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+            "role": "assistant",
+            "content": "## 任务系统、编排系统、Runtime 三者边界说明\n\n以下基于当前上下文中可直接观察到的结构进行梳理，可直接用于验收复核。\n\n---\n\n### 一、三者的核心分工（一句话版）\n\n| 系统 | 回答的问题 | 稳定性 |\n|---|---|---|\n| 任务系统 | 做什么 | 高（任务定义层） |\n| 编排系统 | 怎么做（抽象流程） | 中（工作流定义层） |\n| Runtime | 这一次怎么执行 | 低（每次调用不同） |\n\n---\n\n### 二、各自承载的内容（可直接对照验收）\n\n#### 1. 任务系统\n\n管的是任务的定义与契约。从当前结构中可以明确识别到它承载：\n\n- Goal — 任务目标（自然语言，面向意图）\n- Task family — 任务所属家族（如 `conversation_entry`）\n- Task mode — 任务模式（如 `main_conversation_entry`）\n- Requested outputs — 要求的输出形态（如 `final_answer`）\n\n> 边界线：任务系统不关心任务分几步完成、不关心当前执行者用什么姿态。它只定义\"这件事是什么\"和\"要产出什么\"。\n\n#### 2. 编排系统\n\n管的是任务如何被拆解和执行。从当前结构中可以明确识别到它承载：\n\n- Workflow — 绑定的工作流标识（如 `主会话通用工作流`）\n- Workflow ID — 工作流的正式标识（如 `workflow.general.main_conversation`）\n- Steps — 执行步骤序列（如\"理解请求 → 判断是否直接回答或分流 → 输出结果\"）\n- Stop conditions — 停止条件（如 `answer_ready`、`specific_task_selected`）\n- Output boundary — 输出边界（如 `AssistantFinalAnswer` 或分流到注册的特定任务）\n\n> 边界线：编排系统定义的是抽象的流程模板，不绑定具体调用实例。它回答\"这类任务按什么路径完成\"。\n\n#### 3. Runtime\n\n管的是当前这次调用的具体执行投影。从 `Runtime Stage Projection` 中可以明确识别到它承载：\n\n- Projection role — 本次扮演的角色（如 `operator`）\n- Posture tags — 姿态标签（如 `concise`）\n- Attention focus — 关注重点（如 `task_goal, workflow, output`）\n- Projection reason — 投影来源说明（如 `derived from task binding role and task mode`）\n- Output contract — 本次输出契约（如 `AssistantFinalAnswer`）\n\n> 边界线：Runtime 来自编排层的派生，但只约束本次任务。它不替代身份锚点和共同契约——这是明确写在投影说明里的硬边界。\n\n---\n\n### 三、三者关系（验收时检查的核心逻辑）\n\n任务系统 ──定义──▶ 编排系统 ──实例化为──▶ Runtime\n│                  │                    │\n│  Goal            │  Workflow          │  Projection role\n│  Task family     │  Steps             │  Posture tags\n│  Task mode       │  Stop conditions   │  Attention focus\n│  Requested       │  Output boundary   │  Output contract\n│  outputs         │                    │\n└──────────────────┴────────────────────┘\n不因单次调用而改变              每次调用可不同\n\n---\n\n### 四、验收复核检查项\n\n复核时逐项确认：\n\n1. 任务系统：是否有 Goal / Task family / Task mode / Requested outputs 四个字段，且值不因调用上下文变化。\n2. 编排系统：是否有 Workflow / Steps / Stop conditions / Output boundary 四个字段，Steps 是否可执行（非空、有明确顺序）。\n3. Runtime：是否有 Projection role / Posture tags / Attention focus，且明确标注\"来自编排层、不替代身份锚点和共同契约\"。\n4. 边界不穿透：任务系统字段不包含执行步骤；编排系统字段不包含单次调用特有的姿态信息；Runtime 投影不修改身份锚点或共同契约。\n\n---\n\n> 依据说明：以上分析直接来自当前上下文中显式的任务契约块、工作流块和 Runtime Stage Projection 块的结构，未引入推测性内容。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "acceptance-e1-live",
+          "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+            "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+            "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+            "template_id": "template.chat.general_response",
+            "terminal_reason": "completed",
+            "final_content_chars": 2209,
+            "task_result": {
+              "result_id": "taskresult:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+              "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+              "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+              "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+              "template_id": "template.chat.general_response",
+              "status": "completed",
+              "terminal_reason": "completed",
+              "requested_outputs": [
+                "final_answer"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+                "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+                "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+                "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+              ],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.answer",
+                  "title": "生成最终回答",
+                  "step_kind": "finalize",
+                  "executor_type": "model",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.model_response"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "AssistantFinalAnswer",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [
+                    "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+                    "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+                    "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+                    "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+                  ],
+                  "entered_at": 1777977349.4669292,
+                  "completed_at": 1777977410.5015192,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+                  "executor_ref": "",
+                  "diagnostics": {
+                    "transition_reason": "terminal_finalize"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "## 任务系统、编排系统、Runtime 三者边界说明\n\n以下基于当前上下文中可直接观察到的结构进行梳理，可直接用于验收复核。\n\n---\n\n### 一、三者的核心分工（一句话版）\n\n| 系统 | 回答的问题 | 稳定性 |\n|---|---|---|\n| 任务系统 | 做什么 | 高（任务定义层） |\n| 编排系统 | 怎么做（抽象流程） | 中（工作流定义层） |\n| Runtime | 这一次怎么执行 | 低（每次调用不同） |\n\n---\n\n### 二、各自承载的内容（可直接对照验收）\n\n#### 1. 任务系统\n\n管的是任务的定义与契约。从当前结构中可以明确识别到它承载：\n\n- Goal — 任务目标（自然语言，面向意图）\n- Task family — 任务所属家族（如 `conversation_entry`）\n- Task mode — 任务模式（如 `main_conversation_entry`）\n- Requested outputs — 要求的输出形态（如 `final_answer`）\n\n> 边界线：任务系统不关心任务分几步完成、不关心当前执行者用什么姿态。它只定义\"这件事是什么\"和\"要产出什么\"。\n\n#### 2. 编排系统\n\n管的是任务如何被拆解和执行。从当前结构中可以明确识别到它承载：\n\n- Workflow — 绑定的工作流标识（如 `主会话通用工作流`）\n- Workflow ID — 工作流的正式标识（如 `workflow.general.main_conversation`）\n- Steps — 执行步骤序列（如\"理解请求 → 判断是否直接回答或分流 → 输出结果\"）\n- Stop conditions — 停止条件（如 `answer_ready`、`specific_task_selected`）\n- Output boundary — 输出边界（如 `AssistantFinalAnswer` 或分流到注册的特定任务）\n\n> 边界线：编排系统定义的是抽象的流程模板，不绑定具体调用实例。它回答\"这类任务按什么路径完成\"。\n\n#### 3. Runtime\n\n管的是当前这次调用的具体执行投影。从 `Runtime Stage Projection` 中可以明确识别到它承载：\n\n- Projection role — 本次扮演的角色（如 `operator`）\n- Posture tags — 姿态标签（如 `concise`）\n- Attention focus — 关注重点（如 `task_goal, workflow, output`）\n- Projection reason — 投影来源说明（如 `derived from task binding role and task mode`）\n- Output contract — 本次输出契约（如 `AssistantFinalAnswer`）\n\n> 边界线：Runtime 来自编排层的派生，但只约束本次任务。它不替代身份锚点和共同契约——这是明确写在投影说明里的硬边界。\n\n---\n\n### 三、三者关系（验收时检查的核心逻辑）\n\n任务系统 ──定义──▶ 编排系统 ──实例化为──▶ Runtime\n│                  │                    │\n│  Goal            │  Workflow          │  Projection role\n│  Task family     │  Steps             │  Posture tags\n│  Task mode       │  Stop conditions   │  Attention focus\n│  Requested       │  Output boundary   │  Output contract\n│  outputs         │                    │\n└──────────────────┴────────────────────┘\n不因单次调用而改变              每次调用可不同\n\n---\n\n### 四、验收复核检查项\n\n复核时逐项确认：\n\n1. 任务系统：是否有 Goal / Task family / Task mode / Requested outputs 四个字段，且值不因调用上下文变化。\n2. 编排系统：是否有 Workflow / Steps / Stop conditions / Output boundary 四个字段，Steps 是否可执行（非空、有明确顺序）。\n3. Runtime：是否有 Projection role / Posture tags / Attention focus，且明确标注\"来自编排层、不替代身份锚点和共同契约\"。\n4. 边界不穿透：任务系统字段不包含执行步骤；编排系统字段不包含单次调用特有的姿态信息；Runtime 投影不修改身份锚点或共同契约。\n\n---\n\n> 依据说明：以上分析直接来自当前上下文中显式的任务契约块、工作流块和 Runtime Stage Projection 块的结构，未引入推测性内容。",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {
+                  "answer_channel": "answer_candidate",
+                  "answer_source": "runtime_directive:model_response",
+                  "answer_canonical_state": "stable_answer",
+                  "answer_persist_policy": "persist_canonical",
+                  "answer_finalization_policy": "none",
+                  "answer_fallback_reason": ""
+                }
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+                "template_id": "template.chat.general_response"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+                "tool_observation_count": 1,
+                "final_content_chars": 2209,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+        "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+        "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+        "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+        "template_id": "template.chat.general_response",
+        "status": "completed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "final_answer"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.answer",
+            "title": "生成最终回答",
+            "step_kind": "finalize",
+            "executor_type": "model",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "AssistantFinalAnswer",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+              "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+              "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+              "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+            ],
+            "entered_at": 1777977349.4669292,
+            "completed_at": 1777977410.5015192,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:acceptance-e1-live:1:general_response",
+          "template_id": "template.chat.general_response"
+        },
+        "diagnostics": {
+          "current_step_id": "step.answer",
+          "terminal_reason": "completed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+        "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+        "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+        "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+        "template_id": "template.chat.general_response",
+        "status": "completed",
+        "terminal_reason": "completed",
+        "requested_outputs": [
+          "final_answer"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+          "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+          "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+          "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+        ],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.answer",
+            "title": "生成最终回答",
+            "step_kind": "finalize",
+            "executor_type": "model",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "AssistantFinalAnswer",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [
+              "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+              "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+              "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+              "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+            ],
+            "entered_at": 1777977349.4669292,
+            "completed_at": 1777977410.5015192,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "terminal_finalize"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "## 任务系统、编排系统、Runtime 三者边界说明\n\n以下基于当前上下文中可直接观察到的结构进行梳理，可直接用于验收复核。\n\n---\n\n### 一、三者的核心分工（一句话版）\n\n| 系统 | 回答的问题 | 稳定性 |\n|---|---|---|\n| 任务系统 | 做什么 | 高（任务定义层） |\n| 编排系统 | 怎么做（抽象流程） | 中（工作流定义层） |\n| Runtime | 这一次怎么执行 | 低（每次调用不同） |\n\n---\n\n### 二、各自承载的内容（可直接对照验收）\n\n#### 1. 任务系统\n\n管的是任务的定义与契约。从当前结构中可以明确识别到它承载：\n\n- Goal — 任务目标（自然语言，面向意图）\n- Task family — 任务所属家族（如 `conversation_entry`）\n- Task mode — 任务模式（如 `main_conversation_entry`）\n- Requested outputs — 要求的输出形态（如 `final_answer`）\n\n> 边界线：任务系统不关心任务分几步完成、不关心当前执行者用什么姿态。它只定义\"这件事是什么\"和\"要产出什么\"。\n\n#### 2. 编排系统\n\n管的是任务如何被拆解和执行。从当前结构中可以明确识别到它承载：\n\n- Workflow — 绑定的工作流标识（如 `主会话通用工作流`）\n- Workflow ID — 工作流的正式标识（如 `workflow.general.main_conversation`）\n- Steps — 执行步骤序列（如\"理解请求 → 判断是否直接回答或分流 → 输出结果\"）\n- Stop conditions — 停止条件（如 `answer_ready`、`specific_task_selected`）\n- Output boundary — 输出边界（如 `AssistantFinalAnswer` 或分流到注册的特定任务）\n\n> 边界线：编排系统定义的是抽象的流程模板，不绑定具体调用实例。它回答\"这类任务按什么路径完成\"。\n\n#### 3. Runtime\n\n管的是当前这次调用的具体执行投影。从 `Runtime Stage Projection` 中可以明确识别到它承载：\n\n- Projection role — 本次扮演的角色（如 `operator`）\n- Posture tags — 姿态标签（如 `concise`）\n- Attention focus — 关注重点（如 `task_goal, workflow, output`）\n- Projection reason — 投影来源说明（如 `derived from task binding role and task mode`）\n- Output contract — 本次输出契约（如 `AssistantFinalAnswer`）\n\n> 边界线：Runtime 来自编排层的派生，但只约束本次任务。它不替代身份锚点和共同契约——这是明确写在投影说明里的硬边界。\n\n---\n\n### 三、三者关系（验收时检查的核心逻辑）\n\n任务系统 ──定义──▶ 编排系统 ──实例化为──▶ Runtime\n│                  │                    │\n│  Goal            │  Workflow          │  Projection role\n│  Task family     │  Steps             │  Posture tags\n│  Task mode       │  Stop conditions   │  Attention focus\n│  Requested       │  Output boundary   │  Output contract\n│  outputs         │                    │\n└──────────────────┴────────────────────┘\n不因单次调用而改变              每次调用可不同\n\n---\n\n### 四、验收复核检查项\n\n复核时逐项确认：\n\n1. 任务系统：是否有 Goal / Task family / Task mode / Requested outputs 四个字段，且值不因调用上下文变化。\n2. 编排系统：是否有 Workflow / Steps / Stop conditions / Output boundary 四个字段，Steps 是否可执行（非空、有明确顺序）。\n3. Runtime：是否有 Projection role / Posture tags / Attention focus，且明确标注\"来自编排层、不替代身份锚点和共同契约\"。\n4. 边界不穿透：任务系统字段不包含执行步骤；编排系统字段不包含单次调用特有的姿态信息；Runtime 投影不修改身份锚点或共同契约。\n\n---\n\n> 依据说明：以上分析直接来自当前上下文中显式的任务契约块、工作流块和 Runtime Stage Projection 块的结构，未引入推测性内容。",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          }
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+          "template_id": "template.chat.general_response"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+          "tool_observation_count": 1,
+          "final_content_chars": 2209,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 527,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:acceptance-e1-live:1:general_response",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:acceptance-e1-live:1:general_response",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:acceptance-e1-live:1:general_response",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.chat.general_response",
+      "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+      "final_content_chars": 2209,
+      "last_step_transition": "terminal_projection",
+      "result_ref_count": 8
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:acceptance-e1-live:1:general_response:74a7296f858e",
+  "prompt_manifest_ref": "manifest-2231fddb973258fd",
+  "execution_refs": [
+    "rtexec:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:95e996a3"
+  ],
+  "execution_state_ref": "rtexec:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:95e996a3",
+  "execution_summary": {
+    "execution_count": 1,
+    "completed_count": 1,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [
+      "rtexec:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:95e996a3"
+    ],
+    "latest_execution_id": "rtexec:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:95e996a3"
+  },
+  "agent_run_refs": [
+    "agrun:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:main"
+  ],
+  "coordination_run_refs": [],
+  "runtime_objects_summary": {
+    "agent_run_count": 1,
+    "coordination_run_count": 0,
+    "running_agent_run_count": 1,
+    "running_coordination_run_count": 0
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "acceptance-e1-live",
+          "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+          "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+          "role": "assistant",
+          "content": "## 任务系统、编排系统、Runtime 三者边界说明\n\n以下基于当前上下文中可直接观察到的结构进行梳理，可直接用于验收复核。\n\n---\n\n### 一、三者的核心分工（一句话版）\n\n| 系统 | 回答的问题 | 稳定性 |\n|---|---|---|\n| 任务系统 | 做什么 | 高（任务定义层） |\n| 编排系统 | 怎么做（抽象流程） | 中（工作流定义层） |\n| Runtime | 这一次怎么执行 | 低（每次调用不同） |\n\n---\n\n### 二、各自承载的内容（可直接对照验收）\n\n#### 1. 任务系统\n\n管的是任务的定义与契约。从当前结构中可以明确识别到它承载：\n\n- Goal — 任务目标（自然语言，面向意图）\n- Task family — 任务所属家族（如 `conversation_entry`）\n- Task mode — 任务模式（如 `main_conversation_entry`）\n- Requested outputs — 要求的输出形态（如 `final_answer`）\n\n> 边界线：任务系统不关心任务分几步完成、不关心当前执行者用什么姿态。它只定义\"这件事是什么\"和\"要产出什么\"。\n\n#### 2. 编排系统\n\n管的是任务如何被拆解和执行。从当前结构中可以明确识别到它承载：\n\n- Workflow — 绑定的工作流标识（如 `主会话通用工作流`）\n- Workflow ID — 工作流的正式标识（如 `workflow.general.main_conversation`）\n- Steps — 执行步骤序列（如\"理解请求 → 判断是否直接回答或分流 → 输出结果\"）\n- Stop conditions — 停止条件（如 `answer_ready`、`specific_task_selected`）\n- Output boundary — 输出边界（如 `AssistantFinalAnswer` 或分流到注册的特定任务）\n\n> 边界线：编排系统定义的是抽象的流程模板，不绑定具体调用实例。它回答\"这类任务按什么路径完成\"。\n\n#### 3. Runtime\n\n管的是当前这次调用的具体执行投影。从 `Runtime Stage Projection` 中可以明确识别到它承载：\n\n- Projection role — 本次扮演的角色（如 `operator`）\n- Posture tags — 姿态标签（如 `concise`）\n- Attention focus — 关注重点（如 `task_goal, workflow, output`）\n- Projection reason — 投影来源说明（如 `derived from task binding role and task mode`）\n- Output contract — 本次输出契约（如 `AssistantFinalAnswer`）\n\n> 边界线：Runtime 来自编排层的派生，但只约束本次任务。它不替代身份锚点和共同契约——这是明确写在投影说明里的硬边界。\n\n---\n\n### 三、三者关系（验收时检查的核心逻辑）\n\n任务系统 ──定义──▶ 编排系统 ──实例化为──▶ Runtime\n│                  │                    │\n│  Goal            │  Workflow          │  Projection role\n│  Task family     │  Steps             │  Posture tags\n│  Task mode       │  Stop conditions   │  Attention focus\n│  Requested       │  Output boundary   │  Output contract\n│  outputs         │                    │\n└──────────────────┴────────────────────┘\n不因单次调用而改变              每次调用可不同\n\n---\n\n### 四、验收复核检查项\n\n复核时逐项确认：\n\n1. 任务系统：是否有 Goal / Task family / Task mode / Requested outputs 四个字段，且值不因调用上下文变化。\n2. 编排系统：是否有 Workflow / Steps / Stop conditions / Output boundary 四个字段，Steps 是否可执行（非空、有明确顺序）。\n3. Runtime：是否有 Projection role / Posture tags / Attention focus，且明确标注\"来自编排层、不替代身份锚点和共同契约\"。\n4. 边界不穿透：任务系统字段不包含执行步骤；编排系统字段不包含单次调用特有的姿态信息；Runtime 投影不修改身份锚点或共同契约。\n\n---\n\n> 依据说明：以上分析直接来自当前上下文中显式的任务契约块、工作流块和 Runtime Stage Projection 块的结构，未引入推测性内容。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "acceptance-e1-live",
+        "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+          "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+          "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+          "template_id": "template.chat.general_response",
+          "terminal_reason": "completed",
+          "final_content_chars": 2209,
+          "task_result": {
+            "result_id": "taskresult:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+            "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+            "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+            "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+            "template_id": "template.chat.general_response",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "requested_outputs": [
+              "final_answer"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+              "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+              "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+              "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+            ],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.answer",
+                "title": "生成最终回答",
+                "step_kind": "finalize",
+                "executor_type": "model",
+                "status": "completed",
+                "required_operations": [
+                  "op.model_response"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "AssistantFinalAnswer",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [
+                  "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+                  "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+                  "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+                  "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+                ],
+                "entered_at": 1777977349.4669292,
+                "completed_at": 1777977410.5015192,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+                "executor_ref": "",
+                "diagnostics": {
+                  "transition_reason": "terminal_finalize"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "## 任务系统、编排系统、Runtime 三者边界说明\n\n以下基于当前上下文中可直接观察到的结构进行梳理，可直接用于验收复核。\n\n---\n\n### 一、三者的核心分工（一句话版）\n\n| 系统 | 回答的问题 | 稳定性 |\n|---|---|---|\n| 任务系统 | 做什么 | 高（任务定义层） |\n| 编排系统 | 怎么做（抽象流程） | 中（工作流定义层） |\n| Runtime | 这一次怎么执行 | 低（每次调用不同） |\n\n---\n\n### 二、各自承载的内容（可直接对照验收）\n\n#### 1. 任务系统\n\n管的是任务的定义与契约。从当前结构中可以明确识别到它承载：\n\n- Goal — 任务目标（自然语言，面向意图）\n- Task family — 任务所属家族（如 `conversation_entry`）\n- Task mode — 任务模式（如 `main_conversation_entry`）\n- Requested outputs — 要求的输出形态（如 `final_answer`）\n\n> 边界线：任务系统不关心任务分几步完成、不关心当前执行者用什么姿态。它只定义\"这件事是什么\"和\"要产出什么\"。\n\n#### 2. 编排系统\n\n管的是任务如何被拆解和执行。从当前结构中可以明确识别到它承载：\n\n- Workflow — 绑定的工作流标识（如 `主会话通用工作流`）\n- Workflow ID — 工作流的正式标识（如 `workflow.general.main_conversation`）\n- Steps — 执行步骤序列（如\"理解请求 → 判断是否直接回答或分流 → 输出结果\"）\n- Stop conditions — 停止条件（如 `answer_ready`、`specific_task_selected`）\n- Output boundary — 输出边界（如 `AssistantFinalAnswer` 或分流到注册的特定任务）\n\n> 边界线：编排系统定义的是抽象的流程模板，不绑定具体调用实例。它回答\"这类任务按什么路径完成\"。\n\n#### 3. Runtime\n\n管的是当前这次调用的具体执行投影。从 `Runtime Stage Projection` 中可以明确识别到它承载：\n\n- Projection role — 本次扮演的角色（如 `operator`）\n- Posture tags — 姿态标签（如 `concise`）\n- Attention focus — 关注重点（如 `task_goal, workflow, output`）\n- Projection reason — 投影来源说明（如 `derived from task binding role and task mode`）\n- Output contract — 本次输出契约（如 `AssistantFinalAnswer`）\n\n> 边界线：Runtime 来自编排层的派生，但只约束本次任务。它不替代身份锚点和共同契约——这是明确写在投影说明里的硬边界。\n\n---\n\n### 三、三者关系（验收时检查的核心逻辑）\n\n任务系统 ──定义──▶ 编排系统 ──实例化为──▶ Runtime\n│                  │                    │\n│  Goal            │  Workflow          │  Projection role\n│  Task family     │  Steps             │  Posture tags\n│  Task mode       │  Stop conditions   │  Attention focus\n│  Requested       │  Output boundary   │  Output contract\n│  outputs         │                    │\n└──────────────────┴────────────────────┘\n不因单次调用而改变              每次调用可不同\n\n---\n\n### 四、验收复核检查项\n\n复核时逐项确认：\n\n1. 任务系统：是否有 Goal / Task family / Task mode / Requested outputs 四个字段，且值不因调用上下文变化。\n2. 编排系统：是否有 Workflow / Steps / Stop conditions / Output boundary 四个字段，Steps 是否可执行（非空、有明确顺序）。\n3. Runtime：是否有 Projection role / Posture tags / Attention focus，且明确标注\"来自编排层、不替代身份锚点和共同契约\"。\n4. 边界不穿透：任务系统字段不包含执行步骤；编排系统字段不包含单次调用特有的姿态信息；Runtime 投影不修改身份锚点或共同契约。\n\n---\n\n> 依据说明：以上分析直接来自当前上下文中显式的任务契约块、工作流块和 Runtime Stage Projection 块的结构，未引入推测性内容。",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {
+                "answer_channel": "answer_candidate",
+                "answer_source": "runtime_directive:model_response",
+                "answer_canonical_state": "stable_answer",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": ""
+              }
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+              "template_id": "template.chat.general_response"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+              "tool_observation_count": 1,
+              "final_content_chars": 2209,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+      "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+      "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+      "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+      "template_id": "template.chat.general_response",
+      "status": "completed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "final_answer"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.answer",
+          "title": "生成最终回答",
+          "step_kind": "finalize",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "AssistantFinalAnswer",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+            "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+            "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+            "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+          ],
+          "entered_at": 1777977349.4669292,
+          "completed_at": 1777977410.5015192,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:acceptance-e1-live:1:general_response",
+        "template_id": "template.chat.general_response"
+      },
+      "diagnostics": {
+        "current_step_id": "step.answer",
+        "terminal_reason": "completed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+      "task_run_id": "taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+      "task_id": "taskinst:turn:acceptance-e1-live:1:general_response",
+      "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+      "template_id": "template.chat.general_response",
+      "status": "completed",
+      "terminal_reason": "completed",
+      "requested_outputs": [
+        "final_answer"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+        "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+        "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+        "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+      ],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.answer",
+          "title": "生成最终回答",
+          "step_kind": "finalize",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "AssistantFinalAnswer",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+            "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:f46807e3",
+            "output_boundary:rtevt:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:29:4fcd0cd5",
+            "commit_gate:commit-gate:taskinst:turn:acceptance-e1-live:1:general_response:runtime-blocked"
+          ],
+          "entered_at": 1777977349.4669292,
+          "completed_at": 1777977410.5015192,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f:7838409b",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "terminal_finalize"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "## 任务系统、编排系统、Runtime 三者边界说明\n\n以下基于当前上下文中可直接观察到的结构进行梳理，可直接用于验收复核。\n\n---\n\n### 一、三者的核心分工（一句话版）\n\n| 系统 | 回答的问题 | 稳定性 |\n|---|---|---|\n| 任务系统 | 做什么 | 高（任务定义层） |\n| 编排系统 | 怎么做（抽象流程） | 中（工作流定义层） |\n| Runtime | 这一次怎么执行 | 低（每次调用不同） |\n\n---\n\n### 二、各自承载的内容（可直接对照验收）\n\n#### 1. 任务系统\n\n管的是任务的定义与契约。从当前结构中可以明确识别到它承载：\n\n- Goal — 任务目标（自然语言，面向意图）\n- Task family — 任务所属家族（如 `conversation_entry`）\n- Task mode — 任务模式（如 `main_conversation_entry`）\n- Requested outputs — 要求的输出形态（如 `final_answer`）\n\n> 边界线：任务系统不关心任务分几步完成、不关心当前执行者用什么姿态。它只定义\"这件事是什么\"和\"要产出什么\"。\n\n#### 2. 编排系统\n\n管的是任务如何被拆解和执行。从当前结构中可以明确识别到它承载：\n\n- Workflow — 绑定的工作流标识（如 `主会话通用工作流`）\n- Workflow ID — 工作流的正式标识（如 `workflow.general.main_conversation`）\n- Steps — 执行步骤序列（如\"理解请求 → 判断是否直接回答或分流 → 输出结果\"）\n- Stop conditions — 停止条件（如 `answer_ready`、`specific_task_selected`）\n- Output boundary — 输出边界（如 `AssistantFinalAnswer` 或分流到注册的特定任务）\n\n> 边界线：编排系统定义的是抽象的流程模板，不绑定具体调用实例。它回答\"这类任务按什么路径完成\"。\n\n#### 3. Runtime\n\n管的是当前这次调用的具体执行投影。从 `Runtime Stage Projection` 中可以明确识别到它承载：\n\n- Projection role — 本次扮演的角色（如 `operator`）\n- Posture tags — 姿态标签（如 `concise`）\n- Attention focus — 关注重点（如 `task_goal, workflow, output`）\n- Projection reason — 投影来源说明（如 `derived from task binding role and task mode`）\n- Output contract — 本次输出契约（如 `AssistantFinalAnswer`）\n\n> 边界线：Runtime 来自编排层的派生，但只约束本次任务。它不替代身份锚点和共同契约——这是明确写在投影说明里的硬边界。\n\n---\n\n### 三、三者关系（验收时检查的核心逻辑）\n\n任务系统 ──定义──▶ 编排系统 ──实例化为──▶ Runtime\n│                  │                    │\n│  Goal            │  Workflow          │  Projection role\n│  Task family     │  Steps             │  Posture tags\n│  Task mode       │  Stop conditions   │  Attention focus\n│  Requested       │  Output boundary   │  Output contract\n│  outputs         │                    │\n└──────────────────┴────────────────────┘\n不因单次调用而改变              每次调用可不同\n\n---\n\n### 四、验收复核检查项\n\n复核时逐项确认：\n\n1. 任务系统：是否有 Goal / Task family / Task mode / Requested outputs 四个字段，且值不因调用上下文变化。\n2. 编排系统：是否有 Workflow / Steps / Stop conditions / Output boundary 四个字段，Steps 是否可执行（非空、有明确顺序）。\n3. Runtime：是否有 Projection role / Posture tags / Attention focus，且明确标注\"来自编排层、不替代身份锚点和共同契约\"。\n4. 边界不穿透：任务系统字段不包含执行步骤；编排系统字段不包含单次调用特有的姿态信息；Runtime 投影不修改身份锚点或共同契约。\n\n---\n\n> 依据说明：以上分析直接来自当前上下文中显式的任务契约块、工作流块和 Runtime Stage Projection 块的结构，未引入推测性内容。",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        }
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:acceptance-e1-live:1:general_response",
+        "template_id": "template.chat.general_response"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:acceptance-e1-live:taskinst:turn:acceptance-e1-live:1:general_response:ccf1374f",
+        "tool_observation_count": 1,
+        "final_content_chars": 2209,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 527,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777977410.5605688,
+  "checksum": "eefb0aca66d6f8ecb0236ef67fbb5180de4bf5445989b1d73e05edc43c2a6fe3",
+  "authority": "orchestration.runtime_checkpoint"
+}

@@ -10,6 +10,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from execution.model_runtime import ModelRuntimeError
 from query import QueryRuntime
 from understanding.query_understanding import analyze_query_understanding
 from orchestration import RuntimeActionRequest, RuntimeLoopLimits
@@ -20,6 +21,21 @@ from context_management.projection import projection_from_file_work
 from orchestration.runtime_loop.tool_adoption import build_tool_request_runtime_adoption
 from orchestration import ResourceDecision, ResourcePolicy, OperationGatePipelineContext
 from capability_system import build_default_operation_registry
+
+
+def _task_run_id_from_events(events: list[dict[str, object]]) -> str:
+    started = next(event for event in events if event["type"] == "runtime_loop_started")
+    return str(dict(started["task_run"]).get("task_run_id") or "")
+
+
+def _runtime_event_payload(events: list[dict[str, object]], event_type: str) -> dict[str, object]:
+    event = next(
+        dict(item.get("event") or {})
+        for item in events
+        if item.get("type") == "runtime_loop_event"
+        and dict(item.get("event") or {}).get("event_type") == event_type
+    )
+    return dict(event.get("payload") or {})
 
 
 class _SettingsStub:
@@ -327,6 +343,72 @@ class _ArcadeBundleModelRuntimeStub:
         return SimpleNamespace(content="多文件小游戏包已生成到 frontend/public/games/arcade_bundle/")
 
 
+class _ArtifactClaimThenRepairModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+
+    async def invoke_messages(self, messages):
+        return SimpleNamespace(content="写入路径：`docs/系统规划/任务系统实测记录/artifacts/test/project_spec.md`\n\n验收状态：通过。")
+
+    async def invoke_messages_with_tools(self, messages, tools):
+        self.tool_enabled_calls += 1
+        if self.tool_enabled_calls == 1:
+            return SimpleNamespace(
+                content=(
+                    "写入路径：`docs/系统规划/任务系统实测记录/artifacts/test/project_spec.md`\n\n"
+                    "任务阶段：项目立项。\n\n验收状态：通过。"
+                )
+            )
+        return SimpleNamespace(
+            content="",
+            tool_calls=[
+                {
+                    "id": "tool-call-required-artifact-repair",
+                    "name": "write_file",
+                    "args": {
+                        "path": "docs/系统规划/任务系统实测记录/artifacts/test/project_spec.md",
+                        "content": "# 项目规格\n\n项目目标：百万字长篇小说。\n\n1000000 字拆解：5卷，每卷40章，每章5000字。\n\n验收：必须逐阶段验收。\n\n禁止：不得伪造全本完成声明。",
+                    },
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _ArtifactWriteThenFollowupProviderErrorModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+
+    async def invoke_messages(self, messages):
+        return SimpleNamespace(content="fallback")
+
+    async def invoke_messages_with_tools(self, messages, tools):
+        self.tool_enabled_calls += 1
+        if self.tool_enabled_calls == 1:
+            return SimpleNamespace(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "tool-call-write-artifact-before-provider-error",
+                        "name": "write_file",
+                        "args": {
+                            "path": "docs/系统规划/任务系统实测记录/artifacts/test/volume_01_plan.md",
+                            "content": "# 第一卷卷纲\n\n第一卷目标明确。\n\n40章拆解已建立。\n\n人物弧线、伏笔、第二卷入口均已规划。",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        raise ModelRuntimeError(
+            code="provider_unavailable",
+            provider="test",
+            model="test-model",
+            detail="Connection error.",
+            retryable=True,
+            user_message="模型服务暂时不可用，请稍后重试。",
+        )
+
+
 def _isolated_backend_root() -> Path:
     root = Path(tempfile.mkdtemp(prefix="query-runtime-regression-")) / "backend"
     root.mkdir(parents=True, exist_ok=True)
@@ -459,6 +541,42 @@ def _build_arcade_bundle_runtime(tmp_path: Path) -> QueryRuntime:
         skill_registry=_SkillRegistryStub(),
         permission_service=_PermissionStub(),
         model_runtime=_ArcadeBundleModelRuntimeStub(),
+    )
+    runtime.task_run_loop.limits = RuntimeLoopLimits(max_runtime_seconds=300.0, max_model_calls=8, max_turns=8)
+    return runtime
+
+
+def _build_required_artifact_repair_runtime(tmp_path: Path) -> QueryRuntime:
+    work_root = tmp_path / "backend"
+    work_root.mkdir(parents=True, exist_ok=True)
+    runtime = QueryRuntime(
+        base_dir=work_root,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_LoopToolRuntimeStub(work_root),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_ArtifactClaimThenRepairModelRuntimeStub(),
+    )
+    runtime.task_run_loop.limits = RuntimeLoopLimits(max_runtime_seconds=300.0, max_model_calls=8, max_turns=8)
+    return runtime
+
+
+def _build_artifact_followup_error_runtime(tmp_path: Path) -> QueryRuntime:
+    work_root = tmp_path / "backend"
+    work_root.mkdir(parents=True, exist_ok=True)
+    runtime = QueryRuntime(
+        base_dir=work_root,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_LoopToolRuntimeStub(work_root),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_ArtifactWriteThenFollowupProviderErrorModelRuntimeStub(),
     )
     runtime.task_run_loop.limits = RuntimeLoopLimits(max_runtime_seconds=300.0, max_model_calls=8, max_turns=8)
     return runtime
@@ -786,6 +904,96 @@ def test_astream_arcade_game_bundle_task_can_write_multiple_files_within_bounded
     assert "Arcade Bundle" in index_file.read_text(encoding="utf-8")
     assert "canvas" in game_file.read_text(encoding="utf-8")
     assert "op.write_file" in directive_event["resource_policy"]["allowed_operations"]
+
+
+def test_required_artifact_task_repairs_claim_without_write_file_into_real_tool_evidence(tmp_path: Path) -> None:
+    runtime = _build_required_artifact_repair_runtime(tmp_path)
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-required-artifact-repair",
+                message=(
+                    "按正式长篇小说项目立项任务启动。必须调用 write_file 写入 "
+                    "docs/系统规划/任务系统实测记录/artifacts/test/project_spec.md，"
+                    "内容包含项目目标、1000000字拆解、5卷结构、验收、禁止伪造全本完成声明。"
+                ),
+                history=[],
+                task_selection={"selected_task_id": "task.writing.longform_novel_project"},
+            )
+        ):
+            events.append(event)
+        return events, _task_run_id_from_events(events)
+
+    events, task_run_id = asyncio.run(_collect())
+    target = tmp_path / "docs" / "系统规划" / "任务系统实测记录" / "artifacts" / "test" / "project_spec.md"
+    runtime_event_types = [
+        dict(event.get("event") or {}).get("event_type")
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    validation_payload = _runtime_event_payload(events, "task_artifact_validation_checked")
+    trace = runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)
+
+    assert target.exists()
+    assert "1000000" in target.read_text(encoding="utf-8")
+    assert "required_artifact_write_repair_started" in runtime_event_types
+    assert "tool_result_received" in runtime_event_types
+    assert dict(validation_payload["validation"])["passed"] is True
+    assert trace is not None
+    assert any(
+        dict(dict(event).get("payload") or {}).get("validation", {}).get("passed") is True
+        for event in trace["events"]
+        if dict(event).get("event_type") == "task_artifact_validation_checked"
+    )
+
+
+def test_required_artifact_task_completes_when_followup_model_fails_after_write(tmp_path: Path) -> None:
+    from query.models import QueryRequest
+
+    runtime = _build_artifact_followup_error_runtime(tmp_path)
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-artifact-followup-provider-error",
+                message=(
+                    "按正式卷规划任务生成第一卷卷纲。必须调用 write_file 写入 "
+                    "docs/系统规划/任务系统实测记录/artifacts/test/volume_01_plan.md，"
+                    "内容包含第一卷目标、40章段落拆解、人物弧线、伏笔投放回收、第二卷入口。"
+                ),
+                history=[],
+                task_selection={"selected_task_id": "task.writing.volume_planning"},
+            )
+        ):
+            events.append(event)
+        return events, _task_run_id_from_events(events)
+
+    events, task_run_id = asyncio.run(_collect())
+    target = tmp_path / "docs" / "系统规划" / "任务系统实测记录" / "artifacts" / "test" / "volume_01_plan.md"
+    runtime_event_types = [
+        dict(event.get("event") or {}).get("event_type")
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    done_event = next(event for event in events if event["type"] == "done")
+    trace = runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)
+
+    assert target.exists()
+    assert "40章" in target.read_text(encoding="utf-8")
+    assert "artifact_success_fallback_finalized" in runtime_event_types
+    assert done_event["terminal_reason"] == "completed"
+    assert done_event["answer_fallback_reason"] == "artifact_success_fallback"
+    assert trace is not None
+    assert trace["task_run"]["status"] == "completed"
+    assert trace["coordination_runs"]
+    coordination_run = trace["coordination_runs"][0]
+    assert coordination_run["status"] == "completed"
+    assert coordination_run["latest_merge_result"] is not None
 
 
 def test_arcade_game_bundle_blocks_write_outside_bounded_root(tmp_path: Path) -> None:

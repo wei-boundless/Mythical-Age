@@ -1,0 +1,770 @@
+{
+  "checkpoint_id": "rtchk:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:91",
+  "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+  "event_offset": 91,
+  "loop_state": {
+    "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+    "status": "completed",
+    "turn_count": 3,
+    "step_count": 1,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.writing.chapter_revision",
+    "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+    "task_result_ref": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:5317509f01c1",
+    "memory_state_ref": "memory-runtime:longform-novel-real-acceptance",
+    "projection_ref": "ddadc7d81eb8561e",
+    "prompt_manifest_ref": "manifest-ddadc7d81eb8561e",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 633,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899367
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:5a463dd8",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:1685f37d",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:3918d303",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:fc789230",
+      "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:84:d3c25e7a",
+      "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:runtime-blocked",
+      "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+      "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "longform-novel-real-acceptance",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+            "role": "assistant",
+            "content": "---\n\n写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/reviews/chapter_001_review.md`\n\n任务阶段：第一章修订/审校 — chapter_001_review 已写入。\n\n验收状态：通过（有条件通过）。四项硬性条件全部满足，五项章节目标全部达成，10 项必备意象 10/10 到位，风格一致性零违规，连续性对齐零冲突。发现两个轻微瑕疵（#1\"不是问句\"视角边界偏全知、#2\"睁了眼\"比喻从生物域借用），均不阻塞验收，标记为全书统稿跟踪项。\n\n下一步：按连续性审计任务检查第一章与圣经、卷纲的一致性 `audits/continuity_audit_001.md`。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+            "template_id": "template.writing.chapter_revision",
+            "terminal_reason": "completed",
+            "final_content_chars": 341,
+            "task_result": {
+              "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+              "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+              "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+              "template_id": "template.writing.chapter_revision",
+              "status": "completed",
+              "terminal_reason": "completed",
+              "requested_outputs": [
+                "chapter_revision"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:5a463dd8",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:1685f37d",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:3918d303",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:fc789230",
+                "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:84:d3c25e7a",
+                "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:runtime-blocked"
+              ],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.chapter_revision",
+                  "title": "修订章节正文",
+                  "step_kind": "coordinate",
+                  "executor_type": "agent",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.model_response",
+                    "op.write_file"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "ChapterRevision",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+                  ],
+                  "output_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+                  ],
+                  "entered_at": 1777998928.1502666,
+                  "completed_at": 1777999120.0718815,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+                  "executor_ref": "write_file",
+                  "diagnostics": {
+                    "transition_reason": "tool_result_received",
+                    "operation_id": "op.write_file"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "---\n\n写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/reviews/chapter_001_review.md`\n\n任务阶段：第一章修订/审校 — chapter_001_review 已写入。\n\n验收状态：通过（有条件通过）。四项硬性条件全部满足，五项章节目标全部达成，10 项必备意象 10/10 到位，风格一致性零违规，连续性对齐零冲突。发现两个轻微瑕疵（#1\"不是问句\"视角边界偏全知、#2\"睁了眼\"比喻从生物域借用），均不阻塞验收，标记为全书统稿跟踪项。\n\n下一步：按连续性审计任务检查第一章与圣经、卷纲的一致性 `audits/continuity_audit_001.md`。",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {
+                  "answer_channel": "answer_candidate",
+                  "answer_source": "runtime_directive:model_response",
+                  "answer_canonical_state": "stable_answer",
+                  "answer_persist_policy": "persist_canonical",
+                  "answer_finalization_policy": "none",
+                  "answer_fallback_reason": ""
+                }
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+                "template_id": "template.writing.chapter_revision"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+                "tool_observation_count": 4,
+                "final_content_chars": 341,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+        "template_id": "template.writing.chapter_revision",
+        "status": "completed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "chapter_revision"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.chapter_revision",
+            "title": "修订章节正文",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "ChapterRevision",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+            ],
+            "entered_at": 1777998928.1502666,
+            "completed_at": 1777999120.0718815,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+          "template_id": "template.writing.chapter_revision"
+        },
+        "diagnostics": {
+          "current_step_id": "step.chapter_revision",
+          "terminal_reason": "completed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+        "template_id": "template.writing.chapter_revision",
+        "status": "completed",
+        "terminal_reason": "completed",
+        "requested_outputs": [
+          "chapter_revision"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:5a463dd8",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:1685f37d",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:3918d303",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:fc789230",
+          "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:84:d3c25e7a",
+          "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:runtime-blocked"
+        ],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.chapter_revision",
+            "title": "修订章节正文",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "ChapterRevision",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+            ],
+            "entered_at": 1777998928.1502666,
+            "completed_at": 1777999120.0718815,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "---\n\n写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/reviews/chapter_001_review.md`\n\n任务阶段：第一章修订/审校 — chapter_001_review 已写入。\n\n验收状态：通过（有条件通过）。四项硬性条件全部满足，五项章节目标全部达成，10 项必备意象 10/10 到位，风格一致性零违规，连续性对齐零冲突。发现两个轻微瑕疵（#1\"不是问句\"视角边界偏全知、#2\"睁了眼\"比喻从生物域借用），均不阻塞验收，标记为全书统稿跟踪项。\n\n下一步：按连续性审计任务检查第一章与圣经、卷纲的一致性 `audits/continuity_audit_001.md`。",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          }
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+          "template_id": "template.writing.chapter_revision"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+          "tool_observation_count": 4,
+          "final_content_chars": 341,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 5101,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+      "runtime_chain_built": true,
+      "effective_loop_limits": {
+        "max_turns": 24,
+        "max_model_calls": 24,
+        "max_runtime_seconds": null,
+        "max_events": 1200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.writing.chapter_revision",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+      "last_step_transition": "terminal_projection",
+      "final_content_chars": 341,
+      "artifact_validation": {
+        "passed": true,
+        "required": true,
+        "reason": "required artifact file exists",
+        "rule_ids": [
+          "rule.chapter_revision_required"
+        ],
+        "successful_write_count": 1,
+        "existing_write_count": 1,
+        "artifacts": [
+          {
+            "path": "docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/reviews/chapter_001_review.md",
+            "absolute_path": "D:/AI应用/langchain-agent/docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/reviews/chapter_001_review.md",
+            "observation_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+          }
+        ],
+        "final_content_chars": 341,
+        "result_ref_count": 7
+      },
+      "result_ref_count": 11
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:5317509f01c1",
+  "prompt_manifest_ref": "manifest-ddadc7d81eb8561e",
+  "execution_refs": [
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:3a9063c4",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:8f63eaa5",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:d4d07b01",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:7c85b571"
+  ],
+  "execution_state_ref": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:7c85b571",
+  "execution_summary": {
+    "execution_count": 4,
+    "completed_count": 4,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:3a9063c4",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:8f63eaa5",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:d4d07b01",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:7c85b571"
+    ],
+    "latest_execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:7c85b571"
+  },
+  "agent_run_refs": [
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:main",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:participant:chapter_plan",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:participant:chapter_draft",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:participant:style_review",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:participant:continuity_review",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:participant:chapter_revision",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:participant:editor_acceptance"
+  ],
+  "coordination_run_refs": [
+    "coordrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:primary"
+  ],
+  "runtime_objects_summary": {
+    "agent_run_count": 7,
+    "coordination_run_count": 1,
+    "running_agent_run_count": 1,
+    "running_coordination_run_count": 1
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+          "role": "assistant",
+          "content": "---\n\n写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/reviews/chapter_001_review.md`\n\n任务阶段：第一章修订/审校 — chapter_001_review 已写入。\n\n验收状态：通过（有条件通过）。四项硬性条件全部满足，五项章节目标全部达成，10 项必备意象 10/10 到位，风格一致性零违规，连续性对齐零冲突。发现两个轻微瑕疵（#1\"不是问句\"视角边界偏全知、#2\"睁了眼\"比喻从生物域借用），均不阻塞验收，标记为全书统稿跟踪项。\n\n下一步：按连续性审计任务检查第一章与圣经、卷纲的一致性 `audits/continuity_audit_001.md`。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "longform-novel-real-acceptance",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+          "template_id": "template.writing.chapter_revision",
+          "terminal_reason": "completed",
+          "final_content_chars": 341,
+          "task_result": {
+            "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+            "template_id": "template.writing.chapter_revision",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "requested_outputs": [
+              "chapter_revision"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:5a463dd8",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:1685f37d",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:3918d303",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:fc789230",
+              "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:84:d3c25e7a",
+              "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:runtime-blocked"
+            ],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.chapter_revision",
+                "title": "修订章节正文",
+                "step_kind": "coordinate",
+                "executor_type": "agent",
+                "status": "completed",
+                "required_operations": [
+                  "op.model_response",
+                  "op.write_file"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "ChapterRevision",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+                ],
+                "output_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+                ],
+                "entered_at": 1777998928.1502666,
+                "completed_at": 1777999120.0718815,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+                "executor_ref": "write_file",
+                "diagnostics": {
+                  "transition_reason": "tool_result_received",
+                  "operation_id": "op.write_file"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "---\n\n写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/reviews/chapter_001_review.md`\n\n任务阶段：第一章修订/审校 — chapter_001_review 已写入。\n\n验收状态：通过（有条件通过）。四项硬性条件全部满足，五项章节目标全部达成，10 项必备意象 10/10 到位，风格一致性零违规，连续性对齐零冲突。发现两个轻微瑕疵（#1\"不是问句\"视角边界偏全知、#2\"睁了眼\"比喻从生物域借用），均不阻塞验收，标记为全书统稿跟踪项。\n\n下一步：按连续性审计任务检查第一章与圣经、卷纲的一致性 `audits/continuity_audit_001.md`。",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {
+                "answer_channel": "answer_candidate",
+                "answer_source": "runtime_directive:model_response",
+                "answer_canonical_state": "stable_answer",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": ""
+              }
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+              "template_id": "template.writing.chapter_revision"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+              "tool_observation_count": 4,
+              "final_content_chars": 341,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+      "template_id": "template.writing.chapter_revision",
+      "status": "completed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "chapter_revision"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.chapter_revision",
+          "title": "修订章节正文",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "ChapterRevision",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+          ],
+          "entered_at": 1777998928.1502666,
+          "completed_at": 1777999120.0718815,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+        "template_id": "template.writing.chapter_revision"
+      },
+      "diagnostics": {
+        "current_step_id": "step.chapter_revision",
+        "terminal_reason": "completed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+      "template_id": "template.writing.chapter_revision",
+      "status": "completed",
+      "terminal_reason": "completed",
+      "requested_outputs": [
+        "chapter_revision"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:5a463dd8",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:1685f37d",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:3918d303",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:fc789230",
+        "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:84:d3c25e7a",
+        "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:runtime-blocked"
+      ],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.chapter_revision",
+          "title": "修订章节正文",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "ChapterRevision",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726"
+          ],
+          "entered_at": 1777998928.1502666,
+          "completed_at": 1777999120.0718815,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140:487df726",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "---\n\n写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/reviews/chapter_001_review.md`\n\n任务阶段：第一章修订/审校 — chapter_001_review 已写入。\n\n验收状态：通过（有条件通过）。四项硬性条件全部满足，五项章节目标全部达成，10 项必备意象 10/10 到位，风格一致性零违规，连续性对齐零冲突。发现两个轻微瑕疵（#1\"不是问句\"视角边界偏全知、#2\"睁了眼\"比喻从生物域借用），均不阻塞验收，标记为全书统稿跟踪项。\n\n下一步：按连续性审计任务检查第一章与圣经、卷纲的一致性 `audits/continuity_audit_001.md`。",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        }
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision",
+        "template_id": "template.writing.chapter_revision"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:70:chapter_revision:8dedc140",
+        "tool_observation_count": 4,
+        "final_content_chars": 341,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 5101,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777999127.3135488,
+  "checksum": "d58d8b5c3db079f8b6fe097dca0722eca9b5fa451e542f8f2b8e57b5dc626d2e",
+  "authority": "orchestration.runtime_checkpoint"
+}

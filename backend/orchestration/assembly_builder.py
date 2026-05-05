@@ -46,8 +46,9 @@ def build_orchestration_runtime_bundle(
     memory_view = dict(memory_runtime_view or {})
     context_policy = dict(context_policy_result or {})
 
-    agent_id = str(task_execution_assembly.get("selected_agent_id") or "agent:0").strip() or "agent:0"
+    agent_id = str(getattr(agent_runtime_profile, "agent_id", "") or "").strip() or "agent:0"
     runtime_profile = agent_runtime_profile or AgentRuntimeRegistry(base_dir).get_profile(agent_id)
+    agent_id = str(getattr(runtime_profile, "agent_id", "") or agent_id).strip() or "agent:0"
     descriptor = AgentRegistry(base_dir).get_agent(agent_id)
     profile_registry = BodyProfileRegistry(base_dir)
 
@@ -96,6 +97,7 @@ def build_orchestration_runtime_bundle(
         projection_requirement=projection_requirement,
         operation_requirement=operation_requirement,
         active_skill=active_skill_payload,
+        agent_id=agent_id,
     )
     soul_runtime = SoulFacade(base_dir).build_runtime_view(
         task_prompt_contract=prompt_contract,
@@ -241,6 +243,7 @@ def _build_runtime_prompt_contract(
     projection_requirement: dict[str, Any],
     operation_requirement: dict[str, Any],
     active_skill: dict[str, Any],
+    agent_id: str,
 ) -> dict[str, Any]:
     workflow_steps = [
         str(item.get("title") or item.get("step_id") or "").strip()
@@ -284,7 +287,7 @@ def _build_runtime_prompt_contract(
         "output_section": _output_section(task_execution_assembly=task_execution_assembly, task_spec=task_spec),
         "guardrail_section": "",
         "metadata": {
-            "agent_id": str(task_execution_assembly.get("selected_agent_id") or "agent:0"),
+            "agent_id": agent_id,
             "resource_policy_ref": str(operation_requirement.get("requirement_id") or ""),
             "registered_task_id": str(registered_task.get("task_id") or ""),
             "selected_template_id": str(selected_template.get("template_id") or ""),
@@ -359,6 +362,17 @@ def _output_section(
             "If required inputs are already present, execute the capability directly and return the result."
         )
     output_contract = str(task_execution_assembly.get("output_contract_id") or "").strip()
+    template_metadata = dict(task_execution_assembly.get("metadata") or {})
+    final_answer_requirements = [
+        str(item).strip()
+        for item in list(template_metadata.get("final_answer_requirements") or [])
+        if str(item).strip()
+    ]
+    forbidden_final_states = [
+        str(item).strip()
+        for item in list(template_metadata.get("forbidden_final_states") or [])
+        if str(item).strip()
+    ]
     return "\n".join(
         line
         for line in (
@@ -366,6 +380,20 @@ def _output_section(
             f"Requested outputs: {', '.join(requested_outputs) if requested_outputs else 'AssistantFinalAnswer'}.",
             f"Output contract: {output_contract}." if output_contract else "",
             f"Deliverable summary: {str(task_spec.get('summary') or '').strip()}" if str(task_spec.get("summary") or "").strip() else "",
+            (
+                "Mandatory final answer requirements: "
+                + "; ".join(final_answer_requirements)
+                + "."
+            ) if final_answer_requirements else "",
+            (
+                "Forbidden terminal states: "
+                + "; ".join(forbidden_final_states)
+                + "."
+            ) if forbidden_final_states else "",
+            (
+                "Do not stop at proposal, outline, or request-for-approval stage. "
+                "Finish the task and deliver the final accepted result in this run."
+            ) if task_mode == "short_story" else "",
         )
         if line
     )

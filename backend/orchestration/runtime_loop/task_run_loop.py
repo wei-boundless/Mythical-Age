@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from capability_system import build_default_operation_registry
 from orchestration.agent_registry import AgentRegistry
@@ -426,6 +426,7 @@ class TaskRunLoop:
         task_execution_assembly_payload = dict(task_operation.get("task_execution_assembly") or {})
         task_projection_binding_payload = dict(task_operation.get("task_projection_binding") or {})
         task_flow_contract_binding_payload = dict(task_operation.get("task_flow_contract_binding") or {})
+        task_execution_policy_payload = dict(task_operation.get("task_execution_policy") or {})
         task_agent_adoption_plan_payload = dict(task_operation.get("task_agent_adoption_plan") or {})
         task_memory_request_profile_payload = dict(task_operation.get("task_memory_request_profile") or {})
         task_communication_protocol_payload = dict(task_operation.get("task_communication_protocol") or {})
@@ -435,6 +436,7 @@ class TaskRunLoop:
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
         adoption_mode = str(task_agent_adoption_plan_payload.get("adoption_mode") or "adopt_existing")
+        effective_limits = _runtime_limits_from_task_operation(task_operation, fallback=self.limits)
 
         task_contract_ref = str(task_contract.get("task_id") or task_id)
         runtime_task_ledger = _build_initial_task_run_ledger(
@@ -462,6 +464,7 @@ class TaskRunLoop:
                 "task_execution_assembly": task_execution_assembly_payload,
                 "task_projection_binding": task_projection_binding_payload,
                 "task_flow_contract_binding": task_flow_contract_binding_payload,
+                "task_execution_policy": task_execution_policy_payload,
                 "task_agent_adoption_plan": task_agent_adoption_plan_payload,
                 "task_memory_request_profile": task_memory_request_profile_payload,
                 "task_communication_protocol": task_communication_protocol_payload,
@@ -480,6 +483,7 @@ class TaskRunLoop:
                 "task_execution_assembly_ref": str(task_execution_assembly_payload.get("assembly_id") or ""),
                 "task_projection_binding_ref": str(task_projection_binding_payload.get("binding_id") or ""),
                 "task_flow_contract_binding_ref": str(task_flow_contract_binding_payload.get("binding_id") or ""),
+                "task_execution_policy_ref": str(task_execution_policy_payload.get("execution_policy_id") or task_execution_policy_payload.get("plan_id") or ""),
                 "task_agent_adoption_plan_ref": str(task_agent_adoption_plan_payload.get("plan_id") or ""),
                 "task_memory_request_profile_ref": str(task_memory_request_profile_payload.get("profile_id") or ""),
                 "task_communication_protocol_ref": str(task_communication_protocol_payload.get("protocol_id") or ""),
@@ -499,9 +503,35 @@ class TaskRunLoop:
             coordination_task_payload=coordination_task_payload,
             communication_protocol_payload=task_communication_protocol_payload,
             task_agent_adoption_plan_payload=task_agent_adoption_plan_payload,
+            effective_limits=effective_limits,
         )
         for runtime_event in runtime_object_events:
             yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+        current_worker_spawn_results = self.state_index.list_task_worker_spawn_results(state.task_run_id)
+        current_worker_agent_runs = [
+            item
+            for item in self.state_index.list_task_agent_runs(state.task_run_id)
+            if str(item.spawn_mode or "") == "worker_spawn"
+        ]
+        runtime_execution_facts = {
+            "worker_spawn_summary": {
+                "spawn_request_count": len(self.state_index.list_task_worker_spawn_requests(state.task_run_id)),
+                "spawn_result_count": len(current_worker_spawn_results),
+                "spawned_agent_ids": [
+                    str(item.spawned_agent_id or "")
+                    for item in current_worker_spawn_results
+                    if str(item.status or "") == "spawned" and str(item.spawned_agent_id or "")
+                ],
+                "blocked_spawn_count": sum(
+                    1 for item in current_worker_spawn_results if str(item.status or "") == "blocked"
+                ),
+                "worker_agent_run_ids": [
+                    str(item.agent_run_id or "")
+                    for item in current_worker_agent_runs
+                    if str(item.agent_run_id or "")
+                ],
+            }
+        }
         if runtime_task_ledger is not None:
             current_step = current_task_step_run(runtime_task_ledger)
             if current_step is not None:
@@ -580,6 +610,7 @@ class TaskRunLoop:
             memory_runtime_view=memory_view,
             context_policy_result=context_policy,
             stage_projection_snapshot=stage_projection,
+            runtime_execution_facts=runtime_execution_facts,
         )
         context_event = self.event_log.append(
             state.task_run_id,
@@ -637,6 +668,7 @@ class TaskRunLoop:
                 **dict(state.diagnostics),
                 "task_contract_ref": task_contract_ref,
                 "runtime_chain_built": True,
+                "effective_loop_limits": effective_limits.to_dict(),
                 "runtime_context_manager_applied": True,
                 "stage_projection_cycle_applied": True,
                 "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
@@ -652,7 +684,7 @@ class TaskRunLoop:
 
         control_decision = check_runtime_loop_control(
             state,
-            limits=self.limits,
+            limits=effective_limits,
             started_at=start.task_run.created_at,
             model_call_count=0,
             event_count=len(self.event_log.list_events(state.task_run_id)),
@@ -1274,7 +1306,7 @@ class TaskRunLoop:
             )
             followup_control = check_runtime_loop_control(
                 loop_state_for_control,
-                limits=self.limits,
+                limits=effective_limits,
                 started_at=start.task_run.created_at,
                 model_call_count=model_call_count - 1,
                 event_count=len(self.event_log.list_events(state.task_run_id)),
@@ -1604,11 +1636,234 @@ class TaskRunLoop:
                 continue
             followup_messages = []
 
+        artifact_validation = _validate_required_artifact_file(
+            root_dir=self.root_dir,
+            selected_template_payload=selected_template_payload,
+            final_content=final_content,
+            result_refs=tuple(result_refs),
+            event_log_events=[item.to_dict() for item in self.event_log.list_events(state.task_run_id)],
+        )
+        if (
+            not artifact_validation["passed"]
+            and terminal_reason == "completed"
+            and _requires_write_file_artifact(selected_template_payload)
+            and tool_runtime_executor is not None
+        ):
+            repair_messages = _build_required_artifact_write_messages(
+                model_messages=list(context_snapshot.model_messages),
+                user_message=user_message,
+                task_spec_payload=task_spec_payload,
+                final_content=final_content,
+                selected_template_payload=selected_template_payload,
+            )
+            repair_event = self.event_log.append(
+                state.task_run_id,
+                "required_artifact_write_repair_started",
+                payload={
+                    "reason": artifact_validation["reason"],
+                    "target_path": _required_artifact_target_path(task_spec_payload=task_spec_payload, user_message=user_message),
+                    "final_content_chars": len(final_content),
+                },
+                refs={"task_contract_ref": task_contract_ref},
+            )
+            yield {"type": "runtime_loop_event", "event": repair_event.to_dict()}
+            repair_pending_tool_calls: list[dict[str, Any]] = []
+            repair_assistant_tool_call_content = ""
+            repair_assistant_tool_call_kwargs: dict[str, Any] = {}
+            async for event in model_response_executor.stream(
+                user_message=user_message,
+                model_messages=repair_messages,
+                directive=directive,
+                tool_instances=runtime_tool_instances,
+            ):
+                if event.get("type") == "tool_call_requested":
+                    tool_call = dict(event.get("tool_call") or {})
+                    if tool_call:
+                        repair_pending_tool_calls.append(tool_call)
+                    repair_assistant_tool_call_content = str(
+                        event.get("assistant_content") or repair_assistant_tool_call_content
+                    )
+                    event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
+                    if event_kwargs:
+                        repair_assistant_tool_call_kwargs.update(event_kwargs)
+                runtime_events = await self._events_from_executor_event(
+                    state.task_run_id,
+                    task_id=task_id,
+                    task_operation=task_operation,
+                    adopted_resource_policy=resource_policy,
+                    current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else state.current_step_id,
+                    runtime_context_manager=runtime_context_manager,
+                    tool_runtime_executor=tool_runtime_executor,
+                    event=event,
+                )
+                for runtime_event in runtime_events:
+                    if runtime_event.event_type == "executor_observation_received":
+                        observation_ref = str(runtime_event.refs.get("observation_ref") or runtime_event.event_id)
+                        result_refs.append(observation_ref)
+                        observation = dict(runtime_event.payload.get("observation") or {})
+                        if observation.get("observation_type") == "tool_result":
+                            tool_observation_count += 1
+                            observation_payload = dict(observation.get("payload") or {})
+                            operation_id = resolve_tool_operation_id(
+                                str(observation_payload.get("tool_name") or ""),
+                                definitions_by_name=self.tool_authorization_index.definitions_by_name,
+                            )
+                            current_step = current_task_step_run(runtime_task_ledger)
+                            if (
+                                runtime_task_ledger is not None
+                                and current_step is not None
+                                and current_step.status == "running"
+                                and current_step.executor_type in {"tool", "mcp", "agent"}
+                                and step_supports_operation(current_step, operation_id)
+                            ):
+                                runtime_task_ledger = complete_task_run_step(
+                                    runtime_task_ledger,
+                                    step_id=current_step.step_id,
+                                    completed_at=time.time(),
+                                    observation_refs=(observation_ref,),
+                                    output_refs=(observation_ref,),
+                                    step_result_ref=observation_ref,
+                                    executor_ref=str(observation_payload.get("tool_name") or operation_id),
+                                    diagnostics={
+                                        "transition_reason": "required_artifact_write_repair",
+                                        "operation_id": operation_id,
+                                    },
+                                )
+                                completed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
+                                if completed_step is not None:
+                                    step_completed_event = self._record_task_run_step_event(
+                                        state.task_run_id,
+                                        event_type="step_completed",
+                                        step_run=completed_step,
+                                        ledger=runtime_task_ledger,
+                                        reason="required_artifact_write_repair",
+                                        refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                                    )
+                                    yield {"type": "runtime_loop_event", "event": step_completed_event.to_dict()}
+                                runtime_task_ledger = advance_task_run_ledger(
+                                    runtime_task_ledger,
+                                    started_at=time.time(),
+                                    diagnostics={
+                                        "transition_reason": "required_artifact_write_repair",
+                                        "operation_id": operation_id,
+                                    },
+                                )
+                                ledger_event = self._record_task_run_ledger_updated(
+                                    state.task_run_id,
+                                    ledger=runtime_task_ledger,
+                                    reason="required_artifact_write_repair",
+                                    refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                                )
+                                yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+                                state = self._state_with_task_run_ledger(
+                                    state,
+                                    runtime_task_ledger,
+                                    result_refs=result_refs,
+                                    diagnostics={"last_step_transition": "required_artifact_write_repair"},
+                                )
+                                checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                                yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                        elif observation.get("observation_type") == "executor_error":
+                            terminal_reason = "executor_failed"
+                    elif runtime_event.event_type == "output_boundary_applied":
+                        result_refs.append(f"output_boundary:{runtime_event.event_id}")
+                    elif runtime_event.event_type == "commit_gate_checked":
+                        commit_ref = str(
+                            runtime_event.refs.get("commit_gate_ref")
+                            or dict(runtime_event.payload.get("commit_gate") or {}).get("gate_id")
+                            or runtime_event.event_id
+                        )
+                        result_refs.append(f"commit_gate:{commit_ref}")
+                    elif runtime_event.event_type == "loop_error":
+                        terminal_reason = "executor_failed"
+                    yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+                if event.get("type") == "done" and not repair_pending_tool_calls:
+                    final_content = str(event.get("content") or final_content)
+                    final_answer_metadata = {
+                        "answer_channel": str(event.get("answer_channel") or final_answer_metadata.get("answer_channel") or ""),
+                        "answer_source": str(event.get("answer_source") or final_answer_metadata.get("answer_source") or ""),
+                        "answer_canonical_state": str(event.get("answer_canonical_state") or final_answer_metadata.get("answer_canonical_state") or ""),
+                        "answer_persist_policy": str(event.get("answer_persist_policy") or final_answer_metadata.get("answer_persist_policy") or ""),
+                        "answer_finalization_policy": str(event.get("answer_finalization_policy") or final_answer_metadata.get("answer_finalization_policy") or ""),
+                        "answer_fallback_reason": str(event.get("answer_fallback_reason") or final_answer_metadata.get("answer_fallback_reason") or ""),
+                    }
+                elif event.get("type") == "error":
+                    terminal_reason = "executor_failed"
+                if event.get("type") != "done":
+                    yield event
+            artifact_validation = _validate_required_artifact_file(
+                root_dir=self.root_dir,
+                selected_template_payload=selected_template_payload,
+                final_content=final_content,
+                result_refs=tuple(result_refs),
+                event_log_events=[item.to_dict() for item in self.event_log.list_events(state.task_run_id)],
+            )
+            repair_done_event = self.event_log.append(
+                state.task_run_id,
+                "required_artifact_write_repair_finished",
+                payload={
+                    "validation": artifact_validation,
+                    "tool_call_count": len(repair_pending_tool_calls),
+                    "assistant_content_chars": len(repair_assistant_tool_call_content),
+                    "assistant_additional_kwargs": repair_assistant_tool_call_kwargs,
+                },
+                refs={"task_contract_ref": task_contract_ref},
+            )
+            yield {"type": "runtime_loop_event", "event": repair_done_event.to_dict()}
+
+        if (
+            artifact_validation["passed"]
+            and terminal_reason == "executor_failed"
+            and _requires_write_file_artifact(selected_template_payload)
+        ):
+            terminal_reason = "completed"
+            final_content = _build_artifact_success_fallback_answer(
+                selected_template_payload=selected_template_payload,
+                artifact_validation=artifact_validation,
+                final_task_summary_refs=final_task_summary_refs,
+                final_main_context=final_main_context,
+            )
+            final_answer_metadata = {
+                **_artifact_success_fallback_answer_metadata(),
+            }
+            recovery_event = self.event_log.append(
+                state.task_run_id,
+                "artifact_success_fallback_finalized",
+                payload={
+                    "reason": "model_followup_failed_after_required_artifact_write",
+                    "artifact_validation": artifact_validation,
+                    "final_content_chars": len(final_content),
+                },
+                refs={"task_contract_ref": task_contract_ref},
+            )
+            yield {"type": "runtime_loop_event", "event": recovery_event.to_dict()}
+
+        if not artifact_validation["passed"] and terminal_reason == "completed":
+            terminal_reason = "artifact_validation_failed"
+            final_answer_metadata = {
+                **dict(final_answer_metadata),
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "task_artifact_validation",
+                "answer_canonical_state": "artifact_validation_failed",
+            }
+            final_content = (
+                "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。"
+                f" 原因：{artifact_validation['reason']}"
+            )
+
+        artifact_validation_event = self.event_log.append(
+            state.task_run_id,
+            "task_artifact_validation_checked",
+            payload={"validation": artifact_validation},
+            refs={"task_contract_ref": task_contract_ref},
+        )
+        yield {"type": "runtime_loop_event", "event": artifact_validation_event.to_dict()}
+
         terminal_state = state.with_status(
             "completed" if terminal_reason == "completed" else "failed",
             transition="stop_after_final_output",
             terminal_reason=terminal_reason,
-            diagnostics={"final_content_chars": len(final_content)},
+            diagnostics={"final_content_chars": len(final_content), "artifact_validation": artifact_validation},
         )
         if final_content and not (final_main_context or final_task_summary_refs):
             bound_projection = projection_from_bound_answer(
@@ -1882,23 +2137,25 @@ class TaskRunLoop:
         final_content: str,
         diagnostics: dict[str, Any] | None = None,
     ) -> None:
+        existing_task_run = self.state_index.get_task_run(start_task_run.task_run_id)
+        base_task_run = existing_task_run or start_task_run
         self.state_index.upsert_task_run(
             TaskRun(
-                task_run_id=start_task_run.task_run_id,
-                session_id=start_task_run.session_id,
-                task_id=start_task_run.task_id,
+                task_run_id=base_task_run.task_run_id,
+                session_id=base_task_run.session_id,
+                task_id=base_task_run.task_id,
                 task_contract_ref=task_contract_ref,
-                agent_id=start_task_run.agent_id,
-                agent_profile_id=start_task_run.agent_profile_id,
-                runtime_lane=start_task_run.runtime_lane,
+                agent_id=base_task_run.agent_id,
+                agent_profile_id=base_task_run.agent_profile_id,
+                runtime_lane=base_task_run.runtime_lane,
                 status=terminal_state.status,
-                created_at=start_task_run.created_at,
+                created_at=base_task_run.created_at,
                 updated_at=time.time(),
                 latest_event_offset=checkpoint_event.offset,
                 latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
                 terminal_reason=terminal_state.terminal_reason,
                 diagnostics={
-                    **dict(start_task_run.diagnostics),
+                    **dict(base_task_run.diagnostics),
                     **dict(diagnostics or {}),
                 },
             )
@@ -1987,6 +2244,23 @@ class TaskRunLoop:
             )
         current_coordination_runs = self.state_index.list_task_coordination_runs(start_task_run.task_run_id)
         target_coordination_run = current_coordination_runs[0] if current_coordination_runs else start_coordination_run
+        worker_spawn_results = self.state_index.list_task_worker_spawn_results(start_task_run.task_run_id)
+        worker_agent_runs = [
+            item
+            for item in self.state_index.list_task_agent_runs(start_task_run.task_run_id)
+            if str(item.spawn_mode or "") == "worker_spawn"
+        ]
+        worker_spawn_summary = {
+            "spawn_request_count": len(self.state_index.list_task_worker_spawn_requests(start_task_run.task_run_id)),
+            "spawn_result_count": len(worker_spawn_results),
+            "spawned_agent_ids": [
+                str(item.spawned_agent_id or "")
+                for item in worker_spawn_results
+                if str(item.status or "") == "spawned" and str(item.spawned_agent_id or "")
+            ],
+            "blocked_spawn_count": sum(1 for item in worker_spawn_results if str(item.status or "") == "blocked"),
+            "worker_agent_run_ids": [str(item.agent_run_id or "") for item in worker_agent_runs if str(item.agent_run_id or "")],
+        }
         if target_coordination_run is not None:
             finalized_flow, unresolved_issue_refs = finalize_coordination_flow_state(
                 dict(target_coordination_run.diagnostics.get("coordination_flow") or {}),
@@ -2073,9 +2347,32 @@ class TaskRunLoop:
                         **dict(target_coordination_run.diagnostics),
                         "terminal_reason": terminal_state.terminal_reason,
                         "coordination_flow": finalized_flow,
+                        "worker_spawn_summary": worker_spawn_summary,
                     },
                 )
             )
+        self.state_index.upsert_task_run(
+            TaskRun(
+                task_run_id=start_task_run.task_run_id,
+                session_id=start_task_run.session_id,
+                task_id=start_task_run.task_id,
+                task_contract_ref=task_contract_ref,
+                agent_id=start_task_run.agent_id,
+                agent_profile_id=start_task_run.agent_profile_id,
+                runtime_lane=start_task_run.runtime_lane,
+                status=terminal_state.status,
+                created_at=start_task_run.created_at,
+                updated_at=time.time(),
+                latest_event_offset=checkpoint_event.offset,
+                latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+                terminal_reason=terminal_state.terminal_reason,
+                diagnostics={
+                    **dict(self.state_index.get_task_run(start_task_run.task_run_id).diagnostics if self.state_index.get_task_run(start_task_run.task_run_id) else {}),
+                    **dict(diagnostics or {}),
+                    "worker_spawn_summary": worker_spawn_summary,
+                },
+            )
+        )
 
     def _write_checkpoint_event(self, state: RuntimeLoopState, *, event_offset: int):
         execution_summary = self.execution_store.build_summary(state.task_run_id)
@@ -2115,9 +2412,35 @@ class TaskRunLoop:
         coordination_task_payload: dict[str, Any],
         communication_protocol_payload: dict[str, Any],
         task_agent_adoption_plan_payload: dict[str, Any] | None = None,
+        effective_limits: RuntimeLoopLimits | None = None,
     ) -> tuple[Any, ...]:
         events: list[Any] = []
         adoption_plan_payload = dict(task_agent_adoption_plan_payload or {})
+        effective_limits_payload = effective_limits.to_dict() if effective_limits is not None else None
+        if effective_limits_payload is not None:
+            current_task_run = self.state_index.get_task_run(start_result.task_run.task_run_id) or start_result.task_run
+            self.state_index.upsert_task_run(
+                TaskRun(
+                    task_run_id=current_task_run.task_run_id,
+                    session_id=current_task_run.session_id,
+                    task_id=current_task_run.task_id,
+                    task_contract_ref=current_task_run.task_contract_ref,
+                    agent_id=current_task_run.agent_id,
+                    agent_profile_id=current_task_run.agent_profile_id,
+                    runtime_lane=current_task_run.runtime_lane,
+                    status=current_task_run.status,
+                    created_at=current_task_run.created_at,
+                    updated_at=time.time(),
+                    latest_event_offset=current_task_run.latest_event_offset,
+                    latest_checkpoint_ref=current_task_run.latest_checkpoint_ref,
+                    terminal_reason=current_task_run.terminal_reason,
+                    diagnostics={
+                        **dict(current_task_run.diagnostics),
+                        "loop_limits": effective_limits_payload,
+                        "effective_loop_limits": effective_limits_payload,
+                    },
+                )
+            )
         coordination_run_id = f"coordrun:{start_result.task_run.task_run_id}:primary"
         updated_agent_run = AgentRun(
             agent_run_id=start_result.agent_run.agent_run_id,
@@ -2242,6 +2565,30 @@ class TaskRunLoop:
         allow_spawn = bool(adoption_plan_payload.get("allow_worker_agent_spawn") is True)
         blueprint_id = str(adoption_plan_payload.get("worker_agent_blueprint_id") or "").strip()
         if not allow_spawn:
+            if blueprint_id:
+                blocked_result = WorkerAgentSpawnResult(
+                    spawn_result_id=f"spawnresult:{task_run_id}:blocked",
+                    spawn_request_id=f"spawnreq:{task_run_id}:blocked",
+                    task_run_id=task_run_id,
+                    parent_agent_run_ref=parent_agent_run.agent_run_id,
+                    blueprint_id=blueprint_id,
+                    status="blocked",
+                    created_at=time.time(),
+                    diagnostics={
+                        "reason": "worker_spawn_disabled_by_execution_policy",
+                        "task_agent_binding_ref": task_agent_binding_ref,
+                        "event_offset": event_offset,
+                    },
+                )
+                self.state_index.upsert_worker_spawn_result(blocked_result)
+                events.append(
+                    self.event_log.append(
+                        task_run_id,
+                        "worker_agent_spawn_completed",
+                        payload={"worker_spawn_result": blocked_result.to_dict()},
+                        refs={"spawn_result_ref": blocked_result.spawn_result_id},
+                    )
+                )
             return events, coordination_run
         if not blueprint_id:
             blocked_result = WorkerAgentSpawnResult(
@@ -3488,9 +3835,9 @@ def _task_spec_from_payload(payload: dict[str, Any]) -> TaskSpec | None:
                 _step_input_binding_from_payload(item)
                 for item in list(payload.get("step_input_bindings") or [])
             ),
-            selected_agent_id=str(payload.get("selected_agent_id") or "agent:0"),
             selected_skill_ids=tuple(str(item) for item in list(payload.get("selected_skill_ids") or [])),
             operation_requirement_ref=str(payload.get("operation_requirement_ref") or ""),
+            safety_envelope=dict(payload.get("safety_envelope") or {}),
             status=str(payload.get("status") or "selected"),
         )
     except ValueError:
@@ -3583,6 +3930,220 @@ def _task_validation_rule_from_payload(payload: Any) -> TaskValidationRule:
     )
 
 
+def _runtime_limits_from_task_operation(
+    task_operation: dict[str, Any],
+    *,
+    fallback: RuntimeLoopLimits,
+) -> RuntimeLoopLimits:
+    task_spec = dict(task_operation.get("task_spec") or {})
+    task_assembly = dict(task_operation.get("task_execution_assembly") or {})
+    adoption_plan = dict(task_operation.get("task_execution_policy") or task_operation.get("task_agent_adoption_plan") or {})
+    metadata = dict(task_assembly.get("metadata") or {})
+    constraints = dict(task_spec.get("constraints") or {})
+    policy_metadata = dict(adoption_plan.get("metadata") or {})
+    limits = {
+        **dict(metadata.get("runtime_limits") or {}),
+        **dict(policy_metadata.get("runtime_limits") or {}),
+        **dict(constraints.get("runtime_limits") or {}),
+    }
+    if not limits:
+        return fallback
+    return RuntimeLoopLimits.from_policy(limits, fallback=fallback)
+
+
+def _validate_required_artifact_file(
+    *,
+    root_dir: Path,
+    selected_template_payload: dict[str, Any],
+    final_content: str,
+    result_refs: tuple[str, ...],
+    event_log_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    rules = [
+        dict(item)
+        for item in list(selected_template_payload.get("validation_rules") or [])
+        if str(dict(item).get("validation_kind") or "") == "artifact_file_required"
+        and str(dict(item).get("severity") or "") == "error"
+    ]
+    if not rules:
+        return {
+            "passed": True,
+            "required": False,
+            "reason": "no artifact_file_required validation rule",
+        }
+    successful_writes = _successful_write_file_paths(root_dir=root_dir, event_log_events=event_log_events)
+    existing_writes = [item for item in successful_writes if Path(item["absolute_path"]).exists()]
+    passed = bool(existing_writes)
+    return {
+        "passed": passed,
+        "required": True,
+        "reason": "required artifact file exists" if passed else "write_file was required but no successful existing artifact file was found",
+        "rule_ids": [str(item.get("rule_id") or "") for item in rules],
+        "successful_write_count": len(successful_writes),
+        "existing_write_count": len(existing_writes),
+        "artifacts": existing_writes,
+        "final_content_chars": len(str(final_content or "")),
+        "result_ref_count": len(result_refs),
+    }
+
+
+def _requires_write_file_artifact(selected_template_payload: dict[str, Any]) -> bool:
+    if "op.write_file" not in set(str(item) for item in list(selected_template_payload.get("required_operations") or [])):
+        return False
+    return any(
+        str(dict(item).get("validation_kind") or "") == "artifact_file_required"
+        and str(dict(item).get("severity") or "") == "error"
+        for item in list(selected_template_payload.get("validation_rules") or [])
+        if isinstance(item, dict)
+    )
+
+
+def _build_required_artifact_write_messages(
+    *,
+    model_messages: list[Any],
+    user_message: str,
+    task_spec_payload: dict[str, Any],
+    final_content: str,
+    selected_template_payload: dict[str, Any],
+) -> list[Any]:
+    target_path = _required_artifact_target_path(task_spec_payload=task_spec_payload, user_message=user_message)
+    task_title = str(selected_template_payload.get("title") or selected_template_payload.get("task_mode") or "artifact task")
+    if target_path:
+        path_line = f"目标文件：{target_path}"
+    else:
+        path_line = "目标文件：请从用户消息中的明确路径选择唯一目标文件。"
+    content_source = str(final_content or "").strip()
+    if not content_source:
+        content_source = str(task_spec_payload.get("user_goal") or user_message or "").strip()
+    repair_instruction = (
+        "上一轮没有产生正式 write_file 工具证据，因此任务仍未通过。"
+        "现在必须只调用 write_file 工具写入真实文件，不要用普通回答替代工具调用。\n"
+        f"任务：{task_title}\n"
+        f"{path_line}\n"
+        "文件内容必须是可验收的完整任务产物，不是状态说明。"
+        "如果上一轮回答包含可用内容，请扩展成文件正文；如果不够，请根据任务目标生成完整正文。\n"
+        "工具参数要求：path 使用目标文件路径，content 使用完整文件内容。"
+        "不要声称已写入，必须发出 write_file 工具调用。\n\n"
+        f"用户原始要求：\n{user_message}\n\n"
+        f"上一轮模型输出：\n{content_source}"
+    )
+    return [
+        *list(model_messages),
+        HumanMessage(content=repair_instruction),
+    ]
+
+
+def _required_artifact_target_path(*, task_spec_payload: dict[str, Any], user_message: str) -> str:
+    inputs = dict(task_spec_payload.get("inputs") or {})
+    tool_input = dict(inputs.get("tool_input") or {})
+    for value in (
+        tool_input.get("path"),
+        inputs.get("explicit_workspace_path"),
+        inputs.get("output_path"),
+        inputs.get("target_path"),
+    ):
+        cleaned = str(value or "").strip()
+        if cleaned:
+            return cleaned
+    return _extract_workspace_path_from_text(user_message)
+
+
+def _extract_workspace_path_from_text(text: str) -> str:
+    normalized = str(text or "").replace("\\", "/")
+    for suffix in (".md", ".txt", ".json", ".html", ".css", ".js", ".py", ".tsx", ".ts"):
+        marker = normalized.find(suffix)
+        if marker < 0:
+            continue
+        start = marker
+        while start > 0 and normalized[start - 1] not in {" ", "\n", "\t", "，", "。", "：", ":", "`", "\"", "'", "写", "入"}:
+            start -= 1
+        candidate = normalized[start : marker + len(suffix)].strip("`'\"，。；;：:()（）[]【】")
+        if "/" in candidate and not candidate.startswith(("http://", "https://")):
+            return candidate
+    return ""
+
+
+def _successful_write_file_paths(
+    *,
+    root_dir: Path,
+    event_log_events: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    workspace_root = _workspace_root_from_runtime_root(root_dir)
+    artifacts: list[dict[str, str]] = []
+    for raw_event in event_log_events:
+        event = _unwrap_runtime_event(raw_event)
+        if str(event.get("event_type") or "") not in {"tool_result_received", "executor_observation_received"}:
+            continue
+        observation = dict(dict(event.get("payload") or {}).get("observation") or {})
+        if observation.get("observation_type") != "tool_result":
+            continue
+        payload = dict(observation.get("payload") or {})
+        if str(payload.get("tool_name") or "") != "write_file":
+            continue
+        result = str(payload.get("result") or "")
+        if not _tool_result_indicates_write_success(result):
+            continue
+        tool_args = dict(payload.get("tool_args") or {})
+        raw_path = str(tool_args.get("path") or "").strip()
+        if not raw_path:
+            raw_path = _path_from_write_result(result)
+        if not raw_path:
+            continue
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = workspace_root / str(raw_path).replace("\\", "/").strip().strip("/")
+        candidate = candidate.resolve()
+        try:
+            relative_path = candidate.relative_to(workspace_root).as_posix()
+        except ValueError:
+            relative_path = candidate.as_posix()
+        artifacts.append(
+            {
+                "path": relative_path,
+                "absolute_path": candidate.as_posix(),
+                "observation_ref": str(event.get("refs", {}).get("observation_ref") or ""),
+            }
+        )
+    unique: dict[str, dict[str, str]] = {}
+    for item in artifacts:
+        unique[item["absolute_path"]] = item
+    return list(unique.values())
+
+
+def _workspace_root_from_runtime_root(root_dir: Path) -> Path:
+    root = Path(root_dir).resolve()
+    if root.name == "backend" and root.parent.exists():
+        return root.parent.resolve()
+    if root.name == "runtime_state" and root.parent.name == "storage" and root.parent.parent.exists():
+        return root.parent.parent.resolve()
+    if root.name == "storage" and root.parent.exists():
+        return root.parent.resolve()
+    return root
+
+
+def _unwrap_runtime_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Accept both ledger JSONL events and exported runtime_loop_event wrappers."""
+    payload = dict(event or {})
+    wrapped_event = payload.get("event")
+    if isinstance(wrapped_event, dict) and wrapped_event.get("event_type"):
+        return dict(wrapped_event)
+    return payload
+
+
+def _tool_result_indicates_write_success(result: str) -> bool:
+    text = str(result or "")
+    lowered = text.lower()
+    return "write succeeded" in lowered or "wrote file" in lowered or "successfully wrote" in lowered
+
+
+def _path_from_write_result(result: str) -> str:
+    text = str(result or "").strip()
+    for marker in ("Write succeeded:", "write succeeded:", "Wrote file:", "wrote file:"):
+        if marker in text:
+            return text.split(marker, 1)[1].strip().splitlines()[0].strip()
+    return ""
+
+
 def _dedupe_refs(values: list[str]) -> list[str]:
     refs: list[str] = []
     seen: set[str] = set()
@@ -3628,6 +4189,17 @@ def _forced_synthesis_answer_metadata(*, source: str = "runtime_loop_synthesis")
     }
 
 
+def _artifact_success_fallback_answer_metadata(*, source: str = "runtime_loop.artifact_success_fallback") -> dict[str, str]:
+    return {
+        "answer_channel": "tool_visible_summary",
+        "answer_source": source,
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none",
+        "answer_fallback_reason": "artifact_success_fallback",
+    }
+
+
 def _build_runtime_budget_exhausted_message(message: str = "", *, tool_observation_count: int = 0) -> str:
     reason = str(message or "").strip()
     if "max_runtime_seconds" in reason:
@@ -3659,6 +4231,41 @@ def _build_repeated_tool_halt_message(*, tool_observation_count: int = 0) -> str
         f"{evidence_text}，继续重复读取不会带来新的信息，所以我先停止本轮重复工具调用。"
         "你可以直接继续基于当前已绑定对象提问，我会从现有上下文继续收口。"
     )
+
+
+def _build_artifact_success_fallback_answer(
+    *,
+    selected_template_payload: dict[str, Any],
+    artifact_validation: dict[str, Any],
+    final_task_summary_refs: list[dict[str, Any]],
+    final_main_context: dict[str, Any],
+) -> str:
+    artifact_items = [
+        str(dict(item).get("path") or "").strip()
+        for item in list(artifact_validation.get("artifacts") or [])
+        if str(dict(item).get("path") or "").strip()
+    ]
+    task_title = str(
+        selected_template_payload.get("title")
+        or selected_template_payload.get("task_mode")
+        or selected_template_payload.get("template_id")
+        or "任务"
+    ).strip()
+    summary = _forced_tool_synthesis_answer(
+        user_message="",
+        final_task_summary_refs=final_task_summary_refs,
+        final_main_context=final_main_context,
+    )
+    lines = [f"{task_title}已完成真实产物写入。"]
+    if artifact_items:
+        lines.append("产物文件：")
+        lines.extend(f"- {item}" for item in artifact_items[:6])
+    if summary:
+        lines.append(summary)
+    else:
+        lines.append("本轮所需 artifact 已通过 write_file 写入并通过存在性校验。")
+    lines.append("模型后续收口阶段中断，但正式产物已经落盘，可基于现有产物继续下一阶段。")
+    return "\n".join(lines)
 
 
 def _forced_tool_synthesis_answer(

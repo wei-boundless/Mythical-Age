@@ -23,7 +23,6 @@ class TaskSpec:
     bundle_item_ref: str = ""
     requested_outputs: tuple[str, ...] = ()
     step_input_bindings: tuple[StepInputBinding, ...] = ()
-    selected_agent_id: str = "agent:0"
     selected_skill_ids: tuple[str, ...] = ()
     operation_requirement_ref: str = ""
     safety_envelope: dict[str, Any] = field(default_factory=dict)

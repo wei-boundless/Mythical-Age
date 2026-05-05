@@ -1,0 +1,501 @@
+{
+  "topology_templates": [
+    {
+      "template_id": "topology.health.repair_review",
+      "title": "健康修复拓扑草案",
+      "nodes": [
+        {
+          "node_id": "health_triage",
+          "agent_id": "agent:3",
+          "lane": "health_issue_read"
+        },
+        {
+          "node_id": "fix_verification",
+          "agent_id": "agent:3",
+          "lane": "fix_verification_candidate"
+        },
+        {
+          "node_id": "final_merge",
+          "agent_id": "agent:0",
+          "lane": "final_integration"
+        }
+      ],
+      "edges": [
+        {
+          "from": "health_triage",
+          "to": "fix_verification",
+          "policy": "issue_refs_only"
+        },
+        {
+          "from": "fix_verification",
+          "to": "final_merge",
+          "policy": "structured_result_only"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": false
+    },
+    {
+      "template_id": "topology.writing.short_story_pipeline",
+      "title": "短篇小说协作拓扑",
+      "nodes": [
+        {
+          "node_id": "idea_worker",
+          "agent_id": "agent:5",
+          "lane": "creative_ideation",
+          "role": "participant"
+        },
+        {
+          "node_id": "idea_review",
+          "agent_id": "agent:4",
+          "lane": "content_review",
+          "role": "participant"
+        },
+        {
+          "node_id": "approval_gate",
+          "agent_id": "agent:0",
+          "lane": "coordination_gate",
+          "role": "coordinator"
+        },
+        {
+          "node_id": "draft_writer",
+          "agent_id": "agent:5",
+          "lane": "story_drafting",
+          "role": "participant"
+        },
+        {
+          "node_id": "content_check",
+          "agent_id": "agent:4",
+          "lane": "content_inspection",
+          "role": "participant"
+        },
+        {
+          "node_id": "revision_loop",
+          "agent_id": "agent:5",
+          "lane": "story_revision",
+          "role": "participant"
+        },
+        {
+          "node_id": "acceptance",
+          "agent_id": "agent:0",
+          "lane": "final_acceptance",
+          "role": "coordinator"
+        }
+      ],
+      "edges": [
+        {
+          "from": "idea_worker",
+          "to": "idea_review",
+          "policy": "stage_contract_handoff"
+        },
+        {
+          "from": "idea_review",
+          "to": "approval_gate",
+          "policy": "stage_contract_handoff"
+        },
+        {
+          "from": "approval_gate",
+          "to": "draft_writer",
+          "policy": "stage_contract_handoff"
+        },
+        {
+          "from": "draft_writer",
+          "to": "content_check",
+          "policy": "stage_contract_handoff"
+        },
+        {
+          "from": "content_check",
+          "to": "revision_loop",
+          "policy": "stage_contract_handoff"
+        },
+        {
+          "from": "revision_loop",
+          "to": "acceptance",
+          "policy": "stage_contract_handoff"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": true
+    },
+    {
+      "template_id": "topology.writing.longform_project_bootstrap",
+      "title": "长篇小说项目立项拓扑",
+      "nodes": [
+        {
+          "node_id": "editor_gate",
+          "agent_id": "agent:20",
+          "lane": "novel_project_control",
+          "role": "coordinator"
+        },
+        {
+          "node_id": "world_seed",
+          "agent_id": "agent:21",
+          "lane": "world_bible_build",
+          "role": "participant"
+        },
+        {
+          "node_id": "character_seed",
+          "agent_id": "agent:22",
+          "lane": "character_bible_build",
+          "role": "participant"
+        },
+        {
+          "node_id": "plot_seed",
+          "agent_id": "agent:23",
+          "lane": "volume_plot_plan",
+          "role": "participant"
+        }
+      ],
+      "edges": [
+        {
+          "from": "world_seed",
+          "to": "editor_gate",
+          "policy": "project_contract_handoff"
+        },
+        {
+          "from": "character_seed",
+          "to": "editor_gate",
+          "policy": "project_contract_handoff"
+        },
+        {
+          "from": "plot_seed",
+          "to": "editor_gate",
+          "policy": "project_contract_handoff"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": true
+    },
+    {
+      "template_id": "topology.writing.novel_bible_build",
+      "title": "长篇小说圣经构建拓扑",
+      "nodes": [
+        {
+          "node_id": "world_bible",
+          "agent_id": "agent:21",
+          "lane": "world_bible_build",
+          "role": "participant"
+        },
+        {
+          "node_id": "character_bible",
+          "agent_id": "agent:22",
+          "lane": "character_bible_build",
+          "role": "participant"
+        },
+        {
+          "node_id": "plot_bible",
+          "agent_id": "agent:23",
+          "lane": "volume_plot_plan",
+          "role": "participant"
+        },
+        {
+          "node_id": "editor_merge",
+          "agent_id": "agent:20",
+          "lane": "novel_bible_gate",
+          "role": "coordinator"
+        }
+      ],
+      "edges": [
+        {
+          "from": "world_bible",
+          "to": "editor_merge",
+          "policy": "bible_section_contract_handoff"
+        },
+        {
+          "from": "character_bible",
+          "to": "editor_merge",
+          "policy": "bible_section_contract_handoff"
+        },
+        {
+          "from": "plot_bible",
+          "to": "editor_merge",
+          "policy": "bible_section_contract_handoff"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": true
+    },
+    {
+      "template_id": "topology.writing.volume_planning",
+      "title": "长篇小说卷规划拓扑",
+      "nodes": [
+        {
+          "node_id": "character_arc",
+          "agent_id": "agent:22",
+          "lane": "volume_character_arc",
+          "role": "participant"
+        },
+        {
+          "node_id": "volume_plot",
+          "agent_id": "agent:23",
+          "lane": "volume_plot_plan",
+          "role": "participant"
+        },
+        {
+          "node_id": "quality_review",
+          "agent_id": "agent:25",
+          "lane": "arc_review",
+          "role": "participant"
+        },
+        {
+          "node_id": "editor_acceptance",
+          "agent_id": "agent:20",
+          "lane": "volume_acceptance",
+          "role": "coordinator"
+        }
+      ],
+      "edges": [
+        {
+          "from": "character_arc",
+          "to": "volume_plot",
+          "policy": "volume_contract_handoff"
+        },
+        {
+          "from": "volume_plot",
+          "to": "quality_review",
+          "policy": "volume_contract_handoff"
+        },
+        {
+          "from": "quality_review",
+          "to": "editor_acceptance",
+          "policy": "volume_contract_handoff"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": true
+    },
+    {
+      "template_id": "topology.writing.chapter_pipeline",
+      "title": "长篇小说章节流水线拓扑",
+      "nodes": [
+        {
+          "node_id": "chapter_plan",
+          "agent_id": "agent:23",
+          "lane": "chapter_plot_plan",
+          "role": "participant"
+        },
+        {
+          "node_id": "chapter_draft",
+          "agent_id": "agent:24",
+          "lane": "chapter_drafting",
+          "role": "participant"
+        },
+        {
+          "node_id": "style_review",
+          "agent_id": "agent:25",
+          "lane": "chapter_quality_review",
+          "role": "participant"
+        },
+        {
+          "node_id": "continuity_review",
+          "agent_id": "agent:26",
+          "lane": "chapter_continuity_review",
+          "role": "participant"
+        },
+        {
+          "node_id": "chapter_revision",
+          "agent_id": "agent:24",
+          "lane": "chapter_revision",
+          "role": "participant"
+        },
+        {
+          "node_id": "editor_acceptance",
+          "agent_id": "agent:20",
+          "lane": "chapter_acceptance",
+          "role": "coordinator"
+        }
+      ],
+      "edges": [
+        {
+          "from": "chapter_plan",
+          "to": "chapter_draft",
+          "policy": "chapter_contract_handoff"
+        },
+        {
+          "from": "chapter_draft",
+          "to": "style_review",
+          "policy": "chapter_contract_handoff"
+        },
+        {
+          "from": "chapter_draft",
+          "to": "continuity_review",
+          "policy": "chapter_contract_handoff"
+        },
+        {
+          "from": "style_review",
+          "to": "chapter_revision",
+          "policy": "chapter_contract_handoff"
+        },
+        {
+          "from": "continuity_review",
+          "to": "chapter_revision",
+          "policy": "chapter_contract_handoff"
+        },
+        {
+          "from": "chapter_revision",
+          "to": "editor_acceptance",
+          "policy": "chapter_contract_handoff"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": true
+    },
+    {
+      "template_id": "topology.writing.continuity_audit",
+      "title": "长篇小说连续性审计拓扑",
+      "nodes": [
+        {
+          "node_id": "world_consistency",
+          "agent_id": "agent:21",
+          "lane": "continuity_audit",
+          "role": "participant"
+        },
+        {
+          "node_id": "timeline_audit",
+          "agent_id": "agent:26",
+          "lane": "continuity_audit",
+          "role": "participant"
+        },
+        {
+          "node_id": "style_risk",
+          "agent_id": "agent:25",
+          "lane": "style_audit",
+          "role": "participant"
+        },
+        {
+          "node_id": "editor_audit_merge",
+          "agent_id": "agent:20",
+          "lane": "arc_review",
+          "role": "coordinator"
+        }
+      ],
+      "edges": [
+        {
+          "from": "world_consistency",
+          "to": "editor_audit_merge",
+          "policy": "audit_contract_handoff"
+        },
+        {
+          "from": "timeline_audit",
+          "to": "editor_audit_merge",
+          "policy": "audit_contract_handoff"
+        },
+        {
+          "from": "style_risk",
+          "to": "editor_audit_merge",
+          "policy": "audit_contract_handoff"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": true
+    },
+    {
+      "template_id": "topology.writing.final_compilation",
+      "title": "长篇小说全书编纂拓扑",
+      "nodes": [
+        {
+          "node_id": "chapter_bundle",
+          "agent_id": "agent:24",
+          "lane": "chapter_revision",
+          "role": "participant"
+        },
+        {
+          "node_id": "final_quality",
+          "agent_id": "agent:25",
+          "lane": "style_audit",
+          "role": "participant"
+        },
+        {
+          "node_id": "final_continuity",
+          "agent_id": "agent:26",
+          "lane": "arc_continuity_review",
+          "role": "participant"
+        },
+        {
+          "node_id": "editor_final_merge",
+          "agent_id": "agent:20",
+          "lane": "final_compilation",
+          "role": "coordinator"
+        }
+      ],
+      "edges": [
+        {
+          "from": "chapter_bundle",
+          "to": "final_quality",
+          "policy": "compilation_contract_handoff"
+        },
+        {
+          "from": "chapter_bundle",
+          "to": "final_continuity",
+          "policy": "compilation_contract_handoff"
+        },
+        {
+          "from": "final_quality",
+          "to": "editor_final_merge",
+          "policy": "compilation_contract_handoff"
+        },
+        {
+          "from": "final_continuity",
+          "to": "editor_final_merge",
+          "policy": "compilation_contract_handoff"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": true
+    },
+    {
+      "template_id": "topology.dev.acceptance_worker_spawn_live",
+      "title": "Worker Spawn 实测拓扑",
+      "nodes": [
+        {
+          "node_id": "worker_lane",
+          "agent_id": "agent:6",
+          "lane": "game_delivery",
+          "role": "worker_participant"
+        },
+        {
+          "node_id": "merge_lane",
+          "agent_id": "agent:0",
+          "lane": "final_integration",
+          "role": "coordinator"
+        }
+      ],
+      "edges": [
+        {
+          "from": "worker_lane",
+          "to": "merge_lane",
+          "policy": "structured_handoff"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": true
+    }
+  ]
+}

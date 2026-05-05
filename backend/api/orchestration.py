@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from capability_system import build_default_operation_registry
 from orchestration import (
+    AgentGroupRegistry,
+    AgentRegistry,
     AgentRuntimeRegistry,
     ControlKernel,
     TaskContract,
@@ -42,6 +44,34 @@ class AgentRuntimeProfileRequest(BaseModel):
     approval_policy: str = Field(default="default", max_length=80)
     trace_policy: str = Field(default="runtime_event_log", max_length=120)
     lifecycle_policy: str = Field(default="orchestration_managed", max_length=120)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OrchestrationAgentUpsertRequest(BaseModel):
+    agent_id: str = Field(..., min_length=3, max_length=160)
+    agent_name: str = Field(..., min_length=1, max_length=160)
+    agent_category: str = Field(default="worker_sub_agent", max_length=80)
+    interface_target: str = Field(default="", max_length=160)
+    description: str = Field(default="", max_length=1000)
+    enabled: bool = True
+    editable: bool = True
+    default_soul_id: str = Field(default="", max_length=160)
+    default_projection_id: str = Field(default="", max_length=160)
+    task_scope: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class OrchestrationAgentGroupUpsertRequest(BaseModel):
+    group_id: str = Field(..., min_length=3, max_length=160)
+    title: str = Field(..., min_length=1, max_length=160)
+    group_kind: str = Field(default="coordination_team", max_length=120)
+    coordinator_agent_id: str = Field(..., min_length=3, max_length=160)
+    member_agent_ids: list[str] = Field(default_factory=list)
+    description: str = Field(default="", max_length=1000)
+    default_topology_template_ids: list[str] = Field(default_factory=list)
+    default_communication_protocol_ids: list[str] = Field(default_factory=list)
+    allowed_coordination_task_ids: list[str] = Field(default_factory=list)
+    lifecycle_state: str = Field(default="enabled", max_length=80)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -115,11 +145,13 @@ async def orchestration_agents() -> dict[str, Any]:
     runtime = require_runtime()
     registry = AgentRuntimeRegistry(runtime.base_dir)
     catalog = registry.build_catalog()
+    groups = AgentGroupRegistry(runtime.base_dir).list_groups()
     task_registry = TaskFlowRegistry(runtime.base_dir)
     operations = build_default_operation_registry().list_operations()
     workflows = TaskWorkflowRegistry(runtime.base_dir).list_workflows()
     return {
         **catalog,
+        "agent_groups": [item.to_dict() for item in groups],
         "options": {
             "operations": [item.to_dict() for item in operations],
             "task_modes": sorted({item.task_mode for item in task_registry.list_flows() if item.task_mode}),
@@ -148,6 +180,81 @@ async def orchestration_agents() -> dict[str, Any]:
             "trace_policies": ["runtime_event_log", "full_trace", "minimal_trace"],
         },
     }
+
+
+@router.get("/orchestration/agents/next-worker-id")
+async def next_orchestration_worker_agent_id() -> dict[str, str]:
+    runtime = require_runtime()
+    return {
+        "authority": "orchestration.agent_registry",
+        "agent_id": AgentRegistry(runtime.base_dir).next_worker_agent_id(),
+    }
+
+
+@router.put("/orchestration/agents/{agent_id}")
+async def upsert_orchestration_agent(
+    agent_id: str,
+    payload: OrchestrationAgentUpsertRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    if payload.agent_id != agent_id:
+        payload = payload.model_copy(update={"agent_id": agent_id})
+    try:
+        AgentRegistry(runtime.base_dir).upsert_agent(
+            agent_id=payload.agent_id,
+            agent_name=payload.agent_name,
+            agent_category=payload.agent_category,
+            interface_target=payload.interface_target,
+            description=payload.description,
+            enabled=payload.enabled,
+            editable=payload.editable,
+            default_soul_id=payload.default_soul_id,
+            default_projection_id=payload.default_projection_id,
+            task_scope=tuple(payload.task_scope),
+            metadata={**payload.metadata, "managed_by": "orchestration_console"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await orchestration_agents()
+
+
+@router.delete("/orchestration/agents/{agent_id}")
+async def delete_orchestration_agent(agent_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        AgentRegistry(runtime.base_dir).delete_agent(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent not found") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await orchestration_agents()
+
+
+@router.put("/orchestration/agent-groups/{group_id}")
+async def upsert_orchestration_agent_group(
+    group_id: str,
+    payload: OrchestrationAgentGroupUpsertRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    if payload.group_id != group_id:
+        payload = payload.model_copy(update={"group_id": group_id})
+    try:
+        AgentGroupRegistry(runtime.base_dir).upsert_group(
+            group_id=payload.group_id,
+            title=payload.title,
+            group_kind=payload.group_kind,
+            coordinator_agent_id=payload.coordinator_agent_id,
+            member_agent_ids=tuple(payload.member_agent_ids),
+            description=payload.description,
+            default_topology_template_ids=tuple(payload.default_topology_template_ids),
+            default_communication_protocol_ids=tuple(payload.default_communication_protocol_ids),
+            allowed_coordination_task_ids=tuple(payload.allowed_coordination_task_ids),
+            lifecycle_state=payload.lifecycle_state,
+            metadata={**payload.metadata, "managed_by": "orchestration_console"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await orchestration_agents()
 
 
 @router.post("/orchestration/body-preview")

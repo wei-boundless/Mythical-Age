@@ -1,0 +1,75 @@
+{
+  "task_run_id": "taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd",
+  "updated_at": 1777978671.7641616,
+  "records": [
+    {
+      "execution_id": "rtexec:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:f9374608",
+      "task_run_id": "taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd",
+      "step_id": "step.scope_story_goal",
+      "request_ref": "rtact:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:b81a7c2f",
+      "directive_ref": "runtime-directive:taskinst:turn:acceptance-e3-live-full:1:short_story:tool:rtact:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:b81a7c2f",
+      "operation_id": "op.search_knowledge",
+      "executor_type": "tool",
+      "request_fingerprint": "0bce4d8141cba0697900cd262d93d275cec470c536f007a942a6d2f431964e42",
+      "idempotency_token": "924b6a4af6134971c7df6295b553889c01560d8438dc6f3ba291b25a95300207",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:f9374608",
+      "result_payload": {
+        "tool_name": "search_knowledge",
+        "tool_call_id": "call_00_Y0RS9gpii9cUIwYDnZ2Q9424",
+        "tool_args": {
+          "query": "短篇小说 灯塔 近未来 海边小镇",
+          "top_k": 3
+        },
+        "result": "Knowledge index is not ready. Rebuild the knowledge collection before searching.",
+        "result_chars": 80,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777978671.6430511,
+      "updated_at": 1777978671.663072,
+      "diagnostics": {
+        "tool_name": "search_knowledge",
+        "directive_ref": "runtime-directive:taskinst:turn:acceptance-e3-live-full:1:short_story:tool:rtact:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:b81a7c2f"
+      },
+      "authority": "orchestration.operation_execution_record"
+    },
+    {
+      "execution_id": "rtexec:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:c11fc4b6",
+      "task_run_id": "taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd",
+      "step_id": "step.coordinate_story_pipeline",
+      "request_ref": "rtact:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:62ded471",
+      "directive_ref": "runtime-directive:taskinst:turn:acceptance-e3-live-full:1:short_story:tool:rtact:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:62ded471",
+      "operation_id": "op.search_knowledge",
+      "executor_type": "tool",
+      "request_fingerprint": "6c5ac58565c2d3a2b9a03e8fbe2c3996c07c2e876ca4314b7677f5f3e41e2988",
+      "idempotency_token": "54708b9e3f1b44cb250ba33b84a1e7a767a22175f172816c075d1a4246c1b2a2",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:c11fc4b6",
+      "result_payload": {
+        "tool_name": "search_knowledge",
+        "tool_call_id": "call_01_jpaYl4tMVQmvMrFzPrrn0781",
+        "tool_args": {
+          "query": "小说协作 创意审核 纠察 修正 验收",
+          "top_k": 3
+        },
+        "result": "Knowledge index is not ready. Rebuild the knowledge collection before searching.",
+        "result_chars": 80,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777978671.7365606,
+      "updated_at": 1777978671.759596,
+      "diagnostics": {
+        "tool_name": "search_knowledge",
+        "directive_ref": "runtime-directive:taskinst:turn:acceptance-e3-live-full:1:short_story:tool:rtact:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:62ded471"
+      },
+      "authority": "orchestration.operation_execution_record"
+    }
+  ],
+  "latest_execution_id": "rtexec:taskrun:acceptance-e3-live-full:taskinst:turn:acceptance-e3-live-full:1:short_story:9340efdd:c11fc4b6"
+}

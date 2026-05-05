@@ -351,6 +351,8 @@ export type TaskSystemAgentUpsertPayload = {
   metadata?: Record<string, unknown>;
 };
 
+export type OrchestrationAgentUpsertPayload = TaskSystemAgentUpsertPayload;
+
 export type TaskSystemNextIds = {
   authority: string;
   task_id: string;
@@ -383,42 +385,89 @@ export type TaskSystemFlowUpsertPayload = {
   metadata?: Record<string, unknown>;
 };
 
-export type GeneralTaskProfile = {
+export type ConversationEntryPolicy = {
   profile_id: string;
+  entry_policy_id?: string;
   title: string;
-  default_agent_id: string;
   default_workflow_id: string;
   default_projection_id: string;
   input_contract_id: string;
   output_contract_id: string;
   conversation_entry_policy: string;
   enabled: boolean;
+  authority?: string;
   metadata?: Record<string, unknown>;
 };
 
-export type TaskAssignment = {
+export type SpecificTaskRecord = {
   task_id: string;
   task_title: string;
-  task_kind: string;
   task_family: string;
   task_mode: string;
-  flow_id: string;
-  default_agent_id: string;
-  participant_agent_ids: string[];
-  workflow_id: string;
-  workflow_file_ref: string;
-  projection_id: string;
+  description: string;
   input_contract_id: string;
   output_contract_id: string;
-  safety_policy: Record<string, unknown>;
-  task_structure: Record<string, unknown>;
+  acceptance_profile_id: string;
+  default_flow_contract_id: string;
+  default_workflow_id: string;
+  default_projection_policy: string;
+  task_policy: Record<string, unknown>;
   enabled: boolean;
   metadata?: Record<string, unknown>;
 };
 
-export type SpecificTaskUpsertPayload = TaskAssignment & {
-  trigger_signals?: string[];
-  notes?: string;
+export type TaskProjectionBinding = {
+  binding_id?: string;
+  task_id: string;
+  projection_selection_mode: string;
+  allowed_projection_ids: string[];
+  default_projection_id: string;
+  projection_required: boolean;
+  notes: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskFlowContractBinding = {
+  binding_id?: string;
+  task_id: string;
+  flow_contract_id: string;
+  override_policy: string;
+  verification_gate_profile: string;
+  fallback_policy: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskExecutionPolicy = {
+  plan_id?: string;
+  execution_policy_id?: string;
+  task_id: string;
+  execution_chain_type: string;
+  runtime_agent_selection_policy?: string;
+  task_level?: string;
+  task_privilege?: string;
+  allowed_agent_categories: string[];
+  allow_worker_agent_spawn: boolean;
+  worker_agent_blueprint_id: string;
+  worker_agent_naming_rule: string;
+  coordination_task_id?: string;
+  communication_protocol_id?: string;
+  topology_template_id?: string;
+  agent_group_id?: string;
+  notes: string;
+  authority?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskMemoryRequestProfile = {
+  profile_id?: string;
+  task_id: string;
+  requested_memory_layers: string[];
+  requested_topics: string[];
+  memory_priority: string;
+  writeback_policy: string;
+  allow_long_term_memory: boolean;
+  memory_scope_hint: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type CoordinationTask = {
@@ -426,6 +475,7 @@ export type CoordinationTask = {
   title: string;
   coordination_mode: string;
   coordinator_agent_id: string;
+  agent_group_id?: string;
   participant_agent_ids: string[];
   topology_template_id: string;
   shared_context_policy: string;
@@ -434,6 +484,20 @@ export type CoordinationTask = {
   conflict_resolution_policy: string;
   output_merge_policy: string;
   stop_conditions: string[];
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskCommunicationProtocol = {
+  protocol_id: string;
+  title: string;
+  message_types: string[];
+  payload_contracts: string[];
+  signal_rules: string[];
+  handoff_rules: string[];
+  ack_policy: string;
+  timeout_policy: string;
+  error_signal_policy: string;
   enabled: boolean;
   metadata?: Record<string, unknown>;
 };
@@ -473,13 +537,18 @@ export type TaskConnectionDiagnosticIssue = {
   severity: string;
 };
 
-export type GeneralTaskProfileUpsertPayload = GeneralTaskProfile;
-
-export type TaskAssignmentUpsertPayload = SpecificTaskUpsertPayload;
+export type ConversationEntryPolicyUpsertPayload = ConversationEntryPolicy;
+export type SpecificTaskRecordUpsertPayload = SpecificTaskRecord;
+export type TaskProjectionBindingUpsertPayload = TaskProjectionBinding;
+export type TaskFlowContractBindingUpsertPayload = TaskFlowContractBinding;
+export type TaskExecutionPolicyUpsertPayload = TaskExecutionPolicy;
+export type TaskMemoryRequestProfileUpsertPayload = TaskMemoryRequestProfile;
 
 export type CoordinationTaskUpsertPayload = CoordinationTask;
 
 export type TopologyTemplateUpsertPayload = TopologyTemplate;
+
+export type TaskCommunicationProtocolUpsertPayload = TaskCommunicationProtocol;
 
 export type TaskAgentConnectionOverview = {
   authority: string;
@@ -496,36 +565,25 @@ export type TaskAgentConnectionOverview = {
 export type TaskSystemOverview = {
   authority: string;
   summary: Record<string, number>;
-  agent_management: {
-    categories: Array<{
-      category_id: string;
-      title: string;
-      editable: boolean;
-      agents: Array<{
-        agent_id: string;
-        agent_name: string;
-        agent_category: string;
-        interface_target: string;
-        description: string;
-        enabled: boolean;
-        editable: boolean;
-        builtin: boolean;
-        default_soul_id: string;
-        default_projection_id: string;
-        task_scope: string[];
-        metadata?: Record<string, unknown>;
-      }>;
-    }>;
-  };
   task_management: {
-    general_tasks: GeneralTaskProfile[];
-    specific_tasks: TaskAssignment[];
+    entry_policies: ConversationEntryPolicy[];
+    specific_task_records: SpecificTaskRecord[];
+    task_flow_definitions: TaskSystemFlowUpsertPayload[];
     workflow_resources: TaskWorkflowRecord[];
+    projection_bindings: TaskProjectionBinding[];
+    flow_contract_bindings: TaskFlowContractBinding[];
+    execution_policies: TaskExecutionPolicy[];
+    memory_request_profiles: TaskMemoryRequestProfile[];
+    compatibility_views?: {
+      specific_tasks?: Array<Record<string, unknown>>;
+    };
   };
   coordination_management: {
     coordination_tasks: CoordinationTask[];
     topology_templates: TopologyTemplate[];
+    communication_protocols: TaskCommunicationProtocol[];
   };
+  diagnostics?: Record<string, unknown>;
 };
 
 export type CapabilitySystemAgentCatalog = {
@@ -550,9 +608,24 @@ export type OrchestrationAgentRuntimeProfile = {
   metadata?: Record<string, unknown>;
 };
 
+export type OrchestrationAgentGroup = {
+  group_id: string;
+  title: string;
+  group_kind: string;
+  coordinator_agent_id: string;
+  member_agent_ids: string[];
+  description: string;
+  default_topology_template_ids: string[];
+  default_communication_protocol_ids: string[];
+  allowed_coordination_task_ids: string[];
+  lifecycle_state: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type OrchestrationAgentRuntimeCatalog = {
   authority: string;
   agents: Array<Record<string, unknown> & { runtime_profile?: Partial<OrchestrationAgentRuntimeProfile> }>;
+  agent_groups?: OrchestrationAgentGroup[];
   profiles: OrchestrationAgentRuntimeProfile[];
   summary: Record<string, number>;
   options: {
@@ -568,6 +641,8 @@ export type OrchestrationAgentRuntimeCatalog = {
 };
 
 export type OrchestrationAgentRuntimeProfileUpsertPayload = Omit<OrchestrationAgentRuntimeProfile, "agent_id">;
+
+export type OrchestrationAgentGroupUpsertPayload = OrchestrationAgentGroup;
 
 export type TaskWorkflowCatalog = {
   authority: string;
@@ -1926,6 +2001,30 @@ export async function getOrchestrationAgents() {
   return request<OrchestrationAgentRuntimeCatalog>("/orchestration/agents");
 }
 
+export async function getNextOrchestrationWorkerAgentId() {
+  return request<{ authority: string; agent_id: string }>("/orchestration/agents/next-worker-id");
+}
+
+export async function upsertOrchestrationAgent(agentId: string, payload: OrchestrationAgentUpsertPayload) {
+  return request<OrchestrationAgentRuntimeCatalog>(`/orchestration/agents/${encodeURIComponent(agentId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteOrchestrationAgent(agentId: string) {
+  return request<OrchestrationAgentRuntimeCatalog>(`/orchestration/agents/${encodeURIComponent(agentId)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function upsertOrchestrationAgentGroup(groupId: string, payload: OrchestrationAgentGroupUpsertPayload) {
+  return request<OrchestrationAgentRuntimeCatalog>(`/orchestration/agent-groups/${encodeURIComponent(groupId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function updateOrchestrationAgentRuntimeProfile(
   agentId: string,
   payload: OrchestrationAgentRuntimeProfileUpsertPayload
@@ -2067,36 +2166,47 @@ export async function getTaskSystemOverview() {
   return request<TaskSystemOverview>("/tasks/overview");
 }
 
-export async function getNextWorkerAgentId() {
-  return request<{ agent_id: string; authority: string }>("/tasks/agents/next-worker-id");
-}
-
 export async function getTaskSystemNextIds() {
   return request<TaskSystemNextIds>("/tasks/next-ids");
 }
 
-export async function upsertTaskSystemAgent(agentId: string, payload: TaskSystemAgentUpsertPayload) {
-  return request<TaskSystemOverview>(`/tasks/agents/${encodeURIComponent(agentId)}`, {
+export async function upsertTaskSystemEntryPolicy(profileId: string, payload: ConversationEntryPolicyUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/entry-policies/${encodeURIComponent(profileId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });
 }
 
-export async function deleteTaskSystemAgent(agentId: string) {
-  return request<TaskSystemOverview>(`/tasks/agents/${encodeURIComponent(agentId)}`, {
-    method: "DELETE"
-  });
-}
-
-export async function upsertTaskSystemGeneralProfile(profileId: string, payload: GeneralTaskProfileUpsertPayload) {
-  return request<TaskSystemOverview>(`/tasks/general-profiles/${encodeURIComponent(profileId)}`, {
+export async function upsertTaskSystemSpecificRecord(taskId: string, payload: SpecificTaskRecordUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/specific-records/${encodeURIComponent(taskId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });
 }
 
-export async function upsertTaskSystemAssignment(taskId: string, payload: TaskAssignmentUpsertPayload) {
-  return request<TaskSystemOverview>(`/tasks/specific-assignments/${encodeURIComponent(taskId)}`, {
+export async function upsertTaskSystemProjectionBinding(taskId: string, payload: TaskProjectionBindingUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/projection-bindings/${encodeURIComponent(taskId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemFlowContractBinding(taskId: string, payload: TaskFlowContractBindingUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/flow-contract-bindings/${encodeURIComponent(taskId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemExecutionPolicy(taskId: string, payload: TaskExecutionPolicyUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/execution-policies/${encodeURIComponent(taskId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemMemoryRequestProfile(taskId: string, payload: TaskMemoryRequestProfileUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/memory-request-profiles/${encodeURIComponent(taskId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });
@@ -2114,6 +2224,16 @@ export async function upsertTaskSystemCoordinationTask(
 
 export async function upsertTaskSystemTopologyTemplate(templateId: string, payload: TopologyTemplateUpsertPayload) {
   return request<TaskSystemOverview>(`/tasks/topology-templates/${encodeURIComponent(templateId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemCommunicationProtocol(
+  protocolId: string,
+  payload: TaskCommunicationProtocolUpsertPayload
+) {
+  return request<TaskSystemOverview>(`/tasks/communication-protocols/${encodeURIComponent(protocolId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });

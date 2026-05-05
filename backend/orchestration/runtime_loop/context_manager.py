@@ -114,6 +114,7 @@ class RuntimeContextManager:
         memory_runtime_view: dict[str, Any] | None = None,
         context_policy_result: dict[str, Any] | None = None,
         stage_projection_snapshot: Any | None = None,
+        runtime_execution_facts: dict[str, Any] | None = None,
     ) -> RuntimeContextSnapshot:
         system_prompt = self.system_prompt_builder(
             session_id=session_id,
@@ -130,6 +131,7 @@ class RuntimeContextManager:
             legacy_system_prompt=system_prompt,
             stage_projection_snapshot=stage_projection_snapshot,
             context_policy_result=context_policy_result,
+            runtime_execution_facts=runtime_execution_facts,
         )
         model_messages = (
             {"role": "system", "content": runtime_prompt},
@@ -338,6 +340,7 @@ def _build_runtime_system_prompt(
     legacy_system_prompt: str,
     stage_projection_snapshot: Any | None,
     context_policy_result: dict[str, Any] | None,
+    runtime_execution_facts: dict[str, Any] | None = None,
 ) -> str:
     parts = [str(legacy_system_prompt or "").strip()]
     projection_block = _render_projection_block(stage_projection_snapshot)
@@ -346,6 +349,9 @@ def _build_runtime_system_prompt(
     context_block = _render_context_policy_block(context_policy_result)
     if context_block:
         parts.append(context_block)
+    runtime_execution_block = _render_runtime_execution_block(runtime_execution_facts)
+    if runtime_execution_block:
+        parts.append(runtime_execution_block)
     return "\n\n".join(part for part in parts if part)
 
 
@@ -451,6 +457,45 @@ def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -
             *lines,
         ]
     )
+
+
+def _render_runtime_execution_block(runtime_execution_facts: dict[str, Any] | None) -> str:
+    facts = dict(runtime_execution_facts or {})
+    worker_spawn = dict(facts.get("worker_spawn_summary") or {})
+    lines: list[str] = []
+    if worker_spawn:
+        spawned_agent_ids = [
+            str(item).strip()
+            for item in list(worker_spawn.get("spawned_agent_ids") or [])
+            if str(item).strip()
+        ]
+        worker_agent_run_ids = [
+            str(item).strip()
+            for item in list(worker_spawn.get("worker_agent_run_ids") or [])
+            if str(item).strip()
+        ]
+        lines.extend(
+            [
+                "### Worker Spawn Summary",
+                f"- spawn_request_count: {int(worker_spawn.get('spawn_request_count') or 0)}",
+                f"- spawn_result_count: {int(worker_spawn.get('spawn_result_count') or 0)}",
+                f"- blocked_spawn_count: {int(worker_spawn.get('blocked_spawn_count') or 0)}",
+                (
+                    f"- spawned_agent_ids: {', '.join(spawned_agent_ids)}"
+                    if spawned_agent_ids
+                    else "- spawned_agent_ids: none"
+                ),
+                (
+                    f"- worker_agent_run_ids: {', '.join(worker_agent_run_ids)}"
+                    if worker_agent_run_ids
+                    else "- worker_agent_run_ids: none"
+                ),
+                "- `worker_sub_agent` 指系统编排层的工作子 Agent，不是浏览器 Web Worker。",
+            ]
+        )
+    if not lines:
+        return ""
+    return "\n".join(["## Runtime Execution Facts", *lines])
 
 
 def _snapshot_id(

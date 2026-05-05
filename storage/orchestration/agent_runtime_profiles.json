@@ -1,0 +1,628 @@
+{
+  "profiles": [
+    {
+      "agent_profile_id": "main_interactive_agent",
+      "agent_id": "agent:0",
+      "allowed_task_modes": [
+        "request_intake",
+        "task_dispatch",
+        "final_response",
+        "general_qa",
+        "workspace_patch",
+        "light_web_game",
+        "capability_execution",
+        "knowledge_retrieval",
+        "information_search",
+        "local_material_read",
+        "information_synthesis",
+        "task_execution",
+        "inspection_and_correction"
+      ],
+      "allowed_runtime_lanes": [
+        "full_interactive",
+        "task_dispatch",
+        "final_integration",
+        "game_delivery"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.web_search",
+        "op.fetch_url",
+        "op.get_weather",
+        "op.get_gold_price",
+        "op.search_knowledge",
+        "op.pdf_analysis",
+        "op.structured_data_analysis",
+        "op.analyze_multimodal_file",
+        "op.index_multimodal_file",
+        "op.write_file",
+        "op.edit_file",
+        "op.shell"
+      ],
+      "blocked_operations": [
+        "op.python_repl",
+        "op.memory_write_candidate"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_read_write",
+        "state_read_write",
+        "long_term_candidate"
+      ],
+      "allowed_context_sections": [
+        "conversation",
+        "state",
+        "task",
+        "projection",
+        "tool"
+      ],
+      "output_contracts": [
+        "AssistantFinalAnswer",
+        "LightWebGameResult"
+      ],
+      "approval_policy": "default",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {}
+    },
+    {
+      "agent_profile_id": "health_maintainer_agent",
+      "agent_id": "agent:3",
+      "allowed_task_modes": [
+        "issue_triage",
+        "trace_analysis",
+        "case_draft",
+        "fix_verification"
+      ],
+      "allowed_runtime_lanes": [
+        "health_issue_read",
+        "health_trace_read",
+        "prompt_trace_read",
+        "memory_trace_read",
+        "runtime_trace_read",
+        "assertion_trace_read",
+        "case_draft_candidate",
+        "fix_verification_candidate"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "issue_local_readonly",
+        "health_trace_readonly"
+      ],
+      "allowed_context_sections": [
+        "health_issue",
+        "runtime_trace",
+        "prompt_manifest",
+        "memory_runtime_view",
+        "assertions"
+      ],
+      "output_contracts": [
+        "HealthTriageResult",
+        "HealthTraceAnalysis",
+        "HealthCaseDraftProposal",
+        "HealthFixVerificationProposal"
+      ],
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {}
+    },
+    {
+      "agent_profile_id": "longform_editor_agent",
+      "agent_id": "agent:20",
+      "allowed_task_modes": [
+        "longform_novel_project",
+        "novel_bible_build",
+        "volume_planning",
+        "chapter_acceptance",
+        "arc_review",
+        "final_compilation"
+      ],
+      "allowed_runtime_lanes": [
+        "novel_project_control",
+        "novel_bible_gate",
+        "volume_acceptance",
+        "chapter_acceptance",
+        "arc_review",
+        "final_compilation"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl"
+      ],
+      "allowed_memory_scopes": [
+        "novel_project_state",
+        "novel_bible_read_write",
+        "novel_chapter_refs"
+      ],
+      "allowed_context_sections": [
+        "conversation",
+        "task",
+        "projection",
+        "novel_bible",
+        "chapter_refs",
+        "review_reports"
+      ],
+      "output_contracts": [
+        "NovelProjectSpec",
+        "NovelBibleBundle",
+        "VolumePlan",
+        "ChapterAcceptanceResult",
+        "ArcReviewResult",
+        "LongformNovelCompilation"
+      ],
+      "approval_policy": "editor_gate",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "domain_key": "longform_novel",
+        "agent_team": "longform_novel_core"
+      }
+    },
+    {
+      "agent_profile_id": "longform_worldbuilding_agent",
+      "agent_id": "agent:21",
+      "allowed_task_modes": [
+        "novel_bible_build",
+        "world_bible_maintenance",
+        "continuity_audit"
+      ],
+      "allowed_runtime_lanes": [
+        "world_bible_build",
+        "world_bible_update",
+        "continuity_audit"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl"
+      ],
+      "allowed_memory_scopes": [
+        "novel_bible_read_write",
+        "novel_chapter_refs"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "novel_bible",
+        "chapter_refs",
+        "continuity_ledger"
+      ],
+      "output_contracts": [
+        "WorldBible",
+        "ContinuityAuditReport"
+      ],
+      "approval_policy": "bounded_writing_artifact",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "domain_key": "longform_novel",
+        "agent_team": "longform_novel_core"
+      }
+    },
+    {
+      "agent_profile_id": "longform_character_agent",
+      "agent_id": "agent:22",
+      "allowed_task_modes": [
+        "novel_bible_build",
+        "character_bible_maintenance",
+        "volume_planning",
+        "arc_review"
+      ],
+      "allowed_runtime_lanes": [
+        "character_bible_build",
+        "character_arc_update",
+        "volume_character_arc",
+        "arc_review"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl"
+      ],
+      "allowed_memory_scopes": [
+        "novel_bible_read_write",
+        "novel_chapter_refs"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "novel_bible",
+        "chapter_refs",
+        "character_bible",
+        "arc_reports"
+      ],
+      "output_contracts": [
+        "CharacterBible",
+        "CharacterArcPlan",
+        "ArcReviewResult"
+      ],
+      "approval_policy": "bounded_writing_artifact",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "domain_key": "longform_novel",
+        "agent_team": "longform_novel_core"
+      }
+    },
+    {
+      "agent_profile_id": "longform_plot_agent",
+      "agent_id": "agent:23",
+      "allowed_task_modes": [
+        "volume_planning",
+        "chapter_planning",
+        "foreshadowing_ledger",
+        "arc_review"
+      ],
+      "allowed_runtime_lanes": [
+        "volume_plot_plan",
+        "chapter_plot_plan",
+        "foreshadowing_update",
+        "arc_review"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl"
+      ],
+      "allowed_memory_scopes": [
+        "novel_bible_read_write",
+        "novel_chapter_refs"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "novel_bible",
+        "chapter_refs",
+        "plot_outline",
+        "foreshadowing_ledger"
+      ],
+      "output_contracts": [
+        "VolumePlan",
+        "ChapterPlan",
+        "ForeshadowingLedgerUpdate",
+        "ArcReviewResult"
+      ],
+      "approval_policy": "bounded_writing_artifact",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "domain_key": "longform_novel",
+        "agent_team": "longform_novel_core"
+      }
+    },
+    {
+      "agent_profile_id": "longform_drafting_agent",
+      "agent_id": "agent:24",
+      "allowed_task_modes": [
+        "chapter_planning",
+        "chapter_drafting",
+        "chapter_revision"
+      ],
+      "allowed_runtime_lanes": [
+        "chapter_scene_plan",
+        "chapter_drafting",
+        "chapter_revision"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl"
+      ],
+      "allowed_memory_scopes": [
+        "novel_bible_readonly",
+        "novel_chapter_refs",
+        "chapter_draft_workspace"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "novel_bible",
+        "chapter_refs",
+        "chapter_plan",
+        "review_reports"
+      ],
+      "output_contracts": [
+        "ChapterPlan",
+        "ChapterDraft",
+        "ChapterRevision"
+      ],
+      "approval_policy": "bounded_writing_artifact",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "domain_key": "longform_novel",
+        "agent_team": "longform_novel_core"
+      }
+    },
+    {
+      "agent_profile_id": "longform_review_agent",
+      "agent_id": "agent:25",
+      "allowed_task_modes": [
+        "chapter_revision",
+        "style_audit",
+        "arc_review",
+        "chapter_acceptance"
+      ],
+      "allowed_runtime_lanes": [
+        "chapter_quality_review",
+        "style_audit",
+        "arc_review",
+        "chapter_acceptance_review"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl"
+      ],
+      "allowed_memory_scopes": [
+        "novel_bible_readonly",
+        "novel_chapter_refs",
+        "review_workspace"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "novel_bible",
+        "chapter_refs",
+        "chapter_draft",
+        "style_guide",
+        "review_reports"
+      ],
+      "output_contracts": [
+        "ChapterQualityReview",
+        "StyleAuditReport",
+        "ArcReviewResult",
+        "ChapterAcceptanceResult"
+      ],
+      "approval_policy": "review_gate",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "domain_key": "longform_novel",
+        "agent_team": "longform_novel_core"
+      }
+    },
+    {
+      "agent_profile_id": "longform_continuity_agent",
+      "agent_id": "agent:26",
+      "allowed_task_modes": [
+        "continuity_audit",
+        "chapter_revision",
+        "arc_review"
+      ],
+      "allowed_runtime_lanes": [
+        "continuity_audit",
+        "chapter_continuity_review",
+        "arc_continuity_review"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl"
+      ],
+      "allowed_memory_scopes": [
+        "novel_bible_readonly",
+        "novel_chapter_refs",
+        "continuity_workspace"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "novel_bible",
+        "chapter_refs",
+        "timeline",
+        "foreshadowing_ledger",
+        "continuity_ledger"
+      ],
+      "output_contracts": [
+        "ContinuityAuditReport",
+        "ChapterContinuityReview",
+        "ArcReviewResult"
+      ],
+      "approval_policy": "review_gate",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "domain_key": "longform_novel",
+        "agent_team": "longform_novel_core"
+      }
+    },
+    {
+      "agent_profile_id": "6_runtime",
+      "agent_id": "agent:6",
+      "allowed_task_modes": [
+        "light_web_game",
+        "arcade_game_bundle",
+        "bounded_patch",
+        "task_execution"
+      ],
+      "allowed_runtime_lanes": [
+        "workspace_patch",
+        "game_delivery"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_read_write",
+        "state_read_write"
+      ],
+      "allowed_context_sections": [
+        "conversation",
+        "task",
+        "projection",
+        "tool"
+      ],
+      "output_contracts": [
+        "AssistantFinalAnswer",
+        "LightWebGameResult"
+      ],
+      "approval_policy": "default",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "worker_kind": "development",
+        "spawn_request_id": "spawnreq:taskrun:acceptance-e4-live-allowed:taskinst:turn:acceptance-e4-live-allowed:1:light_web_game:dbecb0e7:1"
+      }
+    },
+    {
+      "agent_profile_id": "7_runtime",
+      "agent_id": "agent:7",
+      "allowed_task_modes": [
+        "light_web_game",
+        "arcade_game_bundle",
+        "bounded_patch",
+        "task_execution"
+      ],
+      "allowed_runtime_lanes": [
+        "workspace_patch",
+        "game_delivery"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_read_write",
+        "state_read_write"
+      ],
+      "allowed_context_sections": [
+        "conversation",
+        "task",
+        "projection",
+        "tool"
+      ],
+      "output_contracts": [
+        "AssistantFinalAnswer",
+        "LightWebGameResult"
+      ],
+      "approval_policy": "default",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "worker_kind": "development",
+        "spawn_request_id": "spawnreq:taskrun:acceptance-e4-live-allowed-rerun:taskinst:turn:acceptance-e4-live-allowed-rerun:1:light_web_game:6311bb4b:1"
+      }
+    },
+    {
+      "agent_profile_id": "8_runtime",
+      "agent_id": "agent:8",
+      "allowed_task_modes": [
+        "light_web_game",
+        "arcade_game_bundle",
+        "bounded_patch",
+        "task_execution"
+      ],
+      "allowed_runtime_lanes": [
+        "workspace_patch",
+        "game_delivery"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "blocked_operations": [
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_read_write",
+        "state_read_write"
+      ],
+      "allowed_context_sections": [
+        "conversation",
+        "task",
+        "projection",
+        "tool"
+      ],
+      "output_contracts": [
+        "AssistantFinalAnswer",
+        "LightWebGameResult"
+      ],
+      "approval_policy": "default",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "orchestration_managed",
+      "metadata": {
+        "worker_kind": "development",
+        "spawn_request_id": "spawnreq:taskrun:acceptance-e4-live-allowed-final:taskinst:turn:acceptance-e4-live-allowed-final:1:light_web_game:e1ba1eae:1"
+      }
+    }
+  ]
+}

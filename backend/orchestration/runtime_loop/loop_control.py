@@ -13,7 +13,7 @@ class RuntimeLoopLimits:
 
     max_turns: int = 8
     max_model_calls: int = 8
-    max_runtime_seconds: float = 300.0
+    max_runtime_seconds: float | None = 300.0
     max_events: int = 200
     authority: str = "orchestration.runtime_loop_limits"
 
@@ -24,13 +24,47 @@ class RuntimeLoopLimits:
             raise ValueError("RuntimeLoopLimits.max_turns must be positive")
         if self.max_model_calls < 1:
             raise ValueError("RuntimeLoopLimits.max_model_calls must be positive")
-        if self.max_runtime_seconds <= 0:
+        if self.max_runtime_seconds is not None and self.max_runtime_seconds <= 0:
             raise ValueError("RuntimeLoopLimits.max_runtime_seconds must be positive")
         if self.max_events < 1:
             raise ValueError("RuntimeLoopLimits.max_events must be positive")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_policy(
+        cls,
+        policy: dict[str, Any] | None,
+        *,
+        fallback: "RuntimeLoopLimits | None" = None,
+    ) -> "RuntimeLoopLimits":
+        base = fallback or cls()
+        payload = dict(policy or {})
+        limit_mode = str(payload.get("limit_mode") or payload.get("runtime_limit_mode") or "").strip()
+
+        def _int_value(key: str, current: int) -> int:
+            value = payload.get(key, current)
+            if value is None:
+                return current
+            return int(value)
+
+        def _seconds_value() -> float | None:
+            if limit_mode in {"unlimited", "no_time_limit"} or payload.get("unlimited_runtime") is True:
+                return None
+            if "max_runtime_seconds" not in payload:
+                return base.max_runtime_seconds
+            value = payload.get("max_runtime_seconds")
+            if value is None:
+                return None
+            return float(value)
+
+        return cls(
+            max_turns=_int_value("max_turns", base.max_turns),
+            max_model_calls=_int_value("max_model_calls", base.max_model_calls),
+            max_runtime_seconds=_seconds_value(),
+            max_events=_int_value("max_events", base.max_events),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +119,7 @@ def check_runtime_loop_control(
             message="RuntimeLoop reached max_model_calls before the next dispatch.",
             snapshot=snapshot,
         )
-    if elapsed_seconds > limits.max_runtime_seconds:
+    if limits.max_runtime_seconds is not None and elapsed_seconds > limits.max_runtime_seconds:
         return RuntimeLoopControlDecision(
             allowed=False,
             reason="budget_exhausted",

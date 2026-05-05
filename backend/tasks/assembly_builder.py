@@ -181,7 +181,6 @@ def build_task_execution_assembly_bundle(
         active_skill=active_skill_payload,
         operation_requirement=operation_requirement.to_dict(),
     )
-    selected_agent_id = str(task_spec.selected_agent_id or "agent:0").strip() or "agent:0"
     task_workflow = _resolve_task_workflow(
         flow_registry=flow_registry,
         workflow_registry=workflow_registry,
@@ -202,8 +201,9 @@ def build_task_execution_assembly_bundle(
     registered_task_id = str((registered_task or {}).get("task_id") or task_contract.task_id).strip()
     projection_binding = flow_registry.get_projection_binding(registered_task_id)
     flow_contract_binding = flow_registry.get_flow_contract_binding(registered_task_id)
-    adoption_plan = flow_registry.get_task_agent_adoption_plan(registered_task_id)
+    execution_policy = flow_registry.get_task_agent_adoption_plan(registered_task_id)
     memory_request_profile = flow_registry.get_task_memory_request_profile(registered_task_id)
+    runtime_limits = dict(task_spec.constraints or {}).get("runtime_limits") or {}
     communication_protocol = _select_communication_protocol(
         flow_registry=flow_registry,
         registered_task=registered_task,
@@ -229,25 +229,31 @@ def build_task_execution_assembly_bundle(
     task_contract_payload["template_match_ref"] = template_match.match_id
     task_contract_payload["bundle_spec_ref"] = bundle_spec.bundle_id if bundle_spec is not None else ""
     task_contract_payload["requested_outputs"] = list(task_spec.requested_outputs)
+    execution_chain_type = "single_agent_chain"
+    if coordination_task is not None:
+        execution_chain_type = "coordination_chain"
+    elif bool(getattr(execution_policy, "allow_worker_agent_spawn", False)):
+        execution_chain_type = "coordination_chain"
+
     assembly = TaskExecutionAssembly(
         assembly_id=f"taskasm:{task_id}",
         task_id=task_contract.task_id,
         session_id=session_id,
         task_family=task_family,
         task_mode=task_mode,
-        task_kind=str((registered_task or {}).get("task_type") or "general_task"),
+        task_kind=str((registered_task or {}).get("task_type") or "conversation_entry_policy"),
         task_intent_ref=task_intent_contract.task_intent_id,
         template_match_ref=template_match.match_id,
         task_spec_ref=task_spec.task_spec_ref,
         bundle_spec_ref=bundle_spec.bundle_id if bundle_spec is not None else "",
-        selected_agent_id=selected_agent_id,
         workflow_id=str((task_workflow or {}).get("workflow_id") or ""),
         projection_selection_ref=f"taskproj:{task_id}",
         projection_binding_ref=str(getattr(projection_binding, "binding_id", "") or ""),
         projection_id=str(projection_selection.selected_projection_id or getattr(projection_binding, "default_projection_id", "") or ""),
         flow_contract_binding_ref=str(getattr(flow_contract_binding, "binding_id", "") or ""),
         flow_contract_id=str(getattr(flow_contract_binding, "flow_contract_id", "") or str((registered_task or {}).get("flow_id") or "")),
-        agent_adoption_plan_ref=str(getattr(adoption_plan, "plan_id", "") or ""),
+        execution_chain_type=execution_chain_type,
+        task_execution_policy_ref=str(getattr(execution_policy, "plan_id", "") or ""),
         memory_request_profile_ref=str(getattr(memory_request_profile, "profile_id", "") or ""),
         communication_protocol_ref=str(getattr(communication_protocol, "protocol_id", "") or ""),
         coordination_task_ref=str(getattr(coordination_task, "coordination_task_id", "") or ""),
@@ -267,7 +273,14 @@ def build_task_execution_assembly_bundle(
             "projection_source": projection_selection.selection_source,
             "memory_layers": list(getattr(memory_request_profile, "requested_memory_layers", ()) or ()),
             "memory_topics": list(getattr(memory_request_profile, "requested_topics", ()) or ()),
-            "adoption_mode": str(getattr(adoption_plan, "adoption_mode", "") or ""),
+            "execution_policy_mode": str(getattr(execution_policy, "adoption_mode", "") or ""),
+            "runtime_limits": dict(runtime_limits),
+            "final_answer_requirements": list(
+                dict(getattr(selected_template, "metadata", {}) or {}).get("final_answer_requirements") or []
+            ),
+            "forbidden_final_states": list(
+                dict(getattr(selected_template, "metadata", {}) or {}).get("forbidden_final_states") or []
+            ),
         },
     )
     return {
@@ -286,7 +299,8 @@ def build_task_execution_assembly_bundle(
         "specific_task_record": specific_task_record.to_dict() if specific_task_record is not None else {},
         "task_projection_binding": projection_binding.to_dict() if projection_binding is not None else {},
         "task_flow_contract_binding": flow_contract_binding.to_dict() if flow_contract_binding is not None else {},
-        "task_agent_adoption_plan": adoption_plan.to_dict() if adoption_plan is not None else {},
+        "task_execution_policy": execution_policy.to_dict() if execution_policy is not None else {},
+        "task_agent_adoption_plan": execution_policy.to_legacy_dict() if execution_policy is not None else {},
         "task_memory_request_profile": memory_request_profile.to_dict() if memory_request_profile is not None else {},
         "task_communication_protocol": communication_protocol.to_dict() if communication_protocol is not None else {},
         "coordination_task_record": coordination_task.to_dict() if coordination_task is not None else {},
@@ -430,9 +444,15 @@ def _select_communication_protocol(
             return explicit_protocol
     task_id = str((registered_task or {}).get("task_id") or "").strip()
     task_family = str((registered_task or {}).get("task_family") or "").strip()
+    metadata = dict((registered_task or {}).get("metadata") or {})
+    metadata_protocol_id = str(metadata.get("communication_protocol_id") or "").strip()
+    if metadata_protocol_id:
+        protocol = flow_registry.get_task_communication_protocol(metadata_protocol_id)
+        if protocol is not None:
+            return protocol
     if task_id.startswith("task.health.") or task_family == "health":
         return flow_registry.get_task_communication_protocol("protocol.health.repair_review")
-    if task_id == "task.writing.short_story" or task_family == "writing":
+    if task_id == "task.writing.short_story":
         return flow_registry.get_task_communication_protocol("protocol.writing.short_story_pipeline")
     return None
 
@@ -460,6 +480,17 @@ def _select_coordination_task(
         )
     task_id = str((registered_task or {}).get("task_id") or "").strip()
     task_family = str((registered_task or {}).get("task_family") or "").strip()
+    metadata = dict((registered_task or {}).get("metadata") or {})
+    metadata_coordination_task_id = str(metadata.get("coordination_task_id") or "").strip()
+    if metadata_coordination_task_id:
+        return next(
+            (
+                item
+                for item in flow_registry.list_coordination_tasks()
+                if item.coordination_task_id == metadata_coordination_task_id
+            ),
+            None,
+        )
     if task_id.startswith("task.health.") or task_family == "health":
         return next(
             (
@@ -469,7 +500,7 @@ def _select_coordination_task(
             ),
             None,
         )
-    if task_id == "task.writing.short_story" or task_family == "writing":
+    if task_id == "task.writing.short_story":
         return next(
             (
                 item

@@ -1,0 +1,776 @@
+{
+  "checkpoint_id": "rtchk:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:98",
+  "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+  "event_offset": 98,
+  "loop_state": {
+    "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+    "status": "failed",
+    "turn_count": 3,
+    "step_count": 1,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.writing.continuity_audit",
+    "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+    "task_result_ref": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "artifact_validation_failed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:96003e2e641d",
+    "memory_state_ref": "memory-runtime:longform-novel-real-acceptance",
+    "projection_ref": "01cbf877513ea36b",
+    "prompt_manifest_ref": "manifest-01cbf877513ea36b",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 287,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899713
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7db13e81",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:5b84439e",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7b03824d",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:9c944977",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:ae7550e4",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:76060712",
+      "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:91:0675a1eb",
+      "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:runtime-blocked",
+      "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+      "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "longform-novel-real-acceptance",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+            "role": "assistant",
+            "content": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+            "answer_channel": "orchestration_fail_closed",
+            "answer_source": "task_artifact_validation",
+            "answer_canonical_state": "artifact_validation_failed",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+            "template_id": "template.writing.continuity_audit",
+            "terminal_reason": "artifact_validation_failed",
+            "final_content_chars": 118,
+            "task_result": {
+              "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+              "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+              "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+              "template_id": "template.writing.continuity_audit",
+              "status": "failed",
+              "terminal_reason": "artifact_validation_failed",
+              "requested_outputs": [
+                "audit_report"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7db13e81",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:5b84439e",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7b03824d",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:9c944977",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:ae7550e4",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:76060712",
+                "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:91:0675a1eb",
+                "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:runtime-blocked"
+              ],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.continuity_audit",
+                  "title": "执行连续性审计",
+                  "step_kind": "coordinate",
+                  "executor_type": "agent",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.model_response",
+                    "op.write_file"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "ContinuityAuditReport",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+                  ],
+                  "output_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+                  ],
+                  "entered_at": 1777995417.3541977,
+                  "completed_at": 1777995570.8243234,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+                  "executor_ref": "write_file",
+                  "diagnostics": {
+                    "transition_reason": "tool_result_received",
+                    "operation_id": "op.write_file"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {
+                  "answer_channel": "orchestration_fail_closed",
+                  "answer_source": "task_artifact_validation",
+                  "answer_canonical_state": "artifact_validation_failed",
+                  "answer_persist_policy": "persist_canonical",
+                  "answer_finalization_policy": "none",
+                  "answer_fallback_reason": ""
+                }
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+                "template_id": "template.writing.continuity_audit"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+                "tool_observation_count": 6,
+                "final_content_chars": 118,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+        "template_id": "template.writing.continuity_audit",
+        "status": "failed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "audit_report"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.continuity_audit",
+            "title": "执行连续性审计",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "ContinuityAuditReport",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+            ],
+            "entered_at": 1777995417.3541977,
+            "completed_at": 1777995570.8243234,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+          "template_id": "template.writing.continuity_audit"
+        },
+        "diagnostics": {
+          "current_step_id": "step.continuity_audit",
+          "terminal_reason": "artifact_validation_failed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+        "template_id": "template.writing.continuity_audit",
+        "status": "failed",
+        "terminal_reason": "artifact_validation_failed",
+        "requested_outputs": [
+          "audit_report"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7db13e81",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:5b84439e",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7b03824d",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:9c944977",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:ae7550e4",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:76060712",
+          "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:91:0675a1eb",
+          "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:runtime-blocked"
+        ],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.continuity_audit",
+            "title": "执行连续性审计",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "ContinuityAuditReport",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+            ],
+            "entered_at": 1777995417.3541977,
+            "completed_at": 1777995570.8243234,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {
+            "answer_channel": "orchestration_fail_closed",
+            "answer_source": "task_artifact_validation",
+            "answer_canonical_state": "artifact_validation_failed",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          }
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+          "template_id": "template.writing.continuity_audit"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+          "tool_observation_count": 6,
+          "final_content_chars": 118,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 3346,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 600.0,
+        "max_events": 260,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+      "runtime_chain_built": true,
+      "effective_loop_limits": {
+        "max_turns": 24,
+        "max_model_calls": 24,
+        "max_runtime_seconds": null,
+        "max_events": 1200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.writing.continuity_audit",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+      "last_step_transition": "terminal_projection",
+      "final_content_chars": 118,
+      "artifact_validation": {
+        "passed": false,
+        "required": true,
+        "reason": "write_file was required but no successful existing artifact file was found",
+        "rule_ids": [
+          "rule.audit_report_required"
+        ],
+        "successful_write_count": 1,
+        "existing_write_count": 0,
+        "artifacts": [],
+        "final_content_chars": 280,
+        "result_ref_count": 9
+      },
+      "result_ref_count": 13
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:96003e2e641d",
+  "prompt_manifest_ref": "manifest-01cbf877513ea36b",
+  "execution_refs": [
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:3665a2b7",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:96fee81e",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:50b268ce",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:81afc763",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2ed7c281",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:38cfb3ba"
+  ],
+  "execution_state_ref": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:38cfb3ba",
+  "execution_summary": {
+    "execution_count": 6,
+    "completed_count": 6,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:3665a2b7",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:96fee81e",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:50b268ce",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:81afc763",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2ed7c281",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:38cfb3ba"
+    ],
+    "latest_execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:38cfb3ba"
+  },
+  "agent_run_refs": [
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:main",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:participant:world_consistency",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:participant:timeline_audit",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:participant:style_risk",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:participant:editor_audit_merge"
+  ],
+  "coordination_run_refs": [
+    "coordrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:primary"
+  ],
+  "runtime_objects_summary": {
+    "agent_run_count": 5,
+    "coordination_run_count": 1,
+    "running_agent_run_count": 1,
+    "running_coordination_run_count": 1
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+          "role": "assistant",
+          "content": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+          "answer_channel": "orchestration_fail_closed",
+          "answer_source": "task_artifact_validation",
+          "answer_canonical_state": "artifact_validation_failed",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "longform-novel-real-acceptance",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+          "template_id": "template.writing.continuity_audit",
+          "terminal_reason": "artifact_validation_failed",
+          "final_content_chars": 118,
+          "task_result": {
+            "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+            "template_id": "template.writing.continuity_audit",
+            "status": "failed",
+            "terminal_reason": "artifact_validation_failed",
+            "requested_outputs": [
+              "audit_report"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7db13e81",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:5b84439e",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7b03824d",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:9c944977",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:ae7550e4",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:76060712",
+              "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:91:0675a1eb",
+              "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:runtime-blocked"
+            ],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.continuity_audit",
+                "title": "执行连续性审计",
+                "step_kind": "coordinate",
+                "executor_type": "agent",
+                "status": "completed",
+                "required_operations": [
+                  "op.model_response",
+                  "op.write_file"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "ContinuityAuditReport",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+                ],
+                "output_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+                ],
+                "entered_at": 1777995417.3541977,
+                "completed_at": 1777995570.8243234,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+                "executor_ref": "write_file",
+                "diagnostics": {
+                  "transition_reason": "tool_result_received",
+                  "operation_id": "op.write_file"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "task_artifact_validation",
+                "answer_canonical_state": "artifact_validation_failed",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": ""
+              }
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+              "template_id": "template.writing.continuity_audit"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+              "tool_observation_count": 6,
+              "final_content_chars": 118,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+      "template_id": "template.writing.continuity_audit",
+      "status": "failed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "audit_report"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.continuity_audit",
+          "title": "执行连续性审计",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "ContinuityAuditReport",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+          ],
+          "entered_at": 1777995417.3541977,
+          "completed_at": 1777995570.8243234,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+        "template_id": "template.writing.continuity_audit"
+      },
+      "diagnostics": {
+        "current_step_id": "step.continuity_audit",
+        "terminal_reason": "artifact_validation_failed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+      "template_id": "template.writing.continuity_audit",
+      "status": "failed",
+      "terminal_reason": "artifact_validation_failed",
+      "requested_outputs": [
+        "audit_report"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7db13e81",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:5b84439e",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:7b03824d",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:9c944977",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:ae7550e4",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:76060712",
+        "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:91:0675a1eb",
+        "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:runtime-blocked"
+      ],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.continuity_audit",
+          "title": "执行连续性审计",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "ContinuityAuditReport",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756"
+          ],
+          "entered_at": 1777995417.3541977,
+          "completed_at": 1777995570.8243234,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce:2d491756",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {
+          "answer_channel": "orchestration_fail_closed",
+          "answer_source": "task_artifact_validation",
+          "answer_canonical_state": "artifact_validation_failed",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        }
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit",
+        "template_id": "template.writing.continuity_audit"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:37:continuity_audit:7576adce",
+        "tool_observation_count": 6,
+        "final_content_chars": 118,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 3346,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777995578.6957512,
+  "checksum": "1b3cb89620b662cc4e8e65dd80ace4cadf99d6411c4bf8eb3470a5053a41304b",
+  "authority": "orchestration.runtime_checkpoint"
+}

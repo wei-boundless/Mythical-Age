@@ -1,0 +1,761 @@
+{
+  "checkpoint_id": "rtchk:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:74",
+  "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+  "event_offset": 74,
+  "loop_state": {
+    "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+    "status": "completed",
+    "turn_count": 3,
+    "step_count": 1,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.writing.volume_planning",
+    "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+    "task_result_ref": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:8dfaf8790979",
+    "memory_state_ref": "memory-runtime:longform-novel-real-acceptance",
+    "projection_ref": "1ef18a1ee31845e4",
+    "prompt_manifest_ref": "manifest-1ef18a1ee31845e4",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 633,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899367
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:4dd2dcb7",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:c3adb8c5",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:075d56f7",
+      "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:67:31250c84",
+      "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:runtime-blocked",
+      "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+      "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "longform-novel-real-acceptance",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+            "role": "assistant",
+            "content": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/volumes/volume_01_plan.md`\n\n任务阶段：第一卷卷纲 — volume_01_plan 已写入。\n\n验收状态：通过。文件包含：第一卷目标（5项硬性指标）、40章段落拆解（5段落×8章，每章核心事件/节拍类型/人物出场）、6条人物弧线（林默5阶段+5配角）、事件链总览、伏笔投放回收（圣经理F001–F007全部覆盖+9条V1新增伏笔）、节奏曲线、4项已识别风险及缓解、第二卷入口（6项启动条件+6个驱动问题）。\n\n下一步：按章节规划任务生成第一章规划 `chapters/chapter_001_plan.md`。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+            "template_id": "template.writing.volume_planning",
+            "terminal_reason": "completed",
+            "final_content_chars": 336,
+            "task_result": {
+              "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+              "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+              "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+              "template_id": "template.writing.volume_planning",
+              "status": "completed",
+              "terminal_reason": "completed",
+              "requested_outputs": [
+                "volume_plan"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:4dd2dcb7",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:c3adb8c5",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:075d56f7",
+                "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:67:31250c84",
+                "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:runtime-blocked"
+              ],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.volume_plan",
+                  "title": "生成卷纲",
+                  "step_kind": "coordinate",
+                  "executor_type": "agent",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.model_response",
+                    "op.write_file"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "VolumePlan",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+                  ],
+                  "output_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+                  ],
+                  "entered_at": 1777998418.600705,
+                  "completed_at": 1777998636.546581,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+                  "executor_ref": "write_file",
+                  "diagnostics": {
+                    "transition_reason": "tool_result_received",
+                    "operation_id": "op.write_file"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/volumes/volume_01_plan.md`\n\n任务阶段：第一卷卷纲 — volume_01_plan 已写入。\n\n验收状态：通过。文件包含：第一卷目标（5项硬性指标）、40章段落拆解（5段落×8章，每章核心事件/节拍类型/人物出场）、6条人物弧线（林默5阶段+5配角）、事件链总览、伏笔投放回收（圣经理F001–F007全部覆盖+9条V1新增伏笔）、节奏曲线、4项已识别风险及缓解、第二卷入口（6项启动条件+6个驱动问题）。\n\n下一步：按章节规划任务生成第一章规划 `chapters/chapter_001_plan.md`。",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {
+                  "answer_channel": "answer_candidate",
+                  "answer_source": "runtime_directive:model_response",
+                  "answer_canonical_state": "stable_answer",
+                  "answer_persist_policy": "persist_canonical",
+                  "answer_finalization_policy": "none",
+                  "answer_fallback_reason": ""
+                }
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+                "template_id": "template.writing.volume_planning"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+                "tool_observation_count": 3,
+                "final_content_chars": 336,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+        "template_id": "template.writing.volume_planning",
+        "status": "completed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "volume_plan"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.volume_plan",
+            "title": "生成卷纲",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "VolumePlan",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+            ],
+            "entered_at": 1777998418.600705,
+            "completed_at": 1777998636.546581,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+          "template_id": "template.writing.volume_planning"
+        },
+        "diagnostics": {
+          "current_step_id": "step.volume_plan",
+          "terminal_reason": "completed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+        "template_id": "template.writing.volume_planning",
+        "status": "completed",
+        "terminal_reason": "completed",
+        "requested_outputs": [
+          "volume_plan"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:4dd2dcb7",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:c3adb8c5",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:075d56f7",
+          "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:67:31250c84",
+          "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:runtime-blocked"
+        ],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.volume_plan",
+            "title": "生成卷纲",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "VolumePlan",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+            ],
+            "entered_at": 1777998418.600705,
+            "completed_at": 1777998636.546581,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/volumes/volume_01_plan.md`\n\n任务阶段：第一卷卷纲 — volume_01_plan 已写入。\n\n验收状态：通过。文件包含：第一卷目标（5项硬性指标）、40章段落拆解（5段落×8章，每章核心事件/节拍类型/人物出场）、6条人物弧线（林默5阶段+5配角）、事件链总览、伏笔投放回收（圣经理F001–F007全部覆盖+9条V1新增伏笔）、节奏曲线、4项已识别风险及缓解、第二卷入口（6项启动条件+6个驱动问题）。\n\n下一步：按章节规划任务生成第一章规划 `chapters/chapter_001_plan.md`。",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          }
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+          "template_id": "template.writing.volume_planning"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+          "tool_observation_count": 3,
+          "final_content_chars": 336,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 5179,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+      "runtime_chain_built": true,
+      "effective_loop_limits": {
+        "max_turns": 24,
+        "max_model_calls": 24,
+        "max_runtime_seconds": null,
+        "max_events": 1200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.writing.volume_planning",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+      "last_step_transition": "terminal_projection",
+      "final_content_chars": 336,
+      "artifact_validation": {
+        "passed": true,
+        "required": true,
+        "reason": "required artifact file exists",
+        "rule_ids": [
+          "rule.volume_plan_required"
+        ],
+        "successful_write_count": 1,
+        "existing_write_count": 1,
+        "artifacts": [
+          {
+            "path": "docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/volumes/volume_01_plan.md",
+            "absolute_path": "D:/AI应用/langchain-agent/docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/volumes/volume_01_plan.md",
+            "observation_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+          }
+        ],
+        "final_content_chars": 336,
+        "result_ref_count": 6
+      },
+      "result_ref_count": 10
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:8dfaf8790979",
+  "prompt_manifest_ref": "manifest-1ef18a1ee31845e4",
+  "execution_refs": [
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:ce5cb14e",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:a962d040",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:3e686f37"
+  ],
+  "execution_state_ref": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:3e686f37",
+  "execution_summary": {
+    "execution_count": 3,
+    "completed_count": 3,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:ce5cb14e",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:a962d040",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:3e686f37"
+    ],
+    "latest_execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:3e686f37"
+  },
+  "agent_run_refs": [
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:main",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:participant:character_arc",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:participant:volume_plot",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:participant:quality_review",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:participant:editor_acceptance"
+  ],
+  "coordination_run_refs": [
+    "coordrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:primary"
+  ],
+  "runtime_objects_summary": {
+    "agent_run_count": 5,
+    "coordination_run_count": 1,
+    "running_agent_run_count": 1,
+    "running_coordination_run_count": 1
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+          "role": "assistant",
+          "content": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/volumes/volume_01_plan.md`\n\n任务阶段：第一卷卷纲 — volume_01_plan 已写入。\n\n验收状态：通过。文件包含：第一卷目标（5项硬性指标）、40章段落拆解（5段落×8章，每章核心事件/节拍类型/人物出场）、6条人物弧线（林默5阶段+5配角）、事件链总览、伏笔投放回收（圣经理F001–F007全部覆盖+9条V1新增伏笔）、节奏曲线、4项已识别风险及缓解、第二卷入口（6项启动条件+6个驱动问题）。\n\n下一步：按章节规划任务生成第一章规划 `chapters/chapter_001_plan.md`。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "longform-novel-real-acceptance",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+          "template_id": "template.writing.volume_planning",
+          "terminal_reason": "completed",
+          "final_content_chars": 336,
+          "task_result": {
+            "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+            "template_id": "template.writing.volume_planning",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "requested_outputs": [
+              "volume_plan"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:4dd2dcb7",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:c3adb8c5",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:075d56f7",
+              "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:67:31250c84",
+              "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:runtime-blocked"
+            ],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.volume_plan",
+                "title": "生成卷纲",
+                "step_kind": "coordinate",
+                "executor_type": "agent",
+                "status": "completed",
+                "required_operations": [
+                  "op.model_response",
+                  "op.write_file"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "VolumePlan",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+                ],
+                "output_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+                ],
+                "entered_at": 1777998418.600705,
+                "completed_at": 1777998636.546581,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+                "executor_ref": "write_file",
+                "diagnostics": {
+                  "transition_reason": "tool_result_received",
+                  "operation_id": "op.write_file"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/volumes/volume_01_plan.md`\n\n任务阶段：第一卷卷纲 — volume_01_plan 已写入。\n\n验收状态：通过。文件包含：第一卷目标（5项硬性指标）、40章段落拆解（5段落×8章，每章核心事件/节拍类型/人物出场）、6条人物弧线（林默5阶段+5配角）、事件链总览、伏笔投放回收（圣经理F001–F007全部覆盖+9条V1新增伏笔）、节奏曲线、4项已识别风险及缓解、第二卷入口（6项启动条件+6个驱动问题）。\n\n下一步：按章节规划任务生成第一章规划 `chapters/chapter_001_plan.md`。",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {
+                "answer_channel": "answer_candidate",
+                "answer_source": "runtime_directive:model_response",
+                "answer_canonical_state": "stable_answer",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": ""
+              }
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+              "template_id": "template.writing.volume_planning"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+              "tool_observation_count": 3,
+              "final_content_chars": 336,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+      "template_id": "template.writing.volume_planning",
+      "status": "completed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "volume_plan"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.volume_plan",
+          "title": "生成卷纲",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "VolumePlan",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+          ],
+          "entered_at": 1777998418.600705,
+          "completed_at": 1777998636.546581,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+        "template_id": "template.writing.volume_planning"
+      },
+      "diagnostics": {
+        "current_step_id": "step.volume_plan",
+        "terminal_reason": "completed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+      "template_id": "template.writing.volume_planning",
+      "status": "completed",
+      "terminal_reason": "completed",
+      "requested_outputs": [
+        "volume_plan"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:4dd2dcb7",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:c3adb8c5",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:075d56f7",
+        "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:67:31250c84",
+        "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:runtime-blocked"
+      ],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.volume_plan",
+          "title": "生成卷纲",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "VolumePlan",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0"
+          ],
+          "entered_at": 1777998418.600705,
+          "completed_at": 1777998636.546581,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b:7f6d0df0",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/volumes/volume_01_plan.md`\n\n任务阶段：第一卷卷纲 — volume_01_plan 已写入。\n\n验收状态：通过。文件包含：第一卷目标（5项硬性指标）、40章段落拆解（5段落×8章，每章核心事件/节拍类型/人物出场）、6条人物弧线（林默5阶段+5配角）、事件链总览、伏笔投放回收（圣经理F001–F007全部覆盖+9条V1新增伏笔）、节奏曲线、4项已识别风险及缓解、第二卷入口（6项启动条件+6个驱动问题）。\n\n下一步：按章节规划任务生成第一章规划 `chapters/chapter_001_plan.md`。",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        }
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:64:volume_planning",
+        "template_id": "template.writing.volume_planning"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:64:volume_planning:e99f107b",
+        "tool_observation_count": 3,
+        "final_content_chars": 336,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 5179,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777998644.6542945,
+  "checksum": "981e965b147c0f24fce82adb3a55ea9212a97f1404f1ac6ca9ebe8e35c1f1cb9",
+  "authority": "orchestration.runtime_checkpoint"
+}

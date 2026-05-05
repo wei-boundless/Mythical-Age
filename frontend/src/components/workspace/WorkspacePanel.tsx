@@ -13,7 +13,7 @@ import { useAppStore } from "@/lib/store";
 
 export function WorkspacePanel() {
   const { activeWorkspaceView } = useAppStore();
-  const isTaskSystemView = activeWorkspaceView === "task-system";
+  const isBoundaryStudio = activeWorkspaceView === "task-system" || activeWorkspaceView === "orchestration";
 
   if (activeWorkspaceView === "chat") {
     return <ChatPanel />;
@@ -37,7 +37,7 @@ export function WorkspacePanel() {
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
       <div
-        className={`panel workspace-view-shell ${isSystemFramework ? "workspace-view-shell--map p-0" : isTaskSystemView ? "workspace-view-shell--task-system p-0" : "p-5"} flex min-h-0 flex-1 flex-col overflow-hidden`}
+        className={`panel workspace-view-shell ${isSystemFramework ? "workspace-view-shell--map p-0" : isBoundaryStudio ? "workspace-view-shell--task-system p-0" : "p-5"} flex min-h-0 flex-1 flex-col overflow-hidden`}
       >
         {views[activeWorkspaceView as keyof typeof views]}
       </div>

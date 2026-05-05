@@ -217,7 +217,11 @@ def _collect_task_signals(
 
     knowledge_source_anchor, knowledge_source_anchor_kind = _extract_knowledge_source_anchor(message)
     local_knowledge_scope = bool(knowledge_source_anchor)
-    workspace_read_request = explicit_workspace_path != "" and _looks_like_workspace_read_request(lowered)
+    workspace_read_request = (
+        explicit_workspace_path != ""
+        and _looks_like_workspace_read_request(lowered)
+        and not _looks_like_workspace_write_request(lowered)
+    )
     workspace_search_request = _looks_like_workspace_search_request(lowered)
     business_dataset_request = _looks_like_business_dataset_request(lowered)
     faq_shape = _looks_like_faq_problem(lowered)
@@ -734,6 +738,27 @@ def _looks_like_workspace_read_request(lowered: str) -> bool:
             "show ",
             "file",
             "source",
+        ),
+    )
+
+
+def _looks_like_workspace_write_request(lowered: str) -> bool:
+    return _contains_any(
+        lowered,
+        (
+            "write_file",
+            "写入",
+            "写到",
+            "写进",
+            "生成",
+            "产出",
+            "创建",
+            "保存到",
+            "输出到",
+            "write ",
+            "create ",
+            "save to",
+            "output to",
         ),
     )
 

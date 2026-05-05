@@ -1,0 +1,839 @@
+{
+  "checkpoint_id": "rtchk:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:180",
+  "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+  "event_offset": 180,
+  "loop_state": {
+    "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+    "status": "failed",
+    "turn_count": 8,
+    "step_count": 1,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.writing.novel_bible_build",
+    "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+    "task_result_ref": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "artifact_validation_failed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:385733307021",
+    "memory_state_ref": "memory-runtime:longform-novel-real-acceptance",
+    "projection_ref": "3d5d038aa6d10320",
+    "prompt_manifest_ref": "manifest-3d5d038aa6d10320",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 287,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899713
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:25ee3207",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:24ac3d4e",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f3e57fc0",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ec35ead8",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:9a269aee",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:1a8ace6f",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:5034dc34",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:538b590e",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:b9e2f530",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:6512807c",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f6d34631",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f712199c",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:51095f5f",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:973b1a4a",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:27092cf7",
+      "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:173:060b5f96",
+      "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:runtime-blocked",
+      "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+      "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "longform-novel-real-acceptance",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+            "role": "assistant",
+            "content": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+            "answer_channel": "orchestration_fail_closed",
+            "answer_source": "task_artifact_validation",
+            "answer_canonical_state": "artifact_validation_failed",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+            "template_id": "template.writing.novel_bible_build",
+            "terminal_reason": "artifact_validation_failed",
+            "final_content_chars": 118,
+            "task_result": {
+              "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+              "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+              "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+              "template_id": "template.writing.novel_bible_build",
+              "status": "failed",
+              "terminal_reason": "artifact_validation_failed",
+              "requested_outputs": [
+                "bible_bundle"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:25ee3207",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:24ac3d4e",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f3e57fc0",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ec35ead8",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:9a269aee",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:1a8ace6f",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:5034dc34",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:538b590e",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:b9e2f530",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:6512807c",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f6d34631",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f712199c",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:51095f5f",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:973b1a4a",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:27092cf7",
+                "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:173:060b5f96",
+                "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:runtime-blocked"
+              ],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.novel_bible_build",
+                  "title": "生成圣经包",
+                  "step_kind": "coordinate",
+                  "executor_type": "agent",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.model_response",
+                    "op.write_file"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "NovelBibleBundle",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+                  ],
+                  "output_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+                  ],
+                  "entered_at": 1777993549.559519,
+                  "completed_at": 1777993860.2512677,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+                  "executor_ref": "write_file",
+                  "diagnostics": {
+                    "transition_reason": "tool_result_received",
+                    "operation_id": "op.write_file"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {
+                  "answer_channel": "orchestration_fail_closed",
+                  "answer_source": "task_artifact_validation",
+                  "answer_canonical_state": "artifact_validation_failed",
+                  "answer_persist_policy": "persist_canonical",
+                  "answer_finalization_policy": "none",
+                  "answer_fallback_reason": ""
+                }
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+                "template_id": "template.writing.novel_bible_build"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+                "tool_observation_count": 15,
+                "final_content_chars": 118,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+        "template_id": "template.writing.novel_bible_build",
+        "status": "failed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "bible_bundle"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.novel_bible_build",
+            "title": "生成圣经包",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "NovelBibleBundle",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+            ],
+            "entered_at": 1777993549.559519,
+            "completed_at": 1777993860.2512677,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+          "template_id": "template.writing.novel_bible_build"
+        },
+        "diagnostics": {
+          "current_step_id": "step.novel_bible_build",
+          "terminal_reason": "artifact_validation_failed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+        "template_id": "template.writing.novel_bible_build",
+        "status": "failed",
+        "terminal_reason": "artifact_validation_failed",
+        "requested_outputs": [
+          "bible_bundle"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:25ee3207",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:24ac3d4e",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f3e57fc0",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ec35ead8",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:9a269aee",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:1a8ace6f",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:5034dc34",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:538b590e",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:b9e2f530",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:6512807c",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f6d34631",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f712199c",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:51095f5f",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:973b1a4a",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:27092cf7",
+          "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:173:060b5f96",
+          "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:runtime-blocked"
+        ],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.novel_bible_build",
+            "title": "生成圣经包",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "NovelBibleBundle",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+            ],
+            "entered_at": 1777993549.559519,
+            "completed_at": 1777993860.2512677,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {
+            "answer_channel": "orchestration_fail_closed",
+            "answer_source": "task_artifact_validation",
+            "answer_canonical_state": "artifact_validation_failed",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          }
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+          "template_id": "template.writing.novel_bible_build"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+          "tool_observation_count": 15,
+          "final_content_chars": 118,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 3129,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 600.0,
+        "max_events": 260,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+      "runtime_chain_built": true,
+      "effective_loop_limits": {
+        "max_turns": 24,
+        "max_model_calls": 24,
+        "max_runtime_seconds": null,
+        "max_events": 1200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.writing.novel_bible_build",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+      "last_step_transition": "terminal_projection",
+      "final_content_chars": 118,
+      "artifact_validation": {
+        "passed": false,
+        "required": true,
+        "reason": "write_file was required but no successful existing artifact file was found",
+        "rule_ids": [
+          "rule.bible_bundle_required"
+        ],
+        "successful_write_count": 8,
+        "existing_write_count": 0,
+        "artifacts": [],
+        "final_content_chars": 642,
+        "result_ref_count": 18
+      },
+      "result_ref_count": 22
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:385733307021",
+  "prompt_manifest_ref": "manifest-3d5d038aa6d10320",
+  "execution_refs": [
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:77aa8c50",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:49ea731a",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:b5fec66f",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:d0f006eb",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f7071748",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:aa6cea7e",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:2b387cf7",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:61c4924a",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:fcacbe1d",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:54ffb443",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:725dc656",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:a39c00b0",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:fb33713a",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:e400da07",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:012a6f06"
+  ],
+  "execution_state_ref": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:012a6f06",
+  "execution_summary": {
+    "execution_count": 15,
+    "completed_count": 15,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:77aa8c50",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:49ea731a",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:b5fec66f",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:d0f006eb",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f7071748",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:aa6cea7e",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:2b387cf7",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:61c4924a",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:fcacbe1d",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:54ffb443",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:725dc656",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:a39c00b0",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:fb33713a",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:e400da07",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:012a6f06"
+    ],
+    "latest_execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:012a6f06"
+  },
+  "agent_run_refs": [
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:main",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:participant:world_bible",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:participant:character_bible",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:participant:plot_bible",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:participant:editor_merge"
+  ],
+  "coordination_run_refs": [
+    "coordrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:primary"
+  ],
+  "runtime_objects_summary": {
+    "agent_run_count": 5,
+    "coordination_run_count": 1,
+    "running_agent_run_count": 1,
+    "running_coordination_run_count": 1
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+          "role": "assistant",
+          "content": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+          "answer_channel": "orchestration_fail_closed",
+          "answer_source": "task_artifact_validation",
+          "answer_canonical_state": "artifact_validation_failed",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "longform-novel-real-acceptance",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+          "template_id": "template.writing.novel_bible_build",
+          "terminal_reason": "artifact_validation_failed",
+          "final_content_chars": 118,
+          "task_result": {
+            "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+            "template_id": "template.writing.novel_bible_build",
+            "status": "failed",
+            "terminal_reason": "artifact_validation_failed",
+            "requested_outputs": [
+              "bible_bundle"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:25ee3207",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:24ac3d4e",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f3e57fc0",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ec35ead8",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:9a269aee",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:1a8ace6f",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:5034dc34",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:538b590e",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:b9e2f530",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:6512807c",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f6d34631",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f712199c",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:51095f5f",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:973b1a4a",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:27092cf7",
+              "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:173:060b5f96",
+              "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:runtime-blocked"
+            ],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.novel_bible_build",
+                "title": "生成圣经包",
+                "step_kind": "coordinate",
+                "executor_type": "agent",
+                "status": "completed",
+                "required_operations": [
+                  "op.model_response",
+                  "op.write_file"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "NovelBibleBundle",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+                ],
+                "output_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+                ],
+                "entered_at": 1777993549.559519,
+                "completed_at": 1777993860.2512677,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+                "executor_ref": "write_file",
+                "diagnostics": {
+                  "transition_reason": "tool_result_received",
+                  "operation_id": "op.write_file"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "task_artifact_validation",
+                "answer_canonical_state": "artifact_validation_failed",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": ""
+              }
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+              "template_id": "template.writing.novel_bible_build"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+              "tool_observation_count": 15,
+              "final_content_chars": 118,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+      "template_id": "template.writing.novel_bible_build",
+      "status": "failed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "bible_bundle"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.novel_bible_build",
+          "title": "生成圣经包",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "NovelBibleBundle",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+          ],
+          "entered_at": 1777993549.559519,
+          "completed_at": 1777993860.2512677,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+        "template_id": "template.writing.novel_bible_build"
+      },
+      "diagnostics": {
+        "current_step_id": "step.novel_bible_build",
+        "terminal_reason": "artifact_validation_failed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+      "template_id": "template.writing.novel_bible_build",
+      "status": "failed",
+      "terminal_reason": "artifact_validation_failed",
+      "requested_outputs": [
+        "bible_bundle"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:25ee3207",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:24ac3d4e",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f3e57fc0",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ec35ead8",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:9a269aee",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:1a8ace6f",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:5034dc34",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:538b590e",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:b9e2f530",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:6512807c",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f6d34631",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:f712199c",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:51095f5f",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:973b1a4a",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:27092cf7",
+        "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:173:060b5f96",
+        "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:runtime-blocked"
+      ],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.novel_bible_build",
+          "title": "生成圣经包",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "NovelBibleBundle",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13"
+          ],
+          "entered_at": 1777993549.559519,
+          "completed_at": 1777993860.2512677,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77:ab132c13",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。 原因：write_file was required but no successful existing artifact file was found",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {
+          "answer_channel": "orchestration_fail_closed",
+          "answer_source": "task_artifact_validation",
+          "answer_canonical_state": "artifact_validation_failed",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        }
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build",
+        "template_id": "template.writing.novel_bible_build"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:27:novel_bible_build:67346f77",
+        "tool_observation_count": 15,
+        "final_content_chars": 118,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 3129,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777994294.4875464,
+  "checksum": "1d38148c87acfde55c8fbd2fcc90dd3f24ff6010d2a1ca1b53fda37a2cfae1ee",
+  "authority": "orchestration.runtime_checkpoint"
+}

@@ -1,0 +1,625 @@
+{
+  "checkpoint_id": "rtchk:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:51",
+  "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+  "event_offset": 51,
+  "loop_state": {
+    "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+    "status": "completed",
+    "turn_count": 1,
+    "step_count": 0,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.writing.chapter_revision",
+    "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+    "task_result_ref": "taskresult:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:3ac3049858bb",
+    "memory_state_ref": "memview:longform-live",
+    "projection_ref": "1af93adeabf3b4ea",
+    "prompt_manifest_ref": "manifest-1af93adeabf3b4ea",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {},
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "taskrun-ledger:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+      "taskresult:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+      "commit_gate:commit-gate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "longform-novel-live-acceptance",
+            "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+            "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+            "role": "assistant",
+            "content": "",
+            "answer_channel": "",
+            "answer_source": "",
+            "answer_canonical_state": "",
+            "answer_persist_policy": "",
+            "answer_finalization_policy": "",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": false,
+          "reason": "empty_assistant_message_blocked",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "blocked",
+        "reason": "empty_assistant_message_blocked",
+        "commit_allowed": false,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "longform-novel-live-acceptance",
+          "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+          "assistant_session_write_allowed": false,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": false,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+            "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+            "template_id": "template.writing.chapter_revision",
+            "terminal_reason": "completed",
+            "final_content_chars": 0,
+            "task_result": {
+              "result_id": "taskresult:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+              "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+              "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+              "template_id": "template.writing.chapter_revision",
+              "status": "completed",
+              "terminal_reason": "completed",
+              "requested_outputs": [
+                "chapter_revision"
+              ],
+              "result_refs": [],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.chapter_revision",
+                  "title": "修订章节正文",
+                  "step_kind": "coordinate",
+                  "executor_type": "agent",
+                  "status": "running",
+                  "required_operations": [
+                    "op.model_response"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "ChapterRevision",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [],
+                  "output_refs": [],
+                  "entered_at": 1777989182.7676535,
+                  "completed_at": 0.0,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "",
+                  "executor_ref": "",
+                  "diagnostics": {
+                    "transition_reason": "task_contract_built"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {}
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+                "template_id": "template.writing.chapter_revision"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+                "tool_observation_count": 0,
+                "final_content_chars": 0,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+        "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+        "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+        "template_id": "template.writing.chapter_revision",
+        "status": "completed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "chapter_revision"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.chapter_revision",
+            "title": "修订章节正文",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "running",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "ChapterRevision",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 1777989182.7676535,
+            "completed_at": 0.0,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "task_contract_built"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+          "template_id": "template.writing.chapter_revision"
+        },
+        "diagnostics": {
+          "current_step_id": "step.chapter_revision",
+          "terminal_reason": "completed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+        "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+        "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+        "template_id": "template.writing.chapter_revision",
+        "status": "completed",
+        "terminal_reason": "completed",
+        "requested_outputs": [
+          "chapter_revision"
+        ],
+        "result_refs": [],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.chapter_revision",
+            "title": "修订章节正文",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "running",
+            "required_operations": [
+              "op.model_response"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "ChapterRevision",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [],
+            "output_refs": [],
+            "entered_at": 1777989182.7676535,
+            "completed_at": 0.0,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "",
+            "executor_ref": "",
+            "diagnostics": {
+              "transition_reason": "task_contract_built"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {}
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+          "template_id": "template.writing.chapter_revision"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+          "tool_observation_count": 0,
+          "final_content_chars": 0,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": false,
+      "memory_write_allowed": false,
+      "session_memory_refresh_applied": false,
+      "durable_memory_commit_applied": false,
+      "session_memory_chars": 0,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 6,
+        "max_model_calls": 6,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+      "runtime_chain_built": true,
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.writing.chapter_revision",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+      "final_content_chars": 0,
+      "last_step_transition": "terminal_projection",
+      "result_ref_count": 4
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:3ac3049858bb",
+  "prompt_manifest_ref": "manifest-1af93adeabf3b4ea",
+  "execution_refs": [],
+  "execution_state_ref": "",
+  "execution_summary": {
+    "execution_count": 0,
+    "completed_count": 0,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [],
+    "latest_execution_id": ""
+  },
+  "agent_run_refs": [
+    "agrun:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:main",
+    "agrun:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:participant:chapter_plan",
+    "agrun:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:participant:chapter_draft",
+    "agrun:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:participant:style_review",
+    "agrun:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:participant:continuity_review",
+    "agrun:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:participant:chapter_revision",
+    "agrun:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:participant:editor_acceptance"
+  ],
+  "coordination_run_refs": [
+    "coordrun:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:primary"
+  ],
+  "runtime_objects_summary": {
+    "agent_run_count": 7,
+    "coordination_run_count": 1,
+    "running_agent_run_count": 1,
+    "running_coordination_run_count": 1
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "longform-novel-live-acceptance",
+          "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+          "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+          "role": "assistant",
+          "content": "",
+          "answer_channel": "",
+          "answer_source": "",
+          "answer_canonical_state": "",
+          "answer_persist_policy": "",
+          "answer_finalization_policy": "",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": false,
+        "reason": "empty_assistant_message_blocked",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "blocked",
+      "reason": "empty_assistant_message_blocked",
+      "commit_allowed": false,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "longform-novel-live-acceptance",
+        "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+        "assistant_session_write_allowed": false,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": false,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+          "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+          "template_id": "template.writing.chapter_revision",
+          "terminal_reason": "completed",
+          "final_content_chars": 0,
+          "task_result": {
+            "result_id": "taskresult:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+            "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+            "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+            "template_id": "template.writing.chapter_revision",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "requested_outputs": [
+              "chapter_revision"
+            ],
+            "result_refs": [],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.chapter_revision",
+                "title": "修订章节正文",
+                "step_kind": "coordinate",
+                "executor_type": "agent",
+                "status": "running",
+                "required_operations": [
+                  "op.model_response"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "ChapterRevision",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [],
+                "output_refs": [],
+                "entered_at": 1777989182.7676535,
+                "completed_at": 0.0,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "",
+                "executor_ref": "",
+                "diagnostics": {
+                  "transition_reason": "task_contract_built"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {}
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+              "template_id": "template.writing.chapter_revision"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+              "tool_observation_count": 0,
+              "final_content_chars": 0,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+      "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+      "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+      "template_id": "template.writing.chapter_revision",
+      "status": "completed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "chapter_revision"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.chapter_revision",
+          "title": "修订章节正文",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "running",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "ChapterRevision",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 1777989182.7676535,
+          "completed_at": 0.0,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "task_contract_built"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+        "template_id": "template.writing.chapter_revision"
+      },
+      "diagnostics": {
+        "current_step_id": "step.chapter_revision",
+        "terminal_reason": "completed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+      "task_run_id": "taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+      "task_id": "taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+      "template_id": "template.writing.chapter_revision",
+      "status": "completed",
+      "terminal_reason": "completed",
+      "requested_outputs": [
+        "chapter_revision"
+      ],
+      "result_refs": [],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.chapter_revision",
+          "title": "修订章节正文",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "running",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "ChapterRevision",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 1777989182.7676535,
+          "completed_at": 0.0,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {
+            "transition_reason": "task_contract_built"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {}
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision",
+        "template_id": "template.writing.chapter_revision"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-live-acceptance:taskinst:turn:longform-novel-live-acceptance:6:chapter_revision:817d9c87",
+        "tool_observation_count": 0,
+        "final_content_chars": 0,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": false,
+    "memory_write_allowed": false,
+    "session_memory_refresh_applied": false,
+    "durable_memory_commit_applied": false,
+    "session_memory_chars": 0,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777989184.2098336,
+  "checksum": "4861e3b07e045b45e140a676ecc5f9fc14da676f3a2fe4f2c364681e76f32712",
+  "authority": "orchestration.runtime_checkpoint"
+}

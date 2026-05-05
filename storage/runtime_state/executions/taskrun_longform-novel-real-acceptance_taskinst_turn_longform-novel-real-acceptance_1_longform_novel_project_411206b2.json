@@ -1,0 +1,306 @@
+{
+  "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+  "updated_at": 1777990179.3244255,
+  "records": [
+    {
+      "execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:408f4368",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+      "step_id": "step.longform_project_spec",
+      "request_ref": "rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:6dd6ae2c",
+      "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:6dd6ae2c",
+      "operation_id": "op.search_files",
+      "executor_type": "tool",
+      "request_fingerprint": "ed0d866b8c89b5e17b96d2002350b57ce46ac714523d12b73aaf18334312be46",
+      "idempotency_token": "95af761d154ecd4efe93393d515c61159d87845e34be669dd182096e22b8ee43",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:408f4368",
+      "result_payload": {
+        "tool_name": "search_files",
+        "tool_call_id": "call_00_7W1qXq0BRAkgqq1pKCZF4200",
+        "tool_args": {
+          "query": "雾港回声"
+        },
+        "result": "没有找到匹配项：雾港回声",
+        "result_chars": 12,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777990153.334909,
+      "updated_at": 1777990154.6037154,
+      "diagnostics": {
+        "tool_name": "search_files",
+        "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:6dd6ae2c"
+      },
+      "authority": "orchestration.operation_execution_record"
+    },
+    {
+      "execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:730bc743",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+      "step_id": "step.longform_project_spec",
+      "request_ref": "rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:c5be0459",
+      "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:c5be0459",
+      "operation_id": "op.search_files",
+      "executor_type": "tool",
+      "request_fingerprint": "e84a987079770ecffa1d2b313d1e770d55e274afe8e1b6f14454bb9ca2e8ecf8",
+      "idempotency_token": "4c92cc3f8a003c5faa5b7f3223e0ffb7e5c708cd5cd7a0f624114b5131a2b39c",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:730bc743",
+      "result_payload": {
+        "tool_name": "search_files",
+        "tool_call_id": "call_01_9Ky7GnIFuX13mfCZpOdw0210",
+        "tool_args": {
+          "query": "E5-longform-novel-real"
+        },
+        "result": "没有找到匹配项：E5-longform-novel-real",
+        "result_chars": 30,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777990154.664466,
+      "updated_at": 1777990155.833167,
+      "diagnostics": {
+        "tool_name": "search_files",
+        "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:c5be0459"
+      },
+      "authority": "orchestration.operation_execution_record"
+    },
+    {
+      "execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:e8c95190",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+      "step_id": "step.longform_project_spec",
+      "request_ref": "rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:ea017c6a",
+      "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:ea017c6a",
+      "operation_id": "op.search_files",
+      "executor_type": "tool",
+      "request_fingerprint": "0d1d9352bca461fa4f32105043aa8001a329cd3f30329f75a960d9420afad827",
+      "idempotency_token": "1b2de8843cf437bad2a2ee271d275bd43d80dbd6e29b992efe2c88d86d46372e",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:e8c95190",
+      "result_payload": {
+        "tool_name": "search_files",
+        "tool_call_id": "call_02_bFcPUjZGHKiYlZBsbEF86966",
+        "tool_args": {
+          "query": "project_spec",
+          "max_results": 10
+        },
+        "result": "没有找到匹配项：project_spec",
+        "result_chars": 20,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777990155.9044664,
+      "updated_at": 1777990157.1088753,
+      "diagnostics": {
+        "tool_name": "search_files",
+        "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:ea017c6a"
+      },
+      "authority": "orchestration.operation_execution_record"
+    },
+    {
+      "execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:c728828a",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+      "step_id": "step.longform_project_spec",
+      "request_ref": "rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:c2a40b01",
+      "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:c2a40b01",
+      "operation_id": "op.search_files",
+      "executor_type": "tool",
+      "request_fingerprint": "429bcc57ffa41d32d3f569036206c3f69bc07b445d09ab38a6468b0327f83678",
+      "idempotency_token": "a36883df837431a7da5cf9e9a37e9ecd0735a19f1c4273a4a6805a1c67414429",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:c728828a",
+      "result_payload": {
+        "tool_name": "search_files",
+        "tool_call_id": "call_00_euR1Czhc6nXTLPqAUsWm4919",
+        "tool_args": {
+          "query": "artifacts/20260505"
+        },
+        "result": "[1] backend/capability_system/units/mcp/local/structured_data/artifacts.py\n[2] backend/health_system/maintenance/experiments/artifacts.py\n[3] backend/modality_index/artifacts.py\n[4] backend/tests/_artifacts/scifact_v2_current_lexical_fix.json\n[5] backend/tests/_artifacts/scifact_v2_eval_20260422.json\n[6] backend/tests/_artifacts/scifact_v2_eval_50_base.json\n[7] backend/tests/_artifacts/scifact_v2_eval_50_base_normalized.json\n[8] backend/tests/_artifacts/scifact_v2_eval_50_base_normalized_k100.json\n[9] backend/tests/_artifacts/scifact_v2_eval_50_base_normalized_k30.json\n[10] backend/tests/_artifacts/scifact_v2_eval_50_full.json\n[11] backend/tests/_artifacts/scifact_v2_eval_50_full_normalized.json\n[12] backend/tests/_artifacts/scifact_v2_eval_50_rerank.json\n[13] backend/tests/_artifacts/scifact_v2_eval_50_rerank_normalized.json\n[14] backend/tests/_artifacts/scifact_v2_eval_50_rerank_normalized_k100.json\n[15] backend/tests/_artifacts/scifact_v2_eval_50_rerank_normalized_k30.json\n[16] backend/tests/_artifacts/scifact_v2_eval_50_rewrite_normalized.json\n[17] backend/tests/_artifacts/scifact_v2_hybrid_norm_rerank_top200.json\n[18] backend/tests/_artifacts/scifact_v2_hybrid_rerank_top200.json\n[19] backend/tests/_artifacts/scifact_v2_rerank_top100.json\n[20] backend/tests/_artifacts/scifact_v2_rerank_top200.json",
+        "result_chars": 1322,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777990163.3476627,
+      "updated_at": 1777990164.5179536,
+      "diagnostics": {
+        "tool_name": "search_files",
+        "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:c2a40b01"
+      },
+      "authority": "orchestration.operation_execution_record"
+    },
+    {
+      "execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:2f3917d2",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+      "step_id": "step.longform_project_spec",
+      "request_ref": "rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:9abba345",
+      "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:9abba345",
+      "operation_id": "op.search_files",
+      "executor_type": "tool",
+      "request_fingerprint": "8d423b6b15d6877b4d42893b7b2703f8ec641b6de79abf084ad0a8c81e296ff7",
+      "idempotency_token": "016607796b089bb84eb6ba47286cefa7ae9aaa733b8897887d0ed64cf4e6cdcb",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:2f3917d2",
+      "result_payload": {
+        "tool_name": "search_files",
+        "tool_call_id": "call_01_gKnM59I2jOTPduglriqJ6172",
+        "tool_args": {
+          "query": "longform_novel_project"
+        },
+        "result": "没有找到匹配项：longform_novel_project",
+        "result_chars": 30,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777990164.5943081,
+      "updated_at": 1777990165.8064494,
+      "diagnostics": {
+        "tool_name": "search_files",
+        "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:9abba345"
+      },
+      "authority": "orchestration.operation_execution_record"
+    },
+    {
+      "execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:5241a0fe",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+      "step_id": "step.longform_project_spec",
+      "request_ref": "rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:9bbeef74",
+      "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:9bbeef74",
+      "operation_id": "op.search_files",
+      "executor_type": "tool",
+      "request_fingerprint": "41d234ba939febffc8870a94777ae0cf0e3c4a9a3e6e66631d88d541890ad5b0",
+      "idempotency_token": "b47a3fc2c6c7c6359b09287e45b29ab4ccec228d72d90abdd16ae292b52c5f16",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:5241a0fe",
+      "result_payload": {
+        "tool_name": "search_files",
+        "tool_call_id": "call_02_iOWiEQ3NQwD6sYiVpX2f2123",
+        "tool_args": {
+          "query": "任务系统实测记录",
+          "max_results": 15
+        },
+        "result": "[1] docs/系统规划/任务系统实测记录/20260505-E1-single-agent-chain-pass.md\n[2] docs/系统规划/任务系统实测记录/20260505-E2-specific-development-task-pass.md\n[3] docs/系统规划/任务系统实测记录/20260505-E3-coordination-story-pass.md\n[4] docs/系统规划/任务系统实测记录/20260505-E4-worker-spawn-pass.md\n[5] docs/系统规划/任务系统实测记录/20260505-任务系统真实验收总索引-pass.md\n[6] docs/系统规划/任务系统实测记录/artifacts/20260505/E1-single-agent-chain/events.json\n[7] docs/系统规划/任务系统实测记录/artifacts/20260505/E1-single-agent-chain/final_answer.txt\n[8] docs/系统规划/任务系统实测记录/artifacts/20260505/E1-single-agent-chain/task_run_id.txt\n[9] docs/系统规划/任务系统实测记录/artifacts/20260505/E1-single-agent-chain/trace.json\n[10] docs/系统规划/任务系统实测记录/artifacts/20260505/E2-specific-development-task/browser-initial.png\n[11] docs/系统规划/任务系统实测记录/artifacts/20260505/E2-specific-development-task/browser-playing.png\n[12] docs/系统规划/任务系统实测记录/artifacts/20260505/E2-specific-development-task/browser_verification.json\n[13] docs/系统规划/任务系统实测记录/artifacts/20260505/E2-specific-development-task/events.json\n[14] docs/系统规划/任务系统实测记录/artifacts/20260505/E2-specific-development-task/final_answer.txt\n[15] docs/系统规划/任务系统实测记录/artifacts/20260505/E2-specific-development-task/game.js",
+        "result_chars": 1147,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777990165.8833559,
+      "updated_at": 1777990167.052094,
+      "diagnostics": {
+        "tool_name": "search_files",
+        "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:9bbeef74"
+      },
+      "authority": "orchestration.operation_execution_record"
+    },
+    {
+      "execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:e19b96b2",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+      "step_id": "step.longform_project_spec",
+      "request_ref": "rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:9a2afb3a",
+      "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:9a2afb3a",
+      "operation_id": "op.read_file",
+      "executor_type": "tool",
+      "request_fingerprint": "062db1a55bb594c4d2e42c1bb8d002de3bee26aa4516a2783730f2d5461824a7",
+      "idempotency_token": "69f23de977debbcdda25673fc7a9f8b5af408d6d1d8370c324ac7c4119df1b22",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:e19b96b2",
+      "result_payload": {
+        "tool_name": "read_file",
+        "tool_call_id": "call_00_HeMBbJdda658GiadaQhJ0050",
+        "tool_args": {
+          "path": "docs/系统规划/任务系统实测记录/20260505-任务系统真实验收总索引-pass.md"
+        },
+        "result": "# 20260505 任务系统真实验收总索引\n\n状态：通过\n\n## 通过项目\n\n- E1 单 Agent 链：`20260505-E1-single-agent-chain-pass.md`\n- E2 特定开发任务：`20260505-E2-specific-development-task-pass.md`\n- E3 协调任务：`20260505-E3-coordination-story-pass.md`\n- E4 Worker Spawn：`20260505-E4-worker-spawn-pass.md`\n\n## 修复项\n\n- 收紧阶段 E 硬性验收规则，禁止链路存在即验收。\n- 修复短篇小说任务收口约束，禁止停在创意审核等待用户确认。\n- 修复 worker spawn 禁用场景，写入 blocked `WorkerAgentSpawnResult`。\n- 将 `worker_spawn_summary` 注入 runtime prompt，避免模型混淆系统 `worker_sub_agent` 与浏览器 Web Worker。\n\n## 回归\n\n- `pytest backend/tests/task_system_real_acceptance_regression.py -q`：4 passed\n- `pytest backend/tests/query_runtime_runtime_loop_regression.py -q`：21 passed\n",
+        "result_chars": 643,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777990172.9084578,
+      "updated_at": 1777990172.940643,
+      "diagnostics": {
+        "tool_name": "read_file",
+        "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:9a2afb3a"
+      },
+      "authority": "orchestration.operation_execution_record"
+    },
+    {
+      "execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:3690344a",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+      "step_id": "step.longform_project_spec",
+      "request_ref": "rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:bb46a7c6",
+      "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:bb46a7c6",
+      "operation_id": "op.read_file",
+      "executor_type": "tool",
+      "request_fingerprint": "6f75fd8ae30d4c03af76bb340eb4641b94962df24e766d1a0a241f2a0eff1434",
+      "idempotency_token": "7c3623b1785cfd0817e59744f8753eb48b7faec41962b6bb12d54ee0c1e94222",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:3690344a",
+      "result_payload": {
+        "tool_name": "read_file",
+        "tool_call_id": "call_01_uvM47yMUDpCA0MPxGMJt7969",
+        "tool_args": {
+          "path": "docs/系统规划/任务系统实测记录/20260505-E4-worker-spawn-pass.md"
+        },
+        "result": "# 20260505 E4 Worker Spawn 实测记录\n\n状态：通过\n\n## 前置条件\n\n- 使用正式 `task.dev.light_web_game`\n- 正例：`allow_worker_agent_spawn=true`\n- 负例：`allow_worker_agent_spawn=false` 且保留 blueprint，用于验证 fail-closed\n- `worker` 明确定义为系统编排层 `worker_sub_agent`，不是浏览器 Web Worker\n\n## 操作步骤\n\n1. 首轮模型把 worker 误解成浏览器 Web Worker，判定不通过。\n2. 修复 runtime：禁用 spawn 但存在 blueprint 时写入 blocked `WorkerAgentSpawnResult`。\n3. 修复 runtime context：将 `worker_spawn_summary` 注入模型可见上下文。\n4. 重跑正例，确认产生系统级 worker_sub_agent。\n5. 重跑负例，确认 fail-closed。\n6. 用 Edge 浏览器打开产物页并保存截图/断言。\n\n## 实际成果\n\n- 游戏产物：`frontend/public/games/acceptance_worker_spawn_20260505.html`\n- 归档产物：`docs/系统规划/任务系统实测记录/artifacts/20260505/E4-worker-spawn/acceptance_worker_spawn_20260505.html`\n- 正例 trace：`docs/系统规划/任务系统实测记录/artifacts/20260505/E4-worker-spawn/allowed-trace.json`\n- 负例 trace：`docs/系统规划/任务系统实测记录/artifacts/20260505/E4-worker-spawn/denied-trace.json`\n- Trace 复核：`docs/系统规划/任务系统实测记录/artifacts/20260505/E4-worker-spawn/trace_verification.json`\n- 浏览器验证：`docs/系统规划/任务系统实测记录/artifacts/20260505/E4-worker-spawn/browser_verification.json`\n\n## 验收结论\n\n- 正例：spawn request=1，spawn result=spawned，`spawned_agent_id=agent:8`，worker AgentRun 存在且 completed。\n- 负例：spawn request=0，blocked result 存在，reason=`worker_spawn_disabled_by_execution_policy`，无 worker AgentRun。\n- 实际成果：小游戏页面存在，并经浏览器验证 `accepted=true`。\n- 修复回流：已修 fail-closed trace 和 runtime facts 注入，复测通过。\n\n结论：通过。\n",
+        "result_chars": 1368,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777990173.031295,
+      "updated_at": 1777990173.0678487,
+      "diagnostics": {
+        "tool_name": "read_file",
+        "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:bb46a7c6"
+      },
+      "authority": "orchestration.operation_execution_record"
+    },
+    {
+      "execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:570ac480",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2",
+      "step_id": "step.longform_project_spec",
+      "request_ref": "rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:f61f310a",
+      "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:f61f310a",
+      "operation_id": "op.search_files",
+      "executor_type": "tool",
+      "request_fingerprint": "f5ba80a021eb2495051a96e1fb70ea27ece2594c9417224a53a10dde753b01c5",
+      "idempotency_token": "9d281638c792053a8e4e5e58221378fbcb8931a90ddb8841e8dfc4ab96ecff10",
+      "replay_policy": "replay_read",
+      "status": "completed",
+      "side_effect_state": "committed",
+      "result_ref": "execution-result:rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:570ac480",
+      "result_payload": {
+        "tool_name": "search_files",
+        "tool_call_id": "call_00_dNgQsd3VWhdbHIKp8YrO4011",
+        "tool_args": {
+          "query": "E3-coordination-story"
+        },
+        "result": "[1] docs/系统规划/任务系统实测记录/20260505-E3-coordination-story-pass.md\n[2] docs/系统规划/任务系统实测记录/artifacts/20260505/E3-coordination-story/events.json\n[3] docs/系统规划/任务系统实测记录/artifacts/20260505/E3-coordination-story/final_answer.txt\n[4] docs/系统规划/任务系统实测记录/artifacts/20260505/E3-coordination-story/run_summary.json\n[5] docs/系统规划/任务系统实测记录/artifacts/20260505/E3-coordination-story/short_story.txt\n[6] docs/系统规划/任务系统实测记录/artifacts/20260505/E3-coordination-story/task_run_id.txt\n[7] docs/系统规划/任务系统实测记录/artifacts/20260505/E3-coordination-story/trace.json",
+        "result_chars": 534,
+        "truncated": false
+      },
+      "attempt_count": 1,
+      "created_at": 1777990178.139917,
+      "updated_at": 1777990179.316757,
+      "diagnostics": {
+        "tool_name": "search_files",
+        "directive_ref": "runtime-directive:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:tool:rtact:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:f61f310a"
+      },
+      "authority": "orchestration.operation_execution_record"
+    }
+  ],
+  "latest_execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:1:longform_novel_project:411206b2:570ac480"
+}

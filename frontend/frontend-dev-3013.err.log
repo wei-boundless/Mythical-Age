@@ -2578,3 +2578,180 @@ Import trace for requested module:
 ./src/components/workspace/WorkspacePanel.tsx
 ./src/app/page.tsx
 <w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\client-development\3.pack.gz_' -> 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\client-development\3.pack.gz'
+ ⚠ ./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'upsertTaskSystemAgent' is not exported from '@/lib/api' (imported as 'upsertTaskSystemAgent').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+
+./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'deleteTaskSystemAgent' is not exported from '@/lib/api' (imported as 'deleteTaskSystemAgent').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+
+./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'getNextWorkerAgentId' is not exported from '@/lib/api' (imported as 'getNextWorkerAgentId').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+
+./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'upsertTaskSystemGeneralProfile' is not exported from '@/lib/api' (imported as 'upsertTaskSystemGeneralProfile').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+
+./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'upsertTaskSystemAssignment' is not exported from '@/lib/api' (imported as 'upsertTaskSystemAssignment').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+
+./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'upsertTaskSystemAgent' is not exported from '@/lib/api' (imported as 'upsertTaskSystemAgent').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+
+./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'deleteTaskSystemAgent' is not exported from '@/lib/api' (imported as 'deleteTaskSystemAgent').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+
+./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'getNextWorkerAgentId' is not exported from '@/lib/api' (imported as 'getNextWorkerAgentId').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+
+./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'upsertTaskSystemGeneralProfile' is not exported from '@/lib/api' (imported as 'upsertTaskSystemGeneralProfile').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+
+./src/components/workspace/views/TaskSystemView.tsx
+Attempted import error: 'upsertTaskSystemAssignment' is not exported from '@/lib/api' (imported as 'upsertTaskSystemAssignment').
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+ ⨯ ./src/components/workspace/views/TaskSystemView.tsx
+Error: Failed to read source code from D:\AI应用\langchain-agent\frontend\src\components\workspace\views\TaskSystemView.tsx
+
+Caused by:
+    系统找不到指定的文件。 (os error 2)
+
+Import trace for requested module:
+./src/components/workspace/views/TaskSystemView.tsx
+./src/components/workspace/WorkspacePanel.tsx
+./src/app/page.tsx
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving '../../../../.next/server/app/_not-found/page' in D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server for build dependencies doesn't lead to expected result 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js', but to 'Error: Can't resolve '../../../../.next/server/app/_not-found/page' in 'D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ../../../../.next/server/app/_not-found/page (expected D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js)
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\client-development\1.pack.gz_' -> 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\client-development\1.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\server-development\0.pack.gz_' -> 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\server-development\0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving '../../../../.next/server/app/_not-found/page' in D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server for build dependencies doesn't lead to expected result 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js', but to 'Error: Can't resolve '../../../../.next/server/app/_not-found/page' in 'D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ../../../../.next/server/app/_not-found/page (expected D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js)
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving '../../../../.next/server/app/_not-found/page' in D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server for build dependencies doesn't lead to expected result 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js', but to 'Error: Can't resolve '../../../../.next/server/app/_not-found/page' in 'D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ../../../../.next/server/app/_not-found/page (expected D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js)
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving '../../../../.next/server/app/_not-found/page' in D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server for build dependencies doesn't lead to expected result 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js', but to 'Error: Can't resolve '../../../../.next/server/app/_not-found/page' in 'D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ../../../../.next/server/app/_not-found/page (expected D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js)
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving '../../../../.next/server/app/_not-found/page' in D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server for build dependencies doesn't lead to expected result 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js', but to 'Error: Can't resolve '../../../../.next/server/app/_not-found/page' in 'D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ../../../../.next/server/app/_not-found/page (expected D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js)
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving '../../../../.next/server/app/_not-found/page' in D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server for build dependencies doesn't lead to expected result 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js', but to 'Error: Can't resolve '../../../../.next/server/app/_not-found/page' in 'D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ../../../../.next/server/app/_not-found/page (expected D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js)
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, lstat 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found'
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving '../../../../.next/server/app/_not-found/page' in D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server for build dependencies doesn't lead to expected result 'D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js', but to 'Error: Can't resolve '../../../../.next/server/app/_not-found/page' in 'D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server'' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ../../../../.next/server/app/_not-found/page (expected D:\AI应用\langchain-agent\frontend\.next\server\app\_not-found\page.js)
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\require.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\server\load-components.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\utils.js
+<w>  at file dependencies D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at file D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w>  at resolve commonjs D:\AI应用\langchain-agent\frontend\node_modules\next\dist\build\webpack\loaders\next-route-loader\index.js
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\server-development\1.pack.gz_' -> 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\server-development\1.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\client-development\1.pack.gz_' -> 'D:\AI应用\langchain-agent\frontend\.next\cache\webpack\client-development\1.pack.gz'

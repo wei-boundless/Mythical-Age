@@ -1,0 +1,754 @@
+{
+  "checkpoint_id": "rtchk:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:66",
+  "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+  "event_offset": 66,
+  "loop_state": {
+    "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+    "status": "completed",
+    "turn_count": 3,
+    "step_count": 1,
+    "current_step_id": "",
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "runtime_lane": "full_interactive",
+    "task_agent_binding_ref": "",
+    "task_template_id": "template.writing.novel_bible_build",
+    "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+    "task_result_ref": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+    "skill_workflow_ref": "",
+    "health_issue_ref": "",
+    "transition": "stop_after_final_output",
+    "terminal_reason": "completed",
+    "messages_ref": "",
+    "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:ca2c0f05966a",
+    "memory_state_ref": "memory-runtime:longform-novel-real-acceptance",
+    "projection_ref": "513a923aaa284a02",
+    "prompt_manifest_ref": "manifest-513a923aaa284a02",
+    "pending_action_requests": [],
+    "pending_approval_state": {},
+    "denial_tracking_state": {},
+    "token_pressure": {
+      "pressure_level": "normal",
+      "token_accounting": {
+        "available_context": 900000,
+        "reserved_output": 64000,
+        "candidate_tokens_included": 633,
+        "candidate_tokens_dropped": 0,
+        "remaining_context": 899367
+      },
+      "compaction_strategy": "none"
+    },
+    "compaction_state": {},
+    "result_refs": [
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:cb8c3c4e",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+      "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:f6c39a11",
+      "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:59:3d8b798d",
+      "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:runtime-blocked",
+      "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+      "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:assistant-session-message",
+      "commit_gate:commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:task-result-final"
+    ],
+    "commit_state": {
+      "assistant_session_message": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:assistant-session-message",
+        "commit_type": "session_message",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:session_message:assistant-final",
+          "commit_type": "session_message",
+          "payload": {
+            "session_id": "longform-novel-real-acceptance",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+            "role": "assistant",
+            "content": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_bible.md`\n\n任务阶段：小说圣经构建 — novel_bible 已写入。\n\n验收状态：通过。文件包含完整世界观（雾港三层结构、永雾规则、雾之教会、权力三角、旧渠设定、奇幻硬规则）、8 个主要人物设定（林默/艾琳/莉娜/科尔/魏斯/卡洛/莫兰/林芷，含人物弧线）、4 级主线谜团与揭示节奏表、历史纵深+故事时间轴、13 条已规划伏笔+3 条开放式线索、7 类风格规则（叙事/语言/奇幻悬疑/节奏/人物/世界构建/禁止项）。\n\n下一步：按卷规划任务生成第一卷卷纲 `volumes/volume_01_plan.md`。",
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "assistant_session_message_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "assistant_final_message_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "assistant_session_message_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+          "assistant_session_write_allowed": true,
+          "task_run_status_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "assistant_session_write_applied": true,
+      "task_result_final": {
+        "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:task-result-final",
+        "commit_type": "task_result",
+        "commit_candidate": {
+          "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:task_result:final",
+          "commit_type": "task_result",
+          "payload": {
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+            "template_id": "template.writing.novel_bible_build",
+            "terminal_reason": "completed",
+            "final_content_chars": 336,
+            "task_result": {
+              "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+              "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+              "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+              "template_id": "template.writing.novel_bible_build",
+              "status": "completed",
+              "terminal_reason": "completed",
+              "requested_outputs": [
+                "bible_bundle"
+              ],
+              "result_refs": [
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:cb8c3c4e",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+                "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:f6c39a11",
+                "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:59:3d8b798d",
+                "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:runtime-blocked"
+              ],
+              "output_refs": [],
+              "step_runs": [
+                {
+                  "step_id": "step.novel_bible_build",
+                  "title": "生成圣经包",
+                  "step_kind": "coordinate",
+                  "executor_type": "agent",
+                  "status": "completed",
+                  "required_operations": [
+                    "op.model_response",
+                    "op.write_file"
+                  ],
+                  "optional_operations": [],
+                  "input_refs": [],
+                  "output_contract_id": "NovelBibleBundle",
+                  "stop_policy": "on_success",
+                  "retry_policy": {},
+                  "observation_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+                  ],
+                  "output_refs": [
+                    "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+                  ],
+                  "entered_at": 1777998247.2089484,
+                  "completed_at": 1777998406.8093832,
+                  "attempt_count": 1,
+                  "failure_reason": "",
+                  "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+                  "executor_ref": "write_file",
+                  "diagnostics": {
+                    "transition_reason": "tool_result_received",
+                    "operation_id": "op.write_file"
+                  },
+                  "authority": "task_system.task_step_run"
+                }
+              ],
+              "final_outputs": {
+                "final_answer": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_bible.md`\n\n任务阶段：小说圣经构建 — novel_bible 已写入。\n\n验收状态：通过。文件包含完整世界观（雾港三层结构、永雾规则、雾之教会、权力三角、旧渠设定、奇幻硬规则）、8 个主要人物设定（林默/艾琳/莉娜/科尔/魏斯/卡洛/莫兰/林芷，含人物弧线）、4 级主线谜团与揭示节奏表、历史纵深+故事时间轴、13 条已规划伏笔+3 条开放式线索、7 类风格规则（叙事/语言/奇幻悬疑/节奏/人物/世界构建/禁止项）。\n\n下一步：按卷规划任务生成第一卷卷纲 `volumes/volume_01_plan.md`。",
+                "main_context": {},
+                "task_summary_refs": [],
+                "bundle_summary_refs": [],
+                "answer_metadata": {
+                  "answer_channel": "answer_candidate",
+                  "answer_source": "runtime_directive:model_response",
+                  "answer_canonical_state": "stable_answer",
+                  "answer_persist_policy": "persist_canonical",
+                  "answer_finalization_policy": "none",
+                  "answer_fallback_reason": ""
+                }
+              },
+              "refs": {
+                "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+                "template_id": "template.writing.novel_bible_build"
+              },
+              "diagnostics": {
+                "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+                "tool_observation_count": 2,
+                "final_content_chars": 336,
+                "bundle_result_count": 0,
+                "task_summary_count": 0
+              },
+              "authority": "task_system.task_result"
+            }
+          },
+          "producer": "orchestration.runtime_commit_gate",
+          "allowed": true,
+          "reason": "task_run_final_record_allowed",
+          "refs": {
+            "source": "orchestration.task_run_loop",
+            "commit_scope": "task_run_status_and_final_record_only"
+          }
+        },
+        "status": "allowed",
+        "reason": "task_run_final_record_allowed",
+        "commit_allowed": true,
+        "authority": "runtime_commit_gate",
+        "diagnostics": {
+          "task_run_status_write_allowed": true,
+          "final_answer_record_allowed": true,
+          "assistant_session_write_allowed": false,
+          "memory_write_allowed": false,
+          "artifact_write_allowed": false,
+          "filesystem_write_allowed": false
+        }
+      },
+      "task_run_ledger": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+        "template_id": "template.writing.novel_bible_build",
+        "status": "completed",
+        "current_step_id": "",
+        "requested_outputs": [
+          "bible_bundle"
+        ],
+        "step_runs": [
+          {
+            "step_id": "step.novel_bible_build",
+            "title": "生成圣经包",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "NovelBibleBundle",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+            ],
+            "entered_at": 1777998247.2089484,
+            "completed_at": 1777998406.8093832,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "refs": {
+          "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+          "template_id": "template.writing.novel_bible_build"
+        },
+        "diagnostics": {
+          "current_step_id": "step.novel_bible_build",
+          "terminal_reason": "completed"
+        },
+        "authority": "task_system.task_run_ledger"
+      },
+      "task_result": {
+        "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+        "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+        "template_id": "template.writing.novel_bible_build",
+        "status": "completed",
+        "terminal_reason": "completed",
+        "requested_outputs": [
+          "bible_bundle"
+        ],
+        "result_refs": [
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:cb8c3c4e",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+          "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:f6c39a11",
+          "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:59:3d8b798d",
+          "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:runtime-blocked"
+        ],
+        "output_refs": [],
+        "step_runs": [
+          {
+            "step_id": "step.novel_bible_build",
+            "title": "生成圣经包",
+            "step_kind": "coordinate",
+            "executor_type": "agent",
+            "status": "completed",
+            "required_operations": [
+              "op.model_response",
+              "op.write_file"
+            ],
+            "optional_operations": [],
+            "input_refs": [],
+            "output_contract_id": "NovelBibleBundle",
+            "stop_policy": "on_success",
+            "retry_policy": {},
+            "observation_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+            ],
+            "output_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+            ],
+            "entered_at": 1777998247.2089484,
+            "completed_at": 1777998406.8093832,
+            "attempt_count": 1,
+            "failure_reason": "",
+            "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+            "executor_ref": "write_file",
+            "diagnostics": {
+              "transition_reason": "tool_result_received",
+              "operation_id": "op.write_file"
+            },
+            "authority": "task_system.task_step_run"
+          }
+        ],
+        "final_outputs": {
+          "final_answer": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_bible.md`\n\n任务阶段：小说圣经构建 — novel_bible 已写入。\n\n验收状态：通过。文件包含完整世界观（雾港三层结构、永雾规则、雾之教会、权力三角、旧渠设定、奇幻硬规则）、8 个主要人物设定（林默/艾琳/莉娜/科尔/魏斯/卡洛/莫兰/林芷，含人物弧线）、4 级主线谜团与揭示节奏表、历史纵深+故事时间轴、13 条已规划伏笔+3 条开放式线索、7 类风格规则（叙事/语言/奇幻悬疑/节奏/人物/世界构建/禁止项）。\n\n下一步：按卷规划任务生成第一卷卷纲 `volumes/volume_01_plan.md`。",
+          "main_context": {},
+          "task_summary_refs": [],
+          "bundle_summary_refs": [],
+          "answer_metadata": {
+            "answer_channel": "answer_candidate",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "stable_answer",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "none",
+            "answer_fallback_reason": ""
+          }
+        },
+        "refs": {
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+          "template_id": "template.writing.novel_bible_build"
+        },
+        "diagnostics": {
+          "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+          "tool_observation_count": 2,
+          "final_content_chars": 336,
+          "bundle_result_count": 0,
+          "task_summary_count": 0
+        },
+        "authority": "task_system.task_result"
+      },
+      "assistant_session_write_allowed": true,
+      "memory_write_allowed": true,
+      "session_memory_refresh_applied": true,
+      "durable_memory_commit_applied": true,
+      "session_memory_chars": 5076,
+      "durable_saved_count": 0,
+      "artifact_write_allowed": false
+    },
+    "diagnostics": {
+      "loop_owner": "OrchestrationSystem.TaskRunLoop",
+      "loop_phase": "event_checkpoint_spine",
+      "query_runtime_role": "adapter_only",
+      "loop_limits": {
+        "max_turns": 8,
+        "max_model_calls": 8,
+        "max_runtime_seconds": 300.0,
+        "max_events": 200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_channel": "single_agent_runtime",
+      "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+      "runtime_chain_built": true,
+      "effective_loop_limits": {
+        "max_turns": 24,
+        "max_model_calls": 24,
+        "max_runtime_seconds": null,
+        "max_events": 1200,
+        "authority": "orchestration.runtime_loop_limits"
+      },
+      "runtime_context_manager_applied": true,
+      "stage_projection_cycle_applied": true,
+      "task_body_orchestration_ref": "orchestration:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+      "agent_runtime_spec_ref": "rtspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+      "context_invariant_checked": true,
+      "context_needs_compaction": false,
+      "task_template_id": "template.writing.novel_bible_build",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+      "last_step_transition": "terminal_projection",
+      "final_content_chars": 336,
+      "artifact_validation": {
+        "passed": true,
+        "required": true,
+        "reason": "required artifact file exists",
+        "rule_ids": [
+          "rule.bible_bundle_required"
+        ],
+        "successful_write_count": 1,
+        "existing_write_count": 1,
+        "artifacts": [
+          {
+            "path": "docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_bible.md",
+            "absolute_path": "D:/AI应用/langchain-agent/docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_bible.md",
+            "observation_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+          }
+        ],
+        "final_content_chars": 336,
+        "result_ref_count": 5
+      },
+      "result_ref_count": 9
+    },
+    "authority": "orchestration.runtime_loop_state"
+  },
+  "context_snapshot_ref": "ctxsnap:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:ca2c0f05966a",
+  "prompt_manifest_ref": "manifest-513a923aaa284a02",
+  "execution_refs": [
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:5037bd29",
+    "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:a5e843bc"
+  ],
+  "execution_state_ref": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:a5e843bc",
+  "execution_summary": {
+    "execution_count": 2,
+    "completed_count": 2,
+    "failed_count": 0,
+    "reused_count": 0,
+    "suppressed_count": 0,
+    "execution_refs": [
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:5037bd29",
+      "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:a5e843bc"
+    ],
+    "latest_execution_id": "rtexec:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:a5e843bc"
+  },
+  "agent_run_refs": [
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:main",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:participant:world_bible",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:participant:character_bible",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:participant:plot_bible",
+    "agrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:participant:editor_merge"
+  ],
+  "coordination_run_refs": [
+    "coordrun:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:primary"
+  ],
+  "runtime_objects_summary": {
+    "agent_run_count": 5,
+    "coordination_run_count": 1,
+    "running_agent_run_count": 1,
+    "running_coordination_run_count": 1
+  },
+  "approval_state": {},
+  "commit_state": {
+    "assistant_session_message": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:assistant-session-message",
+      "commit_type": "session_message",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:session_message:assistant-final",
+        "commit_type": "session_message",
+        "payload": {
+          "session_id": "longform-novel-real-acceptance",
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+          "role": "assistant",
+          "content": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_bible.md`\n\n任务阶段：小说圣经构建 — novel_bible 已写入。\n\n验收状态：通过。文件包含完整世界观（雾港三层结构、永雾规则、雾之教会、权力三角、旧渠设定、奇幻硬规则）、8 个主要人物设定（林默/艾琳/莉娜/科尔/魏斯/卡洛/莫兰/林芷，含人物弧线）、4 级主线谜团与揭示节奏表、历史纵深+故事时间轴、13 条已规划伏笔+3 条开放式线索、7 类风格规则（叙事/语言/奇幻悬疑/节奏/人物/世界构建/禁止项）。\n\n下一步：按卷规划任务生成第一卷卷纲 `volumes/volume_01_plan.md`。",
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "assistant_session_message_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "assistant_final_message_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "assistant_session_message_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "session_id": "longform-novel-real-acceptance",
+        "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+        "assistant_session_write_allowed": true,
+        "task_run_status_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "assistant_session_write_applied": true,
+    "task_result_final": {
+      "gate_id": "commit-gate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:task-result-final",
+      "commit_type": "task_result",
+      "commit_candidate": {
+        "candidate_id": "commit-candidate:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:task_result:final",
+        "commit_type": "task_result",
+        "payload": {
+          "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+          "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+          "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+          "template_id": "template.writing.novel_bible_build",
+          "terminal_reason": "completed",
+          "final_content_chars": 336,
+          "task_result": {
+            "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+            "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+            "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+            "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+            "template_id": "template.writing.novel_bible_build",
+            "status": "completed",
+            "terminal_reason": "completed",
+            "requested_outputs": [
+              "bible_bundle"
+            ],
+            "result_refs": [
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:cb8c3c4e",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+              "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:f6c39a11",
+              "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:59:3d8b798d",
+              "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:runtime-blocked"
+            ],
+            "output_refs": [],
+            "step_runs": [
+              {
+                "step_id": "step.novel_bible_build",
+                "title": "生成圣经包",
+                "step_kind": "coordinate",
+                "executor_type": "agent",
+                "status": "completed",
+                "required_operations": [
+                  "op.model_response",
+                  "op.write_file"
+                ],
+                "optional_operations": [],
+                "input_refs": [],
+                "output_contract_id": "NovelBibleBundle",
+                "stop_policy": "on_success",
+                "retry_policy": {},
+                "observation_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+                ],
+                "output_refs": [
+                  "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+                ],
+                "entered_at": 1777998247.2089484,
+                "completed_at": 1777998406.8093832,
+                "attempt_count": 1,
+                "failure_reason": "",
+                "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+                "executor_ref": "write_file",
+                "diagnostics": {
+                  "transition_reason": "tool_result_received",
+                  "operation_id": "op.write_file"
+                },
+                "authority": "task_system.task_step_run"
+              }
+            ],
+            "final_outputs": {
+              "final_answer": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_bible.md`\n\n任务阶段：小说圣经构建 — novel_bible 已写入。\n\n验收状态：通过。文件包含完整世界观（雾港三层结构、永雾规则、雾之教会、权力三角、旧渠设定、奇幻硬规则）、8 个主要人物设定（林默/艾琳/莉娜/科尔/魏斯/卡洛/莫兰/林芷，含人物弧线）、4 级主线谜团与揭示节奏表、历史纵深+故事时间轴、13 条已规划伏笔+3 条开放式线索、7 类风格规则（叙事/语言/奇幻悬疑/节奏/人物/世界构建/禁止项）。\n\n下一步：按卷规划任务生成第一卷卷纲 `volumes/volume_01_plan.md`。",
+              "main_context": {},
+              "task_summary_refs": [],
+              "bundle_summary_refs": [],
+              "answer_metadata": {
+                "answer_channel": "answer_candidate",
+                "answer_source": "runtime_directive:model_response",
+                "answer_canonical_state": "stable_answer",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": ""
+              }
+            },
+            "refs": {
+              "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+              "template_id": "template.writing.novel_bible_build"
+            },
+            "diagnostics": {
+              "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+              "tool_observation_count": 2,
+              "final_content_chars": 336,
+              "bundle_result_count": 0,
+              "task_summary_count": 0
+            },
+            "authority": "task_system.task_result"
+          }
+        },
+        "producer": "orchestration.runtime_commit_gate",
+        "allowed": true,
+        "reason": "task_run_final_record_allowed",
+        "refs": {
+          "source": "orchestration.task_run_loop",
+          "commit_scope": "task_run_status_and_final_record_only"
+        }
+      },
+      "status": "allowed",
+      "reason": "task_run_final_record_allowed",
+      "commit_allowed": true,
+      "authority": "runtime_commit_gate",
+      "diagnostics": {
+        "task_run_status_write_allowed": true,
+        "final_answer_record_allowed": true,
+        "assistant_session_write_allowed": false,
+        "memory_write_allowed": false,
+        "artifact_write_allowed": false,
+        "filesystem_write_allowed": false
+      }
+    },
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+      "template_id": "template.writing.novel_bible_build",
+      "status": "completed",
+      "current_step_id": "",
+      "requested_outputs": [
+        "bible_bundle"
+      ],
+      "step_runs": [
+        {
+          "step_id": "step.novel_bible_build",
+          "title": "生成圣经包",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "NovelBibleBundle",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+          ],
+          "entered_at": 1777998247.2089484,
+          "completed_at": 1777998406.8093832,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+        "template_id": "template.writing.novel_bible_build"
+      },
+      "diagnostics": {
+        "current_step_id": "step.novel_bible_build",
+        "terminal_reason": "completed"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "task_result": {
+      "result_id": "taskresult:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+      "task_run_id": "taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+      "task_id": "taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+      "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+      "template_id": "template.writing.novel_bible_build",
+      "status": "completed",
+      "terminal_reason": "completed",
+      "requested_outputs": [
+        "bible_bundle"
+      ],
+      "result_refs": [
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:cb8c3c4e",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+        "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:f6c39a11",
+        "output_boundary:rtevt:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:59:3d8b798d",
+        "commit_gate:commit-gate:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:runtime-blocked"
+      ],
+      "output_refs": [],
+      "step_runs": [
+        {
+          "step_id": "step.novel_bible_build",
+          "title": "生成圣经包",
+          "step_kind": "coordinate",
+          "executor_type": "agent",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response",
+            "op.write_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "NovelBibleBundle",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+          ],
+          "output_refs": [
+            "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c"
+          ],
+          "entered_at": 1777998247.2089484,
+          "completed_at": 1777998406.8093832,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "rtobs:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa:3cc2514c",
+          "executor_ref": "write_file",
+          "diagnostics": {
+            "transition_reason": "tool_result_received",
+            "operation_id": "op.write_file"
+          },
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "final_outputs": {
+        "final_answer": "写入路径：`docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel-real/novel_bible.md`\n\n任务阶段：小说圣经构建 — novel_bible 已写入。\n\n验收状态：通过。文件包含完整世界观（雾港三层结构、永雾规则、雾之教会、权力三角、旧渠设定、奇幻硬规则）、8 个主要人物设定（林默/艾琳/莉娜/科尔/魏斯/卡洛/莫兰/林芷，含人物弧线）、4 级主线谜团与揭示节奏表、历史纵深+故事时间轴、13 条已规划伏笔+3 条开放式线索、7 类风格规则（叙事/语言/奇幻悬疑/节奏/人物/世界构建/禁止项）。\n\n下一步：按卷规划任务生成第一卷卷纲 `volumes/volume_01_plan.md`。",
+        "main_context": {},
+        "task_summary_refs": [],
+        "bundle_summary_refs": [],
+        "answer_metadata": {
+          "answer_channel": "answer_candidate",
+          "answer_source": "runtime_directive:model_response",
+          "answer_canonical_state": "stable_answer",
+          "answer_persist_policy": "persist_canonical",
+          "answer_finalization_policy": "none",
+          "answer_fallback_reason": ""
+        }
+      },
+      "refs": {
+        "task_spec_ref": "taskspec:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build",
+        "template_id": "template.writing.novel_bible_build"
+      },
+      "diagnostics": {
+        "ledger_id": "taskrun-ledger:taskrun:longform-novel-real-acceptance:taskinst:turn:longform-novel-real-acceptance:62:novel_bible_build:1420dffa",
+        "tool_observation_count": 2,
+        "final_content_chars": 336,
+        "bundle_result_count": 0,
+        "task_summary_count": 0
+      },
+      "authority": "task_system.task_result"
+    },
+    "assistant_session_write_allowed": true,
+    "memory_write_allowed": true,
+    "session_memory_refresh_applied": true,
+    "durable_memory_commit_applied": true,
+    "session_memory_chars": 5076,
+    "durable_saved_count": 0,
+    "artifact_write_allowed": false
+  },
+  "created_at": 1777998415.5658255,
+  "checksum": "f9a86dae427c6417c2abd3f017e77c1c7f36a9da36ac99b0d85d4f529f7a4aa3",
+  "authority": "orchestration.runtime_checkpoint"
+}

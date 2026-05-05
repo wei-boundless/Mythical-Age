@@ -119,3 +119,31 @@ def test_orchestration_runtime_bundle_uses_formal_short_story_task_profiles() ->
     assert assembly["communication_protocol_ref"] == "protocol.writing.short_story_pipeline"
     assert assembly["coordination_task_ref"] == "coord.writing.short_story_pipeline"
     assert assembly["topology_template_ref"] == "topology.writing.short_story_pipeline"
+
+
+def test_orchestration_runtime_bundle_uses_longform_chapter_pipeline_instead_of_short_story_defaults() -> None:
+    task_bundle = build_task_execution_assembly_bundle(
+        session_id="session-orch-longform",
+        task_id="taskinst:turn:session-orch-longform:1:chapter_drafting",
+        user_goal="请根据长篇小说设定生成第12章正文并通过审校。",
+        source="test",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "turn_id": "turn:session-orch-longform:1",
+            "selected_task_id": "task.writing.chapter_drafting",
+        },
+    )
+
+    assembly = task_bundle["task_execution_assembly"]
+    execution_policy = task_bundle["task_execution_policy"]
+    coordination = task_bundle["coordination_task_record"]
+
+    assert assembly["task_mode"] == "chapter_drafting"
+    assert assembly["workflow_id"] == "workflow.writing.chapter_drafting"
+    assert assembly["flow_contract_id"] == "flow.writing.chapter_drafting"
+    assert assembly["communication_protocol_ref"] == "protocol.writing.chapter_pipeline"
+    assert assembly["coordination_task_ref"] == "coord.writing.chapter_pipeline"
+    assert assembly["topology_template_ref"] == "topology.writing.chapter_pipeline"
+    assert assembly["metadata"]["template_id"] == "template.writing.chapter_drafting"
+    assert execution_policy["agent_group_id"] == "group.writing.longform_novel_core"
+    assert coordination["agent_group_id"] == "group.writing.longform_novel_core"

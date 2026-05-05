@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from execution.model_runtime import stringify_content
+from execution.model_runtime import ModelRuntimeError, stringify_content
 from orchestration import RuntimeDirective, build_blocked_runtime_commit_gate
 from output_boundary.boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
 
@@ -49,10 +49,33 @@ class ModelResponseRuntimeExecutor:
 
         tools = list(tool_instances or [])
         tool_invoker = getattr(self.model_runtime, "invoke_messages_with_tools", None)
-        if tools and callable(tool_invoker):
-            response = await tool_invoker(model_messages, tools)
-        else:
-            response = await invoker(model_messages)
+        try:
+            if tools and callable(tool_invoker):
+                response = await tool_invoker(model_messages, tools)
+            else:
+                response = await invoker(model_messages)
+        except ModelRuntimeError as exc:
+            yield {
+                "type": "error",
+                "error": exc.user_message,
+                "content": exc.user_message,
+                "code": exc.code,
+                "provider": exc.provider,
+                "model": exc.model,
+                "detail": exc.detail,
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "runtime_directive_executor",
+            }
+            return
+        except Exception as exc:
+            yield {
+                "type": "error",
+                "error": str(exc) or "model_runtime_error",
+                "content": "模型运行时失败，本轮停止执行。",
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "runtime_directive_executor",
+            }
+            return
         raw_content = stringify_content(getattr(response, "content", response))
         tool_calls = _normalize_tool_calls(getattr(response, "tool_calls", None))
         additional_kwargs = dict(getattr(response, "additional_kwargs", {}) or {})

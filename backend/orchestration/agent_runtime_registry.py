@@ -111,6 +111,118 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             approval_policy="read_only_first",
         ),
+        AgentRuntimeProfile(
+            agent_profile_id="longform_editor_agent",
+            agent_id="agent:20",
+            allowed_task_modes=(
+                "longform_novel_project",
+                "novel_bible_build",
+                "volume_planning",
+                "chapter_acceptance",
+                "arc_review",
+                "final_compilation",
+            ),
+            allowed_runtime_lanes=(
+                "novel_project_control",
+                "novel_bible_gate",
+                "volume_acceptance",
+                "chapter_acceptance",
+                "arc_review",
+                "final_compilation",
+            ),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
+            blocked_operations=("op.shell", "op.python_repl"),
+            allowed_memory_scopes=("novel_project_state", "novel_bible_read_write", "novel_chapter_refs"),
+            allowed_context_sections=("conversation", "task", "projection", "novel_bible", "chapter_refs", "review_reports"),
+            output_contracts=("NovelProjectSpec", "NovelBibleBundle", "VolumePlan", "ChapterAcceptanceResult", "ArcReviewResult", "LongformNovelCompilation"),
+            approval_policy="editor_gate",
+            lifecycle_policy="orchestration_managed",
+            metadata={"domain_key": "longform_novel", "agent_team": "longform_novel_core"},
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="longform_worldbuilding_agent",
+            agent_id="agent:21",
+            allowed_task_modes=("novel_bible_build", "world_bible_maintenance", "continuity_audit"),
+            allowed_runtime_lanes=("world_bible_build", "world_bible_update", "continuity_audit"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
+            blocked_operations=("op.shell", "op.python_repl"),
+            allowed_memory_scopes=("novel_bible_read_write", "novel_chapter_refs"),
+            allowed_context_sections=("task", "novel_bible", "chapter_refs", "continuity_ledger"),
+            output_contracts=("WorldBible", "ContinuityAuditReport"),
+            approval_policy="bounded_writing_artifact",
+            lifecycle_policy="orchestration_managed",
+            metadata={"domain_key": "longform_novel", "agent_team": "longform_novel_core"},
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="longform_character_agent",
+            agent_id="agent:22",
+            allowed_task_modes=("novel_bible_build", "character_bible_maintenance", "volume_planning", "arc_review"),
+            allowed_runtime_lanes=("character_bible_build", "character_arc_update", "volume_character_arc", "arc_review"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
+            blocked_operations=("op.shell", "op.python_repl"),
+            allowed_memory_scopes=("novel_bible_read_write", "novel_chapter_refs"),
+            allowed_context_sections=("task", "novel_bible", "chapter_refs", "character_bible", "arc_reports"),
+            output_contracts=("CharacterBible", "CharacterArcPlan", "ArcReviewResult"),
+            approval_policy="bounded_writing_artifact",
+            lifecycle_policy="orchestration_managed",
+            metadata={"domain_key": "longform_novel", "agent_team": "longform_novel_core"},
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="longform_plot_agent",
+            agent_id="agent:23",
+            allowed_task_modes=("volume_planning", "chapter_planning", "foreshadowing_ledger", "arc_review"),
+            allowed_runtime_lanes=("volume_plot_plan", "chapter_plot_plan", "foreshadowing_update", "arc_review"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
+            blocked_operations=("op.shell", "op.python_repl"),
+            allowed_memory_scopes=("novel_bible_read_write", "novel_chapter_refs"),
+            allowed_context_sections=("task", "novel_bible", "chapter_refs", "plot_outline", "foreshadowing_ledger"),
+            output_contracts=("VolumePlan", "ChapterPlan", "ForeshadowingLedgerUpdate", "ArcReviewResult"),
+            approval_policy="bounded_writing_artifact",
+            lifecycle_policy="orchestration_managed",
+            metadata={"domain_key": "longform_novel", "agent_team": "longform_novel_core"},
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="longform_drafting_agent",
+            agent_id="agent:24",
+            allowed_task_modes=("chapter_planning", "chapter_drafting", "chapter_revision"),
+            allowed_runtime_lanes=("chapter_scene_plan", "chapter_drafting", "chapter_revision"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
+            blocked_operations=("op.shell", "op.python_repl"),
+            allowed_memory_scopes=("novel_bible_readonly", "novel_chapter_refs", "chapter_draft_workspace"),
+            allowed_context_sections=("task", "novel_bible", "chapter_refs", "chapter_plan", "review_reports"),
+            output_contracts=("ChapterPlan", "ChapterDraft", "ChapterRevision"),
+            approval_policy="bounded_writing_artifact",
+            lifecycle_policy="orchestration_managed",
+            metadata={"domain_key": "longform_novel", "agent_team": "longform_novel_core"},
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="longform_review_agent",
+            agent_id="agent:25",
+            allowed_task_modes=("chapter_revision", "style_audit", "arc_review", "chapter_acceptance"),
+            allowed_runtime_lanes=("chapter_quality_review", "style_audit", "arc_review", "chapter_acceptance_review"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
+            blocked_operations=("op.shell", "op.python_repl"),
+            allowed_memory_scopes=("novel_bible_readonly", "novel_chapter_refs", "review_workspace"),
+            allowed_context_sections=("task", "novel_bible", "chapter_refs", "chapter_draft", "style_guide", "review_reports"),
+            output_contracts=("ChapterQualityReview", "StyleAuditReport", "ArcReviewResult", "ChapterAcceptanceResult"),
+            approval_policy="review_gate",
+            lifecycle_policy="orchestration_managed",
+            metadata={"domain_key": "longform_novel", "agent_team": "longform_novel_core"},
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="longform_continuity_agent",
+            agent_id="agent:26",
+            allowed_task_modes=("continuity_audit", "chapter_revision", "arc_review"),
+            allowed_runtime_lanes=("continuity_audit", "chapter_continuity_review", "arc_continuity_review"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
+            blocked_operations=("op.shell", "op.python_repl"),
+            allowed_memory_scopes=("novel_bible_readonly", "novel_chapter_refs", "continuity_workspace"),
+            allowed_context_sections=("task", "novel_bible", "chapter_refs", "timeline", "foreshadowing_ledger", "continuity_ledger"),
+            output_contracts=("ContinuityAuditReport", "ChapterContinuityReview", "ArcReviewResult"),
+            approval_policy="review_gate",
+            lifecycle_policy="orchestration_managed",
+            metadata={"domain_key": "longform_novel", "agent_team": "longform_novel_core"},
+        ),
     )
 
 
@@ -139,11 +251,17 @@ class AgentRuntimeRegistry:
         self.path = _profiles_path(self.base_dir)
 
     def list_profiles(self) -> list[AgentRuntimeProfile]:
+        default_payload = [item.to_dict() for item in default_agent_runtime_profiles()]
         payload = _read_json(
             self.path,
-            {"profiles": [item.to_dict() for item in default_agent_runtime_profiles()]},
+            {"profiles": default_payload},
         )
-        profiles = [_profile_from_dict(item) for item in list(payload.get("profiles") or []) if isinstance(item, dict)]
+        merged_payload = _merge_items_by_key(
+            default_payload,
+            [item for item in list(payload.get("profiles") or []) if isinstance(item, dict)],
+            key="agent_id",
+        )
+        profiles = [_profile_from_dict(item) for item in merged_payload]
         normalized = [item.to_dict() for item in profiles]
         if payload.get("profiles") != normalized:
             _write_json(self.path, {"profiles": normalized})
@@ -222,3 +340,21 @@ class AgentRuntimeRegistry:
                 "worker_sub_agent_count": sum(1 for item in agents if item.profile_type == "worker_sub_agent"),
             },
         }
+
+
+def _merge_items_by_key(
+    default_items: list[dict[str, Any]],
+    stored_items: list[dict[str, Any]],
+    *,
+    key: str,
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for item in default_items:
+        item_key = str(item.get(key) or "").strip()
+        if item_key:
+            merged[item_key] = dict(item)
+    for item in stored_items:
+        item_key = str(item.get(key) or "").strip()
+        if item_key:
+            merged[item_key] = dict(item)
+    return list(merged.values())
