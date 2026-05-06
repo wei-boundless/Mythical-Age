@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .registry import read_text
+
 
 def _store_path(base_dir: Path) -> Path:
     return base_dir / "soul" / "projections" / "catalog.json"
@@ -68,44 +70,55 @@ def upsert_projection_card(
     *,
     request: dict[str, Any],
     soul_name: str,
+    soul_profile: dict[str, Any] | None = None,
     selected: bool = False,
 ) -> dict[str, Any]:
     store = load_projection_store(base_dir)
-    projection_id = str(request.get("projection_id") or "").strip() or _projection_id(request)
-    name = str(request.get("projection_name") or "").strip()
-    title = name or f"{soul_name} / {request.get('role_type')}"
+    resolved_request = _apply_projection_defaults(
+        base_dir,
+        request=request,
+        soul_name=soul_name,
+        soul_profile=soul_profile,
+    )
+    projection_id = str(resolved_request.get("projection_id") or "").strip() or _projection_id(resolved_request)
+    name = str(resolved_request.get("projection_name") or "").strip()
+    title = name or f"{soul_name} / {resolved_request.get('role_type')}"
     now = time.time()
-    runtime_preview = _runtime_preview(request)
+    runtime_preview = _runtime_preview(resolved_request)
     card = {
         "projection_id": projection_id,
         "title": title,
-        "soul_id": request.get("soul_id"),
+        "soul_id": resolved_request.get("soul_id"),
         "soul_name": soul_name,
-        "role_type": request.get("role_type"),
-        "task_mode": request.get("task_mode"),
-        "agent_profile_id": request.get("agent_profile_id"),
-        "posture_tags": _list_of_str(request.get("posture_tags")),
-        "expression_density": str(request.get("expression_density") or "normal"),
-        "attention_focus": _list_of_str(request.get("attention_focus")),
-        "risk_notes": _list_of_str(request.get("risk_notes")),
-        "projection_prompt": str(request.get("projection_prompt") or ""),
-        "usage_summary": request.get("usage_summary") or "",
-        "skill_views": request.get("skill_views") or [],
-        "tool_views": request.get("tool_views") or [],
-        "memory_policy_summary": request.get("memory_policy_summary") or "",
-        "output_contract_summary": request.get("output_contract_summary") or "",
+        "projection_nodes": resolved_request.get("projection_nodes") if isinstance(resolved_request.get("projection_nodes"), list) else [],
+        "identity_anchor": str(resolved_request.get("identity_anchor") or ""),
+        "role_type": resolved_request.get("role_type"),
+        "task_mode": resolved_request.get("task_mode"),
+        "agent_profile_id": resolved_request.get("agent_profile_id"),
+        "posture_tags": _list_of_str(resolved_request.get("posture_tags")),
+        "expression_density": str(resolved_request.get("expression_density") or "normal"),
+        "attention_focus": _list_of_str(resolved_request.get("attention_focus")),
+        "risk_notes": _list_of_str(resolved_request.get("risk_notes")),
+        "projection_prompt": str(resolved_request.get("projection_prompt") or ""),
+        "usage_summary": resolved_request.get("usage_summary") or "",
+        "skill_views": resolved_request.get("skill_views") or [],
+        "tool_views": resolved_request.get("tool_views") or [],
+        "memory_policy_summary": resolved_request.get("memory_policy_summary") or "",
+        "output_contract_summary": resolved_request.get("output_contract_summary") or "",
         "runtime_preview": runtime_preview,
         "runtime_only_payload": True,
         "static_projection_card": True,
         "created_at": now,
         "updated_at": now,
+        "is_primary": projection_id == _default_projection_id(str(resolved_request.get("soul_id") or "")),
+        "is_system_default": projection_id == _default_projection_id(str(resolved_request.get("soul_id") or "")),
     }
     existing = store["cards"]
     for index, item in enumerate(existing):
         if item.get("projection_id") == projection_id:
             card["created_at"] = item.get("created_at") or card["created_at"]
-            card["is_primary"] = bool(item.get("is_primary", False))
-            card["is_system_default"] = bool(item.get("is_system_default", False))
+            card["is_primary"] = bool(item.get("is_primary", card["is_primary"]))
+            card["is_system_default"] = bool(item.get("is_system_default", card["is_system_default"]))
             existing[index] = card
             break
     else:
@@ -157,11 +170,13 @@ def reconcile_projection_store(
         default_id = _default_projection_id(soul_id)
         existing = by_id.get(default_id)
         default_card = _default_projection_card(
+            base_dir,
             profile,
             existing=existing,
         )
-        if existing != default_card:
-            by_id[default_id] = default_card
+        next_card = _merge_primary_projection_card(existing, default_card)
+        if existing != next_card:
+            by_id[default_id] = next_card
             changed = True
 
     normalized_cards = list(by_id.values())
@@ -189,6 +204,7 @@ def _projection_id(request: dict[str, Any]) -> str:
     raw = {
         "projection_name": request.get("projection_name") or "",
         "soul_id": request.get("soul_id") or "",
+        "identity_anchor": str(request.get("identity_anchor") or ""),
         "role_type": request.get("role_type") or "",
         "task_mode": request.get("task_mode") or "",
         "agent_profile_id": request.get("agent_profile_id") or "",
@@ -211,6 +227,7 @@ def _default_projection_id(soul_id: str) -> str:
 
 
 def _default_projection_card(
+    base_dir: Path,
     profile: dict[str, Any],
     *,
     existing: dict[str, Any] | None = None,
@@ -221,6 +238,7 @@ def _default_projection_card(
     preferred_task_modes = profile.get("preferred_task_modes") if isinstance(profile.get("preferred_task_modes"), (list, tuple)) else []
     role_type = str(preferred_role_types[0] if preferred_role_types else "dialogue")
     task_mode = str(preferred_task_modes[0] if preferred_task_modes else "general_qa")
+    defaults = _projection_defaults_from_soul(base_dir, profile)
     now = time.time()
     created_at = existing.get("created_at") if isinstance(existing, dict) and existing.get("created_at") else now
     updated_at = existing.get("updated_at") if isinstance(existing, dict) and existing.get("updated_at") else created_at
@@ -229,6 +247,8 @@ def _default_projection_card(
         "title": f"{soul_name} / 原始投影",
         "soul_id": soul_id,
         "soul_name": soul_name,
+        "projection_nodes": defaults["projection_nodes"],
+        "identity_anchor": defaults["identity_anchor"],
         "role_type": role_type,
         "task_mode": task_mode,
         "agent_profile_id": "general_agent",
@@ -236,8 +256,8 @@ def _default_projection_card(
         "expression_density": "normal",
         "attention_focus": [],
         "risk_notes": [],
-        "projection_prompt": "",
-        "usage_summary": "",
+        "projection_prompt": defaults["projection_prompt"],
+        "usage_summary": "默认以当前灵魂设定为初始化模板，可在此基础上派生独立投影。",
         "skill_views": [],
         "tool_views": [],
         "memory_policy_summary": "原始投影沿用系统默认记忆策略。",
@@ -258,12 +278,50 @@ def _default_projection_card(
     }
 
 
+def _merge_primary_projection_card(existing: dict[str, Any] | None, default_card: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(existing, dict):
+        return default_card
+    if not bool(existing.get("is_primary")):
+        return default_card
+    merged = dict(default_card)
+    for field in (
+        "title",
+        "projection_nodes",
+        "identity_anchor",
+        "projection_prompt",
+        "role_type",
+        "task_mode",
+        "agent_profile_id",
+        "posture_tags",
+        "expression_density",
+        "attention_focus",
+        "risk_notes",
+        "usage_summary",
+        "skill_views",
+        "tool_views",
+        "memory_policy_summary",
+        "output_contract_summary",
+        "runtime_preview",
+        "runtime_only_payload",
+        "static_projection_card",
+    ):
+        if field in existing:
+            merged[field] = existing[field]
+    merged["created_at"] = existing.get("created_at") or default_card.get("created_at")
+    merged["updated_at"] = existing.get("updated_at") or default_card.get("updated_at")
+    merged["is_primary"] = True
+    merged["is_system_default"] = True
+    return merged
+
+
 def _normalize_card(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "projection_id": str(item.get("projection_id") or ""),
         "title": str(item.get("title") or item.get("projection_id") or "未命名投影"),
         "soul_id": str(item.get("soul_id") or ""),
         "soul_name": str(item.get("soul_name") or item.get("soul_id") or ""),
+        "projection_nodes": item.get("projection_nodes") if isinstance(item.get("projection_nodes"), list) else [],
+        "identity_anchor": str(item.get("identity_anchor") or ""),
         "role_type": str(item.get("role_type") or "dialogue"),
         "task_mode": str(item.get("task_mode") or "general_qa"),
         "agent_profile_id": str(item.get("agent_profile_id") or "general_agent"),
@@ -295,6 +353,7 @@ def _list_of_str(value: Any) -> list[str]:
 
 def _runtime_preview(request: dict[str, Any]) -> dict[str, Any]:
     return {
+        "identity_anchor": str(request.get("identity_anchor") or ""),
         "projection_prompt": str(request.get("projection_prompt") or ""),
         "usage_summary": request.get("usage_summary") or "",
         "skill_views": request.get("skill_views") if isinstance(request.get("skill_views"), list) else [],
@@ -309,3 +368,86 @@ def _normalize_runtime_preview(item: dict[str, Any]) -> dict[str, Any]:
     if isinstance(preview, dict):
         return _runtime_preview(preview)
     return _runtime_preview(item)
+
+
+def _apply_projection_defaults(
+    base_dir: Path,
+    *,
+    request: dict[str, Any],
+    soul_name: str,
+    soul_profile: dict[str, Any] | None,
+) -> dict[str, Any]:
+    resolved = dict(request)
+    profile = soul_profile or {
+        "soul_id": request.get("soul_id"),
+        "display_name": soul_name,
+        "name": soul_name,
+    }
+    defaults = _projection_defaults_from_soul(base_dir, profile)
+    if not isinstance(resolved.get("projection_nodes"), list) or not list(resolved.get("projection_nodes") or []):
+        resolved["projection_nodes"] = defaults["projection_nodes"]
+    if not str(resolved.get("identity_anchor") or "").strip():
+        resolved["identity_anchor"] = defaults["identity_anchor"]
+    if not str(resolved.get("projection_prompt") or "").strip():
+        resolved["projection_prompt"] = defaults["projection_prompt"]
+    return resolved
+
+
+def _projection_defaults_from_soul(base_dir: Path, profile: dict[str, Any]) -> dict[str, Any]:
+    seed_path = str(profile.get("seed_path") or "").strip()
+    if not seed_path:
+        return {"identity_anchor": "", "projection_prompt": "", "projection_nodes": []}
+    content = read_text(base_dir / seed_path)
+    sections = _markdown_sections(content)
+    identity_anchor = _section_text(sections, "身份锚点", "Identity Anchor")
+    prompt_parts: list[str] = []
+    projection_nodes: list[dict[str, str]] = []
+    for index, (title, raw_section) in enumerate(sections.items()):
+        section = _section_text({title: raw_section}, title)
+        if not section:
+            continue
+        node_type = "identity_anchor" if title in {"身份锚点", "Identity Anchor"} else "template_section"
+        projection_nodes.append(
+            {
+                "id": f"projection-node-{index}",
+                "type": node_type,
+                "title": title,
+                "content": section,
+            }
+        )
+        if node_type != "identity_anchor":
+            prompt_parts.append(f"## {title}\n\n{section}")
+    return {
+        "identity_anchor": identity_anchor,
+        "projection_prompt": "\n\n".join(prompt_parts).strip(),
+        "projection_nodes": projection_nodes,
+    }
+
+
+def _markdown_sections(content: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current_title = ""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            current_title = stripped[3:].strip()
+            sections.setdefault(current_title, [])
+            continue
+        if current_title:
+            sections[current_title].append(line)
+    return {title: "\n".join(lines).strip() for title, lines in sections.items()}
+
+
+def _section_text(sections: dict[str, str], *titles: str) -> str:
+    for title in titles:
+        raw = str(sections.get(title) or "").strip()
+        if not raw:
+            continue
+        normalized_lines: list[str] = []
+        for line in raw.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            normalized_lines.append(stripped.lstrip("-").strip())
+        return "\n".join(normalized_lines).strip()
+    return ""

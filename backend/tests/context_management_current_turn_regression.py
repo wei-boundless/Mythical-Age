@@ -31,9 +31,9 @@ def test_context_resolver_builds_bundle_items_for_compound_request() -> None:
     assert context.bundle_item_count == 3
     assert context.bundle_id == "bundle:task-1"
     assert [item.required_tool for item in context.bundle_items] == [
-        "pdf_analysis",
-        "structured_data_analysis",
-        "get_weather",
+        "",
+        "",
+        "web_search",
     ]
     assert context.bundle_items[0].template_id == "template.pdf.document_analysis"
     assert context.bundle_items[0].item_id == "bundle:task-1:item:1"
@@ -124,7 +124,7 @@ def test_context_resolver_binds_ordinal_followup_to_previous_bundle_item() -> No
                         "task_id": "bundle:2:inventory",
                         "task_kind": "structured_data",
                         "capability_kind": "structured_data",
-                        "required_tool": "structured_data_analysis",
+                        "required_tool": "",
                         "query": "inventory.xlsx 最缺货的前三个仓库",
                         "summary": "深圳仓、广州仓、成都仓缺货最突出。",
                     },

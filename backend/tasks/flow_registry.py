@@ -13,6 +13,7 @@ from .flow_models import (
     CoordinationTaskDefinition,
     GeneralTaskProfile,
     SpecificTaskRecord,
+    TaskDomainRecord,
     TaskAgentAdoptionPlan,
     TaskAgentBinding,
     TaskAssignment,
@@ -23,8 +24,60 @@ from .flow_models import (
     TaskProjectionBinding,
     TopologyTemplate,
 )
+from .contract_models import TaskContractDescriptor
 from .template_registry import TaskTemplateRegistry
 from .workflow_registry import TaskWorkflowRegistry
+
+
+CONTRACT_TITLE_MAP: dict[str, str] = {
+    "UserMessage": "用户消息",
+    "WorkspaceTaskInput": "工作区任务输入",
+    "WorkspacePatchTaskInput": "工作区补丁任务输入",
+    "AssistantFinalAnswer": "最终回答",
+    "LightWebGameTaskInput": "网页小游戏任务输入",
+    "LightWebGameResult": "网页游戏产物",
+    "ArcadeGameBundleTaskInput": "复合网页游戏任务输入",
+    "ShortStoryTaskInput": "短篇小说任务输入",
+    "ShortStoryResult": "短篇小说成稿",
+    "LongformNovelProjectInput": "长篇小说项目输入",
+    "NovelProjectSpec": "长篇小说项目规格",
+    "NovelBibleBuildInput": "长篇小说设定总纲输入",
+    "NovelBibleBundle": "长篇小说设定总纲",
+    "VolumePlanningInput": "卷规划输入",
+    "VolumePlan": "卷规划方案",
+    "ChapterPlanningInput": "章节规划输入",
+    "ChapterPlan": "章节规划方案",
+    "ChapterDraftInput": "章节正文输入",
+    "ChapterDraft": "章节正文稿",
+    "ChapterRevisionInput": "章节修订输入",
+    "ChapterRevision": "章节修订稿",
+    "ContinuityAuditInput": "连续性审计输入",
+    "ContinuityAuditReport": "连续性审计报告",
+    "LongformCompilationInput": "全书编纂输入",
+    "LongformNovelCompilation": "长篇小说编纂稿",
+    "HealthIssue": "健康问题",
+    "HealthTriageResult": "健康分诊结果",
+    "HealthTrace": "健康链路",
+    "HealthTraceAnalysis": "健康链路分析",
+    "HealthCaseDraftProposal": "复现用例草案",
+    "HealthIssueWithBeforeAfterTrace": "带前后链路的健康问题",
+    "HealthFixVerificationProposal": "修复验证方案",
+}
+
+
+CONTRACT_KIND_LABELS: dict[str, str] = {
+    "input": "输入契约",
+    "output": "输出契约",
+    "flow": "流程契约",
+    "payload": "通信载荷契约",
+}
+
+
+def normalize_task_agent_adoption_mode(value: str) -> str:
+    normalized = str(value or "").strip()
+    if normalized == "spawn_worker_allowed":
+        return "adopt_with_projection"
+    return normalized or "adopt_existing"
 
 
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
@@ -107,7 +160,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
             flow_id="flow.writing.novel_bible_build",
             task_mode="novel_bible_build",
             task_family="writing",
-            title="长篇小说圣经构建",
+            title="长篇小说设定总纲构建",
             input_contract_id="NovelBibleBuildInput",
             output_contract_id="NovelBibleBundle",
             default_agent_id="agent:20",
@@ -338,6 +391,10 @@ def _specific_task_records_path(base_dir: Path) -> Path:
     return _storage_root(base_dir) / "specific_task_records.json"
 
 
+def _task_domains_path(base_dir: Path) -> Path:
+    return _storage_root(base_dir) / "task_domains.json"
+
+
 def _coordination_tasks_path(base_dir: Path) -> Path:
     return _storage_root(base_dir) / "coordination_tasks.json"
 
@@ -464,6 +521,99 @@ def _next_prefixed_id(existing_ids: list[str], *, prefix: str, width: int = 6) -
     return f"{prefix}{max_value + 1:0{width}d}"
 
 
+def _family_from_ref(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    prefixes = (
+        ("development", ("task.dev.", "flow.dev.", "coord.dev.", "topology.dev.", "protocol.dev.", "workflow.dev.")),
+        ("writing", ("task.writing.", "flow.writing.", "coord.writing.", "topology.writing.", "protocol.writing.", "workflow.writing.")),
+        ("health", ("task.health.", "flow.health.", "coord.health.", "topology.health.", "protocol.health.", "workflow.health.")),
+        ("general", ("task.general.", "flow.general.", "coord.general.", "topology.general.", "protocol.general.", "workflow.general.")),
+    )
+    for family, family_prefixes in prefixes:
+        if any(raw.startswith(prefix) for prefix in family_prefixes):
+            return family
+    return ""
+
+
+def _default_coordination_graph(
+    *,
+    coordinator_agent_id: str,
+    participant_agent_ids: tuple[str, ...],
+    task_family: str = "",
+    subtask_refs: tuple[str, ...] = (),
+) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+    coordinator = str(coordinator_agent_id or "agent:0").strip() or "agent:0"
+    participants = tuple(str(item).strip() for item in participant_agent_ids if str(item).strip())
+    subtasks = tuple(str(item).strip() for item in subtask_refs if str(item).strip())
+    nodes: list[dict[str, Any]] = [
+        {
+            "node_id": "coordinator",
+            "node_type": "coordinator",
+            "agent_id": coordinator,
+            "role": "coordinator",
+            "label": "协调者",
+        }
+    ]
+    edges: list[dict[str, Any]] = []
+    for index, agent_id in enumerate(participants or tuple("" for _ in subtasks), start=1):
+        task_id = subtasks[index - 1] if index - 1 < len(subtasks) else ""
+        node_id = f"subtask_{index}" if task_id else f"agent_{index}"
+        nodes.append(
+            {
+                "node_id": node_id,
+                "node_type": "subtask" if task_id else "agent_role",
+                "task_id": task_id,
+                "task_family": task_family,
+                "agent_id": agent_id,
+                "role": "participant",
+            }
+        )
+        edges.append({"edge_id": f"edge_{index}", "from": "coordinator", "to": node_id, "mode": "structured_handoff"})
+        edges.append({"edge_id": f"edge_{index}_back", "from": node_id, "to": "coordinator", "mode": "review_feedback"})
+    return tuple(nodes), tuple(edges)
+
+
+def _subtask_refs_from_graph_nodes(nodes: tuple[dict[str, Any], ...]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            str(node.get("task_id") or node.get("subtask_ref") or "").strip()
+            for node in nodes
+            if str(node.get("task_id") or node.get("subtask_ref") or "").strip().startswith("task.")
+        )
+    )
+
+
+def default_task_domains() -> tuple[TaskDomainRecord, ...]:
+    return (
+        TaskDomainRecord(
+            domain_id="domain.development",
+            task_family="development",
+            title="开发任务域",
+            description="承接代码、网页、工具和工程交付类特定任务。",
+            sort_order=10,
+            metadata={"seed": "default"},
+        ),
+        TaskDomainRecord(
+            domain_id="domain.writing",
+            task_family="writing",
+            title="写作任务域",
+            description="承接短篇、长篇、章节、审校和编纂类写作任务。",
+            sort_order=20,
+            metadata={"seed": "default"},
+        ),
+        TaskDomainRecord(
+            domain_id="domain.health",
+            task_family="health",
+            title="健康管理任务域",
+            description="承接系统健康、链路分析、复现和修复验证类任务。",
+            sort_order=30,
+            metadata={"seed": "default"},
+        ),
+    )
+
+
 def default_general_task_profiles() -> tuple[GeneralTaskProfile, ...]:
     return (
         GeneralTaskProfile(
@@ -493,6 +643,8 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             title="健康修复协作草案",
             coordination_mode="review_merge",
             coordinator_agent_id="agent:0",
+            task_family="health",
+            domain_id="domain.health",
             agent_group_id="",
             participant_agent_ids=("agent:3",),
             topology_template_id="topology.health.repair_review",
@@ -505,6 +657,8 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             title="短篇小说协作流水线",
             coordination_mode="staged_review_loop",
             coordinator_agent_id="agent:0",
+            task_family="writing",
+            domain_id="domain.writing",
             agent_group_id="",
             participant_agent_ids=("agent:4", "agent:5"),
             topology_template_id="topology.writing.short_story_pipeline",
@@ -514,6 +668,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             conflict_resolution_policy="coordinator_review",
             output_merge_policy="acceptance_then_final_merge",
             stop_conditions=("acceptance_passed", "revision_budget_exhausted"),
+            subtask_refs=("task.writing.short_story",),
             enabled=True,
             metadata={
                 "max_revision_cycles": 1,
@@ -578,6 +733,8 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             title="长篇小说项目立项协作",
             coordination_mode="project_bootstrap",
             coordinator_agent_id="agent:20",
+            task_family="writing",
+            domain_id="domain.writing",
             agent_group_id="group.writing.longform_novel_core",
             participant_agent_ids=("agent:21", "agent:22", "agent:23"),
             topology_template_id="topology.writing.longform_project_bootstrap",
@@ -587,14 +744,17 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             conflict_resolution_policy="editor_gate_review",
             output_merge_policy="editor_gate_merge",
             stop_conditions=("project_scope_locked", "bible_backlog_defined"),
+            subtask_refs=("task.writing.longform_novel_project",),
             enabled=True,
             metadata={"task_id": "task.writing.longform_novel_project"},
         ),
         CoordinationTaskDefinition(
             coordination_task_id="coord.writing.novel_bible_build",
-            title="长篇小说圣经构建协作",
+            title="长篇小说设定总纲协作",
             coordination_mode="parallel_bible_build",
             coordinator_agent_id="agent:20",
+            task_family="writing",
+            domain_id="domain.writing",
             agent_group_id="group.writing.longform_novel_core",
             participant_agent_ids=("agent:21", "agent:22", "agent:23"),
             topology_template_id="topology.writing.novel_bible_build",
@@ -604,6 +764,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             conflict_resolution_policy="editor_gate_review",
             output_merge_policy="editor_gate_merge",
             stop_conditions=("story_bible_complete", "consistency_passed"),
+            subtask_refs=("task.writing.novel_bible_build",),
             enabled=True,
             metadata={"task_id": "task.writing.novel_bible_build"},
         ),
@@ -612,6 +773,8 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             title="长篇小说卷规划协作",
             coordination_mode="staged_volume_planning",
             coordinator_agent_id="agent:20",
+            task_family="writing",
+            domain_id="domain.writing",
             agent_group_id="group.writing.longform_novel_core",
             participant_agent_ids=("agent:22", "agent:23", "agent:25"),
             topology_template_id="topology.writing.volume_planning",
@@ -621,14 +784,17 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             conflict_resolution_policy="editor_gate_review",
             output_merge_policy="editor_gate_merge",
             stop_conditions=("volume_plan_accepted",),
+            subtask_refs=("task.writing.volume_planning",),
             enabled=True,
             metadata={"task_id": "task.writing.volume_planning"},
         ),
         CoordinationTaskDefinition(
             coordination_task_id="coord.writing.chapter_pipeline",
-            title="长篇小说章节流水线",
-            coordination_mode="chapter_review_loop",
+            title="长篇小说章节协作流水线",
+            coordination_mode="chapter_collaboration_loop",
             coordinator_agent_id="agent:20",
+            task_family="writing",
+            domain_id="domain.writing",
             agent_group_id="group.writing.longform_novel_core",
             participant_agent_ids=("agent:23", "agent:24", "agent:25", "agent:26"),
             topology_template_id="topology.writing.chapter_pipeline",
@@ -637,15 +803,30 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             handoff_policy="chapter_contract_handoff",
             conflict_resolution_policy="editor_gate_review",
             output_merge_policy="editor_gate_merge",
-            stop_conditions=("chapter_accepted", "revision_budget_exhausted"),
+            stop_conditions=("chapter_work_accepted", "review_completed", "revision_loop_closed", "revision_budget_exhausted"),
+            subtask_refs=(
+                "task.writing.chapter_planning",
+                "task.writing.chapter_drafting",
+                "task.writing.chapter_revision",
+                "task.writing.continuity_audit",
+            ),
             enabled=True,
-            metadata={"task_id": "task.writing.chapter_drafting", "max_revision_cycles": 3, "required_revision_cycles": 1},
+            metadata={
+                "task_id": "task.writing.chapter_drafting",
+                "structure_role": "stable_coordination_skeleton",
+                "request_policy": "runtime_request_is_carried_as_natural_language_brief",
+                "max_revision_cycles": 2,
+                "required_revision_cycles": 0,
+                "review_policy": "light_gate_review",
+            },
         ),
         CoordinationTaskDefinition(
             coordination_task_id="coord.writing.continuity_audit",
             title="长篇小说连续性审计协作",
             coordination_mode="continuity_audit",
             coordinator_agent_id="agent:20",
+            task_family="writing",
+            domain_id="domain.writing",
             agent_group_id="group.writing.longform_novel_core",
             participant_agent_ids=("agent:21", "agent:26", "agent:25"),
             topology_template_id="topology.writing.continuity_audit",
@@ -655,6 +836,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             conflict_resolution_policy="editor_gate_review",
             output_merge_policy="editor_gate_merge",
             stop_conditions=("continuity_report_accepted",),
+            subtask_refs=("task.writing.continuity_audit",),
             enabled=True,
             metadata={"task_id": "task.writing.continuity_audit"},
         ),
@@ -663,6 +845,8 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             title="长篇小说全书编纂协作",
             coordination_mode="final_compilation",
             coordinator_agent_id="agent:20",
+            task_family="writing",
+            domain_id="domain.writing",
             agent_group_id="group.writing.longform_novel_core",
             participant_agent_ids=("agent:24", "agent:25", "agent:26"),
             topology_template_id="topology.writing.final_compilation",
@@ -672,6 +856,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             conflict_resolution_policy="editor_gate_review",
             output_merge_policy="editor_final_book_merge",
             stop_conditions=("book_compilation_accepted",),
+            subtask_refs=("task.writing.final_compilation",),
             enabled=True,
             metadata={"task_id": "task.writing.final_compilation"},
         ),
@@ -737,7 +922,7 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
         ),
         TaskCommunicationProtocol(
             protocol_id="protocol.writing.novel_bible_build",
-            title="长篇小说圣经构建协议",
+            title="长篇小说设定总纲协议",
             message_types=("world_bible_section", "character_bible_section", "plot_bible_section", "bible_conflict_report", "editor_bible_merge"),
             payload_contracts=("WorldBible", "CharacterBible", "PlotBible", "BibleConflictReport", "NovelBibleBundle"),
             signal_rules=("parallel_section_submit", "conflict_report_required", "editor_merge_gate"),
@@ -763,7 +948,7 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
         ),
         TaskCommunicationProtocol(
             protocol_id="protocol.writing.chapter_pipeline",
-            title="长篇小说章节流水线协议",
+            title="长篇小说章节协作协议",
             message_types=(
                 "chapter_goal",
                 "chapter_plan",
@@ -784,13 +969,17 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
                 "ChapterRevision",
                 "ChapterAcceptanceResult",
             ),
-            signal_rules=("plan_before_draft", "dual_review_required", "revision_loop_until_acceptance", "editor_acceptance_required"),
+            signal_rules=("plan_before_draft", "review_before_acceptance", "revision_loop_optional", "editor_acceptance_required"),
             handoff_rules=("chapter_refs_only", "draft_artifact_ref_required", "review_issue_refs_required"),
             ack_policy="explicit_ack",
             timeout_policy="fail_closed",
             error_signal_policy="raise_to_editor",
             enabled=True,
-            metadata={"task_id": "task.writing.chapter_drafting", "agent_group_id": "group.writing.longform_novel_core"},
+            metadata={
+                "task_id": "task.writing.chapter_drafting",
+                "agent_group_id": "group.writing.longform_novel_core",
+                "protocol_role": "message_contract_only",
+            },
         ),
         TaskCommunicationProtocol(
             protocol_id="protocol.writing.continuity_audit",
@@ -877,7 +1066,7 @@ def default_topology_templates() -> tuple[TopologyTemplate, ...]:
         ),
         TopologyTemplate(
             template_id="topology.writing.novel_bible_build",
-            title="长篇小说圣经构建拓扑",
+            title="长篇小说设定总纲拓扑",
             nodes=(
                 {"node_id": "world_bible", "agent_id": "agent:21", "lane": "world_bible_build", "role": "participant"},
                 {"node_id": "character_bible", "agent_id": "agent:22", "lane": "character_bible_build", "role": "participant"},
@@ -909,24 +1098,31 @@ def default_topology_templates() -> tuple[TopologyTemplate, ...]:
         ),
         TopologyTemplate(
             template_id="topology.writing.chapter_pipeline",
-            title="长篇小说章节流水线拓扑",
+            title="长篇小说章节协作拓扑",
             nodes=(
-                {"node_id": "chapter_plan", "agent_id": "agent:23", "lane": "chapter_plot_plan", "role": "participant"},
-                {"node_id": "chapter_draft", "agent_id": "agent:24", "lane": "chapter_drafting", "role": "participant"},
-                {"node_id": "style_review", "agent_id": "agent:25", "lane": "chapter_quality_review", "role": "participant"},
-                {"node_id": "continuity_review", "agent_id": "agent:26", "lane": "chapter_continuity_review", "role": "participant"},
-                {"node_id": "chapter_revision", "agent_id": "agent:24", "lane": "chapter_revision", "role": "participant"},
-                {"node_id": "editor_acceptance", "agent_id": "agent:20", "lane": "chapter_acceptance", "role": "coordinator"},
+                {"node_id": "request_brief", "agent_id": "agent:20", "lane": "chapter_request_brief", "role": "coordinator", "label": "请求承接"},
+                {"node_id": "chapter_plan", "agent_id": "agent:23", "lane": "chapter_plot_plan", "role": "participant", "label": "章节规划"},
+                {"node_id": "chapter_draft", "agent_id": "agent:24", "lane": "chapter_drafting", "role": "participant", "label": "章节正文"},
+                {"node_id": "quality_review", "agent_id": "agent:25", "lane": "chapter_quality_review", "role": "participant", "label": "质量审查"},
+                {"node_id": "continuity_review", "agent_id": "agent:26", "lane": "chapter_continuity_review", "role": "participant", "label": "连续性审查"},
+                {"node_id": "chapter_revision", "agent_id": "agent:24", "lane": "chapter_revision", "role": "participant", "label": "正文修订"},
+                {"node_id": "editor_acceptance", "agent_id": "agent:20", "lane": "chapter_acceptance", "role": "coordinator", "label": "编辑验收"},
             ),
             edges=(
+                {"from": "request_brief", "to": "chapter_plan", "policy": "chapter_contract_handoff"},
                 {"from": "chapter_plan", "to": "chapter_draft", "policy": "chapter_contract_handoff"},
-                {"from": "chapter_draft", "to": "style_review", "policy": "chapter_contract_handoff"},
+                {"from": "chapter_draft", "to": "quality_review", "policy": "chapter_contract_handoff"},
                 {"from": "chapter_draft", "to": "continuity_review", "policy": "chapter_contract_handoff"},
-                {"from": "style_review", "to": "chapter_revision", "policy": "chapter_contract_handoff"},
+                {"from": "quality_review", "to": "chapter_revision", "policy": "chapter_contract_handoff"},
                 {"from": "continuity_review", "to": "chapter_revision", "policy": "chapter_contract_handoff"},
                 {"from": "chapter_revision", "to": "editor_acceptance", "policy": "chapter_contract_handoff"},
             ),
             enabled=True,
+            metadata={
+                "task_family": "writing",
+                "domain_id": "domain.writing",
+                "topology_role": "stable_agent_collaboration_graph",
+            },
         ),
         TopologyTemplate(
             template_id="topology.writing.continuity_audit",
@@ -999,7 +1195,21 @@ def _default_flow_contract_binding(task: TaskAssignment) -> TaskFlowContractBind
 def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
     participant_ids = tuple(str(item).strip() for item in task.participant_agent_ids if str(item).strip())
     task_structure = dict(task.task_structure or {})
+    task_metadata = dict(task.metadata or {})
     runtime_limits = dict(task_structure.get("runtime_limits") or {})
+    coordination_task_id = str(
+        task_structure.get("coordination_task_id") or task_metadata.get("coordination_task_id") or ""
+    ).strip()
+    communication_protocol_id = str(
+        task_structure.get("communication_protocol_id") or task_metadata.get("communication_protocol_id") or ""
+    ).strip()
+    topology_template_id = str(
+        task_structure.get("topology_template_id") or task_metadata.get("topology_template_id") or ""
+    ).strip()
+    agent_group_id = str(task_structure.get("agent_group_id") or task_metadata.get("agent_group_id") or "").strip()
+    execution_chain_type = str(task.to_dict().get("execution_chain_type") or "").strip() or (
+        "coordination_chain" if coordination_task_id else "single_agent_chain"
+    )
     return TaskAgentAdoptionPlan(
         plan_id=f"taskadopt:{task.task_id}",
         task_id=task.task_id,
@@ -1013,13 +1223,12 @@ def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
         metadata={
             "derived_from": "task_assignment",
             "participant_agent_ids": list(participant_ids),
-            "agent_group_id": str(task_structure.get("agent_group_id") or dict(task.metadata or {}).get("agent_group_id") or ""),
-            "coordination_task_id": str(task_structure.get("coordination_task_id") or dict(task.metadata or {}).get("coordination_task_id") or ""),
-            "communication_protocol_id": str(
-                task_structure.get("communication_protocol_id") or dict(task.metadata or {}).get("communication_protocol_id") or ""
-            ),
-            "topology_template_id": str(task_structure.get("topology_template_id") or dict(task.metadata or {}).get("topology_template_id") or ""),
             "runtime_limits": runtime_limits,
+            "execution_chain_type": execution_chain_type,
+            "coordination_task_id": coordination_task_id,
+            "communication_protocol_id": communication_protocol_id,
+            "topology_template_id": topology_template_id,
+            "agent_group_id": agent_group_id,
         },
     )
 
@@ -1383,15 +1592,240 @@ class TaskFlowRegistry:
         ids.extend(item.task_id for item in self.list_specific_task_records())
         return _next_prefixed_id(ids, prefix="task.")
 
+    def list_task_domains(self) -> list[TaskDomainRecord]:
+        default_payload = [item.to_dict() for item in default_task_domains()]
+        payload = _read_json(
+            _task_domains_path(self.base_dir),
+            {"task_domains": default_payload},
+        )
+        deleted_domain_ids = {
+            str(item).strip()
+            for item in list(payload.get("deleted_domain_ids") or [])
+            if str(item).strip()
+        }
+        merged_payload = _merge_default_overlay_by_key(
+            [item for item in default_payload if str(item.get("domain_id") or "").strip() not in deleted_domain_ids],
+            [item for item in list(payload.get("task_domains") or []) if isinstance(item, dict)],
+            key="domain_id",
+        )
+        domains: list[TaskDomainRecord] = []
+        for item in merged_payload:
+            task_family = str(item.get("task_family") or "").strip()
+            domain_id = str(item.get("domain_id") or "").strip() or f"domain.{task_family or 'custom'}"
+            domains.append(
+                TaskDomainRecord(
+                    domain_id=domain_id,
+                    task_family=task_family,
+                    title=str(item.get("title") or domain_id).strip(),
+                    description=str(item.get("description") or "").strip(),
+                    enabled=bool(item.get("enabled", True)),
+                    sort_order=int(item.get("sort_order", 0) or 0),
+                    metadata=dict(item.get("metadata") or {}),
+                )
+            )
+        known_families = {item.task_family for item in domains if item.task_family}
+        inferred_families = sorted({item.task_family for item in self.list_specific_task_records() if item.task_family})
+        next_sort = max((item.sort_order for item in domains), default=0)
+        for family in inferred_families:
+            if family in known_families:
+                continue
+            next_sort += 10
+            domains.append(
+                TaskDomainRecord(
+                    domain_id=f"domain.{family}",
+                    task_family=family,
+                    title=f"{family}任务域",
+                    description="",
+                    enabled=True,
+                    sort_order=next_sort,
+                    metadata={"derived": True},
+                )
+            )
+        domains = sorted(domains, key=lambda item: (item.sort_order, item.title, item.domain_id))
+        normalized = [item.to_dict() for item in domains]
+        if payload.get("task_domains") != normalized:
+            _write_json(
+                _task_domains_path(self.base_dir),
+                {
+                    "task_domains": normalized,
+                    "deleted_domain_ids": sorted(deleted_domain_ids),
+                },
+            )
+        return domains
+
+    def get_task_domain(self, domain_id: str) -> TaskDomainRecord | None:
+        target = str(domain_id or "").strip()
+        if not target:
+            return None
+        return next((item for item in self.list_task_domains() if item.domain_id == target), None)
+
+    def upsert_task_domain(
+        self,
+        *,
+        domain_id: str,
+        task_family: str,
+        title: str,
+        description: str = "",
+        enabled: bool = True,
+        sort_order: int = 0,
+        metadata: dict[str, Any] | None = None,
+    ) -> TaskDomainRecord:
+        normalized_family = str(task_family or "").strip()
+        normalized_domain_id = str(domain_id or "").strip() or f"domain.{normalized_family}"
+        if not normalized_family:
+            raise ValueError("task_family is required")
+        if not normalized_domain_id.startswith("domain."):
+            raise ValueError("domain_id must start with domain.")
+        record = TaskDomainRecord(
+            domain_id=normalized_domain_id,
+            task_family=normalized_family,
+            title=str(title or normalized_family).strip(),
+            description=str(description or "").strip(),
+            enabled=bool(enabled),
+            sort_order=int(sort_order),
+            metadata=dict(metadata or {}),
+        )
+        domains = [item for item in self.list_task_domains() if item.domain_id != normalized_domain_id]
+        domains.append(record)
+        domains = sorted(domains, key=lambda item: (item.sort_order, item.title, item.domain_id))
+        payload = _read_json(_task_domains_path(self.base_dir), {"task_domains": []})
+        deleted_domain_ids = {
+            str(item).strip()
+            for item in list(payload.get("deleted_domain_ids") or [])
+            if str(item).strip() and str(item).strip() != normalized_domain_id
+        }
+        _write_json(
+            _task_domains_path(self.base_dir),
+            {
+                "task_domains": [item.to_dict() for item in domains],
+                "deleted_domain_ids": sorted(deleted_domain_ids),
+            },
+        )
+        return record
+
+    def delete_task_domain(self, domain_id: str) -> dict[str, Any]:
+        target = str(domain_id or "").strip()
+        domain = self.get_task_domain(target)
+        if domain is None:
+            raise ValueError("task domain not found")
+        task_family = domain.task_family
+        task_ids = {item.task_id for item in self.list_specific_task_records() if item.task_family == task_family}
+        flow_ids = {
+            item.flow_id
+            for item in self.list_flows()
+            if item.task_family == task_family
+            or str(item.metadata.get("task_id") or "") in task_ids
+            or _family_from_ref(item.flow_id) == task_family
+        }
+        coordination_ids = {
+            item.coordination_task_id
+            for item in self.list_coordination_tasks()
+            if str(item.metadata.get("task_family") or "") == task_family
+            or str(item.metadata.get("domain_id") or "") == target
+            or any(ref in task_ids for ref in item.subtask_refs)
+            or _family_from_ref(item.coordination_task_id) == task_family
+        }
+        topology_ids = {
+            item.template_id
+            for item in self.list_topology_templates()
+            if str(item.metadata.get("task_family") or "") == task_family
+            or str(item.metadata.get("domain_id") or "") == target
+            or _family_from_ref(item.template_id) == task_family
+        }
+        protocol_ids = {
+            item.protocol_id
+            for item in self.list_task_communication_protocols()
+            if str(item.metadata.get("task_family") or "") == task_family
+            or str(item.metadata.get("domain_id") or "") == target
+            or str(item.metadata.get("task_id") or "") in task_ids
+            or _family_from_ref(item.protocol_id) == task_family
+        }
+        workflow_ids = self._collect_deletable_workflow_ids(
+            task_ids=task_ids,
+            flow_ids=flow_ids,
+        )
+
+        domains = [item for item in self.list_task_domains() if item.domain_id != target]
+        payload = _read_json(_task_domains_path(self.base_dir), {"task_domains": []})
+        deleted_domain_ids = {
+            str(item).strip()
+            for item in list(payload.get("deleted_domain_ids") or [])
+            if str(item).strip()
+        }
+        deleted_domain_ids.add(target)
+        _write_json(
+            _task_domains_path(self.base_dir),
+            {
+                "task_domains": [item.to_dict() for item in domains],
+                "deleted_domain_ids": sorted(deleted_domain_ids),
+            },
+        )
+        _write_json(
+            _specific_task_records_path(self.base_dir),
+            {"specific_task_records": [item.to_dict() for item in self.list_specific_task_records() if item.task_id not in task_ids]},
+        )
+        _write_json(
+            _assignments_path(self.base_dir),
+            {"assignments": [item.to_dict() for item in self.list_task_assignments() if item.task_id not in task_ids]},
+        )
+        _write_json(
+            _flows_path(self.base_dir),
+            {"flows": [item.to_dict() for item in self.list_flows() if item.flow_id not in flow_ids]},
+        )
+        _write_json(
+            _projection_bindings_path(self.base_dir),
+            {"projection_bindings": [item.to_dict() for item in self.list_projection_bindings() if item.task_id not in task_ids]},
+        )
+        _write_json(
+            _flow_contract_bindings_path(self.base_dir),
+            {"flow_contract_bindings": [item.to_dict() for item in self.list_flow_contract_bindings() if item.task_id not in task_ids]},
+        )
+        _write_json(
+            _adoption_plans_path(self.base_dir),
+            {"adoption_plans": [item.to_legacy_dict() for item in self.list_task_agent_adoption_plans() if item.task_id not in task_ids]},
+        )
+        _write_json(
+            _memory_request_profiles_path(self.base_dir),
+            {"memory_request_profiles": [item.to_dict() for item in self.list_task_memory_request_profiles() if item.task_id not in task_ids]},
+        )
+        _write_json(
+            _coordination_tasks_path(self.base_dir),
+            {"coordination_tasks": [item.to_dict() for item in self.list_coordination_tasks() if item.coordination_task_id not in coordination_ids]},
+        )
+        _write_json(
+            _topology_templates_path(self.base_dir),
+            {"topology_templates": [item.to_dict() for item in self.list_topology_templates() if item.template_id not in topology_ids]},
+        )
+        _write_json(
+            _communication_protocols_path(self.base_dir),
+            {"communication_protocols": [item.to_dict() for item in self.list_task_communication_protocols() if item.protocol_id not in protocol_ids]},
+        )
+        deleted_workflow_ids = self.workflow_registry.delete_workflows(workflow_ids)
+        return {
+            "domain_id": target,
+            "task_family": task_family,
+            "deleted_task_ids": sorted(task_ids),
+            "deleted_flow_ids": sorted(flow_ids),
+            "deleted_workflow_ids": list(deleted_workflow_ids),
+            "deleted_coordination_task_ids": sorted(coordination_ids),
+            "deleted_topology_template_ids": sorted(topology_ids),
+            "deleted_protocol_ids": sorted(protocol_ids),
+        }
+
     def list_specific_task_records(self) -> list[SpecificTaskRecord]:
         default_records = [self._specific_task_record_from_flow(flow).to_dict() for flow in self.list_flows()]
         payload = _read_json(
             _specific_task_records_path(self.base_dir),
             {"specific_task_records": default_records},
         )
+        deleted_task_ids = {
+            str(item).strip()
+            for item in list(payload.get("deleted_task_ids") or [])
+            if str(item).strip()
+        }
         records: list[SpecificTaskRecord] = []
         merged_payload = _merge_default_overlay_by_key(
-            default_records,
+            [item for item in default_records if str(item.get("task_id") or "").strip() not in deleted_task_ids],
             [item for item in list(payload.get("specific_task_records") or []) if isinstance(item, dict)],
             key="task_id",
         )
@@ -1427,7 +1861,10 @@ class TaskFlowRegistry:
             if payload.get("specific_task_records") != normalized:
                 _write_json(
                     _specific_task_records_path(self.base_dir),
-                    {"specific_task_records": normalized},
+                    {
+                        "specific_task_records": normalized,
+                        "deleted_task_ids": sorted(deleted_task_ids),
+                    },
                 )
         return records
 
@@ -1564,11 +2001,128 @@ class TaskFlowRegistry:
         )
         records = [item for item in self.list_specific_task_records() if item.task_id != target]
         records.append(record)
+        payload = _read_json(_specific_task_records_path(self.base_dir), {"specific_task_records": []})
+        deleted_task_ids = {
+            str(item).strip()
+            for item in list(payload.get("deleted_task_ids") or [])
+            if str(item).strip() and str(item).strip() != target
+        }
         _write_json(
             _specific_task_records_path(self.base_dir),
-            {"specific_task_records": [item.to_dict() for item in records]},
+            {
+                "specific_task_records": [item.to_dict() for item in records],
+                "deleted_task_ids": sorted(deleted_task_ids),
+            },
         )
         return record
+
+    def delete_specific_task_record(self, task_id: str) -> dict[str, Any]:
+        target = str(task_id or "").strip()
+        record = self.get_specific_task_record(target)
+        if record is None:
+            raise ValueError("specific task not found")
+        flow_ids = {
+            item.flow_id
+            for item in self.list_flows()
+            if str(item.metadata.get("task_id") or "") == target
+            or item.flow_id == record.default_flow_contract_id
+            or item.flow_id == f"flow.{target.removeprefix('task.')}"
+        }
+        workflow_ids = self._collect_deletable_workflow_ids(
+            task_ids={target},
+            flow_ids=flow_ids,
+        )
+        payload = _read_json(_specific_task_records_path(self.base_dir), {"specific_task_records": []})
+        deleted_task_ids = {
+            str(item).strip()
+            for item in list(payload.get("deleted_task_ids") or [])
+            if str(item).strip()
+        }
+        deleted_task_ids.add(target)
+        _write_json(
+            _specific_task_records_path(self.base_dir),
+            {
+                "specific_task_records": [item.to_dict() for item in self.list_specific_task_records() if item.task_id != target],
+                "deleted_task_ids": sorted(deleted_task_ids),
+            },
+        )
+        _write_json(
+            _assignments_path(self.base_dir),
+            {"assignments": [item.to_dict() for item in self.list_task_assignments() if item.task_id != target]},
+        )
+        _write_json(
+            _flows_path(self.base_dir),
+            {"flows": [item.to_dict() for item in self.list_flows() if item.flow_id not in flow_ids]},
+        )
+        _write_json(
+            _projection_bindings_path(self.base_dir),
+            {"projection_bindings": [item.to_dict() for item in self.list_projection_bindings() if item.task_id != target]},
+        )
+        _write_json(
+            _flow_contract_bindings_path(self.base_dir),
+            {"flow_contract_bindings": [item.to_dict() for item in self.list_flow_contract_bindings() if item.task_id != target]},
+        )
+        _write_json(
+            _adoption_plans_path(self.base_dir),
+            {"adoption_plans": [item.to_legacy_dict() for item in self.list_task_agent_adoption_plans() if item.task_id != target]},
+        )
+        _write_json(
+            _memory_request_profiles_path(self.base_dir),
+            {"memory_request_profiles": [item.to_dict() for item in self.list_task_memory_request_profiles() if item.task_id != target]},
+        )
+        coordination_updates: list[CoordinationTaskDefinition] = []
+        for item in self.list_coordination_tasks():
+            next_nodes = tuple(
+                dict(node)
+                for node in item.graph_nodes
+                if str(dict(node).get("task_id") or dict(node).get("subtask_ref") or "").strip() != target
+            )
+            next_edges = tuple(
+                dict(edge)
+                for edge in item.graph_edges
+                if str(dict(edge).get("from") or "") in {str(node.get("node_id") or "") for node in next_nodes}
+                and str(dict(edge).get("to") or "") in {str(node.get("node_id") or "") for node in next_nodes}
+            )
+            next_subtasks = tuple(ref for ref in item.subtask_refs if ref != target)
+            if len(next_nodes) != len(item.graph_nodes) or len(next_subtasks) != len(item.subtask_refs):
+                coordination_updates.append(
+                    CoordinationTaskDefinition(
+                        coordination_task_id=item.coordination_task_id,
+                        title=item.title,
+                        coordination_mode=item.coordination_mode,
+                        coordinator_agent_id=item.coordinator_agent_id,
+                        task_family=item.task_family,
+                        domain_id=item.domain_id,
+                        agent_group_id=item.agent_group_id,
+                        participant_agent_ids=item.participant_agent_ids,
+                        topology_template_id=item.topology_template_id,
+                        shared_context_policy=item.shared_context_policy,
+                        memory_sharing_policy=item.memory_sharing_policy,
+                        handoff_policy=item.handoff_policy,
+                        conflict_resolution_policy=item.conflict_resolution_policy,
+                        output_merge_policy=item.output_merge_policy,
+                        stop_conditions=item.stop_conditions,
+                        subtask_refs=next_subtasks,
+                        graph_nodes=next_nodes,
+                        graph_edges=next_edges,
+                        communication_modes=item.communication_modes,
+                        enabled=item.enabled,
+                        metadata=item.metadata,
+                    )
+                )
+            else:
+                coordination_updates.append(item)
+        _write_json(
+            _coordination_tasks_path(self.base_dir),
+            {"coordination_tasks": [item.to_dict() for item in coordination_updates]},
+        )
+        deleted_workflow_ids = self.workflow_registry.delete_workflows(workflow_ids)
+        return {
+            "task_id": target,
+            "task_family": record.task_family,
+            "deleted_flow_ids": sorted(flow_ids),
+            "deleted_workflow_ids": list(deleted_workflow_ids),
+        }
 
     def _assignment_from_flow(self, flow: TaskFlowDefinition) -> TaskAssignment:
         workflow = self.workflow_registry.get_workflow(flow.default_workflow_id)
@@ -1594,10 +2148,6 @@ class TaskFlowRegistry:
                 "memory_scope_hint": flow.default_memory_scope,
                 "workflow_steps": [dict(item) for item in workflow.steps] if workflow is not None else [],
                 "task_resource_kind": str(flow.metadata.get("task_resource") or ""),
-                "agent_group_id": str(flow.metadata.get("agent_group_id") or ""),
-                "coordination_task_id": str(flow.metadata.get("coordination_task_id") or ""),
-                "communication_protocol_id": str(flow.metadata.get("communication_protocol_id") or ""),
-                "topology_template_id": str(flow.metadata.get("topology_template_id") or ""),
             },
             enabled=flow.enabled,
             metadata={**flow.metadata, "source_flow_id": flow.flow_id},
@@ -1614,6 +2164,20 @@ class TaskFlowRegistry:
         safety_policy = dict(task_policy.get("safety_policy") or {})
         flow = self.get_flow(flow_id)
         default_agent_id = str(getattr(flow, "default_agent_id", "") or "agent:0").strip() or "agent:0"
+        flow_metadata = dict(getattr(flow, "metadata", {}) or {})
+        task_structure = {
+            **task_structure,
+            **(
+                {
+                    "coordination_task_id": str(flow_metadata.get("coordination_task_id") or "").strip(),
+                    "communication_protocol_id": str(flow_metadata.get("communication_protocol_id") or "").strip(),
+                    "topology_template_id": str(flow_metadata.get("topology_template_id") or "").strip(),
+                    "agent_group_id": str(flow_metadata.get("agent_group_id") or "").strip(),
+                }
+                if flow is not None
+                else {}
+            ),
+        }
         projection_id = ""
         projection_binding = self.get_projection_binding(record.task_id)
         if projection_binding is not None:
@@ -1806,7 +2370,7 @@ class TaskFlowRegistry:
                 TaskAgentAdoptionPlan(
                     plan_id=str(item.get("plan_id") or ""),
                     task_id=str(item.get("task_id") or ""),
-                    adoption_mode=str(item.get("adoption_mode") or "adopt_existing"),
+                    adoption_mode=normalize_task_agent_adoption_mode(str(item.get("adoption_mode") or "adopt_existing")),
                     default_agent_id=str(item.get("default_agent_id") or "agent:0"),
                     allowed_agent_categories=tuple(
                         str(value).strip()
@@ -1848,7 +2412,7 @@ class TaskFlowRegistry:
         plan = TaskAgentAdoptionPlan(
             plan_id=f"taskadopt:{target}",
             task_id=target,
-            adoption_mode=str(adoption_mode or "adopt_existing").strip(),
+            adoption_mode=normalize_task_agent_adoption_mode(adoption_mode),
             default_agent_id=str(default_agent_id or "agent:0").strip() or "agent:0",
             allowed_agent_categories=tuple(
                 str(value).strip()
@@ -1868,6 +2432,65 @@ class TaskFlowRegistry:
             {"adoption_plans": [item.to_dict() for item in plans]},
         )
         return plan
+
+    def _collect_deletable_workflow_ids(
+        self,
+        *,
+        task_ids: set[str],
+        flow_ids: set[str],
+    ) -> set[str]:
+        candidates = {
+            str(item.default_workflow_id or "").strip()
+            for item in self.list_specific_task_records()
+            if item.task_id in task_ids
+        }
+        candidates.update(
+            str(item.workflow_id or "").strip()
+            for item in self.list_task_assignments()
+            if item.task_id in task_ids
+        )
+        candidates.update(
+            str(item.default_workflow_id or "").strip()
+            for item in self.list_flows()
+            if item.flow_id in flow_ids or str(item.metadata.get("task_id") or "") in task_ids
+        )
+        candidates = {item for item in candidates if item}
+        if not candidates:
+            return set()
+
+        remaining_task_ids = {
+            item.task_id
+            for item in self.list_specific_task_records()
+            if item.task_id not in task_ids
+        }
+        referenced_after_delete: set[str] = set()
+        referenced_after_delete.update(
+            str(item.default_workflow_id or "").strip()
+            for item in self.list_general_task_profiles()
+            if str(item.default_workflow_id or "").strip()
+        )
+        referenced_after_delete.update(
+            str(item.default_workflow_id or "").strip()
+            for item in self.list_specific_task_records()
+            if item.task_id in remaining_task_ids and str(item.default_workflow_id or "").strip()
+        )
+        referenced_after_delete.update(
+            str(item.workflow_id or "").strip()
+            for item in self.list_task_assignments()
+            if item.task_id in remaining_task_ids and str(item.workflow_id or "").strip()
+        )
+        referenced_after_delete.update(
+            str(item.default_workflow_id or "").strip()
+            for item in self.list_flows()
+            if item.flow_id not in flow_ids
+            and str(item.metadata.get("task_id") or "") not in task_ids
+            and str(item.default_workflow_id or "").strip()
+        )
+        return {
+            item
+            for item in candidates
+            if item not in referenced_after_delete
+        }
 
     def list_task_memory_request_profiles(self) -> list[TaskMemoryRequestProfile]:
         default_profiles = [
@@ -1969,19 +2592,63 @@ class TaskFlowRegistry:
             key="coordination_task_id",
         )
         tasks: list[CoordinationTaskDefinition] = []
+        records_by_task_id = {record.task_id: record for record in self.list_specific_task_records()}
         for item in merged_payload:
+            coordinator_agent_id = str(item.get("coordinator_agent_id") or "agent:0")
+            metadata = dict(item.get("metadata") or {})
+            task_family = str(item.get("task_family") or metadata.get("task_family") or "").strip()
+            if not task_family:
+                task_family = _family_from_ref(item.get("coordination_task_id")) or _family_from_ref(item.get("topology_template_id"))
+            domain_id = str(item.get("domain_id") or metadata.get("domain_id") or (f"domain.{task_family}" if task_family else "")).strip()
+            stored_nodes = tuple(
+                dict(value)
+                for value in list(item.get("graph_nodes") or item.get("nodes") or [])
+                if isinstance(value, dict)
+            )
+            metadata_task_id = str(metadata.get("task_id") or "").strip()
+            raw_subtask_refs = [
+                *[str(value).strip() for value in list(item.get("subtask_refs") or []) if str(value).strip()],
+                *_subtask_refs_from_graph_nodes(stored_nodes),
+                *([metadata_task_id] if metadata_task_id.startswith("task.") else []),
+            ]
+            subtask_refs = tuple(dict.fromkeys(value for value in raw_subtask_refs if value.startswith("task.")))
+            if not task_family and subtask_refs:
+                task_family = str(getattr(records_by_task_id.get(subtask_refs[0]), "task_family", "") or "").strip()
+            if not domain_id and task_family:
+                domain_id = f"domain.{task_family}"
+            participant_agent_ids = self._resolve_coordination_participants(
+                coordinator_agent_id=coordinator_agent_id,
+                agent_group_id=str(item.get("agent_group_id") or ""),
+                participant_agent_ids=tuple(str(value) for value in list(item.get("participant_agent_ids") or []) if str(value)),
+            )
+            fallback_nodes, fallback_edges = _default_coordination_graph(
+                coordinator_agent_id=coordinator_agent_id,
+                participant_agent_ids=participant_agent_ids,
+                task_family=task_family,
+                subtask_refs=subtask_refs,
+            )
+            graph_nodes = stored_nodes or fallback_nodes
+            graph_edges = tuple(dict(value) for value in list(item.get("graph_edges") or item.get("edges") or []) if isinstance(value, dict)) or fallback_edges
+            subtask_refs = tuple(dict.fromkeys([*subtask_refs, *_subtask_refs_from_graph_nodes(graph_nodes)]))
+            communication_modes = tuple(
+                str(value).strip()
+                for value in list(item.get("communication_modes") or [])
+                if str(value).strip()
+            ) or tuple(
+                dict(edge).get("mode", "")
+                for edge in graph_edges
+                if str(dict(edge).get("mode", "")).strip()
+            )
             tasks.append(
                 CoordinationTaskDefinition(
                     coordination_task_id=str(item.get("coordination_task_id") or ""),
                     title=str(item.get("title") or ""),
                     coordination_mode=str(item.get("coordination_mode") or "review_merge"),
-                    coordinator_agent_id=str(item.get("coordinator_agent_id") or "agent:0"),
+                    coordinator_agent_id=coordinator_agent_id,
+                    task_family=task_family,
+                    domain_id=domain_id,
                     agent_group_id=str(item.get("agent_group_id") or ""),
-                    participant_agent_ids=self._resolve_coordination_participants(
-                        coordinator_agent_id=str(item.get("coordinator_agent_id") or "agent:0"),
-                        agent_group_id=str(item.get("agent_group_id") or ""),
-                        participant_agent_ids=tuple(str(value) for value in list(item.get("participant_agent_ids") or []) if str(value)),
-                    ),
+                    participant_agent_ids=participant_agent_ids,
                     topology_template_id=str(item.get("topology_template_id") or ""),
                     shared_context_policy=str(item.get("shared_context_policy") or "explicit_refs_only"),
                     memory_sharing_policy=str(item.get("memory_sharing_policy") or "isolated_by_default"),
@@ -1989,6 +2656,10 @@ class TaskFlowRegistry:
                     conflict_resolution_policy=str(item.get("conflict_resolution_policy") or "coordinator_review"),
                     output_merge_policy=str(item.get("output_merge_policy") or "coordinator_final_merge"),
                     stop_conditions=tuple(str(value) for value in list(item.get("stop_conditions") or []) if str(value)),
+                    subtask_refs=subtask_refs,
+                    graph_nodes=graph_nodes,
+                    graph_edges=graph_edges,
+                    communication_modes=tuple(dict.fromkeys(str(value).strip() for value in communication_modes if str(value).strip())),
                     enabled=bool(item.get("enabled", False)),
                     metadata=dict(item.get("metadata") or {}),
                 )
@@ -2007,6 +2678,10 @@ class TaskFlowRegistry:
             [item.coordination_task_id for item in self.list_coordination_tasks()],
             prefix="coord.",
         )
+
+    def get_topology_template(self, template_id: str) -> TopologyTemplate | None:
+        target = str(template_id or "").strip()
+        return next((item for item in self.list_topology_templates() if item.template_id == target), None)
 
     def list_topology_templates(self) -> list[TopologyTemplate]:
         default_payload = [item.to_dict() for item in default_topology_templates()]
@@ -2032,6 +2707,7 @@ class TaskFlowRegistry:
                     failure_policy=str(item.get("failure_policy") or "fail_closed"),
                     terminal_policy=str(item.get("terminal_policy") or "coordinator_terminal"),
                     enabled=bool(item.get("enabled", False)),
+                    metadata=dict(item.get("metadata") or {}),
                 )
             )
         normalized = [item.to_dict() for item in templates]
@@ -2077,6 +2753,89 @@ class TaskFlowRegistry:
         if payload.get("communication_protocols") != normalized:
             _write_json(_communication_protocols_path(self.base_dir), {"communication_protocols": normalized})
         return protocols
+
+    def list_contract_descriptors(self) -> list[TaskContractDescriptor]:
+        collected: dict[tuple[str, str], dict[str, Any]] = {}
+
+        def append_contract(
+            contract_id: str,
+            kind: str,
+            *,
+            source_ref: str = "",
+            usage_ref: str = "",
+            title: str = "",
+            summary: str = "",
+            metadata: dict[str, Any] | None = None,
+        ) -> None:
+            normalized_id = str(contract_id or "").strip()
+            if not normalized_id:
+                return
+            normalized_kind = str(kind or "").strip() or "unknown"
+            key = (normalized_id, normalized_kind)
+            current = collected.setdefault(
+                key,
+                {
+                    "contract_id": normalized_id,
+                    "title": str(title or CONTRACT_TITLE_MAP.get(normalized_id) or normalized_id).strip(),
+                    "contract_kind": normalized_kind,
+                    "summary": str(summary or CONTRACT_KIND_LABELS.get(normalized_kind) or "").strip(),
+                    "source_refs": [],
+                    "usage_refs": [],
+                    "metadata": {},
+                },
+            )
+            if source_ref:
+                current["source_refs"].append(source_ref)
+            if usage_ref:
+                current["usage_refs"].append(usage_ref)
+            current["metadata"] = {**dict(current.get("metadata") or {}), **dict(metadata or {})}
+
+        for profile in self.list_general_task_profiles():
+            append_contract(profile.input_contract_id, "input", source_ref=profile.profile_id, usage_ref=profile.title)
+            append_contract(profile.output_contract_id, "output", source_ref=profile.profile_id, usage_ref=profile.title)
+
+        for flow in self.list_flows():
+            append_contract(flow.input_contract_id, "input", source_ref=flow.flow_id, usage_ref=flow.title)
+            append_contract(flow.output_contract_id, "output", source_ref=flow.flow_id, usage_ref=flow.title)
+            append_contract(
+                flow.flow_id,
+                "flow",
+                source_ref=flow.flow_id,
+                usage_ref=flow.title,
+                title=flow.title,
+                summary=f"{CONTRACT_TITLE_MAP.get(flow.input_contract_id, flow.input_contract_id)} -> {CONTRACT_TITLE_MAP.get(flow.output_contract_id, flow.output_contract_id)}",
+                metadata={
+                    "task_family": flow.task_family,
+                    "task_mode": flow.task_mode,
+                    "default_workflow_id": flow.default_workflow_id,
+                },
+            )
+
+        for record in self.list_specific_task_records():
+            append_contract(record.input_contract_id, "input", source_ref=record.task_id, usage_ref=record.task_title)
+            append_contract(record.output_contract_id, "output", source_ref=record.task_id, usage_ref=record.task_title)
+            append_contract(record.default_flow_contract_id, "flow", source_ref=record.task_id, usage_ref=record.task_title)
+
+        for protocol in self.list_task_communication_protocols():
+            for contract_id in protocol.payload_contracts:
+                append_contract(contract_id, "payload", source_ref=protocol.protocol_id, usage_ref=protocol.title)
+
+        descriptors = []
+        for item in collected.values():
+            descriptors.append(
+                TaskContractDescriptor(
+                    contract_id=str(item["contract_id"]),
+                    title=str(item["title"]),
+                    contract_kind=str(item["contract_kind"]),
+                    summary=str(item.get("summary") or ""),
+                    source_refs=tuple(dict.fromkeys(str(ref) for ref in list(item.get("source_refs") or []) if str(ref))),
+                    usage_refs=tuple(dict.fromkeys(str(ref) for ref in list(item.get("usage_refs") or []) if str(ref))),
+                    editable=False,
+                    status="derived",
+                    metadata=dict(item.get("metadata") or {}),
+                )
+            )
+        return sorted(descriptors, key=lambda item: (item.contract_kind, item.title, item.contract_id))
 
     def get_task_communication_protocol(self, protocol_id: str) -> TaskCommunicationProtocol | None:
         target = str(protocol_id or "").strip()
@@ -2144,6 +2903,8 @@ class TaskFlowRegistry:
         title: str,
         coordination_mode: str,
         coordinator_agent_id: str,
+        task_family: str = "",
+        domain_id: str = "",
         agent_group_id: str = "",
         participant_agent_ids: tuple[str, ...] = (),
         topology_template_id: str = "",
@@ -2153,17 +2914,45 @@ class TaskFlowRegistry:
         conflict_resolution_policy: str = "coordinator_review",
         output_merge_policy: str = "coordinator_final_merge",
         stop_conditions: tuple[str, ...] = (),
+        subtask_refs: tuple[str, ...] = (),
+        graph_nodes: tuple[dict[str, Any], ...] = (),
+        graph_edges: tuple[dict[str, Any], ...] = (),
+        communication_modes: tuple[str, ...] = (),
         enabled: bool = False,
         metadata: dict[str, Any] | None = None,
     ) -> CoordinationTaskDefinition:
         target = str(coordination_task_id or "").strip()
         if not target.startswith("coord."):
             raise ValueError("coordination_task_id must start with coord.")
+        normalized_family = str(task_family or "").strip() or _family_from_ref(target)
+        normalized_domain_id = str(domain_id or "").strip() or (f"domain.{normalized_family}" if normalized_family else "")
+        normalized_subtask_refs = tuple(
+            dict.fromkeys(str(item).strip() for item in subtask_refs if str(item).strip().startswith("task."))
+        )
+        normalized_graph_nodes = tuple(dict(item) for item in graph_nodes if isinstance(item, dict))
+        if normalized_graph_nodes:
+            normalized_subtask_refs = tuple(
+                dict.fromkeys([*normalized_subtask_refs, *_subtask_refs_from_graph_nodes(normalized_graph_nodes)])
+            )
+        else:
+            normalized_graph_nodes, _ = _default_coordination_graph(
+                coordinator_agent_id=str(coordinator_agent_id or "agent:0").strip() or "agent:0",
+                participant_agent_ids=tuple(str(item).strip() for item in participant_agent_ids if str(item).strip()),
+                task_family=normalized_family,
+                subtask_refs=normalized_subtask_refs,
+            )
+        if not normalized_family and normalized_subtask_refs:
+            record = self.get_specific_task_record(normalized_subtask_refs[0])
+            normalized_family = str(getattr(record, "task_family", "") or "").strip()
+            if not normalized_domain_id and normalized_family:
+                normalized_domain_id = f"domain.{normalized_family}"
         task = CoordinationTaskDefinition(
             coordination_task_id=target,
             title=str(title or target).strip(),
             coordination_mode=str(coordination_mode or "review_merge").strip(),
             coordinator_agent_id=str(coordinator_agent_id or "agent:0").strip() or "agent:0",
+            task_family=normalized_family,
+            domain_id=normalized_domain_id,
             agent_group_id=str(agent_group_id or "").strip(),
             participant_agent_ids=self._resolve_coordination_participants(
                 coordinator_agent_id=str(coordinator_agent_id or "agent:0").strip() or "agent:0",
@@ -2177,8 +2966,16 @@ class TaskFlowRegistry:
             conflict_resolution_policy=str(conflict_resolution_policy or "coordinator_review").strip(),
             output_merge_policy=str(output_merge_policy or "coordinator_final_merge").strip(),
             stop_conditions=tuple(str(item).strip() for item in stop_conditions if str(item).strip()),
+            subtask_refs=normalized_subtask_refs,
+            graph_nodes=normalized_graph_nodes,
+            graph_edges=tuple(dict(item) for item in graph_edges if isinstance(item, dict)),
+            communication_modes=tuple(str(item).strip() for item in communication_modes if str(item).strip()),
             enabled=bool(enabled),
-            metadata=dict(metadata or {}),
+            metadata={
+                **dict(metadata or {}),
+                "task_family": normalized_family,
+                "domain_id": normalized_domain_id,
+            },
         )
         tasks = [item for item in self.list_coordination_tasks() if item.coordination_task_id != target]
         tasks.append(task)
@@ -2219,6 +3016,7 @@ class TaskFlowRegistry:
         failure_policy: str = "fail_closed",
         terminal_policy: str = "coordinator_terminal",
         enabled: bool = False,
+        metadata: dict[str, Any] | None = None,
     ) -> TopologyTemplate:
         target = str(template_id or "").strip()
         if not target.startswith("topology."):
@@ -2233,6 +3031,7 @@ class TaskFlowRegistry:
             failure_policy=str(failure_policy or "fail_closed").strip(),
             terminal_policy=str(terminal_policy or "coordinator_terminal").strip(),
             enabled=bool(enabled),
+            metadata=dict(metadata or {}),
         )
         templates = [item for item in self.list_topology_templates() if item.template_id != target]
         templates.append(template)
@@ -2533,6 +3332,7 @@ class TaskFlowRegistry:
         general_profiles = self.list_general_task_profiles()
         task_assignments = self.list_task_assignments()
         coordination_tasks = self.list_coordination_tasks()
+        task_domains = self.list_task_domains()
         templates = self.template_registry.list_templates()
         template_validation_matrix = self.template_registry.build_validation_matrix()
         invalid_bindings = [item for item in bindings if item.validation_state != "valid"]
@@ -2549,6 +3349,7 @@ class TaskFlowRegistry:
                 "enabled_task_flow_count": sum(1 for item in flows if item.enabled),
                 "task_template_count": len(templates),
                 "enabled_task_template_count": sum(1 for item in templates if item.enabled),
+                "task_domain_count": len(task_domains),
                 "coordination_task_count": len(coordination_tasks),
                 "projection_binding_count": len(self.list_projection_bindings()),
                 "flow_contract_binding_count": len(self.list_flow_contract_bindings()),
@@ -2563,6 +3364,7 @@ class TaskFlowRegistry:
                 ),
             },
             "agents": agent_catalog["agents"],
+            "task_domains": [item.to_dict() for item in task_domains],
             "general_task_profiles": [item.to_dict() for item in general_profiles],
             "specific_task_records": [item.to_dict() for item in self.list_specific_task_records()],
             "task_assignments": [item.to_dict() for item in task_assignments],

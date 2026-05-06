@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from capability_system.local_mcp_registry import get_local_mcp_primary_template, get_local_mcp_unit_for_template
+
 from .bundle_models import BundleItemSpec, BundleSpec
 from .definitions import default_task_definitions
 from .flow_registry import TaskFlowRegistry
@@ -118,6 +120,12 @@ def _build_task_spec(
     operation_requirement: dict[str, Any],
 ) -> TaskSpec:
     explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+    coordination_request_brief = _build_coordination_request_brief(
+        selected_template=selected_template,
+        user_goal=user_goal,
+        current_turn_context=current_turn_context,
+        query_understanding=query_understanding,
+    )
     registered_task_policy = dict((registered_task or {}).get("task_policy") or {})
     task_structure = dict(registered_task_policy.get("task_structure") or {})
     runtime_limits = _resolve_task_runtime_limits(
@@ -156,6 +164,7 @@ def _build_task_spec(
         user_goal=user_goal,
         inputs={
             **explicit_inputs,
+            **({"coordination_request_brief": coordination_request_brief} if coordination_request_brief else {}),
             **({"bundle_spec": bundle_spec.to_dict()} if bundle_spec is not None else {}),
         },
         bindings={
@@ -173,6 +182,7 @@ def _build_task_spec(
                 for item in list(query_understanding.get("candidate_tools") or [])
                 if str(item).strip()
             ],
+            **({"coordination_request_ref": coordination_request_brief["brief_id"]} if coordination_request_brief else {}),
         },
         current_turn_context_ref=str(current_turn_context.get("authority") or ""),
         task_intent_ref=str(task_intent_contract.task_intent_id or ""),
@@ -185,6 +195,58 @@ def _build_task_spec(
         operation_requirement_ref=operation_requirement_ref,
         safety_envelope=dict(dict(operation_requirement.get("metadata") or {}).get("safety_envelope") or {}),
     )
+
+
+def _build_coordination_request_brief(
+    *,
+    selected_template,
+    user_goal: str,
+    current_turn_context: dict[str, Any],
+    query_understanding: dict[str, Any],
+) -> dict[str, Any]:
+    template_metadata = dict(getattr(selected_template, "metadata", {}) or {})
+    coordination_task_id = str(template_metadata.get("coordination_task_id") or "").strip()
+    if not coordination_task_id:
+        return {}
+    explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+    context_ref_keys = (
+        "selected_task_id",
+        "coordination_task_id",
+        "selected_coordination_task_id",
+        "projection_id",
+        "selected_projection_id",
+        "workflow_id",
+        "task_workflow_id",
+        "target_root",
+        "workspace_target_root",
+    )
+    context_refs = {
+        key: current_turn_context.get(key)
+        for key in context_ref_keys
+        if current_turn_context.get(key) not in ("", None, [], {})
+    }
+    binding_refs = [
+        str(item.get("binding_id") or "").strip()
+        for item in list(current_turn_context.get("resolved_bindings") or [])
+        if isinstance(item, dict) and str(item.get("binding_id") or "").strip()
+    ]
+    return {
+        "authority": "task_system.coordination_request_brief",
+        "brief_id": f"coordbrief:{current_turn_context.get('turn_id') or getattr(selected_template, 'template_id', 'template')}",
+        "coordination_task_id": coordination_task_id,
+        "template_id": str(getattr(selected_template, "template_id", "") or ""),
+        "natural_request": str(user_goal or "").strip(),
+        "carrying_policy": "preserve_user_request_as_runtime_brief",
+        "planning_policy": "coordinator_agent_interprets_request_inside_stable_workflow",
+        "explicit_inputs": explicit_inputs,
+        "context_refs": context_refs,
+        "binding_refs": binding_refs,
+        "understanding_refs": {
+            "intent": str(query_understanding.get("intent") or ""),
+            "task_kind": str(query_understanding.get("task_kind") or ""),
+            "route": str(query_understanding.get("route") or ""),
+        },
+    }
 
 
 def _resolve_task_runtime_limits(
@@ -560,7 +622,8 @@ def _step_output_writebacks(
             return {"bundle_plan": "runtime.bundle_plan"}
         if step_kind == "finalize":
             return {"final_answer": "task_result.final_answer", "bundle_result_refs": "state.bundle_result_refs"}
-    if template_id in {"template.pdf.document_analysis", "template.data.structured_analysis"}:
+    unit = get_local_mcp_unit_for_template(template_id)
+    if unit is not None and unit.source_kind in {"pdf", "dataset"}:
         if step_kind == "analyze":
             return {"task_summary_refs": "state.current_result_refs"}
         if step_kind == "finalize":
@@ -579,10 +642,9 @@ def _single_bundle_item_ref(bundle_spec: BundleSpec | None) -> str:
 
 
 def _template_id_for_capability(capability: str) -> str:
-    mapping = {
-        "pdf": "template.pdf.document_analysis",
-        "structured_data": "template.data.structured_analysis",
-        "weather": "template.capability.direct_tool",
-        "gold_price": "template.capability.direct_tool",
-    }
-    return mapping.get(str(capability or "").strip(), "template.chat.general_response")
+    template_id = get_local_mcp_primary_template(capability)
+    if template_id:
+        return template_id
+    if capability in {"weather", "gold_price"}:
+        return "template.search.information_search"
+    return "template.chat.general_response"

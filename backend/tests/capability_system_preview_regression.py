@@ -57,6 +57,10 @@ def test_resource_policy_candidate_denies_unknown_and_denied_aliases() -> None:
     assert decisions["op.unknown"].decision == "deny"
     assert decisions["op.unknown"].reason == "unknown operation"
     assert "op.shell" in policy.denied_operations
+    assert policy.allowed_tools == ("read_file",)
+    assert policy.denied_tools == ("terminal",)
+    assert not any(item.startswith("op.") for item in policy.allowed_tools)
+    assert not any(item.startswith("op.") for item in policy.denied_tools)
 
 
 def test_high_risk_operations_require_approval_but_do_not_become_executable() -> None:
@@ -147,6 +151,9 @@ def test_mcp_and_memory_write_candidate_stay_hidden_or_denied() -> None:
 
     assert decisions["op.mcp_pdf"].decision == "not_executable"
     assert decisions["op.memory_write_candidate"].decision == "deny"
+    assert policy.allowed_tools == ()
+    assert policy.allowed_mcps == ("pdf",)
+    assert not any(item.startswith("op.") for item in policy.allowed_tools)
     assert views["op.mcp_pdf"].available_to_model is False
     assert views["op.mcp_pdf"].authorized is False
     assert views["op.mcp_pdf"].runtime_executable is False

@@ -28,6 +28,7 @@ class ProjectionRequirement:
     attention_focus: tuple[str, ...] = ()
     projection_id: str = ""
     soul_id: str = ""
+    identity_anchor: str = ""
     projection_title: str = ""
     projection_prompt: str = ""
     reason: str = ""
@@ -63,14 +64,6 @@ def skill_runtime_views_for_refs(skill_refs: tuple[str, ...]) -> list[SkillRunti
 
 def _skill_view(skill_ref: str) -> SkillRuntimeView:
     mapping = {
-        "skill.web_search": SkillRuntimeView(
-            skill_id="skill.web_search",
-            title="Web source search",
-            task_reason="The task asks for external or current information.",
-            method_summary="Search, fetch, compare sources, and keep source traceability.",
-            output_boundary="Evidence summaries and source gaps.",
-            required_operations=("op.web_search", "op.fetch_url"),
-        ),
         "skill.evidence_summary": SkillRuntimeView(
             skill_id="skill.evidence_summary",
             title="Evidence summary",

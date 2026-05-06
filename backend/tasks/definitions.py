@@ -46,7 +46,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Search external sources and summarize evidence.",
             completion_criteria=("Sources are traceable.", "Unknowns are called out."),
-            default_skill_refs=("skill.web_search", "skill.evidence_summary"),
+            default_skill_refs=("skill.evidence_summary",),
             default_operation_requirements=("op.web_search", "op.fetch_url"),
             default_projection_role="evidence_first",
         ),
@@ -190,16 +190,17 @@ def select_runtime_task_definitions(
     }
     preferred_skill = str(understanding.get("preferred_skill") or "").strip()
 
-    if execution_posture == "direct_tool" or route_hint == "tool" or candidate_tools:
-        if modality == "pdf" or "document_analysis" in capability_requests or preferred_skill == "pdf-analysis":
-            return [definitions["task.capability_execution"]]
-        if (
-            modality == "table"
-            or source_kind == "dataset"
-            or "dataset_analysis" in capability_requests
-            or preferred_skill == "structured-data-analysis"
-        ):
-            return [definitions["task.capability_execution"]]
+    if route_hint == "pdf" or preferred_skill == "pdf-analysis":
+        return [definitions["task.capability_execution"]]
+    if route_hint == "structured_data" or preferred_skill == "structured-data-analysis":
+        return [definitions["task.capability_execution"]]
+    if execution_posture == "builtin_tool_lane" or route_hint in {
+        "tool",
+        "workspace_read",
+        "workspace_path_search",
+        "workspace_text_search",
+        "realtime_network",
+    } or candidate_tools:
         if source_kind == "workspace" or {"read_file", "search_files"} & candidate_tools:
             return [
                 definitions["task.capability_execution"],

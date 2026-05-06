@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from tasks import TaskFlowRegistry, TaskWorkflowRegistry
+from tasks import TaskFlowRegistry, TaskWorkflowRegistry, compile_coordination_graph_spec
 
 router = APIRouter()
 
@@ -38,6 +38,16 @@ class SpecificTaskRecordUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class TaskDomainUpsertRequest(BaseModel):
+    domain_id: str = Field(..., min_length=3, max_length=160)
+    task_family: str = Field(..., min_length=1, max_length=80)
+    title: str = Field(..., min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1000)
+    enabled: bool = True
+    sort_order: int = 0
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class TaskProjectionBindingUpsertRequest(BaseModel):
     task_id: str = Field(..., min_length=3, max_length=160)
     projection_selection_mode: str = Field(default="task_default", max_length=120)
@@ -67,10 +77,6 @@ class TaskExecutionPolicyUpsertRequest(BaseModel):
     allow_worker_agent_spawn: bool = False
     worker_agent_blueprint_id: str = Field(default="", max_length=160)
     worker_agent_naming_rule: str = Field(default="", max_length=160)
-    coordination_task_id: str = Field(default="", max_length=160)
-    communication_protocol_id: str = Field(default="", max_length=160)
-    topology_template_id: str = Field(default="", max_length=160)
-    agent_group_id: str = Field(default="", max_length=160)
     notes: str = Field(default="", max_length=1000)
     metadata: dict[str, object] = Field(default_factory=dict)
 
@@ -108,6 +114,8 @@ class CoordinationTaskUpsertRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=160)
     coordination_mode: str = Field(default="review_merge", max_length=80)
     coordinator_agent_id: str = Field(default="agent:0", min_length=3, max_length=160)
+    task_family: str = Field(default="", max_length=80)
+    domain_id: str = Field(default="", max_length=160)
     agent_group_id: str = Field(default="", max_length=160)
     participant_agent_ids: list[str] = Field(default_factory=list)
     topology_template_id: str = Field(default="", max_length=160)
@@ -117,6 +125,10 @@ class CoordinationTaskUpsertRequest(BaseModel):
     conflict_resolution_policy: str = Field(default="coordinator_review", max_length=120)
     output_merge_policy: str = Field(default="coordinator_final_merge", max_length=120)
     stop_conditions: list[str] = Field(default_factory=list)
+    subtask_refs: list[str] = Field(default_factory=list)
+    graph_nodes: list[dict[str, object]] = Field(default_factory=list)
+    graph_edges: list[dict[str, object]] = Field(default_factory=list)
+    communication_modes: list[str] = Field(default_factory=list)
     enabled: bool = False
     metadata: dict[str, object] = Field(default_factory=dict)
 
@@ -131,6 +143,7 @@ class TopologyTemplateUpsertRequest(BaseModel):
     failure_policy: str = Field(default="fail_closed", max_length=120)
     terminal_policy: str = Field(default="coordinator_terminal", max_length=120)
     enabled: bool = False
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 class TaskCommunicationProtocolUpsertRequest(BaseModel):
@@ -167,9 +180,26 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     flow_contract_bindings = [item.to_dict() for item in registry.list_flow_contract_bindings()]
     execution_policies = [item.to_dict() for item in registry.list_task_agent_adoption_plans()]
     memory_request_profiles = [item.to_dict() for item in registry.list_task_memory_request_profiles()]
+    task_domains = [item.to_dict() for item in registry.list_task_domains()]
     coordination_tasks = [item.to_dict() for item in registry.list_coordination_tasks()]
+    specific_task_records_by_id = {
+        item.task_id: item
+        for item in registry.list_specific_task_records()
+    }
+    coordination_graph_specs = [
+        compile_coordination_graph_spec(
+            coordination_task=item,
+            specific_tasks=tuple(specific_task_records_by_id.values()),
+            topology_template=registry.get_topology_template(item.topology_template_id),
+            communication_protocol=registry.get_task_communication_protocol(
+                str(dict(item.metadata or {}).get("protocol_id") or "")
+            ),
+        ).to_dict()
+        for item in registry.list_coordination_tasks()
+    ]
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
+    contract_catalog = [item.to_dict() for item in registry.list_contract_descriptors()]
     template_validation_matrix = registry.template_registry.build_validation_matrix()
     link_permission_matrix = registry.build_link_permission_matrix()
     agent_task_connections = registry.build_agent_task_connection_overview()
@@ -187,14 +217,17 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "flow_contract_binding_count": len(flow_contract_bindings),
             "execution_policy_count": len(execution_policies),
             "memory_request_profile_count": len(memory_request_profiles),
+            "task_domain_count": len(task_domains),
             "coordination_task_count": len(coordination_tasks),
             "topology_template_count": len(topology_templates),
             "communication_protocol_count": len(communication_protocols),
+            "contract_descriptor_count": len(contract_catalog),
             "invalid_task_connection_count": int(agent_task_connections["summary"]["invalid_profile_count"]),
             "connection_issue_count": int(connection_diagnostics["summary"]["issue_count"]),
         },
         "task_management": {
             "entry_policies": entry_policies,
+            "task_domains": task_domains,
             "specific_task_records": specific_task_records,
             "task_flow_definitions": task_flows,
             "workflow_resources": workflows["workflows"],
@@ -202,12 +235,14 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "flow_contract_bindings": flow_contract_bindings,
             "execution_policies": execution_policies,
             "memory_request_profiles": memory_request_profiles,
+            "contract_catalog": contract_catalog,
             "compatibility_views": {
                 "specific_tasks": compat_specific_tasks,
             },
         },
         "coordination_management": {
             "coordination_tasks": coordination_tasks,
+            "coordination_graph_specs": coordination_graph_specs,
             "topology_templates": topology_templates,
             "communication_protocols": communication_protocols,
         },
@@ -314,6 +349,42 @@ async def upsert_task_system_entry_policy(profile_id: str, payload: Conversation
     return _task_system_payload(runtime.base_dir)
 
 
+@router.put("/tasks/domains/{domain_id}")
+async def upsert_task_system_domain(domain_id: str, payload: TaskDomainUpsertRequest) -> dict[str, object]:
+    runtime = require_runtime()
+    if payload.domain_id != domain_id:
+        payload = payload.model_copy(update={"domain_id": domain_id})
+    try:
+        TaskFlowRegistry(runtime.base_dir).upsert_task_domain(
+            domain_id=payload.domain_id,
+            task_family=payload.task_family,
+            title=payload.title,
+            description=payload.description,
+            enabled=payload.enabled,
+            sort_order=payload.sort_order,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.delete("/tasks/domains/{domain_id}")
+async def delete_task_system_domain(domain_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        deletion = TaskFlowRegistry(runtime.base_dir).delete_task_domain(domain_id)
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    payload = _task_system_payload(runtime.base_dir)
+    payload["last_deletion"] = deletion
+    return payload
+
+
 @router.put("/tasks/specific-records/{task_id}")
 async def upsert_task_system_specific_record(task_id: str, payload: SpecificTaskRecordUpsertRequest) -> dict[str, object]:
     runtime = require_runtime()
@@ -341,6 +412,20 @@ async def upsert_task_system_specific_record(task_id: str, payload: SpecificTask
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
+
+
+@router.delete("/tasks/specific-records/{task_id}")
+async def delete_task_system_specific_record(task_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        deletion = TaskFlowRegistry(runtime.base_dir).delete_specific_task_record(task_id)
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    payload = _task_system_payload(runtime.base_dir)
+    payload["last_deletion"] = deletion
+    return payload
 
 
 @router.put("/tasks/projection-bindings/{task_id}")
@@ -405,7 +490,7 @@ async def upsert_task_system_execution_policy(
             task_id=payload.task_id,
             adoption_mode=(
                 "adopt_with_projection"
-                if payload.execution_chain_type == "coordination_chain" or payload.allow_worker_agent_spawn
+                if payload.allow_worker_agent_spawn
                 else "adopt_existing"
             ),
             default_agent_id="agent:0",
@@ -416,14 +501,10 @@ async def upsert_task_system_execution_policy(
             notes=payload.notes,
             metadata={
                 **payload.metadata,
+                "execution_chain_type": payload.execution_chain_type,
                 "runtime_agent_selection_policy": payload.runtime_agent_selection_policy,
                 "task_level": payload.task_level,
                 "task_privilege": payload.task_privilege,
-                "coordination_task_id": payload.coordination_task_id,
-                "communication_protocol_id": payload.communication_protocol_id,
-                "topology_template_id": payload.topology_template_id,
-                "agent_group_id": payload.agent_group_id,
-                "execution_chain_type": payload.execution_chain_type,
             },
         )
     except ValueError as exc:
@@ -473,6 +554,8 @@ async def upsert_task_system_coordination_task(
             title=payload.title,
             coordination_mode=payload.coordination_mode,
             coordinator_agent_id=payload.coordinator_agent_id,
+            task_family=payload.task_family,
+            domain_id=payload.domain_id,
             agent_group_id=payload.agent_group_id,
             participant_agent_ids=tuple(payload.participant_agent_ids),
             topology_template_id=payload.topology_template_id,
@@ -482,6 +565,10 @@ async def upsert_task_system_coordination_task(
             conflict_resolution_policy=payload.conflict_resolution_policy,
             output_merge_policy=payload.output_merge_policy,
             stop_conditions=tuple(payload.stop_conditions),
+            subtask_refs=tuple(payload.subtask_refs),
+            graph_nodes=tuple(dict(item) for item in payload.graph_nodes),
+            graph_edges=tuple(dict(item) for item in payload.graph_edges),
+            communication_modes=tuple(payload.communication_modes),
             enabled=payload.enabled,
             metadata=payload.metadata,
         )
@@ -508,6 +595,7 @@ async def upsert_task_system_topology_template(template_id: str, payload: Topolo
             failure_policy=payload.failure_policy,
             terminal_policy=payload.terminal_policy,
             enabled=payload.enabled,
+            metadata=payload.metadata,
         )
     except ValueError as exc:
         from fastapi import HTTPException

@@ -50,22 +50,23 @@ def main() -> None:
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert weather.route == "tool"
+    assert weather.route == "realtime_network"
     assert weather.skill_name is None
     assert skill_resolver.resolve(task_frame=weather) is None
-    assert weather.tool_name == "get_weather"
+    assert weather.tool_name == "web_search"
     assert weather.target_object is None
-    assert weather.candidate_tools == ["get_weather"]
+    assert weather.candidate_tools == ["web_search"]
 
     structured = analyze_query_understanding(
         "销售前五的有哪些",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert structured.route == "tool"
+    assert structured.route == "structured_data"
     assert structured.skill_name is None
     assert skill_resolver.resolve(task_frame=structured).name == "structured-data-analysis"
-    assert structured.tool_name == "structured_data_analysis"
+    assert structured.tool_name is None
+    assert structured.candidate_tools == []
     assert structured.tool_input == {"query": "销售前五的有哪些"}
 
     shortage = analyze_query_understanding(
@@ -73,57 +74,58 @@ def main() -> None:
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert shortage.route == "tool"
-    assert shortage.execution_posture == "direct_tool"
+    assert shortage.route == "structured_data"
+    assert shortage.execution_posture == "direct_mcp"
     assert shortage.skill_name is None
     assert skill_resolver.resolve(task_frame=shortage).name == "structured-data-analysis"
-    assert shortage.tool_name == "structured_data_analysis"
-    assert shortage.candidate_tools == ["structured_data_analysis"]
+    assert shortage.tool_name is None
+    assert shortage.candidate_tools == []
 
     local_database = analyze_query_understanding(
         "为我搜索本地的数据库，看看有没有缺货情况",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert local_database.route == "tool"
-    assert local_database.execution_posture == "direct_tool"
+    assert local_database.route == "structured_data"
+    assert local_database.execution_posture == "direct_mcp"
     assert skill_resolver.resolve(task_frame=local_database).name == "structured-data-analysis"
-    assert local_database.tool_name == "structured_data_analysis"
-    assert local_database.candidate_tools == ["structured_data_analysis"]
+    assert local_database.tool_name is None
+    assert local_database.candidate_tools == []
 
     abundance = analyze_query_understanding(
         "我不是要知道缺货情况，我要你分析哪些地方货物最充足",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert abundance.route == "tool"
-    assert abundance.tool_name == "structured_data_analysis"
+    assert abundance.route == "structured_data"
+    assert abundance.tool_name is None
 
     shortage_places = analyze_query_understanding(
         "哪些地方货物不够",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert shortage_places.route == "tool"
-    assert shortage_places.tool_name == "structured_data_analysis"
+    assert shortage_places.route == "structured_data"
+    assert shortage_places.tool_name is None
 
     non_shortage_places = analyze_query_understanding(
         "哪些地方不缺货",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert non_shortage_places.route == "tool"
-    assert non_shortage_places.tool_name == "structured_data_analysis"
+    assert non_shortage_places.route == "structured_data"
+    assert non_shortage_places.tool_name is None
 
     explicit_structured = analyze_query_understanding(
         "帮我看一下 inventory.xlsx 里销量前五的有哪些",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert explicit_structured.route == "tool"
+    assert explicit_structured.route == "structured_data"
     assert explicit_structured.skill_name is None
     assert skill_resolver.resolve(task_frame=explicit_structured).name == "structured-data-analysis"
-    assert explicit_structured.tool_name == "structured_data_analysis"
+    assert explicit_structured.tool_name is None
+    assert explicit_structured.candidate_tools == []
     assert explicit_structured.tool_input == {
         "query": "帮我看一下 inventory.xlsx 里销量前五的有哪些",
         "path": "inventory.xlsx",
@@ -135,8 +137,9 @@ def main() -> None:
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert bound_structured.route == "tool"
-    assert bound_structured.tool_name == "structured_data_analysis"
+    assert bound_structured.route == "structured_data"
+    assert bound_structured.tool_name is None
+    assert bound_structured.candidate_tools == []
     assert bound_structured.tool_input == {
         "query": "按仓库汇总前五。",
         "path": "Data/inventory.xlsx",
@@ -148,10 +151,11 @@ def main() -> None:
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert pdf.route == "tool"
+    assert pdf.route == "pdf"
     assert pdf.skill_name is None
     assert skill_resolver.resolve(task_frame=pdf).name == "pdf-analysis"
-    assert pdf.tool_name == "pdf_analysis"
+    assert pdf.tool_name is None
+    assert pdf.candidate_tools == []
     assert pdf.target_object is None
     assert pdf.tool_input.get("mode") == "page"
 
@@ -161,8 +165,9 @@ def main() -> None:
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert bound_pdf.route == "tool"
-    assert bound_pdf.tool_name == "pdf_analysis"
+    assert bound_pdf.route == "pdf"
+    assert bound_pdf.tool_name is None
+    assert bound_pdf.candidate_tools == []
     assert bound_pdf.tool_input == {
         "query": "把这份 PDF 的核心结论压成三条行动建议。",
         "mode": "document",
@@ -176,12 +181,13 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert faq.route == "rag"
+    assert faq.preferred_skill == "rag-skill"
     assert faq.skill_name is None
     assert skill_resolver.resolve(task_frame=faq).name == "rag-skill"
     assert faq.task_kind == "faq_explanation"
     assert faq.target_object is None
     assert faq.tool_name is None
-    assert faq.candidate_tools == ["search_knowledge"]
+    assert faq.candidate_tools == []
 
     rag = analyze_query_understanding(
         "为我讲讲AI吧，你的数据库里有不少AI知识吧",
@@ -189,20 +195,21 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert rag.route == "rag"
+    assert rag.preferred_skill == "rag-skill"
     assert rag.skill_name is None
     assert skill_resolver.resolve(task_frame=rag).name == "rag-skill"
     assert rag.target_object is None
     assert rag.tool_name is None
-    assert rag.candidate_tools == ["search_knowledge"]
+    assert rag.candidate_tools == []
 
     web = analyze_query_understanding(
         "帮我联网查 OpenAI API 最新更新",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert web.route == "tool"
+    assert web.route == "realtime_network"
     assert web.skill_name is None
-    assert skill_resolver.resolve(task_frame=web).name == "web-search"
+    assert skill_resolver.resolve(task_frame=web) is None
     assert web.target_object is None
     assert web.tool_name == "web_search"
 
@@ -211,19 +218,19 @@ def main() -> None:
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert gold.route == "tool"
+    assert gold.route == "realtime_network"
     assert gold.skill_name is None
     assert skill_resolver.resolve(task_frame=gold) is None
-    assert gold.tool_name == "get_gold_price"
+    assert gold.tool_name == "web_search"
     assert gold.target_object is None
-    assert gold.candidate_tools == ["get_gold_price"]
+    assert gold.candidate_tools == ["web_search"]
 
     workspace_read = analyze_query_understanding(
         "打开 backend/understanding/task_understanding.py 给我看看源码",
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert workspace_read.route == "tool"
+    assert workspace_read.route == "workspace_read"
     assert workspace_read.skill_name is None
     assert workspace_read.tool_name == "read_file"
     assert workspace_read.task_kind == "workspace_file_read"

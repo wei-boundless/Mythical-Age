@@ -21,14 +21,14 @@ class _SettingsStub:
 def main() -> None:
     scope = SkillToolScope(
         source="skill",
-        allowed_tools=("get_weather",),
+        allowed_tools=("web_search",),
         trust_level="project",
         reason="test_skill_scope",
-        skill_name="weather-advisor",
+        skill_name="legacy-test-skill",
     )
-    assert scope.allows("get_weather")
-    assert not scope.allows("web_search")
-    assert scope.to_allowed_tools() == ["get_weather"]
+    assert scope.allows("web_search")
+    assert not scope.allows("read_file")
+    assert scope.to_allowed_tools() == ["web_search"]
 
     gate = ToolContractGate(mode="enforce")
     denied = gate.evaluate(
@@ -41,7 +41,7 @@ def main() -> None:
     assert denied.reason == "tool_not_allowed_by_skill_contract"
 
     allowed = gate.evaluate(
-        tool_name="get_weather",
+        tool_name="web_search",
         contract=ToolExecutionContract(required_inputs=["query"]),
         tool_input={"query": "北京天气"},
         tool_scope=scope,
@@ -50,7 +50,7 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         permission = PermissionService(_SettingsStub(), ToolRuntime(Path(tmp)))
-        scoped = permission.can_invoke_tool("web_search", allowed_tools=scope)
+        scoped = permission.can_invoke_tool("read_file", allowed_tools=scope)
         assert not scoped.allowed
         assert scoped.reason == "tool_not_allowed_by_scope"
 

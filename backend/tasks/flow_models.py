@@ -100,6 +100,20 @@ class SpecificTaskRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskDomainRecord:
+    domain_id: str
+    task_family: str
+    title: str
+    description: str = ""
+    enabled: bool = True
+    sort_order: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class TaskProjectionBinding:
     binding_id: str
     task_id: str
@@ -175,23 +189,19 @@ class TaskAgentAdoptionPlan:
         metadata = dict(payload.get("metadata") or {})
         payload["allowed_agent_categories"] = list(self.allowed_agent_categories)
         payload["execution_policy_id"] = payload["plan_id"].replace("taskadopt:", "taskexecpol:", 1)
-        payload["execution_chain_type"] = (
-            "coordination_chain"
-            if self.allow_worker_agent_spawn
-            or str(metadata.get("coordination_task_id") or "")
-            or str(metadata.get("topology_template_id") or "")
-            or str(metadata.get("agent_group_id") or "")
-            else "single_agent_chain"
-        )
+        execution_chain_type = str(metadata.get("execution_chain_type") or "").strip()
+        if not execution_chain_type:
+            execution_chain_type = (
+                "coordination_chain"
+                if metadata.get("coordination_task_id") or self.allow_worker_agent_spawn
+                else "single_agent_chain"
+            )
+        payload["execution_chain_type"] = execution_chain_type
         payload["authority"] = "task_system.task_execution_policy"
         payload.pop("default_agent_id", None)
         payload["runtime_agent_selection_policy"] = str(metadata.get("runtime_agent_selection_policy") or "orchestration_default")
         payload["task_level"] = str(metadata.get("task_level") or "standard")
         payload["task_privilege"] = str(metadata.get("task_privilege") or "bounded")
-        payload["coordination_task_id"] = str(metadata.get("coordination_task_id") or "")
-        payload["communication_protocol_id"] = str(metadata.get("communication_protocol_id") or "")
-        payload["topology_template_id"] = str(metadata.get("topology_template_id") or "")
-        payload["agent_group_id"] = str(metadata.get("agent_group_id") or "")
         return payload
 
     def to_legacy_dict(self) -> dict[str, Any]:
@@ -281,6 +291,8 @@ class CoordinationTaskDefinition:
     title: str
     coordination_mode: str
     coordinator_agent_id: str
+    task_family: str = ""
+    domain_id: str = ""
     agent_group_id: str = ""
     participant_agent_ids: tuple[str, ...] = ()
     topology_template_id: str = ""
@@ -290,6 +302,10 @@ class CoordinationTaskDefinition:
     conflict_resolution_policy: str = "coordinator_review"
     output_merge_policy: str = "coordinator_final_merge"
     stop_conditions: tuple[str, ...] = ()
+    subtask_refs: tuple[str, ...] = ()
+    graph_nodes: tuple[dict[str, Any], ...] = ()
+    graph_edges: tuple[dict[str, Any], ...] = ()
+    communication_modes: tuple[str, ...] = ()
     enabled: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -297,6 +313,10 @@ class CoordinationTaskDefinition:
         payload = asdict(self)
         payload["participant_agent_ids"] = list(self.participant_agent_ids)
         payload["stop_conditions"] = list(self.stop_conditions)
+        payload["subtask_refs"] = list(self.subtask_refs)
+        payload["graph_nodes"] = [dict(item) for item in self.graph_nodes]
+        payload["graph_edges"] = [dict(item) for item in self.graph_edges]
+        payload["communication_modes"] = list(self.communication_modes)
         return payload
 
 
@@ -341,6 +361,7 @@ class TopologyTemplate:
     failure_policy: str = "fail_closed"
     terminal_policy: str = "coordinator_terminal"
     enabled: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

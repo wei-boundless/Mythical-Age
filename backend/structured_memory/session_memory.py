@@ -615,7 +615,7 @@ class SessionMemoryManager:
             active_object_handle_id = ""
             active_result_handle_id = ""
             active_subset_handle_id = ""
-        if flow_type == "pdf_analysis_flow":
+        if flow_type == "pdf_document_flow":
             active_dataset = ""
             if active_binding_kind == "active_dataset":
                 active_binding_kind = ""

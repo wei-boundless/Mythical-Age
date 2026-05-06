@@ -113,15 +113,7 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
     for check in checks:
         if check.startswith("plan.route="):
             expected = check.split("=", 1)[1]
-            rag_tool_compat = (
-                expected == "rag"
-                and (
-                    turn.plan_tool == "search_knowledge"
-                    or "search_knowledge" in turn.tool_names
-                    or turn.runtime_effective_route == "rag"
-                )
-            )
-            if turn.plan_route != expected and not rag_tool_compat:
+            if turn.plan_route != expected:
                 failures.append(f"{check} (actual={turn.plan_route})")
             continue
         if check.startswith("plan.tool="):
@@ -131,22 +123,7 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             continue
         if check.startswith("plan.mcp="):
             expected = check.split("=", 1)[1]
-            mcp_tool_compat = (
-                expected == "pdf"
-                and (
-                    turn.plan_tool == "pdf_analysis"
-                    or "pdf_analysis" in turn.tool_names
-                    or turn.answer_source == "direct_tool.pdf_analysis"
-                )
-            ) or (
-                expected == "structured_data"
-                and (
-                    turn.plan_tool == "structured_data_analysis"
-                    or "structured_data_analysis" in turn.tool_names
-                    or turn.answer_source == "direct_tool.structured_data_analysis"
-                )
-            )
-            if turn.plan_mcp != expected and not mcp_tool_compat:
+            if turn.plan_mcp != expected:
                 failures.append(f"{check} (actual={turn.plan_mcp})")
             continue
         if check.startswith("plan.skill="):
@@ -186,36 +163,12 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             continue
         if check.startswith("event.mcp="):
             expected = check.split("=", 1)[1]
-            pdf_tool_compat = (
-                expected == "pdf"
-                and (
-                    "pdf_analysis" in turn.tool_names
-                    or turn.plan_tool == "pdf_analysis"
-                    or str(turn.answer_source or "") == "direct_tool.pdf_analysis"
-                )
-            )
-            structured_tool_compat = (
-                expected == "structured_data"
-                and (
-                    "structured_data_analysis" in turn.tool_names
-                    or turn.plan_tool == "structured_data_analysis"
-                    or str(turn.answer_source or "") == "direct_tool.structured_data_analysis"
-                )
-            )
-            if expected not in turn.mcp_names and not pdf_tool_compat and not structured_tool_compat:
+            if expected not in turn.mcp_names:
                 failures.append(f"{check} (actual={turn.mcp_names})")
             continue
         if check.startswith("event="):
             expected = check.split("=", 1)[1]
-            retrieval_tool_compat = (
-                expected == "retrieval"
-                and (
-                    "search_knowledge" in turn.tool_names
-                    or turn.plan_tool == "search_knowledge"
-                    or turn.runtime_effective_route == "rag"
-                )
-            )
-            if expected not in turn.event_types and not retrieval_tool_compat:
+            if expected not in turn.event_types:
                 failures.append(f"{check} (actual={turn.event_types})")
             continue
         if check == "response.nonempty":
@@ -606,9 +559,33 @@ def _cap_model_runtime_for_long_eval(runtime) -> tuple[float, int]:
         float(runtime.model_runtime.request_timeout_seconds),
         int(runtime.model_runtime.max_retries),
     )
-    runtime.model_runtime.request_timeout_seconds = min(original[0], timeout_cap)
-    runtime.model_runtime.max_retries = min(original[1], retry_cap)
+    _set_model_runtime_limits(
+        runtime,
+        timeout_seconds=min(original[0], timeout_cap),
+        max_retries=min(original[1], retry_cap),
+    )
     return original
+
+
+def _set_model_runtime_limits(runtime, *, timeout_seconds: float, max_retries: int) -> None:
+    model_runtime = runtime.model_runtime
+    timeout_descriptor = getattr(type(model_runtime), "request_timeout_seconds", None)
+    retry_descriptor = getattr(type(model_runtime), "max_retries", None)
+    if isinstance(timeout_descriptor, property) and timeout_descriptor.fset is not None:
+        model_runtime.request_timeout_seconds = timeout_seconds
+        model_runtime.max_retries = max_retries
+        return
+
+    settings_service = getattr(model_runtime, "settings_service", None)
+    if settings_service is None:
+        raise RuntimeError("ModelRuntime does not expose writable settings for long eval limits")
+    settings_service.set_runtime_config_group(
+        "runtime",
+        {
+            "llm_timeout_seconds": float(timeout_seconds),
+            "llm_max_retries": int(max_retries),
+        },
+    )
 
 
 def _cleanup_session(runtime, session_id: str) -> bool:
@@ -766,7 +743,8 @@ def _execute_user_turn(
         or ""
     )
     effective_execution_mode = str(orchestration_topology.get("mode") or inferred.get("execution_mode") or "")
-    task_count = len(runtime.task_coordinator.list_tasks(session_id=session_id))
+    task_trace_summary = runtime.query_runtime.task_run_loop.list_session_traces(session_id)
+    task_count = int(dict(task_trace_summary or {}).get("task_run_count") or 0)
     task_run_id = _task_run_id_from_events(events)
     runtime_trace = _runtime_trace_summary(runtime, task_run_id)
 
@@ -1255,8 +1233,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
         finally:
             runtime.query_runtime._run_post_turn_tasks = original_post_turn  # type: ignore[method-assign]
-            runtime.model_runtime.request_timeout_seconds = original_timeout
-            runtime.model_runtime.max_retries = original_retries
+            _set_model_runtime_limits(
+                runtime,
+                timeout_seconds=original_timeout,
+                max_retries=original_retries,
+            )
     finally:
         # Intentionally do not call client.__exit__() here. See _open_inprocess_client().
         client = None

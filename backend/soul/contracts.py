@@ -91,6 +91,7 @@ class SoulProjectionRequest:
     role_type: str
     task_mode: str
     agent_profile_id: str
+    identity_anchor: str = ""
     projection_name: str = ""
     projection_prompt: str = ""
     skill_views: tuple[SoulSkillView, ...] = ()

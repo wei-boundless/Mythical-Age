@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-from capability_system.units.mcp.local.pdf.agent import PDFCanonicalResult
 from output_boundary.models import OutputCandidate, OutputDecision
 
 
@@ -186,17 +185,14 @@ def extract_tool_visible_summary(text: str, tool_name: str) -> str:
     normalized = normalize_candidate_text(text)
     if not normalized:
         return ""
-    if tool_name == "pdf_analysis":
-        canonical_result = PDFCanonicalResult.from_tool_output(normalized)
-        if canonical_result is not None:
-            if canonical_result.ok and canonical_result.summary.strip():
-                return canonical_result.summary.strip()
+    if tool_name in {"mcp_structured_data", "structured_data"} and _STRUCTURED_DATA_HINT_RE.search(normalized):
+        return _collapse_inline_whitespace(normalized)
+    if tool_name == "web_search":
+        if normalized.startswith("{") or normalized.startswith("["):
             return ""
-    if tool_name == "structured_data_analysis" and _STRUCTURED_DATA_HINT_RE.search(normalized):
-        return _collapse_inline_whitespace(normalized)
-    if tool_name == "get_weather" and _WEATHER_HINT_RE.search(normalized):
-        return _collapse_inline_whitespace(normalized)
-    if tool_name == "get_gold_price" and _FINANCE_HINT_RE.search(normalized):
+        if '"results"' in normalized or '"request_id"' in normalized or '"response_time"' in normalized:
+            return ""
+    if tool_name == "web_search" and (_WEATHER_HINT_RE.search(normalized) or _FINANCE_HINT_RE.search(normalized)):
         return _collapse_inline_whitespace(normalized)
     return ""
 
@@ -205,11 +201,9 @@ def looks_like_raw_tool_output(text: str, tool_name: str) -> bool:
     normalized = normalize_candidate_text(text)
     if not normalized:
         return False
-    if tool_name == "pdf_analysis":
-        if PDFCanonicalResult.from_tool_output(normalized) is not None:
-            return False
-        return False
-    if tool_name == "structured_data_analysis":
+    if tool_name == "web_search":
+        return normalized.startswith("{") or normalized.startswith("[")
+    if tool_name in {"mcp_structured_data", "structured_data"}:
         return normalized.startswith("{") or normalized.startswith("[")
     return False
 
@@ -257,11 +251,6 @@ def classify_output_candidate(
     tool_summary = extract_tool_visible_summary(normalized, tool_name)
     if tool_summary:
         metadata: dict[str, object] = {}
-        if tool_name == "pdf_analysis":
-            canonical_result = PDFCanonicalResult.from_tool_output(normalized)
-            if canonical_result is not None:
-                metadata["pdf_pages"] = list(canonical_result.pages)
-                metadata["pdf_mode"] = canonical_result.effective_mode
         return OutputCandidate(
             channel="tool_visible_summary",
             text=tool_summary,
@@ -271,23 +260,6 @@ def classify_output_candidate(
             priority_hint=80,
             metadata=metadata,
         )
-    if tool_name == "pdf_analysis":
-        canonical_result = PDFCanonicalResult.from_tool_output(normalized)
-        if canonical_result is not None:
-            return OutputCandidate(
-                channel="tool_raw_output",
-                text=normalized,
-                source=source,
-                route=route,
-                tool_name=tool_name,
-                priority_hint=10,
-                metadata={
-                    "pdf_pages": list(canonical_result.pages),
-                    "pdf_mode": canonical_result.effective_mode,
-                    "pdf_status": canonical_result.status,
-                    "pdf_degraded_reason": canonical_result.degraded_reason,
-                },
-            )
     if looks_like_progress_text(normalized):
         return OutputCandidate(
             channel="progress_text",
@@ -475,7 +447,7 @@ def build_route_fallback(
             "do_not_persist",
             "none",
         )
-    if tool_name == "pdf_analysis":
+    if route == "pdf" or tool_name in {"mcp_pdf", "pdf"}:
         message, reason = _build_pdf_fallback_message(rejected_candidates)
         return (
             message,
@@ -508,7 +480,11 @@ def _collapse_inline_whitespace(text: str) -> str:
 
 
 def _build_pdf_fallback_message(rejected_candidates: list[OutputCandidate]) -> tuple[str, str]:
-    canonical_candidates = [item for item in rejected_candidates if item.tool_name == "pdf_analysis"]
+    canonical_candidates = [
+        item
+        for item in rejected_candidates
+        if item.route == "pdf" or item.tool_name in {"mcp_pdf", "pdf"}
+    ]
     if not canonical_candidates:
         return ("已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。", "pdf_missing_summary")
     metadata = dict(canonical_candidates[0].metadata or {})

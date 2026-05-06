@@ -9,6 +9,8 @@ from typing import Any
 from execution.model_response import ModelResponseRuntimeExecutor
 from execution.model_runtime import ModelRuntimeError
 from execution.tool_executor import ToolRuntimeExecutor
+from evidence import EvidenceOrchestrator, PDFWorker, RetrievalWorker, StructuredDataWorker
+from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from orchestration import (
     AgentRuntimeRegistry,
@@ -65,6 +67,17 @@ class QueryRuntime:
         )
         self.tool_runtime_executor = ToolRuntimeExecutor(tool_runtime=tool_runtime) if tool_runtime is not None else None
         self.agent_runtime_registry = AgentRuntimeRegistry(base_dir)
+        retrieval_enabled = callable(getattr(retrieval_service, "retrieve", None))
+        self.evidence_orchestrator = (
+            EvidenceOrchestrator(
+                retrieval_worker=RetrievalWorker(retrieval_service=retrieval_service),
+                pdf_worker=PDFWorker(root_dir=base_dir),
+                structured_data_worker=StructuredDataWorker(root_dir=base_dir),
+                output_policy=RAGEvidenceOutputPolicy(model_runtime=model_runtime),
+            )
+            if retrieval_enabled
+            else None
+        )
         self.agent_runtime_chain = AgentRuntimeChainAssembler(
             base_dir=base_dir,
             memory_facade=memory_facade,
@@ -75,6 +88,7 @@ class QueryRuntime:
         self.task_run_loop = TaskRunLoop(
             ProjectLayout.from_backend_dir(base_dir).runtime_state_dir,
             backend_dir=base_dir,
+            evidence_orchestrator=self.evidence_orchestrator,
         )
 
         self.legacy_query_chain_removed = True
@@ -82,7 +96,7 @@ class QueryRuntime:
             "query_planner": "removed",
             "runtime_tool_bridge": "removed",
             "runtime_followup": "removed",
-            "evidence_orchestrator": "removed",
+            "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
             "worker_direct_execution": "removed",
             "task_coordinator": "removed_from_main_runtime",
         }

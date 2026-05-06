@@ -15,7 +15,6 @@ from capability_system import (
     build_capability_catalog,
     build_capability_supply_package,
     build_capability_supply_package_from_base_dir,
-    set_skill_allowed_tools,
     set_skill_prompt_view,
 )
 from capability_system.paths import CapabilitySystemPaths
@@ -50,10 +49,6 @@ class SkillPromptViewRequest(BaseModel):
     capability: str = Field(default="", max_length=800)
     use_when: str = Field(default="", max_length=1200)
     output_rule: str = Field(default="", max_length=1200)
-
-
-class SkillToolBindingRequest(BaseModel):
-    allowed_tools: list[str] = Field(default_factory=list)
 
 
 class ToolMetadataRequest(BaseModel):
@@ -142,7 +137,6 @@ name: {name}
 description: {quoted_description}
 metadata:
   display_name: {quoted_title}
-  allowed_tools: []
   supported_modalities:
     - text
   supported_task_kinds: []
@@ -322,19 +316,6 @@ async def delete_capability_skill(skill_name: str) -> dict[str, Any]:
     if root not in skill_dir.parents or skill_dir == root:
         raise HTTPException(status_code=400, detail="Invalid skill path")
     shutil.rmtree(skill_dir)
-    runtime.refresh_catalogs()
-    return build_capability_catalog_payload()
-
-
-@router.put("/capability-system/skills/{skill_name}/tools")
-async def update_capability_skill_tools(skill_name: str, payload: SkillToolBindingRequest) -> dict[str, Any]:
-    runtime = require_runtime()
-    path = _find_skill_path(runtime, skill_name)
-    root = CapabilitySystemPaths.from_base_dir(runtime.base_dir).skills_dir.resolve()
-    if root not in path.parents or path.name != "SKILL.md":
-        raise HTTPException(status_code=400, detail="Invalid skill path")
-    known_tools = {definition.name for definition in runtime.tool_runtime.definitions}
-    set_skill_allowed_tools(path, payload.allowed_tools, known_tools)
     runtime.refresh_catalogs()
     return build_capability_catalog_payload()
 

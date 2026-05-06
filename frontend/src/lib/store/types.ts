@@ -40,6 +40,7 @@ export type WorkspaceView =
   | "test-system"
   | "health-system"
   | "capability-system"
+  | "mcp-system"
   | "evidence"
   | "task-system"
   | "orchestration"
@@ -77,6 +78,14 @@ export type OrchestrationInspectorTarget = {
   reason?: string;
 };
 
+export type TaskSelectionState = {
+  selected_task_id?: string;
+  coordination_task_id?: string;
+  domain_id?: string;
+  label?: string;
+  mode?: "single_task" | "coordination";
+};
+
 export type StoreState = {
   activeWorkspaceView: WorkspaceView;
   sessions: SessionSummary[];
@@ -100,6 +109,7 @@ export type StoreState = {
   memoryInspectorTarget: MemoryInspectorTarget | null;
   orchestrationSnapshot: OrchestrationSnapshot | null;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
+  taskSelection: TaskSelectionState | null;
 };
 
 export type StoreActions = {
@@ -122,6 +132,7 @@ export type StoreActions = {
   setMemoryInspectorTarget: (target: MemoryInspectorTarget | null) => void;
   setOrchestrationInspectorTarget: (target: OrchestrationInspectorTarget | null) => void;
   setOrchestrationSnapshot: (snapshot: OrchestrationSnapshot | null) => void;
+  setTaskSelection: (selection: TaskSelectionState | null) => void;
 };
 
 export type AppStore = StoreState &

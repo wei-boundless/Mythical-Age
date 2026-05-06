@@ -33,6 +33,7 @@ class SoulRuntimeAssemblyBuilder:
         request = SoulProjectionRequest(
             task_id=str(contract.get("task_id") or ""),
             soul_id=soul_id,
+            identity_anchor=str(projection.get("identity_anchor") or ""),
             role_type=str(projection.get("role_type") or "runtime"),
             task_mode=str(contract.get("definition_id") or "runtime"),
             agent_profile_id=agent_profile_id,
@@ -63,9 +64,11 @@ class SoulRuntimeAssemblyBuilder:
                 "authorization_owner": "ResourcePolicy",
             },
         )
-        projection_id = hashlib.sha1(
-            f"{request.task_id}:{request.role_type}:{request.task_mode}:runtime".encode("utf-8")
-        ).hexdigest()[:16]
+        projection_id = str(projection.get("projection_id") or "").strip()
+        if not projection_id:
+            projection_id = hashlib.sha1(
+                f"{request.task_id}:{request.role_type}:{request.task_mode}:runtime".encode("utf-8")
+            ).hexdigest()[:16]
         manifest = build_prompt_manifest(request.task_id, projection_id, runtime_view)
         metadata = contract.get("metadata", {}) if isinstance(contract.get("metadata"), dict) else {}
         bundle = build_agent_prompt_bundle(
@@ -102,6 +105,14 @@ class SoulRuntimeAssemblyBuilder:
     ) -> tuple[PromptSection, ...]:
         resource_content = _resource_projection_content(soul_tool_views)
         resource_policy_ref = str(contract.get("metadata", {}).get("resource_policy_ref") or "")
+        projection_lines = [str(contract.get("projection_section") or "").strip()]
+        projection_identity = str(projection.get("identity_anchor") or "").strip()
+        if projection_identity:
+            projection_lines.append(projection_identity)
+        projection_prompt = str(projection.get("projection_prompt") or "").strip()
+        if projection_prompt:
+            projection_lines.append(f"Projection prompt: {projection_prompt}")
+        projection_content = "\n".join(line for line in projection_lines if line)
         candidate_sections = [
             PromptSection(
                 section_id="task_section",
@@ -133,7 +144,7 @@ class SoulRuntimeAssemblyBuilder:
                 owner_layer="projection",
                 cache_scope="dynamic",
                 visible_to_model=True,
-                content=str(contract.get("projection_section") or ""),
+                content=projection_content,
                 source_refs=(str(projection.get("task_id") or request.task_id),),
             ),
             PromptSection(

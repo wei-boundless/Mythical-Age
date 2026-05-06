@@ -4,6 +4,7 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ExperimentsView } from "@/components/workspace/views/ExperimentsView";
 import { HealthSystemView } from "@/components/workspace/views/HealthSystemView";
 import { MemoryView } from "@/components/workspace/views/MemoryView";
+import { MCPSystemView } from "@/components/workspace/views/MCPSystemView";
 import { OrchestrationView } from "@/components/workspace/views/OrchestrationView";
 import { CapabilitySystemView } from "@/components/workspace/views/CapabilitySystemView";
 import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
@@ -24,6 +25,7 @@ export function WorkspacePanel() {
     "test-system": <HealthSystemView />,
     "health-system": <HealthSystemView />,
     "capability-system": <CapabilitySystemView />,
+    "mcp-system": <MCPSystemView />,
     evidence: <CapabilitySystemView initialPanel="tools" />,
     "task-system": <TaskSystemView />,
     orchestration: <OrchestrationView />,

@@ -45,7 +45,7 @@ class _FileBindingMemoryFacadeStub(_MemoryFacadeStub):
         }
 
 
-def test_agent_runtime_chain_injects_active_skill_and_runtime_operations() -> None:
+def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> None:
     assembler = AgentRuntimeChainAssembler(
         base_dir=ROOT,
         memory_facade=_MemoryFacadeStub(),
@@ -67,8 +67,8 @@ def test_agent_runtime_chain_injects_active_skill_and_runtime_operations() -> No
     task_body_orchestration = dict(task_operation.get("task_body_orchestration") or {})
     memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
 
-    assert active_skill
-    assert active_skill["name"] == "web-search"
+    assert active_skill == {}
+    assert understanding["route"] == "realtime_network"
     assert understanding["tool_name"] == "web_search"
     assert "op.web_search" in list(operation_requirement.get("required_operations") or [])
     assert memory_request_profile["requested_memory_layers"] == ["conversation"]
@@ -100,11 +100,13 @@ def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:
     memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
 
     assert active_skill["name"] == "structured-data-analysis"
-    assert understanding["tool_name"] == "structured_data_analysis"
+    assert understanding["route"] == "structured_data"
+    assert understanding["tool_name"] is None
+    assert understanding["candidate_tools"] == []
     assert understanding["tool_input"] == {
         "query": "按仓库汇总前五。",
         "path": "Data/inventory.xlsx",
     }
     assert "bound_dataset_followup" in list(understanding.get("reasons") or [])
-    assert "op.structured_data_analysis" in list(operation_requirement.get("required_operations") or [])
+    assert "op.mcp_structured_data" in list(operation_requirement.get("required_operations") or [])
     assert "conversation" in list(memory_request_profile.get("requested_memory_layers") or [])

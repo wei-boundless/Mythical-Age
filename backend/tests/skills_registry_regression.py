@@ -37,8 +37,8 @@ def main() -> None:
     assert "structured-data-analysis" in by_name
     structured = by_name["structured-data-analysis"]
     assert structured.title == "结构化数据分析"
-    assert structured.preferred_route == "tool"
-    assert structured.allowed_tools == ["structured_data_analysis"]
+    assert structured.preferred_route == "structured_data"
+    assert "dataset_analysis" in structured.capability_tags
     assert "dataset_filter" in structured.supported_task_kinds
     assert "dataset" in structured.supported_source_kinds
     assert structured.context_mode == "isolated"
@@ -57,7 +57,7 @@ def main() -> None:
     rag = by_name["rag-skill"]
     assert rag.title == "知识库问答"
     assert rag.preferred_route == "rag"
-    assert rag.allowed_tools == ["search_knowledge"]
+    assert "knowledge_lookup" in rag.capability_tags
     assert "faq_explanation" in rag.supported_task_kinds
 
     assert "gold-price" not in by_name

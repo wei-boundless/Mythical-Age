@@ -11,6 +11,15 @@ if TYPE_CHECKING:
     from capability_system.tool_registry import ToolRegistry
 
 
+_DIRECT_TOOL_ROUTE_FAMILIES = {
+    "tool",
+    "workspace_read",
+    "workspace_path_search",
+    "workspace_text_search",
+    "realtime_network",
+}
+
+
 @dataclass(slots=True)
 class QueryUnderstanding:
     intent: str = "general_query"
@@ -21,6 +30,7 @@ class QueryUnderstanding:
     route: str = "rag"
     execution_posture: str = "direct_rag"
     direct_route_reason: str = ""
+    preferred_skill: str | None = None
     skill_name: str | None = None
     tool_name: str | None = None
     capability_requests: list[str] = field(default_factory=list)
@@ -65,6 +75,7 @@ def _from_task(task: TaskUnderstanding) -> QueryUnderstanding:
         route=task.route_hint,
         execution_posture=task.execution_posture,
         direct_route_reason=task.direct_route_reason,
+        preferred_skill=task.preferred_skill,
         skill_name=None,
         capability_requests=list(task.capability_requests),
         candidate_tools=list(task.candidate_tools),
@@ -89,6 +100,13 @@ def _apply_skill_tool_routing(
     if understanding.route == "memory":
         return
 
+    if understanding.route in {"rag", "pdf", "structured_data"}:
+        understanding.candidate_tools = []
+        understanding.tool_name = None
+        if not understanding.tool_input:
+            understanding.tool_input = {"query": message}
+        return
+
     if (
         tool_registry is not None
         and not understanding.candidate_tools
@@ -104,7 +122,7 @@ def _apply_skill_tool_routing(
     if understanding.execution_posture == "bounded_agent":
         return
 
-    if understanding.route != "tool":
+    if understanding.route not in _DIRECT_TOOL_ROUTE_FAMILIES:
         return
 
     if tool_registry is None:

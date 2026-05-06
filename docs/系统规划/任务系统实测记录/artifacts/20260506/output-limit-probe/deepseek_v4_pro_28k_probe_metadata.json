@@ -1,0 +1,26 @@
+{
+  "status": "ok",
+  "provider": "deepseek",
+  "model": "deepseek-v4-pro",
+  "target_phrase": "雾港林深录音带",
+  "target_repeat": 4000,
+  "target_chars": 28000,
+  "probe_mode": "direct_model_stream_repeat_phrase",
+  "settings": {
+    "llm_timeout_seconds": 300.0,
+    "llm_max_retries": 2,
+    "llm_max_output_tokens": 32768,
+    "llm_long_output_timeout_seconds": 180.0,
+    "llm_thinking_mode": "disabled",
+    "llm_reasoning_effort": "high"
+  },
+  "elapsed_seconds": 920.442,
+  "chars": 38229,
+  "repeat_count": 5461,
+  "passed_28k_chars": true,
+  "passed_exact_repeat": false,
+  "output_path": "d:\\AI应用\\langchain-agent\\docs\\系统规划\\任务系统实测记录\\artifacts\\20260506\\output-limit-probe\\deepseek_v4_pro_28k_probe_output.txt",
+  "head": "雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林",
+  "tail": "带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港林深录音带雾港",
+  "final_chunk_type": "AIMessageChunk"
+}

@@ -540,6 +540,25 @@ class TaskWorkflowRegistry:
         _write_json(_workflows_path(self.base_dir), {"workflows": [item.to_dict() for item in workflows]})
         return workflow
 
+    def delete_workflows(self, workflow_ids: tuple[str, ...] | list[str] | set[str]) -> tuple[str, ...]:
+        targets = {
+            str(item or "").strip()
+            for item in workflow_ids
+            if str(item or "").strip()
+        }
+        if not targets:
+            return ()
+        default_ids = {item.workflow_id for item in default_task_workflows()}
+        deletable = targets - default_ids
+        if not deletable:
+            return ()
+        existing = self.list_workflows()
+        kept = [item for item in existing if item.workflow_id not in deletable]
+        deleted = tuple(sorted({item.workflow_id for item in existing} - {item.workflow_id for item in kept}))
+        if deleted:
+            _write_json(_workflows_path(self.base_dir), {"workflows": [item.to_dict() for item in kept]})
+        return deleted
+
     def build_catalog(self) -> dict[str, object]:
         workflows = self.list_workflows()
         return {

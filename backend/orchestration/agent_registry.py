@@ -261,6 +261,8 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             enabled=True,
             builtin=False,
             editable=True,
+            default_soul_id="hebo",
+            default_projection_id="hebo__longform_continuity_auditor",
             task_scope=("continuity_audit", "chapter_revision", "arc_review"),
             created_at=timestamp,
             updated_at=timestamp,
@@ -289,6 +291,7 @@ class AgentRegistry:
             key="agent_id",
         )
         migrated = [_migrate_agent_payload(item) for item in raw_agents]
+        migrated = [self._hydrate_main_agent_defaults(item) for item in migrated]
         if payload.get("agents") != migrated:
             _write_json(self.agents_path, {"agents": migrated})
         return [_agent_from_dict(item) for item in migrated]
@@ -373,8 +376,10 @@ class AgentRegistry:
         normalized_projection_id = str(default_projection_id or current_projection_id).strip()
         normalized_soul_id = str(default_soul_id or current_soul_id).strip()
         if normalized_category == "main_agent":
-            normalized_projection_id = ""
-            normalized_soul_id = ""
+            normalized_projection_id, normalized_soul_id = self._resolve_main_agent_runtime_defaults(
+                projection_id=normalized_projection_id,
+                soul_id=normalized_soul_id,
+            )
         if normalized_projection_id:
             projection_card = SoulFacade(self.base_dir).get_projection_card(normalized_projection_id)
             if projection_card is not None:
@@ -400,6 +405,36 @@ class AgentRegistry:
         agents.sort(key=lambda item: _agent_sort_key(item.agent_id))
         _write_json(self.agents_path, {"agents": [item.to_dict() for item in agents]})
         return updated
+
+    def _resolve_main_agent_runtime_defaults(self, *, projection_id: str, soul_id: str) -> tuple[str, str]:
+        normalized_projection_id = str(projection_id or "").strip()
+        normalized_soul_id = str(soul_id or "").strip().lower()
+        facade = SoulFacade(self.base_dir)
+        if normalized_projection_id:
+            projection_card = facade.get_projection_card(normalized_projection_id)
+            if projection_card is not None:
+                normalized_soul_id = str(projection_card.get("soul_id") or normalized_soul_id).strip().lower()
+        if not normalized_soul_id:
+            normalized_soul_id = facade.registry_service.active_soul_id()
+        normalized_projection_id = f"{normalized_soul_id}__primary" if normalized_soul_id else ""
+        return normalized_projection_id, normalized_soul_id
+
+    def _hydrate_main_agent_defaults(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if str(payload.get("agent_category") or "") != "main_agent":
+            return payload
+        projection_id, soul_id = self._resolve_main_agent_runtime_defaults(
+            projection_id=str(payload.get("default_projection_id") or ""),
+            soul_id=str(payload.get("default_soul_id") or ""),
+        )
+        if (
+            projection_id == str(payload.get("default_projection_id") or "")
+            and soul_id == str(payload.get("default_soul_id") or "").strip().lower()
+        ):
+            return payload
+        next_payload = dict(payload)
+        next_payload["default_projection_id"] = projection_id
+        next_payload["default_soul_id"] = soul_id
+        return next_payload
 
     def delete_agent(self, agent_id: str) -> None:
         current = self.get_agent(agent_id)
@@ -479,9 +514,6 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         legacy_category = "system_management_agent"
     normalized_soul_id = str(payload.get("default_soul_id") or "").strip()
     normalized_projection_id = str(payload.get("default_projection_id") or "").strip()
-    if legacy_category == "main_agent":
-        normalized_soul_id = ""
-        normalized_projection_id = ""
     return {
         "agent_id": "agent:0" if agent_id == "agent:main" else "agent:3" if agent_id == "agent:health:maintainer" else agent_id,
         "agent_name": legacy_name,

@@ -6,6 +6,7 @@ from capability_system.operation_registry import OperationDescriptor, OperationR
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.resource_policy import ResourceDecision, ResourcePolicy
 from orchestration.resource_policy_builder import RuntimeApprovalContext
+from orchestration.resource_scope_mapping import map_operations_to_resource_scopes
 from ..runtime_directive import RuntimeDirective
 
 
@@ -46,6 +47,21 @@ def build_model_response_runtime_adoption(
         decision.operation_id for decision in decisions if decision.decision == "not_executable"
     )
     operation_refs = tuple(_dedupe([*allowed_operations, *requires_approval_operations, *not_executable_operations]))
+    allowed_scope = (
+        map_operations_to_resource_scopes(allowed_operations, registry)
+        if registry is not None
+        else None
+    )
+    denied_scope = (
+        map_operations_to_resource_scopes(denied_operations, registry)
+        if registry is not None
+        else None
+    )
+    not_executable_scope = (
+        map_operations_to_resource_scopes(not_executable_operations, registry)
+        if registry is not None
+        else None
+    )
     resource_policy = ResourcePolicy(
         policy_id=policy_ref,
         task_id=task_id,
@@ -53,12 +69,12 @@ def build_model_response_runtime_adoption(
         denied_operations=denied_operations,
         requires_approval_operations=requires_approval_operations,
         not_executable_operations=not_executable_operations,
-        allowed_tools=tuple(operation for operation in allowed_operations if operation != "op.model_response"),
-        denied_tools=denied_operations,
-        allowed_mcps=(),
-        denied_mcps=not_executable_operations,
-        allowed_agents=(),
-        denied_agents=(),
+        allowed_tools=allowed_scope.tool_names if allowed_scope is not None else (),
+        denied_tools=denied_scope.tool_names if denied_scope is not None else (),
+        allowed_mcps=not_executable_scope.mcp_routes if not_executable_scope is not None else (),
+        denied_mcps=denied_scope.mcp_routes if denied_scope is not None else (),
+        allowed_agents=not_executable_scope.agent_ids if not_executable_scope is not None else (),
+        denied_agents=denied_scope.agent_ids if denied_scope is not None else (),
         memory_read_scope="context_package",
         memory_write_scope="none",
         approval_policy=_approval_policy(task_operation, agent_runtime_profile),
@@ -69,8 +85,8 @@ def build_model_response_runtime_adoption(
         diagnostics={
             "runtime_executable": True,
             "adopted": True,
-            "tools_allowed": any(operation != "op.model_response" for operation in allowed_operations),
-            "mcps_allowed": False,
+            "tools_allowed": bool(allowed_scope.tool_names if allowed_scope is not None else ()),
+            "mcps_allowed": bool(not_executable_scope.mcp_routes if not_executable_scope is not None else ()),
             "memory_write_allowed": False,
             "filesystem_write_allowed": any(
                 operation in {"op.write_file", "op.edit_file"} for operation in allowed_operations
@@ -81,6 +97,11 @@ def build_model_response_runtime_adoption(
                 "task_operation_requirement": True,
                 "agent_runtime_profile": bool(agent_runtime_profile is not None),
                 "operation_registry": bool(registry is not None),
+            },
+            "scope_mapping": {
+                "allowed": allowed_scope.to_dict() if allowed_scope is not None else {},
+                "denied": denied_scope.to_dict() if denied_scope is not None else {},
+                "not_executable": not_executable_scope.to_dict() if not_executable_scope is not None else {},
             },
             "task_safety_envelope": dict(dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}).get(
                 "safety_envelope",

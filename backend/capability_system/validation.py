@@ -54,31 +54,6 @@ def validate_capability_catalog(
                     )
                 )
 
-    for skill in skills:
-        runtime = skill.get("runtime") if isinstance(skill.get("runtime"), dict) else {}
-        skill_name = str(runtime.get("name") or "")
-        for tool_name in list(runtime.get("allowed_tools") or []):
-            if tool_name not in known_tools:
-                issues.append(
-                    CapabilityValidationIssue(
-                        severity="warning",
-                        code="skill_unknown_tool",
-                        message=f"Skill {skill_name} references unknown tool {tool_name}.",
-                        subject=skill_name,
-                    )
-                )
-                continue
-            operation_id = str(tools_by_name[tool_name].get("operation_id") or "")
-            if known_operations and operation_id not in known_operations:
-                issues.append(
-                    CapabilityValidationIssue(
-                        severity="error",
-                        code="skill_tool_unknown_operation",
-                        message=f"Skill {skill_name} references tool {tool_name} with unknown operation {operation_id}.",
-                        subject=skill_name,
-                    )
-                )
-
     for agent_id, tool_names in agent_bindings.items():
         for tool_name in tool_names:
             if tool_name not in known_tools:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from agents.a2a_runtime import task_envelope_from_request, task_envelope_from_result
+from capability_system.local_mcp_registry import get_local_mcp_unit
 from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
 from output_boundary import build_rag_evidence_pack
 from .pdf_worker import PDFWorker
@@ -35,6 +36,11 @@ class EvidenceOrchestrator:
         self.retrieval_worker = retrieval_worker
         self.pdf_worker = pdf_worker
         self.structured_data_worker = structured_data_worker
+        self.worker_by_slot = {
+            "retrieval_worker": retrieval_worker,
+            "pdf_worker": pdf_worker,
+            "structured_data_worker": structured_data_worker,
+        }
         self.candidate_store = candidate_store
         self.graph_store = graph_store
         self.output_policy = output_policy
@@ -88,18 +94,7 @@ class EvidenceOrchestrator:
             "request": request.to_dict(),
             "a2a_task": task_envelope_from_request(request).to_dict(),
         }
-        if mcp_route in {"retrieval", "evidence_orchestrator"}:
-            mcp_result = self.retrieval_worker.run(request)
-        elif mcp_route == "pdf" and self.pdf_worker is not None:
-            mcp_result = await self.pdf_worker.run(request)
-        elif mcp_route == "structured_data" and self.structured_data_worker is not None:
-            mcp_result = await self.structured_data_worker.run(request)
-        else:
-            mcp_result = MCPResult(
-                mcp_name=mcp_route,
-                status="error",
-                diagnostics={"reason": "unsupported_mcp_route"},
-            )
+        mcp_result = await self._run_registered_mcp_worker(mcp_route, request)
 
         if trace is not None:
             trace.annotate(
@@ -121,7 +116,7 @@ class EvidenceOrchestrator:
                     source_query=request.query,
                     candidates=list(mcp_result.binding_candidates),
                 )
-            if mcp_route in {"retrieval", "evidence_orchestrator"}:
+            if self._is_retrieval_route(mcp_route):
                 yield {
                     "type": "retrieval",
                     "query": request.query,
@@ -203,6 +198,45 @@ class EvidenceOrchestrator:
                 **dict(getattr(mcp_result, "extensions", {}) or {}),
             },
         )
+
+    async def _run_registered_mcp_worker(self, mcp_route: str, request) -> MCPResult:
+        unit = get_local_mcp_unit(mcp_route)
+        if unit is None:
+            return MCPResult(
+                mcp_name=mcp_route,
+                status="error",
+                diagnostics={"reason": "unsupported_mcp_route"},
+            )
+        worker = self.worker_by_slot.get(unit.worker_slot)
+        if worker is None:
+            return MCPResult(
+                mcp_name=unit.route,
+                status="error",
+                diagnostics={
+                    "reason": "mcp_worker_unavailable",
+                    "worker_slot": unit.worker_slot,
+                    "local_mcp_unit_id": unit.unit_id,
+                },
+            )
+        runner = getattr(worker, "run", None)
+        if not callable(runner):
+            return MCPResult(
+                mcp_name=unit.route,
+                status="error",
+                diagnostics={
+                    "reason": "mcp_worker_missing_run",
+                    "worker_slot": unit.worker_slot,
+                    "local_mcp_unit_id": unit.unit_id,
+                },
+            )
+        if unit.worker_execution_kind == "sync":
+            return runner(request)
+        return await runner(request)
+
+    @staticmethod
+    def _is_retrieval_route(mcp_route: str) -> bool:
+        unit = get_local_mcp_unit(mcp_route)
+        return bool(unit is not None and unit.route == "retrieval")
 
     async def _canonicalize_retrieval_answer(
         self,
@@ -389,11 +423,11 @@ def _add_emitted_handles_to_graph(
         if handle_kind == "subset":
             subset = subset_handle_from_payload(raw)
             if subset is not None:
-                graph.add_subset_handle(subset, worker=mcp)
+                graph.add_subset_handle(subset, mcp=mcp)
             continue
         result = result_handle_from_payload(raw)
         if result is not None:
-            graph.add_result_handle(result, worker=mcp)
+            graph.add_result_handle(result, mcp=mcp)
 
 
 def _slug(value: str) -> str:

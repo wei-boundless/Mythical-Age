@@ -218,6 +218,15 @@ ACTIVE_CASES: tuple[TestCaseDefinition, ...] = (
         tags=("permission", "operation_gate"),
     ),
     TestCaseDefinition(
+        case_id="functional.document.discovery",
+        title="文档发现路径归一化合同",
+        layer="functional",
+        path="tests/document_conversion_discovery_regression.py",
+        owner_system="document_system",
+        profiles=("functional", "system"),
+        tags=("document", "discovery", "path"),
+    ),
+    TestCaseDefinition(
         case_id="system.config.runtime",
         title="运行时配置合同",
         layer="system",

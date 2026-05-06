@@ -5,6 +5,7 @@ import {
   HeartPulse,
   MessageSquare,
   Network,
+  PlugZap,
   Settings2,
   Sparkles,
   Wrench,
@@ -58,6 +59,12 @@ const railGroups = [
         label: "能力系统",
         description: "管理 skills、工具类型、能力端点和模型可见提示",
         view: "capability-system"
+      },
+      {
+        icon: PlugZap,
+        label: "MCP 管理",
+        description: "管理外部 MCP 连接、发现结果、工具池和权限预检",
+        view: "mcp-system"
       },
       {
         icon: Sparkles,

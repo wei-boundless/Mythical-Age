@@ -123,7 +123,7 @@ class SearchFilesTool(BaseTool):
     name: str = "search_files"
     description: str = (
         "Search local workspace file paths before reading files. Use this when a filename or path is uncertain; "
-        "returns safe project-relative paths that can be passed to read_file, pdf_analysis, or structured_data_analysis."
+        "returns safe project-relative paths that can be passed to read_file or the appropriate MCP route."
     )
     args_schema: Type[BaseModel] = SearchFilesInput
     model_config = ConfigDict(arbitrary_types_allowed=True)

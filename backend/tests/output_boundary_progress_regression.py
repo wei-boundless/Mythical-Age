@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from output_boundary import AssistantOutputBoundary
+from output_boundary.classifier import classify_output_candidate
 
 
 def _classify(text: str):
@@ -39,3 +40,17 @@ def test_real_conclusion_still_survives_progress_guard() -> None:
     assert response.canonical_state == "stable_answer"
     assert response.persist_policy == "persist_canonical"
     assert response.canonical_answer == "系统把进度话术误判为稳定答案。"
+
+
+def test_web_search_json_is_not_misclassified_as_visible_summary() -> None:
+    candidate = classify_output_candidate(
+        text='{"ok":true,"query":"黄金价格 今日 2026","response_time":0.96,"request_id":"abc","results":[{"title":"Gold price today","content":"Gold opened at $4569.30 and rose to $4711.90."}]}',
+        route="builtin_tool_lane",
+        source="tool_result",
+        tool_name="web_search",
+        allow_unlabeled_answer=True,
+        has_tool_receipt=True,
+    )
+
+    assert candidate is not None
+    assert candidate.channel == "tool_raw_output"

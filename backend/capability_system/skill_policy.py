@@ -4,14 +4,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from capability_system.skill_registry import SkillDefinition, SkillPromptView, SkillRegistry
-from capability_system.tool_contracts import SkillToolScope
 
 
 @dataclass(frozen=True, slots=True)
 class SkillPolicyFrame:
     skill: SkillDefinition
     prompt_view: SkillPromptView
-    tool_scope: SkillToolScope
     reasons: tuple[str, ...] = ()
 
     @property
@@ -22,7 +20,16 @@ class SkillPolicyFrame:
         return {
             "name": self.skill.name,
             "title": self.skill.title,
-            "tool_scope": self.tool_scope.to_dict(),
+            "skill_contract": {
+                "supported_modalities": list(self.skill.supported_modalities),
+                "supported_task_kinds": list(self.skill.supported_task_kinds),
+                "supported_source_kinds": list(self.skill.supported_source_kinds),
+                "capability_tags": list(self.skill.capability_tags),
+                "preferred_route": self.skill.preferred_route,
+                "activation_policy": self.skill.activation_policy,
+                "context_mode": self.skill.context_mode,
+                "route_authority": self.skill.route_authority,
+            },
             "reasons": list(self.reasons),
         }
 
@@ -101,7 +108,7 @@ class SkillPolicyResolver:
                             name=skill.name,
                             title=skill.title,
                             selected=True,
-                            specificity=(1, 1, 1, 1, 0),
+                            specificity=(1, 1, 1, 1, 1),
                             reasons=("explicit_skill_name",),
                         ),
                     ),
@@ -166,12 +173,6 @@ class SkillPolicyResolver:
         if self._is_forbidden(skill, task_frame):
             return None
 
-        tool_name = str(getattr(task_frame, "tool_name", "") or "").strip()
-        candidate_tools = tuple(
-            str(item).strip()
-            for item in list(getattr(task_frame, "candidate_tools", []) or [])
-            if str(item).strip()
-        )
         capabilities = tuple(
             str(item).strip()
             for item in list(getattr(task_frame, "capability_requests", []) or [])
@@ -180,15 +181,13 @@ class SkillPolicyResolver:
         task_kind = str(getattr(task_frame, "task_kind", "") or "").strip()
         source_kind = str(getattr(task_frame, "source_kind", "") or "").strip()
         modality = str(getattr(task_frame, "modality", "") or "").strip()
+        preferred_skill = str(getattr(task_frame, "preferred_skill", "") or getattr(task_frame, "skill_name", "") or "").strip()
+        message = str(getattr(task_frame, "message", "") or getattr(task_frame, "query", "") or "").lower()
 
         reasons: list[str] = []
-        direct_tool_match = int(bool(tool_name and tool_name in set(skill.allowed_tools)))
-        if direct_tool_match:
-            reasons.append("tool_contract_match")
-
-        candidate_tool_match = int(bool(set(candidate_tools) & set(skill.allowed_tools)))
-        if candidate_tool_match:
-            reasons.append("candidate_tool_contract_match")
+        preferred_skill_match = int(bool(preferred_skill and preferred_skill == skill.name))
+        if preferred_skill_match:
+            reasons.append("preferred_skill_match")
 
         capability_match = len(set(capabilities) & set(skill.capability_tags))
         if capability_match:
@@ -206,18 +205,25 @@ class SkillPolicyResolver:
         if modality_match:
             reasons.append("modality_contract_match")
 
-        has_execution_anchor = direct_tool_match or candidate_tool_match
+        hint_match = int(bool(message and _text_matches(skill.routing_hints, message)))
+        if hint_match:
+            reasons.append("routing_hint_match")
+
+        example_match = int(bool(message and _text_matches(skill.examples, message)))
+        if example_match:
+            reasons.append("example_match")
+
         has_skill_contract = capability_match and (task_match or source_match or modality_match)
         has_route_contract = task_match and source_match and modality_match
-        if not (has_execution_anchor or has_skill_contract or has_route_contract):
+        if not (preferred_skill_match or has_skill_contract or has_route_contract or example_match):
             return None
 
         specificity = (
-            direct_tool_match,
-            candidate_tool_match,
+            preferred_skill_match,
+            int(has_route_contract),
             capability_match,
             task_match + source_match + modality_match,
-            -len(skill.allowed_tools),
+            hint_match + example_match,
         )
         return _SkillMatch(
             skill=skill,
@@ -233,7 +239,14 @@ class SkillPolicyResolver:
         return SkillPolicyFrame(
             skill=skill,
             prompt_view=skill.prompt_view,
-            tool_scope=skill.tool_scope(),
             reasons=reasons,
         )
 
+
+def _text_matches(patterns: list[str] | tuple[str, ...], text: str) -> bool:
+    normalized_text = text.lower()
+    for pattern in patterns:
+        normalized = str(pattern or "").strip().lower()
+        if normalized and normalized in normalized_text:
+            return True
+    return False

@@ -15,8 +15,8 @@ def main() -> None:
     assert shortage.source_kind == "dataset"
     assert shortage.task_kind == "dataset_query"
     assert shortage.target_object is None
-    assert shortage.route_hint == "tool"
-    assert shortage.execution_posture == "direct_tool"
+    assert shortage.route_hint == "structured_data"
+    assert shortage.execution_posture == "direct_mcp"
     assert shortage.capability_requests == ["dataset_analysis"]
     assert shortage.candidate_tools == []
     assert shortage.preferred_skill == "structured-data-analysis"
@@ -29,8 +29,8 @@ def main() -> None:
     local_database = analyze_task_understanding("为我搜索本地的数据库，看看有没有缺货情况")
     assert local_database.source_kind == "dataset"
     assert local_database.task_kind == "dataset_query"
-    assert local_database.route_hint == "tool"
-    assert local_database.execution_posture == "direct_tool"
+    assert local_database.route_hint == "structured_data"
+    assert local_database.execution_posture == "direct_mcp"
     assert local_database.capability_requests == ["dataset_analysis"]
     assert local_database.preferred_skill == "structured-data-analysis"
     assert local_database.structural_signals["local_knowledge_scope"] is True
@@ -40,7 +40,7 @@ def main() -> None:
     explicit_dataset = analyze_task_understanding("帮我看一下 inventory.xlsx 里哪些货物缺货")
     assert explicit_dataset.source_kind == "dataset"
     assert explicit_dataset.task_kind == "dataset_query"
-    assert explicit_dataset.route_hint == "tool"
+    assert explicit_dataset.route_hint == "structured_data"
     assert explicit_dataset.capability_requests == ["dataset_analysis"]
     assert explicit_dataset.candidate_tools == []
     assert explicit_dataset.preferred_skill == "structured-data-analysis"
@@ -61,7 +61,7 @@ def main() -> None:
     )
     assert bound_dataset_followup.source_kind == "dataset"
     assert bound_dataset_followup.task_kind == "dataset_query"
-    assert bound_dataset_followup.route_hint == "tool"
+    assert bound_dataset_followup.route_hint == "structured_data"
     assert bound_dataset_followup.preferred_skill == "structured-data-analysis"
     assert bound_dataset_followup.parameters == {
         "query": "按仓库展开一下",
@@ -73,6 +73,8 @@ def main() -> None:
     assert pdf_page.source_kind == "document"
     assert pdf_page.task_kind == "document_page"
     assert pdf_page.target_object is None
+    assert pdf_page.route_hint == "pdf"
+    assert pdf_page.execution_posture == "direct_mcp"
     assert pdf_page.preferred_skill == "pdf-analysis"
     assert pdf_page.capability_requests == ["document_analysis"]
     assert pdf_page.parameters["mode"] == "page"
@@ -88,7 +90,7 @@ def main() -> None:
         active_bindings={"committed_pdf": "knowledge/AI Knowledge/report.pdf"},
     )
     assert bound_pdf_followup.source_kind == "document"
-    assert bound_pdf_followup.route_hint == "tool"
+    assert bound_pdf_followup.route_hint == "pdf"
     assert bound_pdf_followup.preferred_skill == "pdf-analysis"
     assert bound_pdf_followup.parameters["path"] == "knowledge/AI Knowledge/report.pdf"
     assert bound_pdf_followup.direct_route_reason == "bound_pdf_followup"
@@ -125,18 +127,21 @@ def main() -> None:
     assert weather.task_kind == "realtime_lookup"
     assert weather.target_object is None
     assert weather.preferred_skill is None
-    assert weather.capability_requests == ["weather"]
-    assert weather.candidate_tools == ["get_weather"]
-    assert weather.direct_route_reason == "dedicated_weather_capability"
+    assert weather.route_hint == "realtime_network"
+    assert weather.execution_posture == "builtin_tool_lane"
+    assert weather.capability_requests == ["weather", "latest_information"]
+    assert weather.candidate_tools == ["web_search"]
+    assert weather.direct_route_reason == "weather_realtime_task"
 
     explicit_web = analyze_task_understanding("帮我联网查 OpenAI API 最新更新")
-    assert explicit_web.route_hint == "tool"
+    assert explicit_web.route_hint == "realtime_network"
     assert explicit_web.capability_requests == ["latest_information"]
-    assert explicit_web.candidate_tools == []
+    assert explicit_web.candidate_tools == ["web_search"]
     assert explicit_web.direct_route_reason == "explicit_external_constraint"
 
     workspace_read = analyze_task_understanding("打开 backend/understanding/task_understanding.py 给我看看源码")
-    assert workspace_read.route_hint == "tool"
+    assert workspace_read.route_hint == "workspace_read"
+    assert workspace_read.execution_posture == "builtin_tool_lane"
     assert workspace_read.task_kind == "workspace_file_read"
     assert workspace_read.source_kind == "workspace"
     assert workspace_read.capability_requests == ["workspace_read"]

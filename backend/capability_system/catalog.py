@@ -121,38 +121,6 @@ def tool_runtime_policy(tool: dict[str, Any]) -> str:
     return "需要显式触发"
 
 
-def tool_bound_skills(skills: list[dict[str, Any]], tool_name: str) -> list[dict[str, str]]:
-    bindings = []
-    for skill in skills:
-        runtime = skill.get("runtime") if isinstance(skill.get("runtime"), dict) else {}
-        allowed_tools = runtime.get("allowed_tools") if isinstance(runtime, dict) else []
-        if not isinstance(allowed_tools, list) or tool_name not in allowed_tools:
-            continue
-        bindings.append(
-            {
-                "name": str(runtime.get("name") or ""),
-                "title": str(runtime.get("title") or runtime.get("name") or ""),
-                "activation_policy": str(runtime.get("activation_policy") or ""),
-                "context_mode": str(runtime.get("context_mode") or ""),
-            }
-        )
-    return bindings
-
-
-def skill_allowed_operations(skill: dict[str, Any], tools_by_name: dict[str, dict[str, Any]]) -> list[str]:
-    runtime = skill.get("runtime") if isinstance(skill.get("runtime"), dict) else {}
-    operation_ids: list[str] = []
-    seen: set[str] = set()
-    for tool_name in list(runtime.get("allowed_tools") or []):
-        tool = tools_by_name.get(str(tool_name or ""))
-        operation_id = str((tool or {}).get("operation_id") or "").strip()
-        if not operation_id or operation_id in seen:
-            continue
-        seen.add(operation_id)
-        operation_ids.append(operation_id)
-    return operation_ids
-
-
 def agent_tool_bindings(tools: list[dict[str, Any]]) -> dict[str, list[str]]:
     bindings: dict[str, list[str]] = {MAIN_AGENT_ID: []}
     known_tool_names = {str(tool.get("name") or "") for tool in tools}
@@ -229,7 +197,6 @@ def tool_governance_hints(tool: dict[str, Any]) -> list[str]:
 def operation_tool_metadata(
     tool: dict[str, Any],
     metadata: dict[str, Any],
-    skills: list[dict[str, Any]],
     bound_agents_by_tool: dict[str, list[dict[str, str]]] | None = None,
 ) -> dict[str, Any]:
     tool_type = str(metadata.get("tool_type") or "").strip() or default_tool_type(tool)
@@ -250,7 +217,6 @@ def operation_tool_metadata(
         "visibility_label": tool_visibility_label(tool),
         "runtime_policy": tool_runtime_policy(tool),
         "editable_policy": "前端可编辑类型与备注；工具注册、执行契约和安全边界由后端代码控制。",
-        "bound_skills": tool_bound_skills(skills, tool_name),
         "bound_agents": bound_agents,
         "ownership_label": " / ".join(item["name"] for item in bound_agents) if bound_agents else "尚未绑定智能体",
         "governance_hints": tool_governance_hints(tool),
@@ -282,22 +248,6 @@ def build_binding_graph(
     mcps: list[dict[str, Any]] | None = None,
 ) -> CapabilityBindingGraph:
     tool_lookup = {str(tool.get("name") or ""): tool for tool in tools}
-    skill_edges: list[CapabilityBindingEdge] = []
-    for skill in skills:
-        runtime = skill.get("runtime") if isinstance(skill.get("runtime"), dict) else {}
-        for tool_name in list(runtime.get("allowed_tools") or []):
-            if tool_name not in tool_lookup:
-                continue
-            skill_edges.append(
-                CapabilityBindingEdge(
-                    from_id=str(runtime.get("name") or ""),
-                    from_label=str(runtime.get("title") or runtime.get("name") or ""),
-                    to_id=str(tool_lookup[tool_name].get("operation_id") or tool_name),
-                    to_label=tool_name,
-                    relation="skill 缩小 tool 候选范围",
-                )
-            )
-
     nodes = agent_binding_nodes(bindings_by_agent)
     agent_name_by_id = {node.agent_id: node.name for node in nodes}
     agent_edges: list[CapabilityBindingEdge] = []
@@ -353,7 +303,6 @@ def build_binding_graph(
     return CapabilityBindingGraph(
         agent_nodes=nodes,
         mcp_nodes=mcp_nodes,
-        skill_tool_edges=skill_edges,
         agent_tool_edges=agent_edges,
         mcp_operation_edges=mcp_edges,
         recommendations=recommendations,
@@ -377,20 +326,12 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         tools.append(
             {
                 **record,
-                "operation_metadata": operation_tool_metadata(record, metadata, skills, bound_agents_by_tool),
+                "operation_metadata": operation_tool_metadata(record, metadata, bound_agents_by_tool),
             }
         )
-    tools_by_name = {str(tool.get("name") or ""): tool for tool in tools}
     capability_endpoints = build_capability_endpoints(
         mcps=mcps,
     )
-    skills = [
-        {
-            **skill,
-            "allowed_operations": skill_allowed_operations(skill, tools_by_name),
-        }
-        for skill in skills
-    ]
 
     risk_counts: dict[str, int] = {}
     boundary_counts: dict[str, int] = {}

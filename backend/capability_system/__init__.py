@@ -26,7 +26,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "default_tool_type": (".catalog", "default_tool_type"),
     "default_mcp_entries": (".mcp_registry", "default_mcp_entries"),
     "operation_tool_metadata": (".catalog", "operation_tool_metadata"),
-    "set_skill_allowed_tools": (".skill_authoring", "set_skill_allowed_tools"),
     "set_skill_prompt_view": (".skill_authoring", "set_skill_prompt_view"),
 }
 

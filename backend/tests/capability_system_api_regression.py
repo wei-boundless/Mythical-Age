@@ -15,7 +15,7 @@ from capability_system import (
     build_capability_supply_package_from_catalog,
     default_tool_type,
     operation_tool_metadata,
-    set_skill_allowed_tools,
+    set_skill_prompt_view,
 )
 from capability_system.validation import validate_capability_catalog
 from capability_system import build_default_operation_registry
@@ -24,7 +24,7 @@ from capability_system import build_default_operation_registry
 def test_capability_system_default_tool_types_are_user_readable() -> None:
     assert default_tool_type({"name": "web_search", "capability_tags": ["web", "realtime"], "supported_modalities": []}) == "实时查询"
     assert default_tool_type({"name": "read_file", "capability_tags": ["file", "workspace"], "supported_modalities": []}) == "本地文件"
-    assert default_tool_type({"name": "pdf_analysis", "capability_tags": ["pdf", "document"], "supported_modalities": []}) == "文档数据"
+    assert default_tool_type({"name": "mcp_pdf", "capability_tags": ["pdf", "document"], "supported_modalities": []}) == "文档数据"
     assert default_tool_type({"name": "terminal", "capability_tags": [], "supported_modalities": [], "safety_tags": ["shell"]}) == "系统执行"
 
 
@@ -39,7 +39,7 @@ def test_capability_system_rejects_unsafe_skill_names() -> None:
         raise AssertionError(f"unsafe skill name was accepted: {name}")
 
 
-def test_operation_tool_metadata_exposes_boundary_risk_and_skill_bindings() -> None:
+def test_operation_tool_metadata_exposes_boundary_risk_and_agent_bindings() -> None:
     tool = {
         "name": "terminal",
         "capability_tags": ["shell", "terminal"],
@@ -54,43 +54,30 @@ def test_operation_tool_metadata_exposes_boundary_risk_and_skill_bindings() -> N
         "is_destructive": True,
         "is_concurrency_safe": False,
     }
-    skills = [
-        {
-            "runtime": {
-                "name": "workspace-ops",
-                "title": "工作区操作",
-                "allowed_tools": ["terminal"],
-                "activation_policy": "manual",
-                "context_mode": "isolated",
-            }
-        }
-    ]
-
-    metadata = operation_tool_metadata(tool, {"tool_type": "系统执行", "note": "requires review"}, skills)
+    metadata = operation_tool_metadata(tool, {"tool_type": "系统执行", "note": "requires review"})
 
     assert metadata["tool_boundary"] == "系统执行"
     assert metadata["adapter_type"] == "本地命令"
     assert metadata["risk_level"] == "极高"
     assert metadata["runtime_policy"] == "需要显式触发"
-    assert metadata["bound_skills"][0]["title"] == "工作区操作"
     assert "建议保持人工确认" in metadata["governance_hints"]
 
 
 def test_operation_agent_bindings_keep_pdf_tools_off_main_agent() -> None:
     tools = [
         {"name": "web_search", "runtime_visibility": "main_runtime"},
-        {"name": "pdf_analysis", "runtime_visibility": "agent_internal"},
+        {"name": "mcp_pdf", "runtime_visibility": "agent_internal"},
         {"name": "analyze_multimodal_file", "runtime_visibility": "agent_internal"},
     ]
 
     bindings = agent_tool_bindings(tools)
 
     assert "web_search" in bindings["agent:0"]
-    assert "pdf_analysis" not in bindings["agent:0"]
-    assert "pdf_analysis" in bindings["agent:document:pdf"]
+    assert "mcp_pdf" not in bindings["agent:0"]
+    assert bindings["agent:document:pdf"] == []
 
 
-def test_operation_skill_tool_binding_updates_frontmatter(tmp_path: Path) -> None:
+def test_skill_prompt_view_updates_frontmatter(tmp_path: Path) -> None:
     skill_path = tmp_path / "SKILL.md"
     skill_path.write_text(
         """---
@@ -98,8 +85,6 @@ name: demo
 description: demo skill
 metadata:
   display_name: Demo
-  allowed_tools:
-    - old_tool
 ---
 
 # Demo
@@ -107,12 +92,21 @@ metadata:
         encoding="utf-8",
     )
 
-    allowed = set_skill_allowed_tools(skill_path, ["pdf_analysis", "unknown", "pdf_analysis"], {"pdf_analysis"})
+    prompt = set_skill_prompt_view(
+        skill_path,
+        {
+            "name": "demo",
+            "title": "Demo Skill",
+            "capability": "Describe a repeatable method.",
+            "use_when": "Use when the user asks for this workflow.",
+            "output_rule": "Answer directly.",
+        },
+    )
     text = skill_path.read_text(encoding="utf-8")
 
-    assert allowed == ["pdf_analysis"]
-    assert "pdf_analysis" in text
-    assert "unknown" not in text
+    assert prompt["title"] == "Demo Skill"
+    assert "prompt:" in text
+    assert "Describe a repeatable method." in text
 
 
 def test_capability_validation_detects_contract_edges() -> None:
@@ -130,7 +124,6 @@ def test_capability_validation_detects_contract_edges() -> None:
             "is_read_only": True,
         },
     ]
-    skills = [{"runtime": {"name": "ops", "allowed_tools": ["terminal", "missing_tool"]}}]
     operations = [
         {
             "operation_id": "op.shell",
@@ -145,7 +138,7 @@ def test_capability_validation_detects_contract_edges() -> None:
     ]
 
     issues = validate_capability_catalog(
-        skills=skills,
+        skills=[],
         tools=tools,
         agent_bindings={"agent:test": ["ghost", "missing_agent_tool"]},
         operations=operations,
@@ -153,7 +146,6 @@ def test_capability_validation_detects_contract_edges() -> None:
     )
     codes = {issue.code for issue in issues}
 
-    assert "skill_unknown_tool" in codes
     assert "tool_unknown_operation" in codes
     assert "agent_unknown_tool" in codes
     assert "duplicate_operation_alias" in codes
@@ -207,15 +199,15 @@ def test_capability_supply_package_filters_to_requested_operation_scope() -> Non
                         "title": "PDF 分析",
                         "activation_policy": "model_visible",
                         "context_mode": "isolated",
-                        "allowed_tools": ["pdf_analysis"],
-                    },
-                    "allowed_operations": ["op.pdf_analysis"],
+                        "preferred_route": "pdf",
+                        "capability_tags": ["document_analysis", "pdf"],
+                    }
                 }
             ],
             "tools": [
                 {
-                    "name": "pdf_analysis",
-                    "operation_id": "op.pdf_analysis",
+                    "name": "mcp_pdf",
+                    "operation_id": "op.mcp_pdf",
                     "runtime_visibility": "agent_internal",
                     "prompt_exposure_policy": "schema_only",
                     "operation_metadata": {
@@ -248,15 +240,17 @@ def test_capability_supply_package_filters_to_requested_operation_scope() -> Non
             ],
         },
         task_id="task-pdf",
-        operation_scope=["op.pdf_analysis"],
+        operation_scope=["op.mcp_pdf"],
     )
 
     assert package.task_id == "task-pdf"
-    assert [item.tool_name for item in package.tool_refs] == ["pdf_analysis"]
+    assert [item.tool_name for item in package.tool_refs] == ["mcp_pdf"]
     assert [item.skill_name for item in package.skill_refs] == ["pdf-analysis"]
-    assert package.mcp_refs == []
-    assert package.capability_constraints["operation_scope"] == ["op.pdf_analysis"]
-    assert package.visibility_rules["agent_internal_tools"] == ["pdf_analysis"]
+    assert package.skill_refs[0].preferred_route == "pdf"
+    assert package.skill_refs[0].capability_tags == ("document_analysis", "pdf")
+    assert [item.operation_id for item in package.mcp_refs] == ["op.mcp_pdf"]
+    assert package.capability_constraints["operation_scope"] == ["op.mcp_pdf"]
+    assert package.visibility_rules["agent_internal_tools"] == ["mcp_pdf"]
 
 
 def test_resource_policy_candidate_api_is_read_only_and_fail_closed() -> None:

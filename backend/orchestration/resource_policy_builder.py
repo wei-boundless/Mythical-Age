@@ -6,6 +6,7 @@ from capability_system.operation_registry import OperationDescriptor, OperationR
 from tasks.capability_requirements import OperationRequirement
 
 from .resource_policy import ResourceDecision, ResourcePolicy
+from .resource_scope_mapping import map_operations_to_resource_scopes
 
 
 APPROVAL_RISK_TAGS = {
@@ -94,6 +95,9 @@ def build_resource_policy_candidate(
     denied_tuple = tuple(_dedupe(denied))
     requires_tuple = tuple(_dedupe(requires_approval))
     not_executable_tuple = tuple(_dedupe(not_executable))
+    allowed_scope = map_operations_to_resource_scopes(allowed_tuple, registry)
+    denied_scope = map_operations_to_resource_scopes(denied_tuple, registry)
+    not_executable_scope = map_operations_to_resource_scopes(not_executable_tuple, registry)
     return ResourcePolicy(
         policy_id=f"respol:{requirement.task_id}:candidate",
         task_id=requirement.task_id,
@@ -101,12 +105,12 @@ def build_resource_policy_candidate(
         denied_operations=denied_tuple,
         requires_approval_operations=requires_tuple,
         not_executable_operations=not_executable_tuple,
-        allowed_tools=allowed_tuple,
-        denied_tools=denied_tuple,
-        allowed_mcps=(),
-        denied_mcps=tuple(op for op in denied_tuple if _operation_type(registry, op) == "mcp"),
+        allowed_tools=allowed_scope.tool_names,
+        denied_tools=denied_scope.tool_names,
+        allowed_mcps=not_executable_scope.mcp_routes,
+        denied_mcps=denied_scope.mcp_routes,
         allowed_agents=(),
-        denied_agents=tuple(op for op in denied_tuple if _operation_type(registry, op) == "agent"),
+        denied_agents=denied_scope.agent_ids,
         approval_policy=str(requirement.metadata.get("approval_policy") or "default"),
         runtime_view_only=True,
         adopted=False,
@@ -118,6 +122,11 @@ def build_resource_policy_candidate(
             "resource_policy_adopted": False,
             "runtime_executable": False,
             "operation_gate_required_before_execution": True,
+            "scope_mapping": {
+                "allowed": allowed_scope.to_dict(),
+                "denied": denied_scope.to_dict(),
+                "not_executable": not_executable_scope.to_dict(),
+            },
         },
     )
 
@@ -201,11 +210,6 @@ def _approval_channel(context: RuntimeApprovalContext) -> str:
     if context.bubble_to_parent_allowed:
         return "parent"
     return "deny"
-
-
-def _operation_type(registry: OperationRegistry, operation_id: str) -> str:
-    descriptor = registry.get_operation(operation_id)
-    return descriptor.operation_type if descriptor else ""
 
 
 def _dedupe(values: list[str] | tuple[str, ...]) -> list[str]:

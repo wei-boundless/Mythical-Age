@@ -209,6 +209,7 @@ def build_task_execution_assembly_bundle(
         registered_task=registered_task,
         current_turn_context=current_turn_payload,
     )
+    coordination_request_brief = dict(task_spec.inputs.get("coordination_request_brief") or {})
     coordination_task = _select_coordination_task(
         flow_registry=flow_registry,
         registered_task=registered_task,
@@ -275,6 +276,7 @@ def build_task_execution_assembly_bundle(
             "memory_topics": list(getattr(memory_request_profile, "requested_topics", ()) or ()),
             "execution_policy_mode": str(getattr(execution_policy, "adoption_mode", "") or ""),
             "runtime_limits": dict(runtime_limits),
+            **({"coordination_request_ref": coordination_request_brief.get("brief_id")} if coordination_request_brief else {}),
             "final_answer_requirements": list(
                 dict(getattr(selected_template, "metadata", {}) or {}).get("final_answer_requirements") or []
             ),
@@ -291,6 +293,7 @@ def build_task_execution_assembly_bundle(
         "selected_template": selected_template.to_dict(),
         "bundle_spec": bundle_spec.to_dict() if bundle_spec is not None else {},
         "task_spec": task_spec.to_dict(),
+        "coordination_request_brief": coordination_request_brief,
         "binding": merged_binding.to_dict(),
         "skill_runtime_views": [view.to_dict() for view in skill_views],
         "operation_requirement": operation_requirement.to_dict(),
@@ -381,7 +384,6 @@ def _skill_runtime_view_from_active_skill(active_skill: dict[str, Any]) -> Skill
     if not active_skill:
         return None
     prompt_view = dict(active_skill.get("prompt_view") or {})
-    tool_scope = dict(active_skill.get("tool_scope") or {})
     skill_id = str(active_skill.get("name") or prompt_view.get("name") or "").strip()
     if not skill_id:
         return None
@@ -396,15 +398,6 @@ def _skill_runtime_view_from_active_skill(active_skill: dict[str, Any]) -> Skill
         task_reason=", ".join(list(active_skill.get("reasons") or ())) or "Selected by skill policy.",
         method_summary=" ".join(method_parts) or title,
         output_boundary=output_rule,
-        required_operations=tuple(
-            _dedupe(
-                [
-                    str(item or "").strip()
-                    for item in list(tool_scope.get("allowed_tools") or ())
-                    if str(item or "").strip().startswith("op.")
-                ]
-            )
-        ),
     )
 
 
@@ -450,6 +443,16 @@ def _select_communication_protocol(
         protocol = flow_registry.get_task_communication_protocol(metadata_protocol_id)
         if protocol is not None:
             return protocol
+    coordination_task = _select_coordination_task(
+        flow_registry=flow_registry,
+        registered_task=registered_task,
+        current_turn_context=current_turn_payload,
+    )
+    protocol_id = str(dict(getattr(coordination_task, "metadata", {}) or {}).get("protocol_id") or "").strip()
+    if protocol_id:
+        protocol = flow_registry.get_task_communication_protocol(protocol_id)
+        if protocol is not None:
+            return protocol
     if task_id.startswith("task.health.") or task_family == "health":
         return flow_registry.get_task_communication_protocol("protocol.health.repair_review")
     if task_id == "task.writing.short_story":
@@ -491,6 +494,9 @@ def _select_coordination_task(
             ),
             None,
         )
+    for item in flow_registry.list_coordination_tasks():
+        if task_id and task_id in item.subtask_refs:
+            return item
     if task_id.startswith("task.health.") or task_family == "health":
         return next(
             (

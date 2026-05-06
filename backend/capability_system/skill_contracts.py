@@ -57,7 +57,6 @@ class SkillRuntimeContract:
     title: str
     description: str
     path: str
-    allowed_tools: list[str] = field(default_factory=list)
     supported_modalities: list[str] = field(default_factory=list)
     supported_task_kinds: list[str] = field(default_factory=list)
     supported_source_kinds: list[str] = field(default_factory=list)
@@ -80,7 +79,6 @@ class SkillRuntimeContract:
             title=normalize_string(self.title),
             description=normalize_string(self.description),
             path=normalize_string(self.path),
-            allowed_tools=normalize_string_list(self.allowed_tools),
             supported_modalities=normalize_string_list(self.supported_modalities),
             supported_task_kinds=normalize_string_list(self.supported_task_kinds),
             supported_source_kinds=normalize_string_list(self.supported_source_kinds),
@@ -149,7 +147,6 @@ class SkillContract:
             title=normalize_string(runtime_payload.get("title")),
             description=normalize_string(runtime_payload.get("description")),
             path=normalize_string(runtime_payload.get("path")),
-            allowed_tools=normalize_string_list(runtime_payload.get("allowed_tools")),
             supported_modalities=normalize_string_list(runtime_payload.get("supported_modalities")),
             supported_task_kinds=normalize_string_list(runtime_payload.get("supported_task_kinds")),
             supported_source_kinds=normalize_string_list(runtime_payload.get("supported_source_kinds")),
@@ -191,4 +188,3 @@ class SkillContract:
             "prompt": self.prompt.to_dict(),
             "validation_errors": list(self.validation_errors),
         }
-

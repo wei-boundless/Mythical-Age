@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -47,6 +48,62 @@ def _looks_garbled(text: str) -> bool:
 def _fallback_title(url: str) -> str:
     host = urlparse(url or "").netloc.strip()
     return host or "source"
+
+
+def _collapse_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _truncate(text: str, limit: int) -> str:
+    normalized = _collapse_whitespace(text)
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip(" ,，。.;；:：") + "..."
+
+
+def _result_host(url: str) -> str:
+    parsed = urlparse(str(url or "").strip())
+    return parsed.netloc.strip() or "source"
+
+
+def _format_search_summary(payload: dict[str, Any], *, query: str, topic: str) -> str:
+    results = [dict(item) for item in list(payload.get("results") or []) if isinstance(item, dict)]
+    declared_topic = _collapse_whitespace(payload.get("topic") or topic or "general") or "general"
+    lines = [
+        f"查询：{_collapse_whitespace(query)}",
+        f"主题：{declared_topic}",
+        f"结果：命中 {len(results)} 条来源",
+    ]
+
+    highlights: list[str] = []
+    answer = _truncate(payload.get("answer") or "", 220)
+    if answer:
+        highlights.append(answer)
+    for item in results:
+        title = _truncate(item.get("title") or "", 70) or _fallback_title(str(item.get("url") or ""))
+        content = _truncate(item.get("content") or "", 220)
+        if not content:
+            continue
+        highlight = f"{title}：{content}"
+        if highlight not in highlights:
+            highlights.append(highlight)
+        if len(highlights) >= 2:
+            break
+
+    if highlights:
+        lines.append("")
+        lines.append("关键信息：")
+        lines.extend(f"- {item}" for item in highlights[:2])
+
+    if results:
+        lines.append("")
+        lines.append("来源：")
+        for index, item in enumerate(results[:3], start=1):
+            title = _truncate(item.get("title") or "", 80) or _fallback_title(str(item.get("url") or ""))
+            host = _result_host(str(item.get("url") or ""))
+            lines.append(f"{index}. {title}（{host}）")
+
+    return "\n".join(lines).strip()
 
 
 def _sanitize_search_payload(payload: dict[str, Any], query: str) -> dict[str, Any]:
@@ -149,7 +206,7 @@ class WebSearchTool(BaseTool):
         max_results: int = 5,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
-        script_path = self._root_dir / "skills" / "web-search" / "scripts" / "tavily_search.py"
+        script_path = self._root_dir / "capability_system" / "units" / "tools" / "tavily_search.py"
         if not script_path.exists():
             return "联网搜索失败：未找到 Tavily 搜索脚本。"
 
@@ -191,7 +248,18 @@ class WebSearchTool(BaseTool):
             return f"联网搜索失败：无法解析 Tavily 返回内容。\n原始输出：{raw[:1500]}"
 
         payload = _sanitize_search_payload(payload, query)
-        return json.dumps(payload, ensure_ascii=False, indent=2)
+        if not bool(payload.get("ok", True)):
+            error_text = _collapse_whitespace(payload.get("error") or "联网搜索失败。")
+            details = _truncate(payload.get("body") or payload.get("details") or "", 240)
+            if details:
+                return f"{error_text}\n详情：{details}"
+            return error_text
+
+        return _format_search_summary(
+            payload,
+            query=str(payload.get("query") or query),
+            topic=resolved_topic,
+        )
 
     async def _arun(
         self,

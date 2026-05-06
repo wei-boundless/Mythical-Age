@@ -44,6 +44,7 @@ class SoulProjectionService:
             self.base_dir,
             request=request_payload,
             soul_name=profile.display_name,
+            soul_profile=profile.to_dict(),
             selected=bool(select_after_create),
         )
         return reconcile_projection_store(

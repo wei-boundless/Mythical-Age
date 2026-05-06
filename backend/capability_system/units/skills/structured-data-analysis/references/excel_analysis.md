@@ -39,4 +39,4 @@ merged = pd.merge(sales, customers, on="customer_id", how="left")
 ## 注意
 
 - 先明确任务类型，再选分析原语。
-- 对结构化数据问题，优先走 `structured_data_analysis`，不要把参考文档当执行路径。
+- 对结构化数据问题，优先走 structured_data MCP，不要把参考文档当执行路径。

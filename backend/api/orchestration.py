@@ -123,7 +123,6 @@ async def orchestration_catalog() -> dict[str, Any]:
                     "use_when": skill.prompt_view.use_when,
                     "output_rule": skill.prompt_view.output_rule,
                 },
-                "tool_scope": skill.tool_scope().to_dict(),
             }
         )
     tools = [tool.to_registry_record() for tool in runtime.tool_runtime.definitions]

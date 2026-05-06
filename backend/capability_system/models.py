@@ -66,7 +66,6 @@ class CapabilityBindingEdge:
 class CapabilityBindingGraph:
     agent_nodes: list[AgentCapability] = field(default_factory=list)
     mcp_nodes: list[MCPCapability] = field(default_factory=list)
-    skill_tool_edges: list[CapabilityBindingEdge] = field(default_factory=list)
     agent_tool_edges: list[CapabilityBindingEdge] = field(default_factory=list)
     mcp_operation_edges: list[CapabilityBindingEdge] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
@@ -75,7 +74,6 @@ class CapabilityBindingGraph:
         return {
             "agent_nodes": [node.to_dict() for node in self.agent_nodes],
             "mcp_nodes": [node.to_dict() for node in self.mcp_nodes],
-            "skill_tool_edges": [edge.to_operation_edge() for edge in self.skill_tool_edges],
             "agent_tool_edges": [edge.to_operation_edge() for edge in self.agent_tool_edges],
             "mcp_operation_edges": [edge.to_operation_edge() for edge in self.mcp_operation_edges],
             "recommendations": list(self.recommendations),
@@ -113,13 +111,12 @@ class CapabilitySupplySkillRef:
     title: str
     activation_policy: str
     context_mode: str
-    allowed_tools: tuple[str, ...] = ()
-    allowed_operations: tuple[str, ...] = ()
+    preferred_route: str = ""
+    capability_tags: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["allowed_tools"] = list(self.allowed_tools)
-        payload["allowed_operations"] = list(self.allowed_operations)
+        payload["capability_tags"] = list(self.capability_tags)
         return payload
 
 

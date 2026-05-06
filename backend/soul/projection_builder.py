@@ -73,16 +73,25 @@ class SoulProjectionBuilder:
             )
             for item in runtime_tool_views
         ]
+        role_view_content = (
+            f"当前 TaskMode: {request.task_mode}\n"
+            f"当前 RoleType: {request.role_type}\n"
+            f"当前 AgentProfile: {request.agent_profile_id}\n"
+            "投影只约束本次任务的关注点、角色姿态和输出形态。"
+        )
+        projection_identity = str(request.identity_anchor or "").strip()
+        if projection_identity:
+            role_view_content = f"{projection_identity}\n\n{role_view_content}"
         return (
             PromptSection(
                 section_id="identity_view",
-                title="灵魂身份",
+                title="灵魂基础身份",
                 source_type="soul_seed",
                 source_id=seed_path,
                 owner_layer="soul",
                 cache_scope="static",
                 visible_to_model=True,
-                content=seed_content.strip(),
+                content=_strip_identity_anchor(seed_content).strip(),
                 source_refs=(seed_path,),
             ),
             PromptSection(
@@ -115,12 +124,7 @@ class SoulProjectionBuilder:
                 owner_layer="task",
                 cache_scope="dynamic",
                 visible_to_model=True,
-                content=(
-                    f"当前 TaskMode: {request.task_mode}\n"
-                    f"当前 RoleType: {request.role_type}\n"
-                    f"当前 AgentProfile: {request.agent_profile_id}\n"
-                    "投影只约束本次任务的关注点、角色姿态和输出形态。"
-                ),
+                content=role_view_content,
                 source_refs=(request.task_id,),
             ),
             PromptSection(
@@ -165,3 +169,19 @@ class SoulProjectionBuilder:
             f"{request.usage_summary}"
         )
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _strip_identity_anchor(content: str) -> str:
+    lines = content.splitlines()
+    kept: list[str] = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## ") and ("身份锚点" in stripped or "Identity Anchor" in stripped):
+            skipping = True
+            continue
+        if skipping and stripped.startswith("## "):
+            skipping = False
+        if not skipping:
+            kept.append(line)
+    return "\n".join(kept).strip()

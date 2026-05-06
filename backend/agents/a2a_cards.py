@@ -3,16 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from capability_system.mcp_adapter import MCP_COMPATIBLE_PROTOCOL_VERSION, get_mcp_tool_view
+from capability_system.local_mcp_registry import build_local_mcp_agent_map, default_local_mcp_units
+from capability_system.mcp_adapter import MCP_COMPATIBLE_PROTOCOL_VERSION
 
 
 A2A_COMPATIBLE_PROTOCOL_VERSION = "a2a-compatible.v1"
-AGENT_ID_BY_MCP_ROUTE: dict[str, str] = {
-    "retrieval": "agent:knowledge:retrieval",
-    "evidence_orchestrator": "agent:knowledge:retrieval",
-    "pdf": "agent:document:pdf",
-    "structured_data": "agent:data:structured",
-}
+AGENT_ID_BY_MCP_ROUTE: dict[str, str] = build_local_mcp_agent_map()
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,75 +45,36 @@ class A2AAgentCard:
 
 
 def build_default_agent_cards() -> dict[str, A2AAgentCard]:
-    return {
-        AGENT_ID_BY_MCP_ROUTE["retrieval"]: A2AAgentCard(
-            agent_id=AGENT_ID_BY_MCP_ROUTE["retrieval"],
-            name="检索智能体",
-            description="查询本地知识证据，返回可追踪的候选证据与对象句柄。",
-            supports_long_task=True,
+    cards: dict[str, A2AAgentCard] = {}
+    for unit in default_local_mcp_units():
+        cards[unit.agent_id] = A2AAgentCard(
+            agent_id=unit.agent_id,
+            name=unit.a2a_name,
+            description=unit.a2a_description,
+            supports_long_task=unit.supports_long_task,
+            default_input_modes=list(unit.default_input_modes),
+            default_output_modes=list(unit.default_output_modes),
             skills=[
                 A2AAgentSkill(
-                    id="knowledge-retrieval",
-                    name="知识检索",
-                    description="召回本地知识，但不把原始片段直接当作主线程结论。",
-                    tags=["rag", "retrieval", "knowledge"],
-                    input_modes=["text/plain"],
-                    output_modes=["application/json"],
+                    id=unit.a2a_skill_id,
+                    name=unit.a2a_skill_name,
+                    description=unit.a2a_skill_description,
+                    tags=list(unit.tags),
+                    input_modes=list(unit.default_input_modes),
+                    output_modes=list(unit.default_output_modes),
                 )
             ],
-            mcp_profile=_mcp_profile(["search_knowledge"]),
-            extensions={"x-langchain-agent.mcp_route": "retrieval"},
-        ),
-        AGENT_ID_BY_MCP_ROUTE["pdf"]: A2AAgentCard(
-            agent_id=AGENT_ID_BY_MCP_ROUTE["pdf"],
-            name="文档智能体",
-            description="读取 PDF 与文档产物，抽取页级/章节级证据，并把表格产物继续移交。",
-            supports_long_task=True,
-            skills=[
-                A2AAgentSkill(
-                    id="pdf-analysis",
-                    name="PDF 分析",
-                    description="分析用户明确指定或由句柄绑定的 PDF 来源。",
-                    tags=["pdf", "document", "page"],
-                    input_modes=["text/plain", "application/pdf"],
-                    output_modes=["application/json", "text/plain"],
-                )
-            ],
-            mcp_profile=_mcp_profile(["pdf_analysis", "analyze_multimodal_file"]),
-            extensions={"x-langchain-agent.mcp_route": "pdf"},
-        ),
-        AGENT_ID_BY_MCP_ROUTE["structured_data"]: A2AAgentCard(
-            agent_id=AGENT_ID_BY_MCP_ROUTE["structured_data"],
-            name="结构化数据智能体",
-            description="围绕表格句柄执行结构识别、聚合分析和子集延续处理。",
-            supports_long_task=False,
-            skills=[
-                A2AAgentSkill(
-                    id="structured-data-analysis",
-                    name="结构化数据分析",
-                    description="分析用户明确指定或由句柄绑定的表格/数据集来源。",
-                    tags=["table", "dataset", "analytics"],
-                    input_modes=["text/plain", "text/csv", "application/json"],
-                    output_modes=["application/json", "text/plain"],
-                )
-            ],
-            mcp_profile=_mcp_profile(["structured_data_analysis"]),
-            extensions={"x-langchain-agent.mcp_route": "structured_data"},
-        ),
-    }
+            mcp_profile={
+                "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
+                "tools": [],
+            },
+            extensions={
+                "x-langchain-agent.mcp_route": unit.route,
+                "x-langchain-agent.local_mcp_unit": unit.unit_id,
+            },
+        )
+    return cards
 
 
 def get_agent_card(agent_id: str | None) -> A2AAgentCard | None:
     return build_default_agent_cards().get(str(agent_id or "").strip())
-
-
-def _mcp_profile(tool_names: list[str]) -> dict[str, Any]:
-    tools = []
-    for tool_name in tool_names:
-        view = get_mcp_tool_view(tool_name)
-        if view is not None:
-            tools.append(view.to_event_metadata())
-    return {
-        "protocol_version": MCP_COMPATIBLE_PROTOCOL_VERSION,
-        "tools": tools,
-    }

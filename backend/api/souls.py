@@ -9,6 +9,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from orchestration.agent_registry import AgentRegistry
 from soul import SoulFacade
 from soul.registry import (
     ACTIVE_SEED_PATH,
@@ -71,6 +72,8 @@ class SoulToolViewPayload(BaseModel):
 class SoulProjectionCardRequest(BaseModel):
     projection_id: str = ""
     soul_id: str = Field(..., min_length=1)
+    projection_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    identity_anchor: str = ""
     role_type: str = "dialogue"
     task_mode: str = "general_qa"
     agent_profile_id: str = "general_agent"
@@ -147,6 +150,12 @@ async def switch_soul(payload: SoulSwitchRequest) -> dict[str, Any]:
     facade = SoulFacade(runtime.base_dir)
     try:
         catalog = facade.switch(key)
+        facade.list_projection_cards()
+        AgentRegistry(runtime.base_dir).upsert_agent(
+            agent_id="agent:0",
+            default_soul_id=key,
+            default_projection_id=f"{key}__primary",
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown soul seed") from exc
     except FileNotFoundError as exc:
@@ -266,6 +275,15 @@ async def enable_custom_soul(soul_id: str) -> dict[str, Any]:
 @router.post("/soul/custom/{soul_id}/disable")
 async def disable_custom_soul(soul_id: str) -> dict[str, Any]:
     return _set_custom_soul_enabled(soul_id, False)
+
+
+@router.delete("/soul/custom/{soul_id}")
+async def delete_custom_soul(soul_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return SoulFacade(runtime.base_dir).registry_service.delete_custom_soul(soul_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown custom soul")
 
 
 def _set_custom_soul_enabled(soul_id: str, enabled: bool) -> dict[str, Any]:

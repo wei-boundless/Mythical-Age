@@ -1,16 +1,13 @@
 {
   "version": 3,
-  "skill_count": 4,
+  "skill_count": 3,
   "skills": [
     {
       "schema_version": 3,
       "name": "pdf-analysis",
       "title": "PDF 阅读分析",
-      "description": "用于本地 PDF 文件的文档级、章节级和页级阅读分析，适合回答“这份 PDF 主要讲什么”“某一章讲什么”“第几页讲什么”等问题。",
+      "description": "用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。",
       "path": "capability_system/units/skills/pdf-analysis/SKILL.md",
-      "allowed_tools": [
-        "pdf_analysis"
-      ],
       "supported_modalities": [
         "pdf",
         "document"
@@ -28,9 +25,11 @@
         "pdf",
         "document",
         "section",
-        "page"
+        "page",
+        "longform-reading",
+        "page-grounded"
       ],
-      "preferred_route": "tool",
+      "preferred_route": "pdf",
       "forbidden_routes": [
         "rag"
       ],
@@ -38,13 +37,19 @@
         "白皮书",
         "报告",
         "PDF",
+        "手册",
+        "论文",
         "第几页",
-        "章节"
+        "章节",
+        "这一页",
+        "这一部分",
+        "核心结论"
       ],
       "examples": [
         "这份白皮书主要讲什么",
         "第五页讲得什么",
-        "第二部分强调了什么"
+        "第二部分强调了什么",
+        "把这份 PDF 的核心结论压成三条行动建议"
       ],
       "activation_policy": "model_visible",
       "context_mode": "isolated",
@@ -55,11 +60,8 @@
       "runtime": {
         "name": "pdf-analysis",
         "title": "PDF 阅读分析",
-        "description": "用于本地 PDF 文件的文档级、章节级和页级阅读分析，适合回答“这份 PDF 主要讲什么”“某一章讲什么”“第几页讲什么”等问题。",
+        "description": "用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。",
         "path": "capability_system/units/skills/pdf-analysis/SKILL.md",
-        "allowed_tools": [
-          "pdf_analysis"
-        ],
         "supported_modalities": [
           "pdf",
           "document"
@@ -77,9 +79,11 @@
           "pdf",
           "document",
           "section",
-          "page"
+          "page",
+          "longform-reading",
+          "page-grounded"
         ],
-        "preferred_route": "tool",
+        "preferred_route": "pdf",
         "forbidden_routes": [
           "rag"
         ],
@@ -87,13 +91,19 @@
           "白皮书",
           "报告",
           "PDF",
+          "手册",
+          "论文",
           "第几页",
-          "章节"
+          "章节",
+          "这一页",
+          "这一部分",
+          "核心结论"
         ],
         "examples": [
           "这份白皮书主要讲什么",
           "第五页讲得什么",
-          "第二部分强调了什么"
+          "第二部分强调了什么",
+          "把这份 PDF 的核心结论压成三条行动建议"
         ],
         "activation_policy": "model_visible",
         "context_mode": "isolated",
@@ -105,7 +115,7 @@
       "prompt": {
         "name": "pdf-analysis",
         "title": "PDF 阅读分析",
-        "capability": "用于本地 PDF 文件的文档级、章节级和页级阅读分析，适合回答“这份 PDF 主要讲什么”“某一章讲什么”“第几页讲什么”等问题。",
+        "capability": "用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。",
         "use_when": "Use for reading local documents or PDFs, including whole-document, section-level, and page-level questions.",
         "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
       },
@@ -115,11 +125,8 @@
       "schema_version": 3,
       "name": "rag-skill",
       "title": "知识库问答",
-      "description": "面向本地知识库目录的检索和问答能力，适合事实查询、FAQ 解释和基于本地文档的可追溯回答。",
+      "description": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
       "path": "capability_system/units/skills/rag-skill/SKILL.md",
-      "allowed_tools": [
-        "search_knowledge"
-      ],
       "supported_modalities": [
         "text",
         "document",
@@ -134,10 +141,11 @@
       ],
       "capability_tags": [
         "knowledge_lookup",
-        "rag",
         "retrieval",
         "local-knowledge",
-        "faq"
+        "faq",
+        "grounded-answer",
+        "citation-aware"
       ],
       "preferred_route": "rag",
       "forbidden_routes": [
@@ -146,14 +154,21 @@
       "routing_hints": [
         "知识库",
         "本地资料",
+        "本地文档",
+        "内部资料",
         "查资料",
+        "查一下",
+        "根据资料",
         "FAQ",
-        "为什么"
+        "为什么",
+        "解释一下",
+        "说明一下"
       ],
       "examples": [
-        "为我讲讲 AI 吧，你的数据库里有不少 AI 知识吧",
         "从本地知识库里查一下三一重工前三大股东",
-        "为什么我在我的帐户中找不到我的订单"
+        "根据内部资料解释一下这个产品的退款规则",
+        "为什么我在我的帐户中找不到我的订单",
+        "帮我从知识库里确认这个功能是否支持批量导出"
       ],
       "activation_policy": "model_visible",
       "context_mode": "inline",
@@ -162,11 +177,8 @@
       "runtime": {
         "name": "rag-skill",
         "title": "知识库问答",
-        "description": "面向本地知识库目录的检索和问答能力，适合事实查询、FAQ 解释和基于本地文档的可追溯回答。",
+        "description": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
         "path": "capability_system/units/skills/rag-skill/SKILL.md",
-        "allowed_tools": [
-          "search_knowledge"
-        ],
         "supported_modalities": [
           "text",
           "document",
@@ -181,10 +193,11 @@
         ],
         "capability_tags": [
           "knowledge_lookup",
-          "rag",
           "retrieval",
           "local-knowledge",
-          "faq"
+          "faq",
+          "grounded-answer",
+          "citation-aware"
         ],
         "preferred_route": "rag",
         "forbidden_routes": [
@@ -193,14 +206,21 @@
         "routing_hints": [
           "知识库",
           "本地资料",
+          "本地文档",
+          "内部资料",
           "查资料",
+          "查一下",
+          "根据资料",
           "FAQ",
-          "为什么"
+          "为什么",
+          "解释一下",
+          "说明一下"
         ],
         "examples": [
-          "为我讲讲 AI 吧，你的数据库里有不少 AI 知识吧",
           "从本地知识库里查一下三一重工前三大股东",
-          "为什么我在我的帐户中找不到我的订单"
+          "根据内部资料解释一下这个产品的退款规则",
+          "为什么我在我的帐户中找不到我的订单",
+          "帮我从知识库里确认这个功能是否支持批量导出"
         ],
         "activation_policy": "model_visible",
         "context_mode": "inline",
@@ -210,7 +230,7 @@
       "prompt": {
         "name": "rag-skill",
         "title": "知识库问答",
-        "capability": "面向本地知识库目录的检索和问答能力，适合事实查询、FAQ 解释和基于本地文档的可追溯回答。",
+        "capability": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
         "use_when": "Use for local knowledge-base lookup, factual explanation, and questions that should be answered from local materials.",
         "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
       },
@@ -220,11 +240,8 @@
       "schema_version": 3,
       "name": "structured-data-analysis",
       "title": "结构化数据分析",
-      "description": "用于本地 Excel、CSV、JSON 等结构化数据文件的通用分析场景，如统计、排序、分组汇总、Top N 和记录查询。",
+      "description": "用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。",
       "path": "capability_system/units/skills/structured-data-analysis/SKILL.md",
-      "allowed_tools": [
-        "structured_data_analysis"
-      ],
       "supported_modalities": [
         "table",
         "spreadsheet",
@@ -249,9 +266,11 @@
         "analytics",
         "top-n",
         "group-by",
-        "schema"
+        "schema",
+        "aggregation",
+        "record-lookup"
       ],
-      "preferred_route": "tool",
+      "preferred_route": "structured_data",
       "forbidden_routes": [
         "rag"
       ],
@@ -259,17 +278,23 @@
         "表格",
         "Excel",
         "CSV",
+        "JSON",
         "前五",
         "排名",
         "汇总",
         "缺货",
-        "库存"
+        "库存",
+        "按地区",
+        "按仓库",
+        "最高",
+        "最低"
       ],
       "examples": [
         "销售前五的有哪些",
         "薪水最高的员工是谁",
         "按地区汇总订单总额",
-        "从我的数据库中查询哪些商品库存不足"
+        "从我的数据库中查询哪些商品库存不足",
+        "按仓库汇总前五"
       ],
       "activation_policy": "model_visible",
       "context_mode": "isolated",
@@ -281,11 +306,8 @@
       "runtime": {
         "name": "structured-data-analysis",
         "title": "结构化数据分析",
-        "description": "用于本地 Excel、CSV、JSON 等结构化数据文件的通用分析场景，如统计、排序、分组汇总、Top N 和记录查询。",
+        "description": "用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。",
         "path": "capability_system/units/skills/structured-data-analysis/SKILL.md",
-        "allowed_tools": [
-          "structured_data_analysis"
-        ],
         "supported_modalities": [
           "table",
           "spreadsheet",
@@ -310,9 +332,11 @@
           "analytics",
           "top-n",
           "group-by",
-          "schema"
+          "schema",
+          "aggregation",
+          "record-lookup"
         ],
-        "preferred_route": "tool",
+        "preferred_route": "structured_data",
         "forbidden_routes": [
           "rag"
         ],
@@ -320,17 +344,23 @@
           "表格",
           "Excel",
           "CSV",
+          "JSON",
           "前五",
           "排名",
           "汇总",
           "缺货",
-          "库存"
+          "库存",
+          "按地区",
+          "按仓库",
+          "最高",
+          "最低"
         ],
         "examples": [
           "销售前五的有哪些",
           "薪水最高的员工是谁",
           "按地区汇总订单总额",
-          "从我的数据库中查询哪些商品库存不足"
+          "从我的数据库中查询哪些商品库存不足",
+          "按仓库汇总前五"
         ],
         "activation_policy": "model_visible",
         "context_mode": "isolated",
@@ -343,103 +373,8 @@
       "prompt": {
         "name": "structured-data-analysis",
         "title": "结构化数据分析",
-        "capability": "用于本地 Excel、CSV、JSON 等结构化数据文件的通用分析场景，如统计、排序、分组汇总、Top N 和记录查询。",
+        "capability": "用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。",
         "use_when": "Use for structured data questions such as filtering, ranking, grouping, summary statistics, and record lookup.",
-        "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
-      },
-      "validation_errors": []
-    },
-    {
-      "schema_version": 3,
-      "name": "web-search",
-      "title": "联网搜索",
-      "description": "使用联网搜索获取最新信息、官方文档、新闻动态、实时行情和外部事实来源。",
-      "path": "capability_system/units/skills/web-search/SKILL.md",
-      "allowed_tools": [
-        "web_search"
-      ],
-      "supported_modalities": [
-        "web"
-      ],
-      "supported_task_kinds": [
-        "web_lookup"
-      ],
-      "supported_source_kinds": [
-        "external_web"
-      ],
-      "capability_tags": [
-        "search",
-        "news",
-        "finance",
-        "official-docs"
-      ],
-      "preferred_route": "tool",
-      "forbidden_routes": [
-        "rag"
-      ],
-      "routing_hints": [
-        "联网",
-        "搜索",
-        "最新",
-        "新闻",
-        "官网",
-        "实时"
-      ],
-      "examples": [
-        "帮我联网查 OpenAI API 最新更新"
-      ],
-      "activation_policy": "model_visible",
-      "context_mode": "inline",
-      "route_authority": "candidate_only",
-      "reference_paths": [],
-      "runtime": {
-        "name": "web-search",
-        "title": "联网搜索",
-        "description": "使用联网搜索获取最新信息、官方文档、新闻动态、实时行情和外部事实来源。",
-        "path": "capability_system/units/skills/web-search/SKILL.md",
-        "allowed_tools": [
-          "web_search"
-        ],
-        "supported_modalities": [
-          "web"
-        ],
-        "supported_task_kinds": [
-          "web_lookup"
-        ],
-        "supported_source_kinds": [
-          "external_web"
-        ],
-        "capability_tags": [
-          "search",
-          "news",
-          "finance",
-          "official-docs"
-        ],
-        "preferred_route": "tool",
-        "forbidden_routes": [
-          "rag"
-        ],
-        "routing_hints": [
-          "联网",
-          "搜索",
-          "最新",
-          "新闻",
-          "官网",
-          "实时"
-        ],
-        "examples": [
-          "帮我联网查 OpenAI API 最新更新"
-        ],
-        "activation_policy": "model_visible",
-        "context_mode": "inline",
-        "route_authority": "candidate_only",
-        "reference_paths": []
-      },
-      "prompt": {
-        "name": "web-search",
-        "title": "联网搜索",
-        "capability": "使用联网搜索获取最新信息、官方文档、新闻动态、实时行情和外部事实来源。",
-        "use_when": "Use when the user needs current external information, real-time lookup, or official web sources.",
         "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
       },
       "validation_errors": []

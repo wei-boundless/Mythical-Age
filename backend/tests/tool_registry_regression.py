@@ -30,44 +30,34 @@ def main() -> None:
     registry_module = load_registry_module()
     registry_module.refresh_tool_registry(ROOT)
 
-    search_tool_source = (ROOT / "capability_system" / "units" / "tools" / "search_knowledge_tool.py").read_text(encoding="utf-8")
-    assert 'name: str = "search_knowledge"' in search_tool_source
-
     payload = json.loads(capability_paths.tools_registry_path.read_text(encoding="utf-8"))
     assert payload["version"] == 2
-    assert payload["tool_count"] >= 6
+    assert payload["tool_count"] >= 20
 
     by_name = {tool["name"]: tool for tool in payload["tools"]}
-    assert by_name["get_weather"]["safe_for_auto_route"] is True
-    assert "weather" in by_name["get_weather"]["capability_tags"]
-    assert "search_terms" not in by_name["get_weather"]
-    assert "typical_queries" not in by_name["get_weather"]
+    assert "get_weather" not in by_name
+    assert "get_gold_price" not in by_name
+    assert "structured_data_analysis" not in by_name
+    assert "pdf_analysis" not in by_name
 
-    assert by_name["get_gold_price"]["safe_for_auto_route"] is True
-    assert "gold" in by_name["get_gold_price"]["capability_tags"]
-    assert "typical_queries" not in by_name["get_gold_price"]
-
-    assert by_name["structured_data_analysis"]["safe_for_auto_route"] is True
-    assert by_name["structured_data_analysis"]["runtime_visibility"] == "agent_internal"
-    assert by_name["structured_data_analysis"]["prompt_exposure_policy"] == "schema_only"
-    assert by_name["structured_data_analysis"]["resource_exposure_policy"] == "explicit_resource"
-    assert "table" in by_name["structured_data_analysis"]["supported_modalities"]
-    assert by_name["structured_data_analysis"]["contract"]["owner_scope"] == "active_binding_or_explicit_path"
-    assert by_name["structured_data_analysis"]["contract"]["required_bindings"] == ["active_dataset"]
-
-    assert by_name["search_knowledge"]["safe_for_auto_route"] is True
-    assert by_name["search_knowledge"]["runtime_visibility"] == "main_runtime"
-    assert by_name["search_knowledge"]["prompt_exposure_policy"] == "schema_only"
-    assert by_name["search_knowledge"]["resource_exposure_policy"] == "explicit_resource"
-    assert by_name["search_knowledge"]["schema_identity"] == "local.tools/search_knowledge"
-    assert "faq" in by_name["search_knowledge"]["capability_tags"]
-    assert "retrieval" in by_name["search_knowledge"]["safety_tags"]
-    assert by_name["search_knowledge"]["contract"]["missing_binding_behavior"] == "fallback_to_rag"
-
-    assert by_name["pdf_analysis"]["contract"]["owner_scope"] == "active_binding_or_explicit_path"
-    assert by_name["pdf_analysis"]["contract"]["required_bindings"] == ["active_pdf"]
-    assert by_name["pdf_analysis"]["runtime_visibility"] == "agent_internal"
-    assert by_name["pdf_analysis"]["prompt_exposure_policy"] == "schema_only"
+    assert "workspace_path_search" in by_name["search_files"]["route_hints"]
+    assert "workspace_search" not in by_name["search_files"]["route_hints"]
+    assert "workspace_text_search" in by_name["search_text"]["route_hints"]
+    assert "workspace_search" not in by_name["search_text"]["route_hints"]
+    for name in [
+        "list_dir",
+        "stat_path",
+        "path_exists",
+        "glob_paths",
+        "read_structured_file",
+        "git_status",
+        "git_diff",
+        "git_log",
+        "git_show",
+    ]:
+        assert name in by_name
+        assert by_name[name]["is_read_only"] is True
+        assert by_name[name]["is_destructive"] is False
 
     assert by_name["python_repl"]["safe_for_auto_route"] is False
     assert by_name["terminal"]["safe_for_auto_route"] is False
@@ -75,31 +65,24 @@ def main() -> None:
     runtime_registry = registry_module.ToolRegistry(ROOT)
     assert runtime_registry.select_best(
         "北京今天天气怎么样",
-        candidate_names=["get_weather", "web_search"],
+        candidate_names=["web_search"],
         modality="realtime",
-        route="tool",
-        capability_requests=["weather"],
-    ).name == "get_weather"
-    assert runtime_registry.select_best(
-        "白皮书第五页讲得什么",
-        candidate_names=["pdf_analysis", "search_knowledge"],
-        modality="pdf",
-        route="tool",
-        capability_requests=["document_analysis"],
-    ).name == "pdf_analysis"
+        route="realtime_network",
+        capability_requests=["weather", "latest_information"],
+    ).name == "web_search"
     assert runtime_registry.select_best(
         "查询黄金价格",
-        candidate_names=["get_gold_price", "web_search"],
+        candidate_names=["web_search"],
         modality="realtime",
-        route="tool",
-        capability_requests=["gold_price"],
-    ).name == "get_gold_price"
+        route="realtime_network",
+        capability_requests=["gold_price", "latest_information"],
+    ).name == "web_search"
 
     assert runtime_registry.resolve_candidate_names(
         capability_requests=["knowledge_lookup", "latest_information"],
         route="agent",
         modality="general",
-    ) == ["web_search", "search_knowledge"]
+    ) == ["web_search"]
 
     print(f"ALL PASSED ({payload['tool_count']} tools)")
 

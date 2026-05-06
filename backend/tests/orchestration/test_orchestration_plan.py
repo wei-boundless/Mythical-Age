@@ -17,7 +17,7 @@ def test_candidates_are_collected_but_not_promoted_to_directives() -> None:
             candidate_id="legacy:planner:1",
             producer="query.planner",
             candidate_type="legacy_plan",
-            payload={"route": "tool", "tool": "pdf_analysis"},
+            payload={"route": "mcp", "mcp": "pdf"},
             confidence=0.8,
         )
     )

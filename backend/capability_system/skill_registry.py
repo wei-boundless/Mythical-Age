@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 from capability_system.paths import CapabilitySystemPaths
 from capability_system.skill_contracts import SkillContract, SkillPromptContract, SkillRuntimeContract
-from capability_system.tool_contracts import SkillToolScope
 
 SkillPromptView = SkillPromptContract
 
@@ -23,21 +22,6 @@ class SkillDefinition:
 
     def render_prompt_block(self) -> str:
         return self.prompt_view.render_block()
-
-    def allowed_tool_scope(self) -> list[str]:
-        return list(self.runtime.allowed_tools)
-
-    def tool_scope(self) -> SkillToolScope:
-        return SkillToolScope(
-            source="skill",
-            allowed_tools=tuple(self.allowed_tool_scope()),
-            capability_constraints=tuple(self.runtime.capability_tags),
-            trust_level="project",
-            reason="skill_runtime_contract",
-            skill_name=self.runtime.name,
-            activation_policy=self.runtime.activation_policy,
-            context_mode=self.runtime.context_mode,
-        )
 
     @classmethod
     def from_payload(cls, item: dict[str, object]) -> "SkillDefinition":
@@ -85,15 +69,6 @@ class SkillRegistry:
                 return skill
         return None
 
-    def get_for_tool(self, tool_name: str | None) -> SkillDefinition | None:
-        if not tool_name:
-            return None
-        target = tool_name.strip().lower()
-        for skill in self._skills:
-            if any(tool.lower() == target for tool in skill.allowed_tools):
-                return skill
-        return None
-
     def match_for_query(
         self,
         message: str,
@@ -125,4 +100,3 @@ class SkillRegistry:
         if skill is None:
             return None
         return skill.render_prompt_block()
-

@@ -306,7 +306,7 @@ class TurnUnderstandingAnalyzer:
 
     def _flow_hint_from_understanding(self, content: str, understanding: TaskUnderstanding) -> str:
         if understanding.modality == "pdf":
-            return "pdf_analysis_flow"
+            return "pdf_document_flow"
         if understanding.modality == "table":
             return "structured_data_flow"
         if understanding.modality in {"realtime", "web"}:

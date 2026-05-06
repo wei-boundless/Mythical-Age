@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from capability_system import build_default_operation_registry
+from capability_system.local_mcp_registry import get_local_mcp_primary_template, get_local_mcp_unit_for_source_kind
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 
@@ -35,6 +36,15 @@ _LONGFORM_ARTIFACT_RULE = {
     "artifact_contract": "target_path_must_exist",
 }
 
+_LONGFORM_WRITE_FIRST_METADATA = {
+    "runtime_tool_policy": "write_first_artifact",
+    "artifact_generation_mode": "direct_write",
+    "read_before_write": "discouraged_unless_explicit_input_ref_required",
+}
+
+_PDF_TEMPLATE_ID = get_local_mcp_primary_template("pdf") or "template.pdf.document_analysis"
+_STRUCTURED_DATA_TEMPLATE_ID = get_local_mcp_primary_template("structured_data") or "template.data.structured_analysis"
+_RAG_TEMPLATE_ID = get_local_mcp_primary_template("retrieval") or "template.rag.knowledge_answer"
 
 def default_task_templates() -> tuple[TaskTemplate, ...]:
     return (
@@ -82,11 +92,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             output_schema={"final_answer": "string", "bundle_result_refs": "TaskSummary[]"},
             required_operations=("op.model_response",),
             optional_operations=(
-                "op.pdf_analysis",
-                "op.structured_data_analysis",
-                "op.get_weather",
-                "op.get_gold_price",
-                "op.search_knowledge",
+                "op.mcp_pdf",
+                "op.mcp_structured_data",
+                "op.web_search",
+                "op.fetch_url",
+                "op.mcp_retrieval",
             ),
             step_blueprints=(
                 TaskStepBlueprint(
@@ -156,22 +166,22 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             ui_manifest={"icon": "globe", "category": "search"},
         ),
         TaskTemplate(
-            template_id="template.capability.direct_tool",
-            title="直接能力执行",
-            description="针对已明确的实时查询或工具型能力执行请求。",
+            template_id="template.capability.builtin_tool_lane",
+            title="内建工具通道",
+            description="针对已明确的内建工具能力请求，直接走 builtin tool lane 执行。",
             task_family="execution",
             task_mode="capability_execution",
             input_schema={"tool_input": "object"},
             output_schema={"final_answer": "string"},
             required_operations=("op.model_response",),
-            optional_operations=("op.get_weather", "op.get_gold_price", "op.web_search", "op.fetch_url"),
+            optional_operations=("op.web_search", "op.fetch_url"),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.execute_capability",
                     title="执行能力",
                     step_kind="execute",
                     executor_type="tool",
-                    optional_operations=("op.get_weather", "op.get_gold_price", "op.web_search", "op.fetch_url"),
+                    optional_operations=("op.web_search", "op.fetch_url"),
                     output_contract_id="CapabilityResult",
                 ),
             ),
@@ -190,14 +200,14 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             task_mode="knowledge_answer",
             input_schema={"query": "string"},
             output_schema={"final_answer": "string", "citations": "string[]"},
-            required_operations=("op.model_response", "op.search_knowledge"),
+            required_operations=("op.model_response", "op.mcp_retrieval"),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.retrieve",
                     title="检索知识",
                     step_kind="analyze",
-                    executor_type="tool",
-                    required_operations=("op.search_knowledge",),
+                    executor_type="mcp",
+                    required_operations=("op.mcp_retrieval",),
                     output_contract_id="KnowledgeEvidence",
                 ),
                 TaskStepBlueprint(
@@ -215,23 +225,24 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "verification_mode": "citations_required",
             },
             ui_manifest={"icon": "book-open", "category": "knowledge"},
+            metadata={"mcp_unit_id": "local_mcp:retrieval", "mcp_route": "retrieval"},
         ),
         TaskTemplate(
             template_id="template.pdf.document_analysis",
             title="PDF 文档分析",
             description="分析 PDF 文档、页码或章节，并形成可 follow-up 的结果。",
             task_family="document",
-            task_mode="pdf_analysis",
+            task_mode="pdf_document",
             input_schema={"path": "string", "query": "string"},
             output_schema={"final_answer": "string", "task_summary_refs": "TaskSummary[]"},
-            required_operations=("op.model_response", "op.pdf_analysis"),
+            required_operations=("op.model_response", "op.mcp_pdf"),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.inspect_pdf",
                     title="分析 PDF",
                     step_kind="analyze",
-                    executor_type="tool",
-                    required_operations=("op.pdf_analysis",),
+                    executor_type="mcp",
+                    required_operations=("op.mcp_pdf",),
                     input_refs=("input.path", "input.query"),
                     output_contract_id="PdfAnalysisResult",
                 ),
@@ -250,6 +261,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "verification_mode": "task_summary_refs_required",
             },
             ui_manifest={"icon": "file-text", "category": "document"},
+            metadata={"mcp_unit_id": "local_mcp:pdf", "mcp_route": "pdf"},
         ),
         TaskTemplate(
             template_id="template.data.structured_analysis",
@@ -259,14 +271,14 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             task_mode="structured_analysis",
             input_schema={"path": "string", "query": "string"},
             output_schema={"final_answer": "string", "task_summary_refs": "TaskSummary[]"},
-            required_operations=("op.model_response", "op.structured_data_analysis"),
+            required_operations=("op.model_response", "op.mcp_structured_data"),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.inspect_dataset",
                     title="分析数据集",
                     step_kind="analyze",
-                    executor_type="tool",
-                    required_operations=("op.structured_data_analysis",),
+                    executor_type="mcp",
+                    required_operations=("op.mcp_structured_data",),
                     input_refs=("input.path", "input.query"),
                     output_contract_id="StructuredAnalysisResult",
                 ),
@@ -285,6 +297,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "verification_mode": "task_summary_refs_required",
             },
             ui_manifest={"icon": "table", "category": "data"},
+            metadata={"mcp_unit_id": "local_mcp:structured_data", "mcp_route": "structured_data"},
         ),
         TaskTemplate(
             template_id="template.dev.workspace_patch",
@@ -498,7 +511,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             default_agent_id="agent:20",
             allowed_agent_ids=("agent:20", "agent:21", "agent:22", "agent:23"),
             required_operations=("op.model_response", "op.write_file"),
-            optional_operations=("op.read_file", "op.search_text", "op.edit_file"),
+            optional_operations=(),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.longform_project_spec",
@@ -524,11 +537,12 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "coordination_task_id": "coord.writing.longform_project_bootstrap",
                 "agent_group_id": "group.writing.longform_novel_core",
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
+                **_LONGFORM_WRITE_FIRST_METADATA,
             },
         ),
         TaskTemplate(
             template_id="template.writing.novel_bible_build",
-            title="长篇小说圣经构建",
+            title="长篇小说设定总纲构建",
             description="构建长篇小说世界观、人物、剧情、时间线、风格与伏笔账本。",
             task_family="writing",
             task_mode="novel_bible_build",
@@ -537,11 +551,11 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             default_agent_id="agent:20",
             allowed_agent_ids=("agent:20", "agent:21", "agent:22", "agent:23"),
             required_operations=("op.model_response", "op.write_file"),
-            optional_operations=("op.read_file", "op.search_text", "op.edit_file"),
+            optional_operations=(),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.novel_bible_build",
-                    title="生成圣经包",
+                    title="生成设定总纲",
                     step_kind="coordinate",
                     executor_type="agent",
                     required_operations=("op.model_response", "op.write_file"),
@@ -551,7 +565,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             validation_rules=(
                 TaskValidationRule(
                     "rule.bible_bundle_required",
-                    "必须产出圣经包文件",
+                    "必须产出设定总纲文件",
                     "artifact_file_required",
                     "error",
                     parameters=_LONGFORM_ARTIFACT_RULE,
@@ -563,6 +577,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "coordination_task_id": "coord.writing.novel_bible_build",
                 "agent_group_id": "group.writing.longform_novel_core",
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
+                **_LONGFORM_WRITE_FIRST_METADATA,
             },
         ),
         TaskTemplate(
@@ -576,7 +591,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             default_agent_id="agent:20",
             allowed_agent_ids=("agent:20", "agent:22", "agent:23", "agent:25"),
             required_operations=("op.model_response", "op.write_file"),
-            optional_operations=("op.read_file", "op.search_text", "op.edit_file"),
+            optional_operations=(),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.volume_plan",
@@ -590,24 +605,29 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             validation_rules=(TaskValidationRule("rule.volume_plan_required", "必须产出卷纲文件", "artifact_file_required", "error", parameters=_LONGFORM_ARTIFACT_RULE),),
             safety_policy={**_LONGFORM_WRITING_SAFETY_POLICY, "verification_mode": "volume_plan_required"},
             ui_manifest={"icon": "columns-3", "category": "writing"},
-            metadata={"coordination_task_id": "coord.writing.volume_planning", "agent_group_id": "group.writing.longform_novel_core", "runtime_limits": _LONGFORM_RUNTIME_LIMITS},
+            metadata={
+                "coordination_task_id": "coord.writing.volume_planning",
+                "agent_group_id": "group.writing.longform_novel_core",
+                "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
+                **_LONGFORM_WRITE_FIRST_METADATA,
+            },
         ),
         TaskTemplate(
             template_id="template.writing.chapter_planning",
             title="长篇小说章节规划",
-            description="为单章生成场景节拍、章节目标、上下文引用和验收条件。",
+            description="根据本轮会话请求、已有设定和上游产物生成章节节拍、目标、上下文引用和验收条件。",
             task_family="writing",
             task_mode="chapter_planning",
-            input_schema={"volume_plan_ref": "string", "chapter_index": "number"},
+            input_schema={"run_request": "string", "context_refs": "string[]"},
             output_schema={"chapter_plan": "ChapterPlan"},
             default_agent_id="agent:23",
             allowed_agent_ids=("agent:20", "agent:23", "agent:24", "agent:25", "agent:26"),
             required_operations=("op.model_response", "op.write_file"),
-            optional_operations=("op.read_file", "op.search_text", "op.edit_file"),
+            optional_operations=(),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.chapter_plan",
-                    title="生成章节规划",
+                    title="生成本轮章节规划",
                     step_kind="coordinate",
                     executor_type="agent",
                     required_operations=("op.model_response", "op.write_file"),
@@ -617,24 +637,29 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             validation_rules=(TaskValidationRule("rule.chapter_plan_required", "必须产出章节规划文件", "artifact_file_required", "error", parameters=_LONGFORM_ARTIFACT_RULE),),
             safety_policy={**_LONGFORM_WRITING_SAFETY_POLICY, "verification_mode": "chapter_plan_required"},
             ui_manifest={"icon": "list-tree", "category": "writing"},
-            metadata={"coordination_task_id": "coord.writing.chapter_pipeline", "agent_group_id": "group.writing.longform_novel_core", "runtime_limits": _LONGFORM_RUNTIME_LIMITS},
+            metadata={
+                "coordination_task_id": "coord.writing.chapter_pipeline",
+                "agent_group_id": "group.writing.longform_novel_core",
+                "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
+                **_LONGFORM_WRITE_FIRST_METADATA,
+            },
         ),
         TaskTemplate(
             template_id="template.writing.chapter_drafting",
             title="长篇小说章节正文",
-            description="根据章节规划生成真实章节正文，并进入审校与验收流水线。",
+            description="根据本轮会话请求与章节规划生成真实正文，并进入审查、修订与验收流水线。",
             task_family="writing",
             task_mode="chapter_drafting",
-            input_schema={"chapter_plan_ref": "string", "target_word_count": "number"},
+            input_schema={"run_request": "string", "chapter_plan_ref": "string", "context_refs": "string[]"},
             output_schema={"chapter_draft": "ChapterDraft", "artifact_refs": "string[]"},
             default_agent_id="agent:24",
             allowed_agent_ids=("agent:20", "agent:23", "agent:24", "agent:25", "agent:26"),
             required_operations=("op.model_response", "op.write_file"),
-            optional_operations=("op.read_file", "op.search_text", "op.edit_file"),
+            optional_operations=(),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.chapter_pipeline",
-                    title="生成、审校、修订并验收章节",
+                    title="生成、审查、修订并验收章节正文",
                     step_kind="coordinate",
                     executor_type="agent",
                     required_operations=("op.model_response", "op.write_file"),
@@ -648,26 +673,27 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "coordination_task_id": "coord.writing.chapter_pipeline",
                 "agent_group_id": "group.writing.longform_novel_core",
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
-                "final_answer_requirements": ["must_include_complete_chapter_body_or_artifact_ref", "must_include_review_and_revision_status"],
+                **_LONGFORM_WRITE_FIRST_METADATA,
+                "final_answer_requirements": ["must_include_complete_batch_body_or_artifact_ref", "must_include_review_and_revision_status"],
                 "forbidden_final_states": ["outline_only", "summary_only", "waiting_for_user_approval"],
             },
         ),
         TaskTemplate(
             template_id="template.writing.chapter_revision",
             title="长篇小说章节修订",
-            description="根据审校和连续性问题修订章节正文。",
+            description="根据审查问题和连续性反馈修订本轮章节正文。",
             task_family="writing",
             task_mode="chapter_revision",
-            input_schema={"chapter_draft_ref": "string", "review_report_refs": "string[]"},
+            input_schema={"run_request": "string", "chapter_draft_ref": "string", "review_report_refs": "string[]"},
             output_schema={"chapter_revision": "ChapterRevision"},
             default_agent_id="agent:24",
             allowed_agent_ids=("agent:20", "agent:24", "agent:25", "agent:26"),
             required_operations=("op.model_response", "op.write_file"),
-            optional_operations=("op.read_file", "op.search_text", "op.edit_file"),
+            optional_operations=(),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.chapter_revision",
-                    title="修订章节正文",
+                    title="轻审批次正文",
                     step_kind="coordinate",
                     executor_type="agent",
                     required_operations=("op.model_response", "op.write_file"),
@@ -677,20 +703,25 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             validation_rules=(TaskValidationRule("rule.chapter_revision_required", "必须产出修订结果文件", "artifact_file_required", "error", parameters=_LONGFORM_ARTIFACT_RULE),),
             safety_policy={**_LONGFORM_WRITING_SAFETY_POLICY, "verification_mode": "chapter_revision_required"},
             ui_manifest={"icon": "file-check-2", "category": "writing"},
-            metadata={"coordination_task_id": "coord.writing.chapter_pipeline", "agent_group_id": "group.writing.longform_novel_core", "runtime_limits": _LONGFORM_RUNTIME_LIMITS},
+            metadata={
+                "coordination_task_id": "coord.writing.chapter_pipeline",
+                "agent_group_id": "group.writing.longform_novel_core",
+                "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
+                **_LONGFORM_WRITE_FIRST_METADATA,
+            },
         ),
         TaskTemplate(
             template_id="template.writing.continuity_audit",
             title="长篇小说连续性审计",
-            description="检查指定章节范围的设定、时间线、人物与伏笔连续性。",
+            description="检查本轮章节产物的设定、时间线、人物与伏笔连续性。",
             task_family="writing",
             task_mode="continuity_audit",
-            input_schema={"chapter_range_refs": "string[]", "novel_bible_ref": "string"},
+            input_schema={"run_request": "string", "chapter_refs": "string[]", "novel_bible_ref": "string"},
             output_schema={"audit_report": "ContinuityAuditReport"},
             default_agent_id="agent:26",
             allowed_agent_ids=("agent:20", "agent:21", "agent:25", "agent:26"),
             required_operations=("op.model_response", "op.write_file"),
-            optional_operations=("op.read_file", "op.search_text", "op.edit_file"),
+            optional_operations=(),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.continuity_audit",
@@ -704,7 +735,12 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             validation_rules=(TaskValidationRule("rule.audit_report_required", "必须产出审计报告文件", "artifact_file_required", "error", parameters=_LONGFORM_ARTIFACT_RULE),),
             safety_policy={**_LONGFORM_WRITING_SAFETY_POLICY, "verification_mode": "audit_report_required"},
             ui_manifest={"icon": "scan-search", "category": "writing"},
-            metadata={"coordination_task_id": "coord.writing.continuity_audit", "agent_group_id": "group.writing.longform_novel_core", "runtime_limits": _LONGFORM_RUNTIME_LIMITS},
+            metadata={
+                "coordination_task_id": "coord.writing.continuity_audit",
+                "agent_group_id": "group.writing.longform_novel_core",
+                "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
+                **_LONGFORM_WRITE_FIRST_METADATA,
+            },
         ),
         TaskTemplate(
             template_id="template.writing.final_compilation",
@@ -717,7 +753,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             default_agent_id="agent:20",
             allowed_agent_ids=("agent:20", "agent:24", "agent:25", "agent:26"),
             required_operations=("op.model_response", "op.write_file"),
-            optional_operations=("op.read_file", "op.search_text", "op.edit_file"),
+            optional_operations=(),
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.final_compilation",
@@ -731,7 +767,12 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             validation_rules=(TaskValidationRule("rule.compilation_required", "必须产出编纂清单文件", "artifact_file_required", "error", parameters=_LONGFORM_ARTIFACT_RULE),),
             safety_policy={**_LONGFORM_WRITING_SAFETY_POLICY, "verification_mode": "compilation_required"},
             ui_manifest={"icon": "book-check", "category": "writing"},
-            metadata={"coordination_task_id": "coord.writing.final_compilation", "agent_group_id": "group.writing.longform_novel_core", "runtime_limits": _LONGFORM_RUNTIME_LIMITS},
+            metadata={
+                "coordination_task_id": "coord.writing.final_compilation",
+                "agent_group_id": "group.writing.longform_novel_core",
+                "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
+                **_LONGFORM_WRITE_FIRST_METADATA,
+            },
         ),
         TaskTemplate(
             template_id="template.dev.arcade_game_bundle",
@@ -1015,17 +1056,33 @@ class TaskTemplateRegistry:
             match_source = "capability_contract"
             match_reasons.append("health_issue_capability")
         elif execution_posture == "direct_rag" or route_hint == "rag" or preferred_skill == "rag-skill":
-            template_id = "template.rag.knowledge_answer"
+            template_id = _RAG_TEMPLATE_ID
             match_source = "capability_contract"
             match_reasons.append("rag_execution_posture")
+        elif route_hint == "pdf" or preferred_skill == "pdf-analysis":
+            template_id = _PDF_TEMPLATE_ID
+            match_source = "capability_contract"
+            match_reasons.append("pdf_mcp_route")
+        elif route_hint == "structured_data" or preferred_skill == "structured-data-analysis":
+            template_id = _STRUCTURED_DATA_TEMPLATE_ID
+            match_source = "capability_contract"
+            match_reasons.append("structured_data_mcp_route")
         elif route_hint == "search" or "task.information_search" in definition_ids:
             template_id = "template.search.information_search"
             match_source = "capability_contract"
             match_reasons.append("search_route_hint")
-        elif execution_posture == "direct_tool" or route_hint == "tool":
-            template_id = "template.capability.direct_tool"
+        elif route_hint == "realtime_network":
+            template_id = "template.search.information_search"
             match_source = "capability_contract"
-            match_reasons.append("direct_tool_route")
+            match_reasons.append("realtime_network_route")
+        elif route_hint in {"workspace_read", "workspace_path_search", "workspace_text_search"}:
+            template_id = "template.capability.builtin_tool_lane"
+            match_source = "capability_contract"
+            match_reasons.append("builtin_tool_route_family")
+        elif execution_posture == "builtin_tool_lane" or route_hint == "tool":
+            template_id = "template.capability.builtin_tool_lane"
+            match_source = "capability_contract"
+            match_reasons.append("legacy_builtin_tool_lane_route")
         elif _looks_like_light_web_game(lowered_goal):
             template_id = "template.dev.light_web_game"
             match_source = "heuristic_fallback"
@@ -1037,7 +1094,7 @@ class TaskTemplateRegistry:
 
         if not template_id:
             if modality == "pdf" or explicit_inputs.get("explicit_pdf_path") or explicit_inputs.get("bound_pdf_path"):
-                template_id = "template.pdf.document_analysis"
+                template_id = _PDF_TEMPLATE_ID
                 match_source = "binding_contract"
                 match_reasons.append("pdf_binding")
             elif (
@@ -1046,7 +1103,7 @@ class TaskTemplateRegistry:
                 or explicit_inputs.get("explicit_dataset_path")
                 or explicit_inputs.get("bound_dataset_path")
             ):
-                template_id = "template.data.structured_analysis"
+                template_id = _STRUCTURED_DATA_TEMPLATE_ID
                 match_source = "binding_contract"
                 match_reasons.append("dataset_binding")
 
@@ -1227,25 +1284,29 @@ def _intent_candidate_template_ids(
         if item_template:
             candidates.append(item_template)
     if explicit_inputs.get("explicit_pdf_path") or explicit_inputs.get("bound_pdf_path"):
-        candidates.append("template.pdf.document_analysis")
+        candidates.append(_PDF_TEMPLATE_ID)
     if explicit_inputs.get("explicit_dataset_path") or explicit_inputs.get("bound_dataset_path"):
-        candidates.append("template.data.structured_analysis")
+        candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
     binding_file_kinds = {
         str(item.get("file_kind") or "").strip()
         for item in resolved_bindings
         if str(item.get("binding_kind") or "").strip() == "source_file"
     }
     if "pdf" in binding_file_kinds:
-        candidates.append("template.pdf.document_analysis")
+        pdf_unit = get_local_mcp_unit_for_source_kind("pdf")
+        if pdf_unit is not None and pdf_unit.template_ids:
+            candidates.append(str(pdf_unit.template_ids[0]))
     if "dataset" in binding_file_kinds:
-        candidates.append("template.data.structured_analysis")
+        dataset_unit = get_local_mcp_unit_for_source_kind("dataset")
+        if dataset_unit is not None and dataset_unit.template_ids:
+            candidates.append(str(dataset_unit.template_ids[0]))
     for request in capability_requests:
         if request in {"document_analysis", "pdf"}:
-            candidates.append("template.pdf.document_analysis")
+            candidates.append(_PDF_TEMPLATE_ID)
         if request in {"dataset_analysis", "structured_data"}:
-            candidates.append("template.data.structured_analysis")
-        if request in {"weather", "gold_price"}:
-            candidates.append("template.capability.direct_tool")
+            candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
+        if request in {"weather", "gold_price", "latest_information"}:
+            candidates.append("template.search.information_search")
     if _looks_like_light_web_game(str(user_goal or "").lower()):
         candidates.append("template.dev.light_web_game")
     source_kind = str(query_understanding.get("source_kind") or "").strip()

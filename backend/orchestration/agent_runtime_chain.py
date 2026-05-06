@@ -4,8 +4,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from capability_system.local_mcp_registry import get_local_mcp_unit
 from context_management import ContextResolver
 from tasks.assembly_builder import build_task_execution_assembly_bundle
+from tasks.flow_registry import TaskFlowRegistry
 from understanding.memory_intent import analyze_memory_intent
 from understanding.query_understanding import analyze_query_understanding
 
@@ -47,6 +49,11 @@ class AgentRuntimeChainAssembler:
             active_bindings=active_bindings,
             skill_registry=self.skill_registry,
             tool_registry=self.tool_registry,
+        )
+        query_understanding = _align_understanding_with_explicit_task_selection(
+            self.base_dir,
+            query_understanding,
+            task_selection=dict(task_selection or {}),
         )
         current_turn_context = ContextResolver().resolve(
             session_id=session_id,
@@ -257,6 +264,62 @@ def _active_bindings_from_memory_payload(memory_payload: dict[str, Any]) -> dict
     return result
 
 
+def _align_understanding_with_explicit_task_selection(
+    base_dir: Path,
+    query_understanding: Any,
+    *,
+    task_selection: dict[str, Any],
+) -> Any:
+    selected_task_id = str(
+        task_selection.get("selected_task_id")
+        or task_selection.get("task_id")
+        or task_selection.get("specific_task_id")
+        or ""
+    ).strip()
+    if not selected_task_id:
+        return query_understanding
+    try:
+        record = TaskFlowRegistry(base_dir).get_specific_task_record(selected_task_id)
+    except Exception:
+        record = None
+    if record is None:
+        return query_understanding
+
+    metadata = dict(record.metadata or {})
+    template_id = str(metadata.get("template_id") or "").strip()
+    query_understanding.intent = f"{record.task_mode}_task"
+    query_understanding.source_kind = "task_system"
+    query_understanding.task_kind = record.task_mode
+    query_understanding.modality = record.task_family or "task"
+    query_understanding.route = "agent"
+    query_understanding.execution_posture = "task_runtime"
+    query_understanding.direct_route_reason = "explicit_task_selection"
+    query_understanding.preferred_skill = None
+    query_understanding.skill_name = None
+    query_understanding.tool_name = None
+    query_understanding.capability_requests = []
+    query_understanding.candidate_tools = []
+    query_understanding.tool_input = {"selected_task_id": selected_task_id}
+    query_understanding.should_skip_rag = True
+    query_understanding.confidence = 1.0
+    query_understanding.reasons = [
+        "explicit_task_selection",
+        *[reason for reason in list(query_understanding.reasons or []) if reason != "explicit_task_selection"],
+    ]
+    signals = dict(query_understanding.structural_signals or {})
+    signals.update(
+        {
+            "selected_task_id": selected_task_id,
+            "selected_task_family": record.task_family,
+            "selected_task_mode": record.task_mode,
+            "selected_template_id": template_id,
+            "understanding_aligned_to_explicit_task": True,
+        }
+    )
+    query_understanding.structural_signals = signals
+    return query_understanding
+
+
 def _resolve_skill_frame(skill_registry: Any | None, task_frame: Any) -> Any | None:
     if skill_registry is None:
         return None
@@ -287,6 +350,24 @@ def _operation_ids_for_runtime(
     skill_frame: Any | None,
     tool_registry: Any | None,
 ) -> tuple[str, ...]:
+    _ = skill_frame
+    operations: list[str] = []
+    seen: set[str] = set()
+    route = str(getattr(query_understanding, "route", "") or getattr(query_understanding, "route_hint", "") or "").strip()
+    preferred_skill = str(getattr(query_understanding, "preferred_skill", "") or "").strip()
+    if route == "rag" or preferred_skill == "rag-skill":
+        mcp_unit = get_local_mcp_unit("retrieval")
+    elif route == "pdf" or preferred_skill == "pdf-analysis":
+        mcp_unit = get_local_mcp_unit("pdf")
+    elif route == "structured_data" or preferred_skill == "structured-data-analysis":
+        mcp_unit = get_local_mcp_unit("structured_data")
+    else:
+        mcp_unit = None
+    if mcp_unit is not None:
+        operation_id = str(getattr(mcp_unit, "operation_id", "") or "").strip()
+        if operation_id:
+            return (operation_id,)
+
     tool_names: list[str] = []
     tool_name = str(getattr(query_understanding, "tool_name", "") or "").strip()
     if tool_name:
@@ -296,13 +377,6 @@ def _operation_ids_for_runtime(
         for item in list(getattr(query_understanding, "candidate_tools", []) or [])
         if str(item).strip()
     )
-    if skill_frame is not None:
-        tool_scope = getattr(skill_frame, "tool_scope", None)
-        allowed_tools = getattr(tool_scope, "allowed_tools", ()) if tool_scope is not None else ()
-        tool_names.extend(str(item).strip() for item in list(allowed_tools or []) if str(item).strip())
-
-    operations: list[str] = []
-    seen: set[str] = set()
     for name in tool_names:
         operation_id = _operation_id_for_tool(tool_registry, name)
         if not operation_id or operation_id in seen:

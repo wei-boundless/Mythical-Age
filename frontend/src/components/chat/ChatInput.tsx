@@ -3,7 +3,7 @@
 import { SendHorizonal } from "lucide-react";
 import { useState } from "react";
 
-import type { SearchPolicySource, SearchPolicyState } from "@/lib/store/types";
+import type { SearchPolicySource, SearchPolicyState, TaskSelectionState } from "@/lib/store/types";
 
 const SEARCH_POLICY_OPTIONS: Array<{
   id: SearchPolicySource;
@@ -18,14 +18,24 @@ export function ChatInput({
   disabled,
   onSend,
   onToggleSearchPolicy,
-  searchPolicy
+  searchPolicy,
+  taskSelection,
+  onClearTaskSelection,
 }: {
   disabled: boolean;
   onSend: (value: string) => Promise<void>;
   onToggleSearchPolicy: (source: SearchPolicySource) => void;
   searchPolicy: SearchPolicyState;
+  taskSelection: TaskSelectionState | null;
+  onClearTaskSelection: () => void;
 }) {
   const [value, setValue] = useState("");
+
+  const selectionLabel = taskSelection?.label?.trim()
+    || taskSelection?.coordination_task_id?.trim()
+    || taskSelection?.selected_task_id?.trim()
+    || "";
+  const selectionModeLabel = taskSelection?.mode === "coordination" ? "协调任务" : "特定任务";
 
   return (
     <div className="panel chat-input-panel rounded-[30px] p-4">
@@ -51,6 +61,17 @@ export function ChatInput({
           })}
         </div>
       </div>
+      {taskSelection ? (
+        <div className="chat-task-selection-bar">
+          <div className="chat-task-selection-bar__content">
+            <span className="chat-task-selection-bar__eyebrow">当前承接</span>
+            <strong>{selectionModeLabel} · {selectionLabel}</strong>
+          </div>
+          <button className="chat-task-selection-bar__clear" onClick={onClearTaskSelection} type="button">
+            清除
+          </button>
+        </div>
+      ) : null}
       <textarea
         className="chat-input-panel__textarea min-h-28 w-full resize-none rounded-[24px] px-4 py-4 text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-soft)] focus:border-[var(--color-soul)] focus:ring-2 focus:ring-[var(--color-soul-soft)]"
         disabled={disabled}

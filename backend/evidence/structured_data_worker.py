@@ -2,16 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from pathlib import Path
 from typing import Any
 
 from evidence.models import EvidenceArtifact, EvidenceEnvelope, EvidenceItem, SourceObjectRef
 from .mcp_models import CanonicalResult, MCPRequest, MCPResult
+from capability_system.units.mcp.local.structured_data import (
+    StructuredDataArtifactBuilder,
+    StructuredDataCatalog,
+    StructuredDataEngine,
+    StructuredDataPlanner,
+)
 from capability_system.units.mcp.local.structured_data.subset_selection import extract_structured_subset_selection
 
 
 class StructuredDataWorker:
-    def __init__(self, *, tool_runtime) -> None:
-        self.tool_runtime = tool_runtime
+    def __init__(self, *, root_dir: Path | str) -> None:
+        self.root_dir = Path(root_dir).resolve()
+        self.planner = StructuredDataPlanner()
+        self.engine = StructuredDataEngine()
+        self.artifact_builder = StructuredDataArtifactBuilder(root_dir=self.root_dir)
 
     async def run(self, request: MCPRequest) -> MCPResult:
         dataset_path = str(request.bindings.get("active_dataset", "") or "").strip()
@@ -35,27 +45,30 @@ class StructuredDataWorker:
                     degraded_reason_typed="missing_object_handle",
                 ),
             )
-        tool = self.tool_runtime.get_instance("structured_data_analysis")
-        if tool is None:
+        tool_input = {
+            "query": str(request.query or "").strip(),
+            "path": dataset_path,
+            "semantic_hints": _semantic_hints_from_request(request),
+        }
+        answer = await asyncio.to_thread(
+            self._run_structured_analysis,
+            query=tool_input["query"],
+            path=dataset_path,
+            semantic_hints=tool_input["semantic_hints"],
+        )
+        if not answer:
             return MCPResult(
                 mcp_name="structured_data",
                 status="error",
                 canonical_result=CanonicalResult(
                     result_kind="structured_answer",
                     ok=False,
-                    answer="结构化数据分析能力当前不可用。",
-                    degraded_reason="structured_tool_unavailable",
+                    answer="结构化数据分析能力当前没有形成结果。",
+                    degraded_reason="structured_mcp_unavailable",
                     degraded_reason_typed="contract_blocked",
                 ),
             )
 
-        tool_input = {
-            "query": str(request.query or "").strip(),
-            "path": dataset_path,
-            "semantic_hints": _semantic_hints_from_request(request),
-        }
-        raw_output = await asyncio.to_thread(tool.invoke, tool_input)
-        answer = _visible_answer(raw_output)
         ok = bool(answer) and not answer.startswith("结构化分析失败")
         source_object_id = _stable_id("source:dataset", dataset_path)
         result_handle_ids = [f"result:structured_answer:{source_object_id.split(':')[-1]}:primary"] if dataset_path else []
@@ -81,7 +94,7 @@ class StructuredDataWorker:
                 },
                 projection_policy="persist_canonical" if ok else "do_not_persist",
                 degraded_reason="" if ok else "structured_analysis_missing_answer",
-                diagnostics={"tool": "structured_data_analysis", "answer_source": "structured_data_worker"},
+                diagnostics={"mcp": "structured_data", "answer_source": "structured_data_worker"},
                 object_handle_ids=[source_object_id] if dataset_path else [],
                 result_handle_ids=result_handle_ids,
                 primary_result_handle_id=result_handle_ids[0] if result_handle_ids else "",
@@ -125,6 +138,55 @@ class StructuredDataWorker:
             diagnostics={"tool_input": tool_input},
             binding_owner_task_id=str(request.owner_task_id or "").strip(),
         )
+
+    def _run_structured_analysis(
+        self,
+        *,
+        query: str,
+        path: str,
+        semantic_hints: dict[str, Any],
+    ) -> str:
+        try:
+            file_path = self._resolve_explicit_path(path)
+        except ValueError as exc:
+            code = str(exc)
+            if code == "file_does_not_exist":
+                return "结构化分析失败：文件不存在。"
+            if code == "path_is_directory":
+                return "结构化分析失败：给定路径是目录。"
+            return f"结构化分析失败：{exc}"
+        try:
+            df = _load_dataframe(file_path)
+        except Exception as exc:
+            return f"结构化分析失败：无法读取文件。{exc}"
+        df = self.planner.normalize_columns(df)
+        rel_path = StructuredDataCatalog.relative_path(self.root_dir, file_path)
+        self.artifact_builder.save_profile(rel_path, df)
+        plan = self.planner.build_plan(
+            query=query,
+            df=df,
+            dataset_rel_path=rel_path,
+            requested_analysis_type=str(semantic_hints.get("analysis_type_hint", "") or "auto"),
+            sheet_name=str(semantic_hints.get("sheet_name", "") or ""),
+            limit=_safe_limit(semantic_hints.get("limit")),
+            semantic_hints=semantic_hints,
+        )
+        return self.engine.execute(plan=plan, df=df, file_path=file_path).strip()
+
+    def _resolve_explicit_path(self, path: str) -> Path:
+        normalized = str(path or "").strip()
+        if not normalized:
+            raise ValueError("missing_explicit_dataset_path")
+        candidates = StructuredDataCatalog.list_dataset_paths(self.root_dir)
+        matched = StructuredDataCatalog._match_filename(self.root_dir, candidates, normalized)
+        if matched is not None:
+            return matched
+        resolved = StructuredDataCatalog.resolve_dataset_path(self.root_dir, normalized, normalized)
+        if not resolved.exists():
+            raise ValueError("file_does_not_exist")
+        if resolved.is_dir():
+            raise ValueError("path_is_directory")
+        return resolved
 
     def _to_evidence_envelope(
         self,
@@ -192,6 +254,30 @@ def _visible_answer(output: Any) -> str:
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return str(output or "").strip()
+
+
+def _load_dataframe(file_path: Path):
+    import pandas as pd
+
+    suffix = file_path.suffix.lower()
+    if suffix == ".xlsx":
+        return pd.read_excel(file_path, sheet_name=0)
+    if suffix == ".csv":
+        return pd.read_csv(file_path)
+    if suffix == ".json":
+        try:
+            return pd.read_json(file_path)
+        except ValueError:
+            return pd.read_json(file_path, lines=True)
+    raise ValueError("目前仅支持 xlsx/csv/json 结构化分析。")
+
+
+def _safe_limit(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = 10
+    return max(1, min(parsed, 50))
 
 
 def _stable_id(prefix: str, value: str) -> str:

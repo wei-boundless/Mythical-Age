@@ -132,12 +132,45 @@ class RuntimeConversationAgent:
 class ModelRuntime:
     def __init__(self, settings_service: AppSettingsService) -> None:
         self.settings_service = settings_service
-        static = settings_service.static
-        self.request_timeout_seconds = max(
-            0.01,
-            float(getattr(static, "llm_timeout_seconds", 45.0) or 45.0),
+
+    @property
+    def request_timeout_seconds(self) -> float:
+        static = self.settings_service.static
+        return max(0.01, float(getattr(static, "llm_timeout_seconds", 45.0) or 45.0))
+
+    @property
+    def max_retries(self) -> int:
+        static = self.settings_service.static
+        return max(0, int(getattr(static, "llm_max_retries", 2) or 2))
+
+    @property
+    def max_output_tokens(self) -> int:
+        static = self.settings_service.static
+        return max(1, int(getattr(static, "llm_max_output_tokens", 32768) or 32768))
+
+    @property
+    def long_output_timeout_seconds(self) -> float:
+        static = self.settings_service.static
+        return max(
+            self.request_timeout_seconds,
+            float(getattr(static, "llm_long_output_timeout_seconds", 180.0) or 180.0),
         )
-        self.max_retries = max(0, int(getattr(static, "llm_max_retries", 2) or 2))
+
+    @property
+    def model_call_timeout_seconds(self) -> float:
+        if self.max_output_tokens >= 16384:
+            return self.long_output_timeout_seconds
+        return self.request_timeout_seconds
+
+    @property
+    def thinking_mode(self) -> str:
+        static = self.settings_service.static
+        return str(getattr(static, "llm_thinking_mode", "disabled") or "disabled").strip().lower()
+
+    @property
+    def reasoning_effort(self) -> str:
+        static = self.settings_service.static
+        return str(getattr(static, "llm_reasoning_effort", "high") or "high").strip().lower()
 
     def build_chat_model(self):
         return self._build_chat_model_for_spec(self._candidate_specs()[0])
@@ -165,7 +198,7 @@ class ModelRuntime:
                 try:
                     return await asyncio.wait_for(
                         model.ainvoke(messages),
-                        timeout=self.request_timeout_seconds,
+                        timeout=self.model_call_timeout_seconds,
                     )
                 except asyncio.CancelledError:
                     raise
@@ -208,7 +241,7 @@ class ModelRuntime:
                     bound_model = model.bind_tools(tools) if tools else model
                     return await asyncio.wait_for(
                         bound_model.ainvoke(messages),
-                        timeout=self.request_timeout_seconds,
+                        timeout=self.model_call_timeout_seconds,
                     )
                 except asyncio.CancelledError:
                     raise
@@ -381,17 +414,31 @@ class ModelRuntime:
         return deduped
 
     def _build_chat_model_for_spec(self, spec: ModelSpec):
+        timeout_seconds = self.model_call_timeout_seconds
         if spec.provider == "deepseek":
             if ChatDeepSeek is None:
                 raise RuntimeError("langchain-deepseek is not installed")
             if not spec.api_key:
                 raise RuntimeError("Missing API key for provider deepseek")
-            return _DeepSeekReasoningCompatChatModel(
-                model=spec.model,
-                api_key=spec.api_key,
-                base_url=spec.base_url,
-                temperature=0,
-            )
+            thinking_enabled = self.thinking_mode == "enabled"
+            extra_body: dict[str, Any] = {
+                "thinking": {
+                    "type": "enabled" if thinking_enabled else "disabled"
+                }
+            }
+            model_kwargs: dict[str, Any] = {
+                "model": spec.model,
+                "api_key": spec.api_key,
+                "base_url": spec.base_url,
+                "temperature": 0,
+                "timeout": timeout_seconds,
+                "max_retries": 0,
+                "max_tokens": self.max_output_tokens,
+                "extra_body": extra_body,
+            }
+            if thinking_enabled:
+                model_kwargs["reasoning_effort"] = self.reasoning_effort
+            return _DeepSeekReasoningCompatChatModel(**model_kwargs)
 
         if not spec.api_key:
             raise RuntimeError(f"Missing API key for provider {spec.provider}")
@@ -401,6 +448,9 @@ class ModelRuntime:
             api_key=spec.api_key,
             base_url=spec.base_url,
             temperature=0,
+            timeout=timeout_seconds,
+            max_retries=0,
+            max_completion_tokens=self.max_output_tokens,
         )
 
     def _create_raw_agent(
@@ -443,7 +493,7 @@ class ModelRuntime:
             try:
                 item = await asyncio.wait_for(
                     stream.__anext__(),
-                    timeout=self.request_timeout_seconds,
+                    timeout=self.model_call_timeout_seconds,
                 )
             except StopAsyncIteration:
                 return

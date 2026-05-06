@@ -98,7 +98,7 @@ class UnderstandingReconciler:
 
         understanding = snapshot.active_understanding.understanding
         if understanding.modality == "pdf":
-            return "pdf_analysis_flow"
+            return "pdf_document_flow"
         if understanding.modality == "table":
             return "structured_data_flow"
         if understanding.modality in {"realtime", "web"}:
@@ -108,7 +108,7 @@ class UnderstandingReconciler:
         return "general_problem_solving_flow"
 
     def _slots_to_clear_for_flow(self, flow_type: str) -> list[str]:
-        if flow_type == "pdf_analysis_flow":
+        if flow_type == "pdf_document_flow":
             return ["active_pdf", "active_entity"]
         if flow_type == "structured_data_flow":
             return ["active_dataset", "active_entity"]

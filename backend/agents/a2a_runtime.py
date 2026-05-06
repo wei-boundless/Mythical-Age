@@ -5,15 +5,11 @@ from typing import Any
 
 from agents.a2a_cards import get_agent_card
 from agents.a2a_extensions import build_handle_extensions, merge_extensions
+from capability_system.local_mcp_registry import build_local_mcp_agent_map
 
 
 A2A_COMPATIBLE_PROTOCOL_VERSION = "a2a-compatible.v1"
-AGENT_ID_BY_MCP_ROUTE: dict[str, str] = {
-    "retrieval": "agent:knowledge:retrieval",
-    "evidence_orchestrator": "agent:knowledge:retrieval",
-    "pdf": "agent:document:pdf",
-    "structured_data": "agent:data:structured",
-}
+AGENT_ID_BY_MCP_ROUTE: dict[str, str] = build_local_mcp_agent_map()
 
 
 @dataclass(frozen=True, slots=True)

@@ -278,7 +278,7 @@ def _problem_node_id(
     text = " ".join(failed_checks).lower()
     if "memory" in text or "preview" in text or "followup" in text:
         return "memory"
-    if "tool" in text or "search_knowledge" in text:
+    if "tool" in text:
         return "tool"
     if "mcp" in text or "retrieval" in text or "evidence" in text:
         return "mcp"

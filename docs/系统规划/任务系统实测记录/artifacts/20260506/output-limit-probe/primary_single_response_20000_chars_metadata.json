@@ -1,0 +1,10 @@
+{
+  "status": "timeout",
+  "provider": "deepseek",
+  "model": "deepseek-v4-pro",
+  "timeout_seconds": 90,
+  "target_chars": 20000,
+  "probe_mode": "primary_model_direct_ainvoke_no_tools_no_fallback",
+  "elapsed_seconds": 90.004,
+  "passed_20000_chars": false
+}

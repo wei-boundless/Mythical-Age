@@ -9,12 +9,12 @@ from typing import Any
 
 import yaml
 
-from capability_system.paths import CapabilitySystemPaths
-from capability_system.skill_contracts import SkillContract, SkillPromptContract, SkillRuntimeContract
-
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+
+from capability_system.paths import CapabilitySystemPaths
+from capability_system.skill_contracts import SkillContract, SkillPromptContract, SkillRuntimeContract
 
 FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
 
@@ -25,7 +25,6 @@ class SkillRecord:
     title: str
     description: str
     path: str
-    allowed_tools: list[str] = field(default_factory=list)
     supported_modalities: list[str] = field(default_factory=list)
     supported_task_kinds: list[str] = field(default_factory=list)
     supported_source_kinds: list[str] = field(default_factory=list)
@@ -49,7 +48,6 @@ def _record_from_contract(contract: SkillContract) -> SkillRecord:
         title=runtime.title,
         description=runtime.description,
         path=runtime.path,
-        allowed_tools=list(runtime.allowed_tools),
         supported_modalities=list(runtime.supported_modalities),
         supported_task_kinds=list(runtime.supported_task_kinds),
         supported_source_kinds=list(runtime.supported_source_kinds),
@@ -73,7 +71,6 @@ def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContra
             title=record.title,
             description=record.description,
             path=record.path,
-            allowed_tools=record.allowed_tools,
             supported_modalities=record.supported_modalities,
             supported_task_kinds=record.supported_task_kinds,
             supported_source_kinds=record.supported_source_kinds,
@@ -182,7 +179,6 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             title=title,
             description=description,
             path=paths.to_relative_path(skill_file),
-            allowed_tools=_coerce_list(_lookup(meta, "metadata.allowed_tools")),
             supported_modalities=_coerce_list(_lookup(meta, "metadata.supported_modalities")),
             supported_task_kinds=_coerce_list(_lookup(meta, "metadata.supported_task_kinds")),
             supported_source_kinds=_coerce_list(_lookup(meta, "metadata.supported_source_kinds")),

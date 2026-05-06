@@ -416,6 +416,16 @@ export type SpecificTaskRecord = {
   metadata?: Record<string, unknown>;
 };
 
+export type TaskDomainRecord = {
+  domain_id: string;
+  task_family: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  sort_order: number;
+  metadata?: Record<string, unknown>;
+};
+
 export type TaskProjectionBinding = {
   binding_id?: string;
   task_id: string;
@@ -449,10 +459,6 @@ export type TaskExecutionPolicy = {
   allow_worker_agent_spawn: boolean;
   worker_agent_blueprint_id: string;
   worker_agent_naming_rule: string;
-  coordination_task_id?: string;
-  communication_protocol_id?: string;
-  topology_template_id?: string;
-  agent_group_id?: string;
   notes: string;
   authority?: string;
   metadata?: Record<string, unknown>;
@@ -470,11 +476,25 @@ export type TaskMemoryRequestProfile = {
   metadata?: Record<string, unknown>;
 };
 
+export type TaskContractDescriptor = {
+  contract_id: string;
+  title: string;
+  contract_kind: string;
+  summary: string;
+  source_refs: string[];
+  usage_refs: string[];
+  editable: boolean;
+  status: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type CoordinationTask = {
   coordination_task_id: string;
   title: string;
   coordination_mode: string;
   coordinator_agent_id: string;
+  task_family?: string;
+  domain_id?: string;
   agent_group_id?: string;
   participant_agent_ids: string[];
   topology_template_id: string;
@@ -484,8 +504,30 @@ export type CoordinationTask = {
   conflict_resolution_policy: string;
   output_merge_policy: string;
   stop_conditions: string[];
+  subtask_refs: string[];
+  graph_nodes: Array<Record<string, unknown>>;
+  graph_edges: Array<Record<string, unknown>>;
+  communication_modes: string[];
   enabled: boolean;
   metadata?: Record<string, unknown>;
+};
+
+export type CoordinationGraphSpec = {
+  graph_id: string;
+  coordination_task_id: string;
+  domain_id: string;
+  task_family: string;
+  coordinator_agent_id: string;
+  agent_group_id?: string;
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+  subtask_refs: string[];
+  communication_modes: string[];
+  start_node_ids: string[];
+  terminal_node_ids: string[];
+  issues: Array<Record<string, unknown>>;
+  valid: boolean;
+  diagnostics?: Record<string, unknown>;
 };
 
 export type TaskCommunicationProtocol = {
@@ -512,6 +554,7 @@ export type TopologyTemplate = {
   failure_policy: string;
   terminal_policy: string;
   enabled: boolean;
+  metadata?: Record<string, unknown>;
 };
 
 export type AgentTaskCarryingProfile = {
@@ -538,6 +581,7 @@ export type TaskConnectionDiagnosticIssue = {
 };
 
 export type ConversationEntryPolicyUpsertPayload = ConversationEntryPolicy;
+export type TaskDomainUpsertPayload = TaskDomainRecord;
 export type SpecificTaskRecordUpsertPayload = SpecificTaskRecord;
 export type TaskProjectionBindingUpsertPayload = TaskProjectionBinding;
 export type TaskFlowContractBindingUpsertPayload = TaskFlowContractBinding;
@@ -567,6 +611,7 @@ export type TaskSystemOverview = {
   summary: Record<string, number>;
   task_management: {
     entry_policies: ConversationEntryPolicy[];
+    task_domains: TaskDomainRecord[];
     specific_task_records: SpecificTaskRecord[];
     task_flow_definitions: TaskSystemFlowUpsertPayload[];
     workflow_resources: TaskWorkflowRecord[];
@@ -574,12 +619,14 @@ export type TaskSystemOverview = {
     flow_contract_bindings: TaskFlowContractBinding[];
     execution_policies: TaskExecutionPolicy[];
     memory_request_profiles: TaskMemoryRequestProfile[];
+    contract_catalog?: TaskContractDescriptor[];
     compatibility_views?: {
       specific_tasks?: Array<Record<string, unknown>>;
     };
   };
   coordination_management: {
     coordination_tasks: CoordinationTask[];
+    coordination_graph_specs?: CoordinationGraphSpec[];
     topology_templates: TopologyTemplate[];
     communication_protocols: TaskCommunicationProtocol[];
   };
@@ -1043,7 +1090,6 @@ export type OrchestrationCatalogSkill = {
     title: string;
     description: string;
     path: string;
-    allowed_tools: string[];
     supported_modalities: string[];
     supported_task_kinds: string[];
     supported_source_kinds: string[];
@@ -1064,7 +1110,6 @@ export type OrchestrationCatalogSkill = {
     use_when: string;
     output_rule: string;
   };
-  tool_scope: Record<string, unknown>;
 };
 
 export type OrchestrationCatalogTool = {
@@ -1102,7 +1147,6 @@ export type OperationSkill = OrchestrationCatalogSkill & {
   prompt_block: string;
   content: string;
   validation_errors: string[];
-  allowed_operations?: string[];
 };
 
 export type OperationDescriptor = {
@@ -1133,12 +1177,6 @@ export type OperationTool = OrchestrationCatalogTool & {
     visibility_label: string;
     runtime_policy: string;
     editable_policy: string;
-    bound_skills: Array<{
-      name: string;
-      title: string;
-      activation_policy: string;
-      context_mode: string;
-    }>;
     bound_agents: Array<{
       agent_id: string;
       name: string;
@@ -1207,8 +1245,8 @@ export type OperationBindingGraph = {
     bound_tools: string[];
     protocol_version: string;
   }>;
-  worker_nodes?: Array<{
-    worker_id: string;
+  mcp_nodes?: Array<{
+    mcp_id: string;
     route: string;
     name: string;
     description: string;
@@ -1218,13 +1256,6 @@ export type OperationBindingGraph = {
     model_visibility: string;
     tags: string[];
   }>;
-  skill_tool_edges: Array<{
-    from: string;
-    from_label: string;
-    to: string;
-    to_label: string;
-    relation: string;
-  }>;
   agent_tool_edges: Array<{
     from: string;
     from_label: string;
@@ -1232,7 +1263,7 @@ export type OperationBindingGraph = {
     to_label: string;
     relation: string;
   }>;
-  worker_operation_edges?: Array<{
+  mcp_operation_edges?: Array<{
     from: string;
     from_label: string;
     to: string;
@@ -1266,11 +1297,11 @@ export type CapabilitySystemCatalog = {
       title: string;
       activation_policy: string;
       context_mode: string;
-      allowed_tools: string[];
-      allowed_operations: string[];
+      preferred_route: string;
+      capability_tags: string[];
     }>;
-    worker_refs: Array<{
-      worker_id: string;
+    mcp_refs: Array<{
+      mcp_id: string;
       operation_id: string;
       route: string;
       agent_id: string;
@@ -1358,6 +1389,8 @@ export type SoulProjectionCard = {
   title: string;
   soul_id: string;
   soul_name: string;
+  projection_nodes?: Array<Record<string, unknown>>;
+  identity_anchor?: string;
   role_type: string;
   task_mode: string;
   agent_profile_id: string;
@@ -1388,6 +1421,8 @@ export type SoulProjectionCatalog = {
 export type SoulProjectionCardCreatePayload = {
   projection_id?: string;
   soul_id: string;
+  projection_nodes?: Array<Record<string, unknown>>;
+  identity_anchor?: string;
   role_type?: string;
   task_mode?: string;
   agent_profile_id?: string;
@@ -1441,6 +1476,116 @@ export type SoulSystemCatalog = {
     prompt_manifest_enabled: boolean;
     custom_soul_dir: string;
   };
+};
+
+export type ExternalMCPServerConfig = {
+  server_id: string;
+  title: string;
+  description: string;
+  transport: "stdio" | "streamable_http" | string;
+  enabled: boolean;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd: string;
+  url: string;
+  scope: string;
+  tags: string[];
+  allowed_operations: string[];
+  requires_approval_operations: string[];
+  denied_operations: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type ExternalMCPTool = {
+  name: string;
+  title: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
+  annotations: Record<string, unknown>;
+  meta: Record<string, unknown>;
+};
+
+export type ExternalMCPResource = {
+  uri: string;
+  name: string;
+  title: string;
+  description: string;
+  mime_type: string;
+  size: number | null;
+  annotations: Record<string, unknown>;
+  meta: Record<string, unknown>;
+};
+
+export type ExternalMCPPrompt = {
+  name: string;
+  title: string;
+  description: string;
+  arguments: Array<Record<string, unknown>>;
+  meta: Record<string, unknown>;
+};
+
+export type ExternalMCPSnapshot = {
+  server_id: string;
+  title: string;
+  transport: string;
+  enabled: boolean;
+  scope: string;
+  status: string;
+  status_reason: string;
+  capabilities: Record<string, unknown>;
+  tools: ExternalMCPTool[];
+  resources: ExternalMCPResource[];
+  prompts: ExternalMCPPrompt[];
+  diagnostics: Record<string, unknown>;
+};
+
+export type ExternalMCPToolPoolEntry = {
+  entry_id: string;
+  entry_kind: string;
+  display_name: string;
+  route_family: string;
+  candidate_visibility: string;
+  model_visibility: string;
+  runtime_exposure: string;
+  requires_explicit_binding: boolean;
+  discovery_priority: number;
+  name: string;
+  source: string;
+  server_id: string;
+  server_title: string;
+  transport: string;
+  tool_name: string;
+  description: string;
+  authorized: boolean;
+  authorization: Record<string, unknown>;
+  operation: Record<string, unknown>;
+};
+
+export type ExternalMCPCatalog = {
+  authority: string;
+  servers: ExternalMCPServerConfig[];
+  snapshots: ExternalMCPSnapshot[];
+  tool_pool: ExternalMCPToolPoolEntry[];
+  summary: {
+    server_count: number;
+    enabled_server_count: number;
+    connected_server_count: number;
+    tool_count: number;
+    resource_count: number;
+    prompt_count: number;
+  };
+};
+
+export type CustomSoulPayload = {
+  soul_id: string;
+  name: string;
+  description?: string;
+  soul_markdown?: string;
+  preferred_role_types?: string[];
+  preferred_task_modes?: string[];
+  enabled?: boolean;
 };
 
 export type PromptManifestSection = {
@@ -2088,18 +2233,44 @@ export async function deleteCapabilitySystemSkill(skillName: string) {
   });
 }
 
-export async function updateCapabilitySystemSkillTools(skillName: string, allowedTools: string[]) {
-  return request<CapabilitySystemCatalog>(`/capability-system/skills/${encodeURIComponent(skillName)}/tools`, {
-    method: "PUT",
-    body: JSON.stringify({ allowed_tools: allowedTools })
-  });
-}
-
 export async function updateCapabilitySystemTool(toolName: string, payload: { tool_type: string; note?: string }) {
   return request<CapabilitySystemCatalog>(`/capability-system/tools/${encodeURIComponent(toolName)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });
+}
+
+export async function getMCPSystemCatalog() {
+  return request<ExternalMCPCatalog>("/mcp-system/catalog");
+}
+
+export async function upsertMCPSystemServer(serverId: string, payload: ExternalMCPServerConfig) {
+  return request<ExternalMCPCatalog>(`/mcp-system/servers/${encodeURIComponent(serverId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteMCPSystemServer(serverId: string) {
+  return request<ExternalMCPCatalog>(`/mcp-system/servers/${encodeURIComponent(serverId)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function inspectMCPSystemServer(serverId: string) {
+  return request<ExternalMCPSnapshot>(`/mcp-system/servers/${encodeURIComponent(serverId)}/inspect`, {
+    method: "POST"
+  });
+}
+
+export async function callMCPSystemTool(serverId: string, toolName: string, argumentsPayload: Record<string, unknown>) {
+  return request<Record<string, unknown>>(
+    `/mcp-system/servers/${encodeURIComponent(serverId)}/tools/${encodeURIComponent(toolName)}/call`,
+    {
+      method: "POST",
+      body: JSON.stringify({ arguments: argumentsPayload })
+    }
+  );
 }
 
 export async function getSoulSystemCatalog() {
@@ -2117,6 +2288,38 @@ export async function saveSoulSystemFile(path: string, content: string, reason =
   return request<SoulSystemCatalog>("/soul/files", {
     method: "PUT",
     body: JSON.stringify({ path, content, reason })
+  });
+}
+
+export async function createCustomSoul(payload: CustomSoulPayload) {
+  return request<SoulSystemCatalog>("/soul/custom", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateCustomSoul(soulId: string, payload: CustomSoulPayload) {
+  return request<SoulSystemCatalog>(`/soul/custom/${encodeURIComponent(soulId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function enableCustomSoul(soulId: string) {
+  return request<SoulSystemCatalog>(`/soul/custom/${encodeURIComponent(soulId)}/enable`, {
+    method: "POST"
+  });
+}
+
+export async function disableCustomSoul(soulId: string) {
+  return request<SoulSystemCatalog>(`/soul/custom/${encodeURIComponent(soulId)}/disable`, {
+    method: "POST"
+  });
+}
+
+export async function deleteCustomSoul(soulId: string) {
+  return request<SoulSystemCatalog>(`/soul/custom/${encodeURIComponent(soulId)}`, {
+    method: "DELETE"
   });
 }
 
@@ -2177,10 +2380,29 @@ export async function upsertTaskSystemEntryPolicy(profileId: string, payload: Co
   });
 }
 
+export async function upsertTaskSystemDomain(domainId: string, payload: TaskDomainUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/domains/${encodeURIComponent(domainId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteTaskSystemDomain(domainId: string) {
+  return request<TaskSystemOverview>(`/tasks/domains/${encodeURIComponent(domainId)}`, {
+    method: "DELETE"
+  });
+}
+
 export async function upsertTaskSystemSpecificRecord(taskId: string, payload: SpecificTaskRecordUpsertPayload) {
   return request<TaskSystemOverview>(`/tasks/specific-records/${encodeURIComponent(taskId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteTaskSystemSpecificRecord(taskId: string) {
+  return request<TaskSystemOverview>(`/tasks/specific-records/${encodeURIComponent(taskId)}`, {
+    method: "DELETE"
   });
 }
 

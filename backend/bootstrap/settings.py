@@ -30,6 +30,10 @@ class StaticSettingsSnapshot:
     llm_model: str
     llm_timeout_seconds: float
     llm_max_retries: int
+    llm_max_output_tokens: int
+    llm_long_output_timeout_seconds: float
+    llm_thinking_mode: str
+    llm_reasoning_effort: str
     embedding_provider: str
     embedding_model: str
     vector_store_backend: str
@@ -55,6 +59,10 @@ class AppSettingsService:
             llm_model=settings.llm_model,
             llm_timeout_seconds=settings.llm_timeout_seconds,
             llm_max_retries=settings.llm_max_retries,
+            llm_max_output_tokens=settings.llm_max_output_tokens,
+            llm_long_output_timeout_seconds=settings.llm_long_output_timeout_seconds,
+            llm_thinking_mode=settings.llm_thinking_mode,
+            llm_reasoning_effort=settings.llm_reasoning_effort,
             embedding_provider=settings.embedding_provider,
             embedding_model=settings.embedding_model,
             vector_store_backend=settings.vector_store_backend,
@@ -466,12 +474,16 @@ class AppSettingsService:
                 },
                 {
                     "group_id": "runtime",
-                    "title": "运行限制",
-                    "description": "控制模型调用重试、超时和命令/组件边界。",
-                    "status": f"{settings.llm_timeout_seconds:g}s / {settings.terminal_timeout_seconds}s",
+                    "title": "运行限制与长输出",
+                    "description": "控制模型调用重试、超时、最大输出 token、Thinking 模式和命令/组件边界。",
+                    "status": f"{settings.llm_timeout_seconds:g}s / {settings.llm_max_output_tokens} tokens",
                     "fields": [
                         self._field(section="runtime", key="llm_timeout_seconds", label="LLM Timeout", field_type="number", value=settings.llm_timeout_seconds, description="主模型请求超时时间。"),
+                        self._field(section="runtime", key="llm_long_output_timeout_seconds", label="长输出 Timeout", field_type="number", value=settings.llm_long_output_timeout_seconds, description="当设置最大输出 token 时使用的长输出请求超时时间。"),
                         self._field(section="runtime", key="llm_max_retries", label="LLM Max Retries", field_type="number", value=settings.llm_max_retries, description="主模型最大重试次数。"),
+                        self._field(section="runtime", key="llm_max_output_tokens", label="最大输出 Tokens", field_type="number", value=settings.llm_max_output_tokens, description="传给模型的单次 completion 输出上限；DeepSeek V4 Pro 官方最大可到 384K tokens，但建议先按 32768/65536 实测。"),
+                        self._field(section="runtime", key="llm_thinking_mode", label="Thinking 模式", field_type="select", value=settings.llm_thinking_mode, options=["disabled", "enabled"], description="长篇正文建议关闭；需要推理审查时再开启。DeepSeek 默认 thinking，系统会显式传入该配置。"),
+                        self._field(section="runtime", key="llm_reasoning_effort", label="推理强度", field_type="select", value=settings.llm_reasoning_effort, options=["high", "max"], description="Thinking 开启时传给 DeepSeek 的 reasoning_effort。"),
                         self._field(section="runtime", key="terminal_timeout_seconds", label="Terminal Timeout", field_type="number", value=settings.terminal_timeout_seconds, description="终端默认超时时间。"),
                         self._field(section="runtime", key="component_char_limit", label="Component Char Limit", field_type="number", value=settings.component_char_limit, description="组件内容字符限制。"),
                     ],

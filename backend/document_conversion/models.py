@@ -30,7 +30,14 @@ class SourceFileRecord:
     modified_ns: int
 
     @classmethod
-    def from_path(cls, path: Path, *, collection: str, root_dir: Path) -> "SourceFileRecord":
+    def from_path(
+        cls,
+        path: Path,
+        *,
+        collection: str,
+        root_dir: Path,
+        source_root_label: str = "",
+    ) -> "SourceFileRecord":
         resolved = path.resolve()
         root = root_dir.resolve()
         stat = resolved.stat()
@@ -38,6 +45,9 @@ class SourceFileRecord:
             source_path = str(resolved.relative_to(root)).replace("\\", "/")
         except ValueError:
             source_path = resolved.name
+        label = str(source_root_label or "").strip().replace("\\", "/").strip("/")
+        if label and not source_path.startswith(f"{label}/") and source_path != label:
+            source_path = f"{label}/{source_path}"
         version_digest = _stable_digest(
             source_path,
             str(stat.st_mtime_ns),

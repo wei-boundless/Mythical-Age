@@ -11,7 +11,7 @@ def test_long_runner_collects_fallback_and_tool_failure_warnings() -> None:
         session_alias="main",
         session_id="s",
         message="读取 docs/26-OpenClaw-架构改造计划.md，概括主路径分层。",
-        plan_route="tool",
+        plan_route="builtin_tool_lane",
         plan_tool="read_file",
         plan_mcp="",
         plan_skill="",
@@ -48,7 +48,7 @@ def test_long_runner_reports_orchestration_fail_closed_warning() -> None:
         session_id="s",
         message="读 PDF",
         plan_route="mcp",
-        plan_tool="pdf_analysis",
+        plan_tool="",
         plan_mcp="pdf",
         plan_skill="",
         subquery_count=1,
@@ -120,7 +120,7 @@ def test_reporter_renders_runtime_control_summary() -> None:
                 details={
                     "runtime_control_source_counts": {"orchestration_directive": 8, "orchestration_blocked": 2},
                     "runtime_control_warning_counts": {"validation_blocked": 2},
-                    "runtime_execution_spec_kind_counts": {"mcp": 8, "direct_tool": 2},
+                    "runtime_execution_spec_kind_counts": {"mcp": 8, "builtin_tool_lane": 2},
                     "runtime_execution_spec_source_counts": {"data": 3, "document": 2, "web": 2},
                     "runtime_execution_spec_action_counts": {"call_tool": 8, "delegate_agent": 2},
                     "runtime_execution_spec_risk_counts": {"network": 2},
@@ -145,7 +145,7 @@ def test_reporter_renders_runtime_control_summary() -> None:
     assert "sources `orchestration_blocked:2, orchestration_directive:8`" in report
     assert "blocked_turns `2`" in report
     assert "warnings `validation_blocked:2`" in report
-    assert "execution_specs `direct_tool:2, mcp:8`" in report
+    assert "execution_specs `builtin_tool_lane:2, mcp:8`" in report
     assert "spec_sources `data:3, document:2, web:2`" in report
     assert "spec_actions `call_tool:8, delegate_agent:2`" in report
     assert "spec_risks `network:2`" in report

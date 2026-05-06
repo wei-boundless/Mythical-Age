@@ -67,6 +67,10 @@ class Settings:
     llm_fallback_base_url: str | None
     llm_timeout_seconds: float
     llm_max_retries: int
+    llm_max_output_tokens: int
+    llm_long_output_timeout_seconds: float
+    llm_thinking_mode: str
+    llm_reasoning_effort: str
     embedding_provider: str
     embedding_model: str
     embedding_api_key: str | None
@@ -299,6 +303,22 @@ def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
     if provider == "deepseek":
         return _provider_first_env(provider, "DEEPSEEK_BASE_URL", "LLM_FALLBACK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     return _first_env("LLM_FALLBACK_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+
+
+def _resolve_llm_thinking_mode() -> str:
+    value = str(_runtime_system_value("runtime", "llm_thinking_mode") or os.getenv("LLM_THINKING_MODE") or "disabled").strip().lower()
+    if value in {"on", "true", "1", "enabled", "enable"}:
+        return "enabled"
+    if value in {"off", "false", "0", "disabled", "disable"}:
+        return "disabled"
+    return "disabled"
+
+
+def _resolve_llm_reasoning_effort() -> str:
+    value = str(_runtime_system_value("runtime", "llm_reasoning_effort") or os.getenv("LLM_REASONING_EFFORT") or "high").strip().lower()
+    if value in {"max", "xhigh"}:
+        return "max"
+    return "high"
 
 
 def _resolve_embedding_api_key(provider: str) -> str | None:
@@ -666,6 +686,10 @@ def get_settings() -> Settings:
         llm_fallback_base_url=_resolve_llm_fallback_base_url(llm_fallback_provider),
         llm_timeout_seconds=_resolve_positive_float("LLM_TIMEOUT_SECONDS", 45.0, _runtime_system_value("runtime", "llm_timeout_seconds")),
         llm_max_retries=_resolve_nonnegative_int("LLM_MAX_RETRIES", 2, _runtime_system_value("runtime", "llm_max_retries")),
+        llm_max_output_tokens=_resolve_positive_int("LLM_MAX_OUTPUT_TOKENS", 32768, _runtime_system_value("runtime", "llm_max_output_tokens")),
+        llm_long_output_timeout_seconds=_resolve_positive_float("LLM_LONG_OUTPUT_TIMEOUT_SECONDS", 180.0, _runtime_system_value("runtime", "llm_long_output_timeout_seconds")),
+        llm_thinking_mode=_resolve_llm_thinking_mode(),
+        llm_reasoning_effort=_resolve_llm_reasoning_effort(),
         embedding_provider=embedding_provider,
         embedding_model=_resolve_embedding_model(embedding_provider),
         embedding_api_key=_resolve_embedding_api_key(embedding_provider),

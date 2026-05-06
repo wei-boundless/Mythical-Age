@@ -10,6 +10,7 @@ from api.files import router as files_router
 from api.health_system import router as health_system_router
 from api.health_workbench import router as health_workbench_router
 from api.memory import router as memory_router
+from api.mcp_system import router as mcp_system_router
 from api.orchestration import router as orchestration_router
 from api.capability_system import router as capability_system_router
 from api.sessions import router as sessions_router
@@ -41,6 +42,7 @@ app.include_router(chat_router, prefix="/api", tags=["chat"])
 app.include_router(sessions_router, prefix="/api", tags=["sessions"])
 app.include_router(files_router, prefix="/api", tags=["files"])
 app.include_router(memory_router, prefix="/api", tags=["memory"])
+app.include_router(mcp_system_router, prefix="/api", tags=["mcp-system"])
 app.include_router(tokens_router, prefix="/api", tags=["tokens"])
 app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(tasks_router, prefix="/api", tags=["tasks"])

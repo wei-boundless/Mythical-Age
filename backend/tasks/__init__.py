@@ -9,6 +9,7 @@ __all__ = [
     "GeneralTaskProfile",
     "TaskAssignment",
     "SpecificTaskRecord",
+    "TaskDomainRecord",
     "AgentTaskCarryingProfile",
     "TaskWorkflowBinding",
     "TaskProjectionBinding",
@@ -16,6 +17,11 @@ __all__ = [
     "TaskAgentAdoptionPlan",
     "TaskMemoryRequestProfile",
     "TaskCommunicationProtocol",
+    "CoordinationGraphSpec",
+    "CoordinationGraphNode",
+    "CoordinationGraphEdge",
+    "CoordinationGraphValidationIssue",
+    "compile_coordination_graph_spec",
     "ProjectionSelectionResult",
     "TaskExecutionAssembly",
     "TaskSpec",
@@ -66,6 +72,7 @@ def __getattr__(name: str) -> Any:
         "GeneralTaskProfile",
         "TaskAssignment",
         "SpecificTaskRecord",
+        "TaskDomainRecord",
         "TaskProjectionBinding",
         "TaskFlowContractBinding",
         "TaskAgentAdoptionPlan",
@@ -78,6 +85,7 @@ def __getattr__(name: str) -> Any:
             AgentTaskConnectionProfile,
             GeneralTaskProfile,
             SpecificTaskRecord,
+            TaskDomainRecord,
             TaskAgentAdoptionPlan,
             TaskAgentBinding,
             TaskAssignment,
@@ -92,6 +100,7 @@ def __getattr__(name: str) -> Any:
             "GeneralTaskProfile": GeneralTaskProfile,
             "TaskAssignment": TaskAssignment,
             "SpecificTaskRecord": SpecificTaskRecord,
+            "TaskDomainRecord": TaskDomainRecord,
             "TaskProjectionBinding": TaskProjectionBinding,
             "TaskFlowContractBinding": TaskFlowContractBinding,
             "TaskAgentAdoptionPlan": TaskAgentAdoptionPlan,
@@ -106,6 +115,29 @@ def __getattr__(name: str) -> Any:
         from tasks.flow_registry import TaskFlowRegistry
 
         return TaskFlowRegistry
+    if name in {
+        "CoordinationGraphSpec",
+        "CoordinationGraphNode",
+        "CoordinationGraphEdge",
+        "CoordinationGraphValidationIssue",
+    }:
+        from tasks.coordination_graph_models import (
+            CoordinationGraphEdge,
+            CoordinationGraphNode,
+            CoordinationGraphSpec,
+            CoordinationGraphValidationIssue,
+        )
+
+        return {
+            "CoordinationGraphSpec": CoordinationGraphSpec,
+            "CoordinationGraphNode": CoordinationGraphNode,
+            "CoordinationGraphEdge": CoordinationGraphEdge,
+            "CoordinationGraphValidationIssue": CoordinationGraphValidationIssue,
+        }[name]
+    if name == "compile_coordination_graph_spec":
+        from tasks.coordination_graph_compiler import compile_coordination_graph_spec
+
+        return compile_coordination_graph_spec
     if name in {"TaskWorkflowBinding"}:
         from tasks.workflow_models import TaskWorkflowBinding
 

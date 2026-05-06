@@ -25,11 +25,19 @@ def test_settings_expose_llm_timeout_and_retry_controls(monkeypatch: pytest.Monk
     monkeypatch.setattr(config, "_runtime_config_path", lambda: runtime_path)
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setenv("LLM_MAX_RETRIES", "0")
+    monkeypatch.setenv("LLM_MAX_OUTPUT_TOKENS", "65536")
+    monkeypatch.setenv("LLM_LONG_OUTPUT_TIMEOUT_SECONDS", "240")
+    monkeypatch.setenv("LLM_THINKING_MODE", "enabled")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "max")
 
     settings = config.get_settings()
 
     assert settings.llm_timeout_seconds == 12.5
     assert settings.llm_max_retries == 0
+    assert settings.llm_max_output_tokens == 65536
+    assert settings.llm_long_output_timeout_seconds == 240
+    assert settings.llm_thinking_mode == "enabled"
+    assert settings.llm_reasoning_effort == "max"
 
 
 def test_settings_resolve_cross_provider_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -154,3 +162,63 @@ def test_runtime_system_config_overrides_static_settings(monkeypatch: pytest.Mon
     assert settings.llm_timeout_seconds == 300
     assert settings.llm_max_retries == 4
     assert settings.terminal_timeout_seconds == 300
+
+
+def test_runtime_system_config_exposes_long_output_controls(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    runtime_path = tmp_path / "config.json"
+    runtime_path.write_text(
+        """
+{
+  "system_config": {
+    "runtime": {
+      "llm_max_output_tokens": 65536,
+      "llm_long_output_timeout_seconds": 360,
+      "llm_thinking_mode": "disabled",
+      "llm_reasoning_effort": "high"
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "_runtime_config_path", lambda: runtime_path)
+
+    settings = config.get_settings()
+
+    assert settings.llm_max_output_tokens == 65536
+    assert settings.llm_long_output_timeout_seconds == 360
+    assert settings.llm_thinking_mode == "disabled"
+    assert settings.llm_reasoning_effort == "high"
+
+
+def test_runtime_config_console_includes_long_output_fields(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from bootstrap.settings import AppSettingsService
+
+    runtime_path = tmp_path / "config.json"
+    runtime_path.write_text(
+        """
+{
+  "system_config": {
+    "runtime": {
+      "llm_max_output_tokens": 65536,
+      "llm_long_output_timeout_seconds": 360,
+      "llm_thinking_mode": "disabled",
+      "llm_reasoning_effort": "high"
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "_runtime_config_path", lambda: runtime_path)
+    monkeypatch.setattr(config.runtime_config, "_config_path", runtime_path)
+
+    payload = AppSettingsService(BACKEND_DIR).runtime_config_console_payload()
+    runtime_group = next(group for group in payload["groups"] if group["group_id"] == "runtime")
+    field_map = {field["key"]: field for field in runtime_group["fields"]}
+
+    assert runtime_group["title"] == "运行限制与长输出"
+    assert field_map["llm_max_output_tokens"]["value"] == 65536
+    assert field_map["llm_long_output_timeout_seconds"]["value"] == 360
+    assert field_map["llm_thinking_mode"]["options"] == ["disabled", "enabled"]
+    assert field_map["llm_reasoning_effort"]["options"] == ["high", "max"]

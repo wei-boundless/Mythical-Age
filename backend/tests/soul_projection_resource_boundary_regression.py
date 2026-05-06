@@ -74,3 +74,37 @@ def test_soul_runtime_view_exposes_only_authorized_tool_sections() -> None:
     assert "resource_policy_ref" not in bundle["refs"]
     assert "resource_section" not in bundle_sections
     assert bundle_sections["guardrail_section"]["owner_layer"] == "task"
+
+
+def test_soul_runtime_view_carries_projection_identity_anchor_separately() -> None:
+    task_prompt = TaskPromptContract(
+        contract_id="contract-anchor-1",
+        task_id="soul-task-anchor",
+        definition_id="task.task_execution",
+        binding_id="binding-anchor-1",
+        task_section="Goal: write chapters",
+        workflow_section="Workflow: stable chapter pipeline.",
+        resource_section="",
+        projection_section="Projection role: chapter_drafting.",
+        output_section="Return chapter draft.",
+        guardrail_section="Respect task boundary.",
+        metadata={"runtime_directive_enabled": True},
+    )
+
+    runtime = build_soul_runtime_view(
+        task_prompt_contract=task_prompt,
+        projection_requirement=ProjectionRequirement(
+            task_id="soul-task-anchor",
+            role_type="chapter_drafting",
+            identity_anchor="你是长篇正文执行投影，不是灵魂本体。",
+            projection_title="正文投影",
+            projection_prompt="优先完成场景落稿。",
+        ),
+        skill_views=[],
+        resource_views=[],
+    )
+
+    runtime_sections = {item["section_id"]: item for item in runtime["runtime_view"]["sections"]}
+
+    assert "projection_section" in runtime_sections
+    assert "你是长篇正文执行投影，不是灵魂本体。" in runtime_sections["projection_section"]["content"]

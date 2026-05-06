@@ -7,10 +7,10 @@ from orchestration.runtime_loop.task_run_loop import _project_file_work_context_
 from query.runtime import QueryRuntime
 
 
-def test_structured_tool_observation_projects_file_work_context() -> None:
+def test_structured_mcp_observation_projects_file_work_context() -> None:
     main_context, task_refs = _project_file_work_context_from_tool_observation(
         {
-            "tool_name": "structured_data_analysis",
+            "tool_name": "mcp_structured_data",
             "tool_args": {
                 "query": "找出薪资前五的人。",
                 "path": "knowledge/E-commerce Data/employees.xlsx",
@@ -33,10 +33,10 @@ def test_structured_tool_observation_projects_file_work_context() -> None:
     assert "dataset=knowledge/E-commerce Data/employees.xlsx" in task_refs[0]["key_points"]
 
 
-def test_pdf_tool_observation_projects_file_work_context() -> None:
+def test_pdf_mcp_observation_projects_file_work_context() -> None:
     main_context, task_refs = _project_file_work_context_from_tool_observation(
         {
-            "tool_name": "pdf_analysis",
+            "tool_name": "mcp_pdf",
             "tool_args": {
                 "query": "第三页具体讲了什么？",
                 "path": "knowledge/AI Knowledge/report.pdf",

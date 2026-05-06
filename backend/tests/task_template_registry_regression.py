@@ -45,7 +45,7 @@ def test_task_template_registry_matches_followup_bundle_item_by_contract() -> No
                     "user_text": "inventory.xlsx 最缺货的前三个仓库",
                     "template_id": "template.data.structured_analysis",
                     "capability_kind": "structured_data",
-                    "required_tool": "structured_data_analysis",
+                    "required_tool": "",
                 }
             ],
             "followup_target_refs": ["bundle:2:inventory"],

@@ -27,7 +27,7 @@ def test_permission_service_plan_mode_only_surfaces_read_tools() -> None:
 
         allowed = service.allowed_tool_names()
 
-        assert "get_weather" in allowed
+        assert "web_search" in allowed
         assert "terminal" not in allowed
         assert "index_multimodal_file" not in allowed
 
@@ -57,7 +57,7 @@ def test_permission_service_respects_scope_and_direct_route_safety() -> None:
         runtime = ToolRuntime(Path(tmp))
         service = PermissionService(_SettingsStub("accept_edits"), runtime)
 
-        scoped = service.can_invoke_tool("read_file", allowed_tools=["get_weather"])
+        scoped = service.can_invoke_tool("read_file", allowed_tools=["web_search"])
         assert scoped.allowed is False
         assert scoped.reason == "tool_not_allowed_by_scope"
 

@@ -28,28 +28,6 @@ def write_skill_frontmatter(path: Path, meta: dict[str, Any], body: str) -> None
     path.write_text(f"---\n{frontmatter}\n---\n\n{body.lstrip()}", encoding="utf-8")
 
 
-def normalize_tool_names(tool_names: list[str], known_tools: set[str]) -> list[str]:
-    normalized: list[str] = []
-    seen = set()
-    for value in tool_names:
-        name = str(value or "").strip()
-        if not name or name in seen or name not in known_tools:
-            continue
-        seen.add(name)
-        normalized.append(name)
-    return normalized
-
-
-def set_skill_allowed_tools(path: Path, allowed_tools: list[str], known_tools: set[str]) -> list[str]:
-    text = read_text(path)
-    meta, body = parse_frontmatter(text)
-    metadata = meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
-    metadata["allowed_tools"] = normalize_tool_names(allowed_tools, known_tools)
-    meta["metadata"] = metadata
-    write_skill_frontmatter(path, meta, body)
-    return list(metadata["allowed_tools"])
-
-
 def set_skill_prompt_view(path: Path, prompt_view: dict[str, str]) -> dict[str, str]:
     text = read_text(path)
     meta, body = parse_frontmatter(text)
@@ -68,4 +46,3 @@ def set_skill_prompt_view(path: Path, prompt_view: dict[str, str]) -> dict[str, 
     meta["prompt"] = next_prompt
     write_skill_frontmatter(path, meta, body)
     return next_prompt
-

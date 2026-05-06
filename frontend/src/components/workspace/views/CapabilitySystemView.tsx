@@ -6,7 +6,6 @@ import {
   Code2,
   FilePlus2,
   Hammer,
-  Link2,
   Loader2,
   Network,
   PlugZap,
@@ -75,7 +74,6 @@ name: ${name || "new-skill"}
 description: ${description || "描述这个 skill 的用途。"}
 metadata:
   display_name: ${title || "新 Skill"}
-  allowed_tools: []
   supported_modalities:
     - text
   supported_task_kinds: []
@@ -106,8 +104,10 @@ function skillSearchText(skill: OperationSkill) {
     skill.runtime.name,
     skill.runtime.title,
     skill.runtime.description,
-    skill.runtime.allowed_tools.join(" "),
     skill.runtime.capability_tags.join(" "),
+    skill.runtime.supported_task_kinds.join(" "),
+    skill.runtime.supported_source_kinds.join(" "),
+    skill.runtime.routing_hints.join(" "),
     skill.prompt_block
   ].join(" ").toLowerCase();
 }
@@ -121,7 +121,6 @@ function toolSearchText(tool: OperationTool) {
     tool.operation_metadata.adapter_type,
     tool.operation_metadata.risk_level,
     tool.operation_metadata.ownership_label,
-    tool.operation_metadata.bound_skills.map((skill) => skill.title || skill.name).join(" "),
     tool.capability_tags.join(" "),
     tool.safety_tags.join(" "),
     tool.route_hints.join(" ")
@@ -461,7 +460,7 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 <span>{skill.runtime.preferred_route || "route"}</span>
                 <strong>{skill.runtime.title || skill.runtime.name}</strong>
                 <p>{skill.runtime.description}</p>
-                <small>{listText(skill.runtime.allowed_tools)}</small>
+                <small>{listText(skill.runtime.capability_tags)}</small>
               </button>
             ))}
           </div>
@@ -496,8 +495,11 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 <div className="operation-skill-meta">
                   <span>路径：{selectedSkill.runtime.path}</span>
                   <span>激活：{selectedSkill.runtime.activation_policy}</span>
-                <span>上下文：{selectedSkill.runtime.context_mode}</span>
-                  <span>候选工具：{listText(selectedSkill.runtime.allowed_tools)}</span>
+                  <span>上下文：{selectedSkill.runtime.context_mode}</span>
+                  <span>路由：{selectedSkill.runtime.preferred_route}</span>
+                  <span>能力标签：{listText(selectedSkill.runtime.capability_tags)}</span>
+                  <span>任务类型：{listText(selectedSkill.runtime.supported_task_kinds)}</span>
+                  <span>数据源：{listText(selectedSkill.runtime.supported_source_kinds)}</span>
                 </div>
 
                 {selectedSkill.validation_errors.length ? (
@@ -505,7 +507,7 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                     统一契约校验未通过：{selectedSkill.validation_errors.join(" / ")}
                   </div>
                 ) : (
-                  <div className="workspace-alert">统一 SkillContract 校验通过。Skill 用于维护方法提示、候选工具和能力标签。</div>
+                  <div className="workspace-alert">统一 SkillContract 校验通过。Skill 只维护技能流说明、适用条件和模型可见方法提示。</div>
                 )}
 
                 <div className="operation-prompt-panel">
@@ -556,13 +558,22 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 <div className="operation-editor-panel">
                   <div>
                     <Code2 size={16} />
-                    <strong>{skillEditing ? "编辑 SKILL.md" : "SKILL.md 只读预览"}</strong>
+                    <strong>编辑 SKILL.md</strong>
+                    <span>保存后会重新扫描 frontmatter 和提示正文</span>
+                    {!skillEditing ? (
+                      <button className="action-button action-button--ghost" onClick={() => setSkillEditing(true)} type="button">
+                        <Code2 size={14} />
+                        编辑
+                      </button>
+                    ) : null}
+                    {skillEditing ? (
+                      <button className="action-button action-button--primary" disabled={saving === `skill:${selectedSkill.runtime.name}`} onClick={() => void saveSkill()} type="button">
+                        {saving === `skill:${selectedSkill.runtime.name}` ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
+                        保存 SKILL.md
+                      </button>
+                    ) : null}
                   </div>
-                  {skillEditing ? (
-                    <textarea value={skillDraft} onChange={(event) => setSkillDraft(event.target.value)} />
-                  ) : (
-                    <pre>{selectedSkill.content}</pre>
-                  )}
+                  <textarea readOnly={!skillEditing} value={skillDraft} onChange={(event) => setSkillDraft(event.target.value)} />
                 </div>
               </>
             ) : (
@@ -618,12 +629,6 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 </div>
 
                 <div className="operation-tool-map" aria-label="工具调用链">
-                  <article>
-                    <Link2 size={16} />
-                    <span>Skill 候选</span>
-                    <strong>{selectedTool.operation_metadata.bound_skills.length || "无"}</strong>
-                  </article>
-                  <i />
                   <article>
                     <Network size={16} />
                     <span>调用边界</span>
@@ -689,20 +694,6 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 </div>
 
                 <div className="operation-tool-linked">
-                  <article>
-                    <strong>候选 Skills</strong>
-                    {selectedTool.operation_metadata.bound_skills.length ? (
-                      <div className="workspace-chip-row">
-                        {selectedTool.operation_metadata.bound_skills.map((skill) => (
-                          <span className="workspace-mini-chip" key={skill.name}>
-                            {skill.title || skill.name} · {skill.activation_policy}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p>当前没有 skill 声明这个工具为候选能力；工具仍然保留在注册目录中。</p>
-                    )}
-                  </article>
                   <article>
                     <strong>注册可见性</strong>
                     <p>{selectedTool.operation_metadata.visibility_label}</p>

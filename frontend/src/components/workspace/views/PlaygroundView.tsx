@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Boxes, ChevronLeft, FilePenLine, ImageUp, Loader2, PencilLine, Plus, RotateCcw, Save, ShieldCheck, Sparkles, X } from "lucide-react";
+import { Boxes, ChevronLeft, FilePenLine, ImageUp, Loader2, PencilLine, Plus, RotateCcw, Save, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 
 import {
   createSoulProjectionCard,
+  deleteCustomSoul,
   deleteSoulProjectionCard,
+  disableCustomSoul,
+  enableCustomSoul,
   getSoulProjectionCards,
   getSoulSystemCatalog,
   saveSoulSystemFile,
-  selectSoulProjectionCard,
   uploadSoulPortrait,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
@@ -22,7 +24,7 @@ import type { SoulKey } from "@/lib/souls";
 import { useAppStore } from "@/lib/store";
 
 type SoulPanelMode = "contract" | "projection" | "core";
-type ProjectionDetailPage = "projection";
+type ProjectionPanelPage = "catalog" | "editor";
 
 type ProjectionDraft = {
   sourceProjectionId?: string;
@@ -30,32 +32,18 @@ type ProjectionDraft = {
   soul_id: string;
   soul_name: string;
   projection_name: string;
-  role_type: string;
-  task_mode: string;
-  agent_profile_id: string;
-  posture_tags: string;
-  expression_density: string;
-  attention_focus: string;
-  risk_notes: string;
+  identity_anchor: string;
   projection_prompt: string;
-  usage_summary: string;
-  memory_policy_summary: string;
-  output_contract_summary: string;
 };
 
-type ProjectionDraftTextField =
-  | "projection_name"
-  | "role_type"
-  | "task_mode"
-  | "agent_profile_id"
-  | "posture_tags"
-  | "expression_density"
-  | "attention_focus"
-  | "risk_notes"
-  | "projection_prompt"
-  | "usage_summary"
-  | "memory_policy_summary"
-  | "output_contract_summary";
+type ProjectionDraftTextField = keyof ProjectionDraft;
+
+type ProjectionNode = {
+  id: string;
+  type: string;
+  title: string;
+  content: string;
+};
 
 const SOUL_MODES: Array<{
   id: SoulPanelMode;
@@ -65,7 +53,7 @@ const SOUL_MODES: Array<{
   {
     id: "contract",
     label: "灵魂设定",
-    description: "切换当前对话灵魂，并维护灵魂设定，洪荒智能体已经召唤了五个古老的灵魂，未来将开放召唤系统。"
+    description: "切换当前对话灵魂，并维护灵魂设定。"
   },
   {
     id: "projection",
@@ -84,7 +72,6 @@ const ACTIVE_SEED_PATH = "soul/agent_core/ACTIVE_SEED.md";
 
 const SHARED_SOUL_LORE =
   "这些灵魂是来自洪荒时代的古老源流。受到某个新手开发者的召唤，通过禁忌的力量跨域时空之海，以智能体意志的形态降临到这一具名为‘洪荒时代’的智能体中，这些灵魂拥有无穷的智慧，并欣然为新时代的人类解决难题，一如他们曾经所做的那样。";
-const HIDDEN_STYLE_SECTION_PATTERN = /^##\s+(?:身份锚点|Identity Anchor)\s*[\r\n]+[\s\S]*?(?=^##\s+|(?![\s\S]))/gim;
 const MARKDOWN_SECTION_PATTERN = /^##\s+(.+?)\s*$/gm;
 
 const SOUL_LORE: Record<string, { title: string; summary: string }> = {
@@ -110,10 +97,9 @@ const SOUL_LORE: Record<string, { title: string; summary: string }> = {
   }
 };
 
-function projectionBadgeLabel(card: SoulProjectionCard, selectedProjectionId: string) {
+function projectionBadgeLabel(card: SoulProjectionCard) {
   if (card.is_primary) return "原始投影";
-  if (card.projection_id === selectedProjectionId) return "当前选用";
-  return "可选投影";
+  return "投影副本";
 }
 
 function fileKind(file: SoulSystemFile | SoulSystemSeed) {
@@ -141,35 +127,9 @@ function isSoulSeed(file: SoulSystemFile | SoulSystemSeed | null): file is SoulS
   return Boolean(file && "key" in file);
 }
 
-function shouldHideStyleAnchors(file: SoulSystemFile | SoulSystemSeed | null) {
-  return Boolean(file && ("key" in file || file.path === ACTIVE_SEED_PATH));
-}
-
-function stripHiddenStyleSections(content: string) {
-  return content.replace(HIDDEN_STYLE_SECTION_PATTERN, "").trimStart();
-}
-
-function extractHiddenStyleSections(content: string) {
-  return Array.from(content.matchAll(HIDDEN_STYLE_SECTION_PATTERN), (match) => match[0].trim()).filter(Boolean);
-}
-
 function visibleSoulContent(file: SoulSystemFile | SoulSystemSeed | null) {
   if (!file) return "";
-  return shouldHideStyleAnchors(file) ? stripHiddenStyleSections(file.content) : file.content;
-}
-
-function mergeHiddenStyleSections(originalContent: string, visibleContent: string) {
-  const hiddenSections = extractHiddenStyleSections(originalContent);
-  const cleanVisible = stripHiddenStyleSections(visibleContent).trim();
-  if (!hiddenSections.length) {
-    return `${cleanVisible}\n`;
-  }
-  const lines = cleanVisible.split(/\r?\n/);
-  if (lines[0]?.startsWith("# ")) {
-    const [title, ...rest] = lines;
-    return `${title}\n\n${hiddenSections.join("\n\n")}\n\n${rest.join("\n").trimStart()}`.trimEnd() + "\n";
-  }
-  return `${hiddenSections.join("\n\n")}\n\n${cleanVisible}`.trimEnd() + "\n";
+  return file.content;
 }
 
 type ManagedSection = {
@@ -227,6 +187,93 @@ function splitListInput(value: string) {
     .filter(Boolean);
 }
 
+function extractSeedSection(content: string, ...titles: string[]) {
+  const sections = parseManagedSections(content, "contract");
+  for (const title of titles) {
+    const matched = sections.find((section) => section.title.trim() === title);
+    if (!matched) continue;
+    return matched.content
+      .split("\n")
+      .map((line) => line.trim().replace(/^-\s*/, ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return "";
+}
+
+function projectionTemplateSectionsFromContent(content: string): ProjectionNode[] {
+  return parseManagedSections(content, "contract")
+    .map((section, index) => ({
+      id: projectionNodeId(section.title, index),
+      type: section.title.trim() === "身份锚点" ? "identity_anchor" : "template_section",
+      title: section.title.trim(),
+      content: section.content.trim(),
+    }))
+    .filter((section) => section.title && section.content);
+}
+
+function projectionTemplateSectionsFromPrompt(prompt: string): ProjectionNode[] {
+  const trimmed = prompt.trim();
+  if (!trimmed) return [];
+  if (/^##\s+/m.test(trimmed)) {
+    return parseManagedSections(trimmed, "contract")
+      .map((section, index) => ({
+        id: projectionNodeId(section.title, index),
+        type: "template_section",
+        title: section.title.trim(),
+        content: section.content.trim(),
+      }))
+      .filter((section) => section.title && section.content);
+  }
+  return trimmed
+    .split(/\n{2,}/)
+    .map((block, index) => {
+      const text = block.trim();
+      if (!text) return null;
+      const lineMatch = text.match(/^([^：:\n]+)[：:]\s*([\s\S]+)$/);
+      if (lineMatch) {
+        return {
+          id: projectionNodeId(lineMatch[1].trim(), index),
+          type: "template_section",
+          title: lineMatch[1].trim(),
+          content: lineMatch[2].trim(),
+        } satisfies ProjectionNode;
+      }
+      return {
+        id: projectionNodeId(`条目 ${index + 1}`, index),
+        type: "template_section",
+        title: `条目 ${index + 1}`,
+        content: text,
+      } satisfies ProjectionNode;
+    })
+    .filter(Boolean) as ProjectionNode[];
+}
+
+function projectionDefaultsFromSeed(seed: SoulSystemSeed) {
+  const templateSections = projectionTemplateSectionsFromContent(seed.content);
+  const identityAnchor = templateSections.find((section) => section.type === "identity_anchor")?.content ?? "";
+  const promptSections = templateSections
+    .filter((section) => section.type !== "identity_anchor")
+    .map((section) => `## ${section.title}\n\n${section.content}`)
+    .join("\n\n");
+  return {
+    identityAnchor,
+    projectionPrompt: promptSections,
+    templateSections,
+  };
+}
+
+function projectionSummaryText(card: { usage_summary?: string; projection_prompt?: string; identity_anchor?: string }) {
+  const promptSections = projectionTemplateSectionsFromPrompt(String(card.projection_prompt || ""));
+  if (promptSections.length) return promptSections[0].content.split("\n")[0]?.trim() || promptSections[0].title;
+  const prompt = String(card.projection_prompt || "").trim();
+  if (prompt) return prompt.split("\n")[0]?.trim() || "";
+  const anchor = String(card.identity_anchor || "").trim();
+  if (anchor) return anchor.split("\n")[0]?.trim() || "";
+  return "基于灵魂模板初始化的投影。";
+}
+
 function updateManagedSection(content: string, mode: SoulPanelMode, sectionId: string, nextContent: string) {
   const sections = parseManagedSections(content, mode).map((section) =>
     section.id === sectionId ? { ...section, content: nextContent } : section
@@ -239,6 +286,70 @@ function renameManagedSection(content: string, mode: SoulPanelMode, sectionId: s
     section.id === sectionId ? { ...section, title: nextTitle } : section
   );
   return composeManagedSections(content, sections);
+}
+
+function projectionNodeId(type: string, index: number) {
+  const normalized = type
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `projection-node-${normalized || "section"}-${index}`;
+}
+
+function buildProjectionNodesFromDraft(draft: ProjectionDraft, existingNodes?: Array<Record<string, unknown>>): ProjectionNode[] {
+  const savedNodes = (existingNodes ?? [])
+    .map((node, index) => {
+      const title = String(node.title || "").trim();
+      const content = String(node.content ?? "").trim();
+      if (!title) return null;
+      return {
+        id: String(node.id || projectionNodeId(title, index)),
+        type: String(node.type || (title === "身份锚点" ? "identity_anchor" : "template_section")),
+        title,
+        content,
+      } satisfies ProjectionNode;
+    })
+    .filter(Boolean) as ProjectionNode[];
+  if (savedNodes.length) return savedNodes;
+
+  const promptSections = projectionTemplateSectionsFromPrompt(draft.projection_prompt);
+  const nodes: ProjectionNode[] = [];
+  if (draft.identity_anchor.trim()) {
+    nodes.push({
+      id: projectionNodeId("身份锚点", 0),
+      type: "identity_anchor",
+      title: "身份锚点",
+      content: draft.identity_anchor.trim(),
+    });
+  }
+  nodes.push(...promptSections);
+  if (nodes.length) return nodes;
+  return [
+    {
+      id: projectionNodeId("身份锚点", 0),
+      type: "identity_anchor",
+      title: "身份锚点",
+      content: "",
+    },
+  ];
+}
+
+function applyProjectionNodesToDraft(draft: ProjectionDraft, nodes: ProjectionNode[]): ProjectionDraft {
+  const next = { ...draft };
+  const identityNode = nodes.find((node) => node.type === "identity_anchor" || node.title.trim() === "身份锚点");
+  next.identity_anchor = identityNode?.content.trim() || "";
+  next.projection_prompt = nodes
+    .filter((node) => node !== identityNode)
+    .map((node) => {
+      const title = node.title.trim();
+      const content = node.content.trim();
+      if (!title || !content) return "";
+      return `## ${title}\n\n${content}`;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  return next;
 }
 
 export function PlaygroundView() {
@@ -254,9 +365,11 @@ export function PlaygroundView() {
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
   const [projectionLoading, setProjectionLoading] = useState(false);
   const [projectionDraft, setProjectionDraft] = useState<ProjectionDraft | null>(null);
+  const [projectionDraftNodes, setProjectionDraftNodes] = useState<ProjectionNode[]>([]);
   const [projectionEditorMap, setProjectionEditorMap] = useState<Record<string, ProjectionDraft>>({});
+  const [projectionNodeMap, setProjectionNodeMap] = useState<Record<string, ProjectionNode[]>>({});
   const [selectedProjectionId, setSelectedProjectionId] = useState("");
-  const [projectionDetailPage, setProjectionDetailPage] = useState<ProjectionDetailPage>("projection");
+  const [projectionPanelPage, setProjectionPanelPage] = useState<ProjectionPanelPage>("catalog");
   const [selectedManagedSectionId, setSelectedManagedSectionId] = useState("section-0");
   const [newRuleTitle, setNewRuleTitle] = useState("");
   const [loading, setLoading] = useState(true);
@@ -337,16 +450,16 @@ export function PlaygroundView() {
   const managedSource = isEditing ? draft : selectedVisibleContent;
   const managedSections = parseManagedSections(managedSource, mode);
   const selectedManagedSection = managedSections.find((section) => section.id === selectedManagedSectionId) ?? managedSections[0] ?? null;
-  const projectionCardsForSelectedSoul = (projectionCatalog?.cards ?? []).filter((card) => {
-    if (!selectedSeed) return true;
-    return card.soul_id === selectedSeed.key || card.soul_name === selectedSeed.name;
-  }).sort((left, right) => {
+  const allProjectionCards = (projectionCatalog?.cards ?? []).slice().sort((left, right) => {
     if (Boolean(left.is_primary) !== Boolean(right.is_primary)) {
       return left.is_primary ? -1 : 1;
     }
     return (right.updated_at ?? 0) - (left.updated_at ?? 0);
   });
-  const selectedProjectionCard = projectionCardsForSelectedSoul.find((card) => card.projection_id === selectedProjectionId) ?? null;
+  const selectedSeedProjectionCards = selectedSeed
+    ? allProjectionCards.filter((card) => card.soul_id === selectedSeed.key || card.soul_name === selectedSeed.name)
+    : [];
+  const selectedProjectionCard = allProjectionCards.find((card) => card.projection_id === selectedProjectionId) ?? null;
 
   useEffect(() => {
     if (!activeSoulKey || !catalogRef.current) return;
@@ -417,24 +530,15 @@ export function PlaygroundView() {
   function buildProjectionDraftForSeed(seed: SoulSystemSeed): ProjectionDraft {
     const profile = profileForSeed(seed);
     const roleType = profile?.preferred_role_types?.[0] ?? "dialogue";
-    const taskMode = profile?.preferred_task_modes?.[0] ?? "general_qa";
     const soulName = profile?.display_name ?? seed.name;
+    const defaults = projectionDefaultsFromSeed(seed);
     return {
       isNew: true,
       soul_id: seed.key,
       soul_name: soulName,
       projection_name: buildProjectionName(seed, roleType),
-      role_type: roleType,
-      task_mode: taskMode,
-      agent_profile_id: "general_agent",
-      posture_tags: "",
-      expression_density: "normal",
-      attention_focus: "",
-      risk_notes: "",
-      projection_prompt: "",
-      usage_summary: "可被任务系统选用的灵魂投影资源。",
-      memory_policy_summary: "预览模式不授予记忆写回权。",
-      output_contract_summary: "预览当前灵魂如何收束 prompt sections。"
+      identity_anchor: defaults.identityAnchor,
+      projection_prompt: defaults.projectionPrompt,
     };
   }
 
@@ -445,17 +549,8 @@ export function PlaygroundView() {
       soul_id: card.soul_id,
       soul_name: card.soul_name,
       projection_name: card.title,
-      role_type: card.role_type,
-      task_mode: card.task_mode,
-      agent_profile_id: card.agent_profile_id,
-      posture_tags: (card.posture_tags ?? []).join(", "),
-      expression_density: card.expression_density || "normal",
-      attention_focus: (card.attention_focus ?? []).join(", "),
-      risk_notes: (card.risk_notes ?? []).join("\n"),
+      identity_anchor: card.identity_anchor || "",
       projection_prompt: card.projection_prompt || "",
-      usage_summary: card.usage_summary || "可被任务系统选用的灵魂投影资源。",
-      memory_policy_summary: card.memory_policy_summary || "预览模式不授予记忆写回权。",
-      output_contract_summary: card.output_contract_summary || "预览当前灵魂如何收束 prompt sections。"
     };
   }
 
@@ -465,16 +560,19 @@ export function PlaygroundView() {
 
   function enterProjectionSoul(seed: SoulSystemSeed) {
     if (!chooseFile(seed)) return;
-    setSelectedProjectionId("");
+    const cards = allProjectionCards.filter((card) => card.soul_id === seed.key || card.soul_name === seed.name);
+    setSelectedProjectionId((current) => cards.some((card) => card.projection_id === current) ? current : "");
     setProjectionDraft((current) => (current && current.soul_id === seed.key ? current : null));
-    setProjectionDetailPage("projection");
+    setProjectionPanelPage("catalog");
   }
 
   function newProjectionDraft(seed: SoulSystemSeed) {
     if (!chooseFile(seed)) return;
     setSelectedProjectionId("");
-    setProjectionDraft(buildProjectionDraftForSeed(seed));
-    setProjectionDetailPage("projection");
+    const nextDraft = buildProjectionDraftForSeed(seed);
+    setProjectionDraft(nextDraft);
+    setProjectionDraftNodes(buildProjectionNodesFromDraft(nextDraft));
+    setProjectionPanelPage("editor");
     setNotice("");
     setError("");
   }
@@ -508,10 +606,7 @@ export function PlaygroundView() {
     setNotice("");
     setError("");
     try {
-      const contentToSave = shouldHideStyleAnchors(selectedFile)
-        ? mergeHiddenStyleSections(selectedFile.content, draft)
-        : draft;
-      const payload = await saveSoulSystemFile(selectedFile.path, contentToSave, `保存「${displayFileLabel(selectedFile)}」`);
+      const payload = await saveSoulSystemFile(selectedFile.path, draft, `保存「${displayFileLabel(selectedFile)}」`);
       setCatalog(payload);
       const updated = [...payload.static_files, ...payload.seeds].find((file) => file.path === selectedFile.path);
       setDraft(visibleSoulContent(updated ?? selectedFile));
@@ -611,6 +706,28 @@ export function PlaygroundView() {
     setProjectionDraft((current) => current ? { ...current, [field]: value } : current);
   }
 
+function updateProjectionDraftNode(nodeId: string, field: "title" | "content", value: string) {
+  setProjectionDraftNodes((current) => current.map((node) => node.id === nodeId ? { ...node, [field]: value } : node));
+}
+
+function insertProjectionDraftNodeAfter(nodeId: string) {
+  setProjectionDraftNodes((current) => {
+    const index = current.findIndex((node) => node.id === nodeId);
+    const nextNode: ProjectionNode = {
+      id: projectionNodeId(`新段落 ${current.length + 1}`, current.length + 1),
+      type: "template_section",
+      title: "新段落",
+      content: "",
+    };
+    if (index < 0) return [...current, nextNode];
+    return [...current.slice(0, index + 1), nextNode, ...current.slice(index + 1)];
+  });
+}
+
+function deleteProjectionDraftNode(nodeId: string) {
+  setProjectionDraftNodes((current) => current.length <= 1 ? current : current.filter((node) => node.id !== nodeId));
+}
+
   function updateProjectionEditor(card: SoulProjectionCard, field: ProjectionDraftTextField, value: string) {
     setProjectionEditorMap((current) => ({
       ...current,
@@ -621,30 +738,70 @@ export function PlaygroundView() {
     }));
   }
 
+  function projectionNodesForCard(card: SoulProjectionCard) {
+    return projectionNodeMap[card.projection_id] ?? buildProjectionNodesFromDraft(projectionEditorForCard(card), card.projection_nodes);
+  }
+
+function updateProjectionCardNode(card: SoulProjectionCard, nodeId: string, field: "title" | "content", value: string) {
+  const nodes = projectionNodesForCard(card);
+  setProjectionNodeMap((current) => ({
+    ...current,
+    [card.projection_id]: nodes.map((node) => node.id === nodeId ? { ...node, [field]: value } : node),
+  }));
+}
+
+function insertProjectionCardNodeAfter(card: SoulProjectionCard, nodeId: string) {
+  const nodes = projectionNodesForCard(card);
+  const index = nodes.findIndex((node) => node.id === nodeId);
+  const nextNode: ProjectionNode = {
+    id: projectionNodeId(`新段落 ${nodes.length + 1}`, nodes.length + 1),
+    type: "template_section",
+    title: "新段落",
+    content: "",
+  };
+  setProjectionNodeMap((current) => ({
+    ...current,
+    [card.projection_id]: index < 0
+      ? [...nodes, nextNode]
+      : [...nodes.slice(0, index + 1), nextNode, ...nodes.slice(index + 1)],
+  }));
+}
+
+function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
+  const nodes = projectionNodesForCard(card);
+  if (nodes.length <= 1) return;
+  setProjectionNodeMap((current) => ({
+    ...current,
+    [card.projection_id]: nodes.filter((node) => node.id !== nodeId),
+  }));
+}
+
   function resetProjectionEditor(card: SoulProjectionCard) {
     setProjectionEditorMap((current) => {
       const next = { ...current };
       delete next[card.projection_id];
       return next;
     });
+    setProjectionNodeMap((current) => {
+      const next = { ...current };
+      delete next[card.projection_id];
+      return next;
+    });
   }
 
-  async function persistProjectionCard(draftToSave: ProjectionDraft) {
+  async function persistProjectionCard(draftToSave: ProjectionDraft, nodes: ProjectionNode[]) {
     const payload = await createSoulProjectionCard({
       projection_id: draftToSave.sourceProjectionId,
       soul_id: draftToSave.soul_id,
-      projection_name: draftToSave.projection_name.trim() || `${draftToSave.soul_name} / ${draftToSave.role_type || "dialogue"}`,
-      role_type: draftToSave.role_type.trim() || "dialogue",
-      task_mode: draftToSave.task_mode.trim() || "general_qa",
-      agent_profile_id: draftToSave.agent_profile_id.trim() || "general_agent",
-      posture_tags: splitListInput(draftToSave.posture_tags),
-      expression_density: draftToSave.expression_density.trim() || "normal",
-      attention_focus: splitListInput(draftToSave.attention_focus),
-      risk_notes: splitListInput(draftToSave.risk_notes),
+      projection_nodes: nodes.map((node) => ({
+        id: node.id,
+        type: node.type,
+        title: node.title,
+        content: node.content,
+      })),
+      identity_anchor: draftToSave.identity_anchor,
+      projection_name: draftToSave.projection_name.trim() || `${draftToSave.soul_name} / 投影`,
       projection_prompt: draftToSave.projection_prompt,
-      usage_summary: draftToSave.usage_summary,
-      memory_policy_summary: draftToSave.memory_policy_summary,
-      output_contract_summary: draftToSave.output_contract_summary,
       select_after_create: true
     });
     const resolvedCard =
@@ -659,17 +816,24 @@ export function PlaygroundView() {
     setProjectionLoading(true);
     setError("");
     try {
-      const { nextPayload, resolvedCard } = await persistProjectionCard(projectionDraft);
+      const normalizedDraft = applyProjectionNodesToDraft(projectionDraft, projectionDraftNodes);
+      const { nextPayload, resolvedCard } = await persistProjectionCard(normalizedDraft, projectionDraftNodes);
       setProjectionCatalog(nextPayload);
       setProjectionDraft(null);
+      setProjectionDraftNodes([]);
       if (resolvedCard) {
         setSelectedProjectionId(resolvedCard.projection_id);
         setProjectionEditorMap((current) => ({
           ...current,
           [resolvedCard.projection_id]: buildProjectionDraftFromCard(resolvedCard)
         }));
+        setProjectionNodeMap((current) => ({
+          ...current,
+          [resolvedCard.projection_id]: buildProjectionNodesFromDraft(buildProjectionDraftFromCard(resolvedCard), resolvedCard.projection_nodes),
+        }));
       }
-      setNotice(`已保存投影「${resolvedCard?.title ?? projectionDraft.projection_name}」`);
+      setProjectionPanelPage("catalog");
+      setNotice(`已保存投影「${resolvedCard?.title ?? normalizedDraft.projection_name}」`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存投影失败");
     } finally {
@@ -678,11 +842,12 @@ export function PlaygroundView() {
   }
 
   async function saveExistingProjectionCard(card: SoulProjectionCard) {
-    const draftToSave = projectionEditorForCard(card);
+    const nodes = projectionNodeMap[card.projection_id] ?? buildProjectionNodesFromDraft(projectionEditorForCard(card), card.projection_nodes);
+    const draftToSave = applyProjectionNodesToDraft(projectionEditorForCard(card), nodes);
     setProjectionLoading(true);
     setError("");
     try {
-      const { nextPayload, resolvedCard } = await persistProjectionCard(draftToSave);
+      const { nextPayload, resolvedCard } = await persistProjectionCard(draftToSave, nodes);
       setProjectionCatalog(nextPayload);
       if (resolvedCard) {
         setSelectedProjectionId(resolvedCard.projection_id);
@@ -695,24 +860,18 @@ export function PlaygroundView() {
         }
         return next;
       });
+      setProjectionNodeMap((current) => {
+        const next = { ...current };
+        delete next[card.projection_id];
+        if (resolvedCard) {
+          next[resolvedCard.projection_id] = buildProjectionNodesFromDraft(buildProjectionDraftFromCard(resolvedCard), resolvedCard.projection_nodes);
+        }
+        return next;
+      });
+      setProjectionPanelPage("catalog");
       setNotice(`已保存投影「${resolvedCard?.title ?? draftToSave.projection_name}」`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存投影失败");
-    } finally {
-      setProjectionLoading(false);
-    }
-  }
-
-  async function selectProjectionCard(card: SoulProjectionCard) {
-    setProjectionLoading(true);
-    setError("");
-    try {
-      const payload = await selectSoulProjectionCard(card.projection_id);
-      setProjectionCatalog(payload);
-      setSelectedProjectionId(card.projection_id);
-      setNotice(`已选用投影「${card.title}」`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "选用投影失败");
     } finally {
       setProjectionLoading(false);
     }
@@ -732,11 +891,52 @@ export function PlaygroundView() {
         delete next[card.projection_id];
         return next;
       });
+      setProjectionPanelPage("catalog");
       setNotice(`已删除投影「${card.title}」`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "删除投影失败");
     } finally {
       setProjectionLoading(false);
+    }
+  }
+
+  async function toggleCustomSoul(seed: SoulSystemSeed, enabled: boolean) {
+    setSaving(seed.path);
+    setError("");
+    setNotice("");
+    try {
+      const payload = enabled ? await enableCustomSoul(seed.key) : await disableCustomSoul(seed.key);
+      setCatalog(payload);
+      const nextSeed = payload.seeds.find((item) => item.key === seed.key) ?? null;
+      if (nextSeed) {
+        chooseSoul(nextSeed);
+      }
+      setNotice(enabled ? `已启用灵魂「${seed.name}」` : `已停用灵魂「${seed.name}」`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : enabled ? "启用灵魂失败" : "停用灵魂失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function expelCustomSoul(seed: SoulSystemSeed) {
+    if (!window.confirm(`确认驱逐灵魂「${seed.name}」吗？`)) return;
+    setSaving(seed.path);
+    setError("");
+    setNotice("");
+    try {
+      const payload = await deleteCustomSoul(seed.key);
+      setCatalog(payload);
+      const nextActive = payload.static_files.find((file) => file.path === ACTIVE_SEED_PATH) ?? null;
+      if (nextActive) {
+        setSelectedPath(nextActive.path);
+        setDraft(visibleSoulContent(nextActive));
+      }
+      setNotice(`已驱逐灵魂「${seed.name}」`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "驱逐灵魂失败");
+    } finally {
+      setSaving("");
     }
   }
 
@@ -844,26 +1044,58 @@ export function PlaygroundView() {
 
           {mode === "contract" ? (
             <div className="soul-seed-grid">
-              {catalog?.seeds.map((seed) => (
-                <article
-                  className={`soul-seed-card ${seed.active ? "soul-seed-card--active" : ""}`}
-                  key={seed.key}
-                >
-                  <button onClick={() => chooseSoul(seed)} type="button">
-                    <span>{seed.active ? "正在使用" : "可选"}</span>
-                    <strong>{displayFileLabel(seed)}</strong>
-                    <em>{seed.active ? "当前对话灵魂" : "可切换为当前灵魂"}</em>
-                  </button>
-                  <button
-                    className={seed.active ? "agent-switch agent-switch--on" : "agent-switch"}
-                    disabled={saving === seed.path || seed.active || activeSoulKey === seed.key}
-                    onClick={() => void activateSeed(seed)}
-                    type="button"
+              {catalog?.seeds.map((seed) => {
+                const isCustomSoul = seed.source === "user";
+                const isEnabled = seed.enabled !== false;
+                return (
+                  <article
+                    className={`soul-seed-card ${seed.active ? "soul-seed-card--active" : ""}`}
+                    key={seed.key}
                   >
-                    {seed.active || activeSoulKey === seed.key ? "已激活" : "激活"}
-                  </button>
-                </article>
-              ))}
+                    <button onClick={() => chooseSoul(seed)} type="button">
+                      <span>{seed.active ? "正在使用" : isCustomSoul ? "自定义灵魂" : "可选"}</span>
+                      <strong>{displayFileLabel(seed)}</strong>
+                      <em>
+                        {seed.active
+                          ? "当前对话灵魂"
+                          : isCustomSoul
+                            ? (isEnabled ? "已召唤，可激活" : "已停用")
+                            : "可切换为当前灵魂"}
+                      </em>
+                    </button>
+                    <div className="soul-seed-card__actions">
+                      <button
+                        className={seed.active ? "agent-switch agent-switch--on" : "agent-switch"}
+                        disabled={saving === seed.path || seed.active || activeSoulKey === seed.key || !isEnabled}
+                        onClick={() => void activateSeed(seed)}
+                        type="button"
+                      >
+                        {seed.active || activeSoulKey === seed.key ? "已激活" : "激活"}
+                      </button>
+                      {isCustomSoul ? (
+                        <>
+                          <button
+                            className="action-button"
+                            disabled={saving === seed.path}
+                            onClick={() => void toggleCustomSoul(seed, !isEnabled)}
+                            type="button"
+                          >
+                            {isEnabled ? "停用" : "启用"}
+                          </button>
+                          <button
+                            className="action-button"
+                            disabled={saving === seed.path || seed.active}
+                            onClick={() => void expelCustomSoul(seed)}
+                            type="button"
+                          >
+                            驱逐灵魂
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : null}
 
@@ -910,86 +1142,70 @@ export function PlaygroundView() {
           {mode === "projection" ? (
             <div className="soul-projection-panel">
               {selectedSeed ? (
-                <div className="soul-projection-editor-list">
-                  {!projectionDraft && !selectedProjectionCard ? (
-                    <div className="soul-projection-card-board">
-                      <div className="soul-projection-card-board__head">
-                        <div>
-                          <span>{selectedSeed.active ? "当前灵魂" : "所选灵魂"}</span>
-                          <strong>{selectedSeed.name}的可选投影</strong>
-                          <em>这些投影会被任务系统选用，点击卡片进入管理。</em>
-                        </div>
-                        <button className="action-button action-button--primary" onClick={() => newProjectionDraft(selectedSeed)} type="button">
-                          <Plus size={16} />
-                          新建投影
-                        </button>
-                      </div>
-
-                      <div className="soul-projection-card-grid">
-                        {projectionCardsForSelectedSoul.map((card) => (
-                          <button
-                            className={`soul-projection-tile ${card.projection_id === projectionCatalog?.selected_projection_id ? "soul-projection-tile--active" : ""}`}
-                            key={card.projection_id}
-                            onClick={() => {
-                              setProjectionDraft(null);
-                              setSelectedProjectionId(card.projection_id);
-                              setProjectionDetailPage("projection");
-                            }}
-                            type="button"
-                          >
-                            <span>{projectionBadgeLabel(card, projectionCatalog?.selected_projection_id ?? "")}</span>
-                            <strong>{card.title}</strong>
-                            <em>{card.role_type} / {card.task_mode}</em>
-                            <p>{card.usage_summary || "可被任务系统选用的灵魂投影资源。"}</p>
-                          </button>
-                        ))}
-
-                        <button className="soul-projection-tile soul-projection-tile--create" onClick={() => newProjectionDraft(selectedSeed)} type="button">
-                          <span>新建投影</span>
-                          <strong><Plus size={18} /> 新建</strong>
-                          <em>为当前灵魂增加一个可选投影</em>
-                          <p>任务系统会在具体任务配置里选择要使用的投影。</p>
-                        </button>
+                projectionPanelPage === "catalog" ? (
+                  <div className="soul-projection-editor-list">
+                    <div className="soul-projection-rail-head">
+                      <div>
+                        <span>投影目录</span>
+                        <strong>{selectedSeed.name} 的投影卡片</strong>
                       </div>
                     </div>
-                  ) : null}
 
-                  {projectionDraft || selectedProjectionCard ? (
-                    <div className="soul-projection-switcher-row">
-                      <div className="soul-submodule-switcher">
+                    <div className="soul-projection-card-list soul-projection-card-list--board">
+                      {selectedSeedProjectionCards.map((card) => (
                         <button
-                          className={projectionDetailPage === "projection" ? "active" : ""}
-                          onClick={() => setProjectionDetailPage("projection")}
+                          className={`soul-projection-card ${card.projection_id === selectedProjectionId && !projectionDraft ? "soul-projection-card--selected" : ""}`}
+                          key={card.projection_id}
+                          onClick={() => {
+                            setProjectionDraft(null);
+                            setSelectedProjectionId(card.projection_id);
+                            setProjectionPanelPage("editor");
+                          }}
                           type="button"
                         >
-                          投影管理
+                          <span>{projectionBadgeLabel(card)}</span>
+                          <strong>{card.title}</strong>
+                          <em>{projectionSummaryText(card)}</em>
                         </button>
-                      </div>
+                      ))}
                       <button
-                        aria-label="返回投影卡片"
-                        className="action-button soul-projection-back soul-projection-back--compact"
-                        onClick={() => {
-                          setProjectionDraft(null);
-                          setSelectedProjectionId("");
-                          setProjectionDetailPage("projection");
-                        }}
-                        title="返回投影卡片"
+                        className={`soul-projection-card soul-projection-card--create ${projectionDraft?.isNew && projectionDraft.soul_id === selectedSeed.key ? "soul-projection-card--selected" : ""}`}
+                        onClick={() => newProjectionDraft(selectedSeed)}
                         type="button"
                       >
-                        <ChevronLeft size={15} />
+                        <span>新建投影</span>
+                        <strong><Plus size={16} /> 新建</strong>
                       </button>
                     </div>
-                  ) : null}
 
-                  {projectionDetailPage === "projection" && projectionDraft && projectionDraft.soul_id === selectedSeed.key ? (
+                  </div>
+                ) : projectionDraft && projectionDraft.soul_id === selectedSeed.key ? (
                     <div className="soul-projection-editor-card soul-projection-editor-card--draft">
                       <div className="soul-projection-editor-card__head">
                         <div>
                           <span>新投影</span>
                           <strong>{projectionDraft.projection_name || "未命名投影"}</strong>
-                          <em>{projectionDraft.role_type || "dialogue"} / {projectionDraft.task_mode || "general_qa"}</em>
                         </div>
                         <small>草稿</small>
+                      </div>
+
+                      <div className="soul-projection-pageback soul-projection-pageback--toolbar">
+                        <button className="action-button" onClick={() => setProjectionPanelPage("catalog")} type="button">
+                          <ChevronLeft size={16} />
+                          返回投影目录
+                        </button>
+                        <button className="action-button action-button--primary" disabled={projectionLoading} onClick={() => void saveProjectionDraft()} type="button">
+                          {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
+                          保存
+                        </button>
+                        <button className="action-button" onClick={() => {
+                          setProjectionDraft(null);
+                          setProjectionDraftNodes([]);
+                          setProjectionPanelPage("catalog");
+                        }} type="button">
+                          <X size={16} />
+                          删除
+                        </button>
                       </div>
 
                       <div className="soul-projection-form-grid">
@@ -998,224 +1214,62 @@ export function PlaygroundView() {
                           <input
                             value={projectionDraft.projection_name}
                             onChange={(event) => updateProjectionDraft("projection_name", event.target.value)}
-                            placeholder={`${projectionDraft.soul_name} / ${projectionDraft.role_type || "dialogue"}`}
-                          />
-                        </label>
-                        <label>
-                          <small>角色类型</small>
-                          <input
-                            value={projectionDraft.role_type}
-                            onChange={(event) => updateProjectionDraft("role_type", event.target.value)}
-                            placeholder="dialogue"
-                          />
-                        </label>
-                        <label>
-                          <small>任务模式</small>
-                          <input
-                            value={projectionDraft.task_mode}
-                            onChange={(event) => updateProjectionDraft("task_mode", event.target.value)}
-                            placeholder="general_qa"
-                          />
-                        </label>
-                        <label>
-                          <small>智能体配置</small>
-                          <input
-                            value={projectionDraft.agent_profile_id}
-                            onChange={(event) => updateProjectionDraft("agent_profile_id", event.target.value)}
-                            placeholder="general_agent"
+                            placeholder={`${projectionDraft.soul_name} / 投影`}
                           />
                         </label>
                       </div>
 
-                      <div className="soul-projection-form-grid">
-                        <label>
-                          <small>姿态标签</small>
-                          <input
-                            value={projectionDraft.posture_tags}
-                            onChange={(event) => updateProjectionDraft("posture_tags", event.target.value)}
-                            placeholder="evidence_first, bounded_resource"
-                          />
-                        </label>
-                        <label>
-                          <small>表达密度</small>
-                          <input
-                            value={projectionDraft.expression_density}
-                            onChange={(event) => updateProjectionDraft("expression_density", event.target.value)}
-                            placeholder="normal"
-                          />
-                        </label>
-                        <label>
-                          <small>注意焦点</small>
-                          <input
-                            value={projectionDraft.attention_focus}
-                            onChange={(event) => updateProjectionDraft("attention_focus", event.target.value)}
-                            placeholder="task_goal, resource_boundary"
-                          />
-                        </label>
-                        <label>
-                          <small>风险提示</small>
-                          <input
-                            value={projectionDraft.risk_notes}
-                            onChange={(event) => updateProjectionDraft("risk_notes", event.target.value)}
-                            placeholder="不扩大运行时权限"
-                          />
-                        </label>
+                      <div className="soul-managed-sections">
+                        {projectionDraftNodes.map((node) => (
+                          <article className="soul-managed-section soul-managed-section--editing" key={node.id}>
+                            <div className="soul-managed-section__head">
+                              <div>
+                                <input
+                                  className="soul-managed-section__title-input"
+                                  value={node.title}
+                                  onChange={(event) => updateProjectionDraftNode(node.id, "title", event.target.value)}
+                                />
+                              </div>
+                              <div className="soul-section-inline-actions">
+                                <button className="action-button" onClick={() => insertProjectionDraftNodeAfter(node.id)} type="button">
+                                  <Plus size={16} />
+                                </button>
+                                <button className="action-button" disabled={projectionDraftNodes.length <= 1} onClick={() => deleteProjectionDraftNode(node.id)} type="button">
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            </div>
+                            <textarea
+                              value={node.content}
+                              onChange={(event) => updateProjectionDraftNode(node.id, "content", event.target.value)}
+                              rows={6}
+                            />
+                          </article>
+                        ))}
                       </div>
 
-                      <label className="soul-projection-editor-card__contract">
-                        <small>投影补充提示</small>
-                        <textarea
-                          value={projectionDraft.projection_prompt}
-                          onChange={(event) => updateProjectionDraft("projection_prompt", event.target.value)}
-                          rows={5}
-                          placeholder="留给用户自由填写，用于描述这个投影在任务中的额外提示。"
-                        />
-                      </label>
-
-                      <label className="soul-projection-editor-card__contract">
-                        <small>投影用途说明</small>
-                        <textarea
-                          value={projectionDraft.usage_summary}
-                          onChange={(event) => updateProjectionDraft("usage_summary", event.target.value)}
-                          rows={7}
-                        />
-                      </label>
-
-                      <div className="soul-projection-actions">
-                        <button className="action-button action-button--primary" disabled={projectionLoading} onClick={() => void saveProjectionDraft()} type="button">
-                          {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
-                          保存投影
-                        </button>
-                        <button className="action-button" onClick={() => setProjectionDraft(null)} type="button">
-                          <X size={16} />
-                          放弃草稿
-                        </button>
-                      </div>
                     </div>
-                  ) : projectionDetailPage === "projection" && selectedProjectionCard ? (() => {
+                ) : selectedProjectionCard && selectedSeedProjectionCards.some((card) => card.projection_id === selectedProjectionCard.projection_id) ? (() => {
                     const editor = projectionEditorForCard(selectedProjectionCard);
+                    const nodes = projectionNodesForCard(selectedProjectionCard);
                     return (
                       <div className="soul-projection-editor-card" key={selectedProjectionCard.projection_id}>
-                        <div className="soul-projection-meta-strip">
-                          <span>{projectionBadgeLabel(selectedProjectionCard, projectionCatalog?.selected_projection_id ?? "")}</span>
-                          <em>{selectedProjectionCard.role_type} / {selectedProjectionCard.task_mode}</em>
-                          <small>{selectedProjectionCard.projection_id === projectionCatalog?.selected_projection_id ? "当前选用" : "未选用"}</small>
+                      <div className="soul-projection-editor-card__head">
+                          <div>
+                            <span>{projectionBadgeLabel(selectedProjectionCard)}</span>
+                            <strong>{selectedProjectionCard.title}</strong>
+                          </div>
+                          <small>{selectedProjectionCard.is_primary ? "原始投影" : "已保存"}</small>
                         </div>
 
-                        <div className="soul-projection-form-grid">
-                            <label>
-                              <small>投影名</small>
-                              <input
-                                disabled={selectedProjectionCard.is_primary}
-                                value={editor.projection_name}
-                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "projection_name", event.target.value)}
-                                placeholder={`${editor.soul_name} / ${editor.role_type || "dialogue"}`}
-                            />
-                          </label>
-                            <label>
-                              <small>角色类型</small>
-                              <input
-                                disabled={selectedProjectionCard.is_primary}
-                                value={editor.role_type}
-                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "role_type", event.target.value)}
-                                placeholder="dialogue"
-                            />
-                          </label>
-                            <label>
-                              <small>任务模式</small>
-                              <input
-                                disabled={selectedProjectionCard.is_primary}
-                                value={editor.task_mode}
-                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "task_mode", event.target.value)}
-                                placeholder="general_qa"
-                            />
-                          </label>
-                            <label>
-                              <small>智能体配置</small>
-                              <input
-                                disabled={selectedProjectionCard.is_primary}
-                                value={editor.agent_profile_id}
-                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "agent_profile_id", event.target.value)}
-                                placeholder="general_agent"
-                            />
-                          </label>
-                        </div>
-
-                        <div className="soul-projection-form-grid">
-                            <label>
-                              <small>姿态标签</small>
-                              <input
-                                disabled={selectedProjectionCard.is_primary}
-                                value={editor.posture_tags}
-                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "posture_tags", event.target.value)}
-                                placeholder="evidence_first, bounded_resource"
-                            />
-                          </label>
-                            <label>
-                              <small>表达密度</small>
-                              <input
-                                disabled={selectedProjectionCard.is_primary}
-                                value={editor.expression_density}
-                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "expression_density", event.target.value)}
-                                placeholder="normal"
-                            />
-                          </label>
-                            <label>
-                              <small>注意焦点</small>
-                              <input
-                                disabled={selectedProjectionCard.is_primary}
-                                value={editor.attention_focus}
-                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "attention_focus", event.target.value)}
-                                placeholder="task_goal, resource_boundary"
-                            />
-                          </label>
-                            <label>
-                              <small>风险提示</small>
-                              <input
-                                disabled={selectedProjectionCard.is_primary}
-                                value={editor.risk_notes}
-                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "risk_notes", event.target.value)}
-                                placeholder="不扩大运行时权限"
-                            />
-                          </label>
-                        </div>
-
-                          <label className="soul-projection-editor-card__contract">
-                            <small>投影补充提示</small>
-                            <textarea
-                              disabled={selectedProjectionCard.is_primary}
-                              value={editor.projection_prompt}
-                              onChange={(event) => updateProjectionEditor(selectedProjectionCard, "projection_prompt", event.target.value)}
-                              rows={5}
-                              placeholder="留给用户自由填写，用于描述这个投影在任务中的额外提示。"
-                          />
-                        </label>
-
-                          <label className="soul-projection-editor-card__contract">
-                            <small>投影用途说明</small>
-                            <textarea
-                              disabled={selectedProjectionCard.is_primary}
-                              value={editor.usage_summary}
-                              onChange={(event) => updateProjectionEditor(selectedProjectionCard, "usage_summary", event.target.value)}
-                              rows={7}
-                          />
-                        </label>
-
-                        <div className="soul-projection-actions">
-                          {!selectedProjectionCard.is_primary ? (
-                            <button className="action-button action-button--primary" disabled={projectionLoading} onClick={() => void saveExistingProjectionCard(selectedProjectionCard)} type="button">
-                              {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
-                              保存投影
-                            </button>
-                          ) : null}
-                          <button
-                            className="action-button action-button--primary"
-                            disabled={projectionLoading || selectedProjectionCard.projection_id === projectionCatalog?.selected_projection_id}
-                            onClick={() => void selectProjectionCard(selectedProjectionCard)}
-                            type="button"
-                          >
-                            <ShieldCheck size={16} />
-                            {selectedProjectionCard.projection_id === projectionCatalog?.selected_projection_id ? "已选用" : "选用此投影"}
+                        <div className="soul-projection-pageback soul-projection-pageback--toolbar">
+                          <button className="action-button" onClick={() => setProjectionPanelPage("catalog")} type="button">
+                            <ChevronLeft size={16} />
+                            返回投影目录
+                          </button>
+                          <button className="action-button action-button--primary" disabled={projectionLoading} onClick={() => void saveExistingProjectionCard(selectedProjectionCard)} type="button">
+                            {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
+                            保存
                           </button>
                           <button className="action-button" onClick={() => resetProjectionEditor(selectedProjectionCard)} type="button">
                             <RotateCcw size={16} />
@@ -1233,14 +1287,54 @@ export function PlaygroundView() {
                             </button>
                           ) : null}
                         </div>
+
+                        <div className="soul-projection-form-grid">
+                            <label>
+                              <small>投影名</small>
+                              <input
+                                value={editor.projection_name}
+                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "projection_name", event.target.value)}
+                                placeholder={`${editor.soul_name} / 投影`}
+                            />
+                          </label>
+                        </div>
+
+                        <div className="soul-managed-sections">
+                          {nodes.map((node) => (
+                            <article className="soul-managed-section soul-managed-section--editing" key={node.id}>
+                              <div className="soul-managed-section__head">
+                                <div>
+                                  <input
+                                    className="soul-managed-section__title-input"
+                                    value={node.title}
+                                    onChange={(event) => updateProjectionCardNode(selectedProjectionCard, node.id, "title", event.target.value)}
+                                  />
+                                </div>
+                                <div className="soul-section-inline-actions">
+                                  <button className="action-button" onClick={() => insertProjectionCardNodeAfter(selectedProjectionCard, node.id)} type="button">
+                                    <Plus size={16} />
+                                  </button>
+                                  <button className="action-button" disabled={nodes.length <= 1} onClick={() => deleteProjectionCardNode(selectedProjectionCard, node.id)} type="button">
+                                    <X size={16} />
+                                  </button>
+                                </div>
+                              </div>
+                              <textarea
+                                value={node.content}
+                                onChange={(event) => updateProjectionCardNode(selectedProjectionCard, node.id, "content", event.target.value)}
+                                rows={6}
+                              />
+                            </article>
+                          ))}
+                        </div>
+
                       </div>
                     );
-                  })() : (
+                })() : (
                     <div className="soul-reader">
-                      <pre>先从上方投影卡片中选一张卡，或者直接新建一张投影。</pre>
+                      <pre>当前没有可编辑的投影，请先返回投影目录选择或新建。</pre>
                     </div>
-                  )}
-                </div>
+                )
               ) : (
                 <div className="soul-reader">
                   <pre>先在左侧选择一个灵魂，再进入它的投影列表。</pre>

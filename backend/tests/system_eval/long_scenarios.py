@@ -36,7 +36,12 @@ def user(
     params = {"durable": True} if durable else {}
     normalized_checks = list(checks)
     if "response.nonempty" in normalized_checks:
-        normalized_checks.append("response.not_contains_any=我来检索|search_knowledge|<tool_call|</think>")
+        normalized_checks.append(
+            "response.not_contains_any="
+            "我来检索|search_knowledge|langchain_agent_search_knowledge|"
+            "langchain_agent_analyze_pdf|langchain_agent_analyze_structured_data|"
+            "local-mcp://|skill://|<tool_call|</think>"
+        )
     return LongScenarioTurn(
         session=session,
         speaker="user",
@@ -116,57 +121,57 @@ OPS_DATA_LIVE_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "切到 knowledge/E-commerce Data/inventory.xlsx，先看哪些仓库缺货。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
     user(
         "main",
         "按仓库汇总前五。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
     user(
         "main",
         "哪些仓库其实并不缺货？",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
     user(
         "main",
         "现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
     user(
         "main",
         "按部门汇总这些高薪员工。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
     user(
         "main",
         "再回到 inventory.xlsx，哪一个仓库最该优先补货？",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
     user(
         "main",
         "顺便查一下黄金价格。",
-        "plan.tool=get_gold_price",
-        "event.tool=get_gold_price",
+        "plan.tool=web_search",
+        "event.tool=web_search",
         "response.nonempty",
     ),
     user(
         "main",
         "再看一下北京今天天气。",
-        "plan.tool=get_weather",
-        "event.tool=get_weather",
+        "plan.tool=web_search",
+        "event.tool=web_search",
         "response.nonempty",
     ),
     user(
@@ -334,15 +339,15 @@ MULTI_SESSION_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "ops",
         "在 knowledge/E-commerce Data/inventory.xlsx 里查哪些仓库缺货。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
     user(
         "live",
         "查询黄金价格。",
-        "plan.tool=get_gold_price",
-        "event.tool=get_gold_price",
+        "plan.tool=web_search",
+        "event.tool=web_search",
         "response.nonempty",
     ),
     user(
@@ -355,22 +360,22 @@ MULTI_SESSION_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "ops",
         "按仓库汇总前五。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
     user(
         "live",
         "再查北京天气。",
-        "plan.tool=get_weather",
-        "event.tool=get_weather",
+        "plan.tool=web_search",
+        "event.tool=web_search",
         "response.nonempty",
     ),
     user("doc", "把 PDF 部分压成两条行动项。", "response.nonempty"),
     user(
         "ops",
         "哪些仓库不缺货？",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
@@ -383,7 +388,7 @@ MULTI_SESSION_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "ops",
         "继续沿着库存问题往下讲，哪个仓库最需要先补货？",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.nonempty",
     ),
@@ -445,7 +450,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "切到 knowledge/E-commerce Data/inventory.xlsx，先看哪些仓库缺货。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=33|上海仓|深圳仓|武汉仓|北京仓|成都仓|广州仓",
         "response.nonempty",
@@ -453,7 +458,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "按仓库汇总前五。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=武汉仓|404|上海仓|392|深圳仓|392",
         "response.not_contains_any=库存充足|数据不全|只能看到部分|建议我直接读取完整文件",
@@ -462,7 +467,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "哪些仓库其实并不缺货？",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_any=没有|不存在|全部|所有",
         "response.not_contains_any=全都不缺|全部不缺",
@@ -471,7 +476,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "现在换成 knowledge/E-commerce Data/employees.xlsx，找出薪资前五的人。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=罗凯|唐琳|许晨|杨乐|朱敏",
         "response.nonempty",
@@ -479,7 +484,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "按部门汇总这些高薪员工。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=运营|技术|销售|产品|人力",
         "response.nonempty",
@@ -488,16 +493,16 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "查询黄金价格。",
-        "plan.tool=get_gold_price",
-        "event.tool=get_gold_price",
+        "plan.tool=web_search",
+        "event.tool=web_search",
         "response.not_contains_any=要我现在查吗|要我现在直接拉|可以马上帮你拉",
         "response.nonempty",
     ),
     user(
         "main",
         "再查一下北京今天天气。",
-        "plan.tool=get_weather",
-        "event.tool=get_weather",
+        "plan.tool=web_search",
+        "event.tool=web_search",
         "response.contains_any=北京|天气|温度|°C",
         "response.not_contains_any=要我现在查吗|要我现在直接拉|可以马上帮你拉",
         "response.nonempty",
@@ -573,7 +578,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "回到 knowledge/E-commerce Data/inventory.xlsx，哪个仓库现在最需要优先补货？",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=深圳仓|儿童绘本|122",
         "response.nonempty",
@@ -596,7 +601,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "ops",
         "在 knowledge/E-commerce Data/inventory.xlsx 里查哪些仓库缺货。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=33|上海仓|深圳仓|武汉仓|北京仓|成都仓|广州仓",
         "response.nonempty",
@@ -604,8 +609,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "live",
         "查询黄金价格。",
-        "plan.tool=get_gold_price",
-        "event.tool=get_gold_price",
+        "plan.tool=web_search",
+        "event.tool=web_search",
         "response.not_contains_any=要我现在查吗|要我现在直接拉|可以马上帮你拉",
         "response.nonempty",
     ),
@@ -620,7 +625,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "ops",
         "按仓库汇总前五。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=武汉仓|404|上海仓|392|深圳仓|392",
         "response.not_contains_any=库存充足|数据不全|只能看到部分|建议我直接读取完整文件",
@@ -629,8 +634,8 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "live",
         "再查北京天气。",
-        "plan.tool=get_weather",
-        "event.tool=get_weather",
+        "plan.tool=web_search",
+        "event.tool=web_search",
         "response.contains_any=北京|天气|温度|°C",
         "response.not_contains_any=要我现在查吗|要我现在直接拉|可以马上帮你拉",
         "response.nonempty",
@@ -639,7 +644,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "ops",
         "哪些仓库不缺货？",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_any=没有|不存在|全部|所有",
         "response.not_contains_any=全都不缺|全部不缺",
@@ -681,7 +686,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "再切回 employees.xlsx，找出薪资前五的人。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=罗凯|唐琳|许晨|杨乐|朱敏",
         "response.nonempty",
@@ -689,7 +694,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "按部门汇总这些人。",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=运营|技术|销售|产品|人力",
         "response.nonempty",
@@ -697,7 +702,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "回到 inventory.xlsx，哪个仓库最该先补货？",
-        "plan.tool=structured_data_analysis",
+        "plan.mcp=structured_data",
         "event.mcp=structured_data",
         "response.contains_all=深圳仓|儿童绘本|122",
         "response.nonempty",

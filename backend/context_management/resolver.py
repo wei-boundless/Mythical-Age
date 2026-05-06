@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from capability_system.local_mcp_registry import get_local_mcp_primary_template
+
 from .current_turn import BundleItem, CurrentTurnContext, ResolvedBinding
 
 
@@ -318,24 +320,23 @@ def _looks_compound(message: str) -> bool:
 def _capability_for_text(text: str) -> tuple[str, str]:
     lowered = text.lower()
     if any(item in lowered for item in ("pdf", ".pdf", "报告", "第")) and not any(item in lowered for item in ("天气", "黄金", "金价")):
-        return "pdf", "pdf_analysis"
+        return "pdf", ""
     if any(item in lowered for item in (".xlsx", ".csv", "表", "仓库", "缺货", "库存")):
-        return "structured_data", "structured_data_analysis"
+        return "structured_data", ""
     if any(item in lowered for item in ("天气", "weather")):
-        return "weather", "get_weather"
+        return "realtime_network", "web_search"
     if any(item in lowered for item in ("黄金", "金价", "gold")):
-        return "gold_price", "get_gold_price"
+        return "realtime_network", "web_search"
     return "", ""
 
 
 def _template_id_for_capability(capability: str) -> str:
-    mapping = {
-        "pdf": "template.pdf.document_analysis",
-        "structured_data": "template.data.structured_analysis",
-        "weather": "template.capability.direct_tool",
-        "gold_price": "template.capability.direct_tool",
-    }
-    return mapping.get(str(capability or "").strip(), "template.chat.general_response")
+    template_id = get_local_mcp_primary_template(capability)
+    if template_id:
+        return template_id
+    if capability == "realtime_network":
+        return "template.search.information_search"
+    return "template.chat.general_response"
 
 
 def _requested_outputs_for_capability(capability: str) -> list[str]:

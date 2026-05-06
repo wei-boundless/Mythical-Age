@@ -26,7 +26,7 @@ import {
 
 import type { Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
-import type { SearchPolicySource, StoreActions, StoreState, WorkspaceView } from "./types";
+import type { SearchPolicySource, StoreActions, StoreState, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
 export class WorkspaceRuntime {
@@ -94,6 +94,9 @@ export class WorkspaceRuntime {
       },
       setOrchestrationSnapshot: (snapshot) => {
         this.setOrchestrationSnapshot(snapshot);
+      },
+      setTaskSelection: (selection) => {
+        this.setTaskSelection(selection);
       }
     };
   }
@@ -263,7 +266,8 @@ export class WorkspaceRuntime {
           message: trimmed,
           session_id: sessionId,
           ephemeral_system_messages: ephemeralSystemMessages,
-          search_policy: searchPolicy
+          search_policy: searchPolicy,
+          task_selection: state.taskSelection ?? undefined,
         },
         {
           onEvent: (event, data) => {
@@ -497,5 +501,9 @@ export class WorkspaceRuntime {
 
   private setOrchestrationSnapshot(snapshot: StoreState["orchestrationSnapshot"]) {
     this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: snapshot }));
+  }
+
+  private setTaskSelection(selection: TaskSelectionState | null) {
+    this.store.setState((prev) => ({ ...prev, taskSelection: selection }));
   }
 }

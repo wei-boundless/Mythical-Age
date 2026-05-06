@@ -12,33 +12,33 @@ from capability_system.tool_contracts import SkillToolScope, ToolContractGate
 from capability_system.tool_runtime import ToolRuntime
 
 
-def test_pdf_contract_shadow_mode_marks_missing_owner_without_blocking() -> None:
+def test_read_file_contract_shadow_mode_marks_missing_owner_without_blocking() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         runtime = ToolRuntime(Path(tmp))
         gate = ToolContractGate(mode="shadow")
         decision = gate.evaluate(
-            tool_name="pdf_analysis",
-            contract=runtime.get_contract("pdf_analysis"),
-            tool_input={"query": "第四页讲了什么"},
-            binding_context={"active_pdf": ""},
+            tool_name="read_file",
+            contract=runtime.get_contract("read_file"),
+            tool_input={},
+            binding_context={},
         )
 
         assert decision.allowed is False
         assert decision.action == "clarify"
-        assert decision.reason == "missing_required_binding"
+        assert decision.reason == "missing_required_input"
         assert decision.should_block is False
-        assert decision.missing_bindings == ["active_pdf"]
+        assert decision.missing_inputs == ["path"]
 
 
-def test_pdf_contract_enforce_mode_blocks_missing_owner() -> None:
+def test_read_file_contract_enforce_mode_blocks_missing_owner() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         runtime = ToolRuntime(Path(tmp))
         gate = ToolContractGate(mode="enforce")
         decision = gate.evaluate(
-            tool_name="pdf_analysis",
-            contract=runtime.get_contract("pdf_analysis"),
-            tool_input={"query": "第四页讲了什么"},
-            binding_context={"active_pdf": ""},
+            tool_name="read_file",
+            contract=runtime.get_contract("read_file"),
+            tool_input={},
+            binding_context={},
         )
 
         assert decision.allowed is False
@@ -46,15 +46,15 @@ def test_pdf_contract_enforce_mode_blocks_missing_owner() -> None:
         assert decision.action == "clarify"
 
 
-def test_pdf_contract_allows_explicit_path_without_active_binding() -> None:
+def test_read_file_contract_allows_explicit_path_without_active_binding() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         runtime = ToolRuntime(Path(tmp))
         gate = ToolContractGate(mode="enforce")
         decision = gate.evaluate(
-            tool_name="pdf_analysis",
-            contract=runtime.get_contract("pdf_analysis"),
-            tool_input={"query": "第四页讲了什么", "path": "knowledge/report.pdf"},
-            binding_context={"active_pdf": ""},
+            tool_name="read_file",
+            contract=runtime.get_contract("read_file"),
+            tool_input={"path": "knowledge/report.md"},
+            binding_context={},
         )
 
         assert decision.allowed is True
@@ -67,16 +67,16 @@ def test_skill_scope_is_checked_by_contract_gate() -> None:
         runtime = ToolRuntime(Path(tmp))
         gate = ToolContractGate(mode="enforce")
         decision = gate.evaluate(
-            tool_name="pdf_analysis",
-            contract=runtime.get_contract("pdf_analysis"),
-            tool_input={"query": "第四页讲了什么", "path": "knowledge/report.pdf"},
+            tool_name="read_file",
+            contract=runtime.get_contract("read_file"),
+            tool_input={"path": "knowledge/report.md"},
             tool_scope=SkillToolScope(
                 source="skill",
-                allowed_tools=("get_weather",),
-                skill_name="weather-advisor",
+                allowed_tools=("web_search",),
+                skill_name="legacy-test-skill",
                 reason="regression_scope",
             ),
-            binding_context={"active_pdf": ""},
+            binding_context={},
         )
 
         assert decision.allowed is False

@@ -153,10 +153,6 @@ def analyze_task_understanding(
         active_bindings=active_bindings,
     )
 
-    direct_realtime = _build_direct_weather_task(normalized, signals) or _build_direct_gold_task(normalized, signals)
-    if direct_realtime is not None:
-        return direct_realtime
-
     if signals.mixed_direct_capabilities:
         return _build_bounded_lookup_task(
             message=normalized,
@@ -315,6 +311,8 @@ def _collect_task_signals(
 
 
 def _build_direct_dataset_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if signals.weather_domain or signals.gold_price_domain:
+        return None
     followup_dataset_request = (
         bool(signals.bound_dataset_path)
         and not signals.explicit_pdf_path
@@ -345,11 +343,11 @@ def _build_direct_dataset_task(message: str, signals: TaskSignals) -> TaskUnders
         source_kind="dataset",
         task_kind="dataset_query",
         modality="table",
-        route_hint="tool",
+        route_hint="structured_data",
         preferred_skill="structured-data-analysis",
         capability_requests=["dataset_analysis"],
         parameters=parameters,
-        execution_posture="direct_tool",
+        execution_posture="direct_mcp",
         direct_route_reason=reasons[0],
         should_skip_rag=True,
         confidence=0.96 if signals.explicit_dataset_path else 0.91 if (followup_dataset_request or bundle_followup_request) else 0.86,
@@ -395,11 +393,11 @@ def _build_direct_pdf_task(message: str, signals: TaskSignals) -> TaskUnderstand
         source_kind="document",
         task_kind=task_kind,
         modality="pdf",
-        route_hint="tool",
+        route_hint="pdf",
         preferred_skill="pdf-analysis",
         capability_requests=["document_analysis"],
         parameters=parameters,
-        execution_posture="direct_tool",
+        execution_posture="direct_mcp",
         direct_route_reason=(
             "explicit_pdf_anchor"
             if signals.explicit_pdf_path
@@ -424,12 +422,12 @@ def _build_direct_workspace_read_task(message: str, signals: TaskSignals) -> Tas
         source_kind="workspace",
         task_kind="workspace_file_read",
         modality=modality,
-        route_hint="tool",
+        route_hint="workspace_read",
         preferred_skill=None,
         capability_requests=["workspace_read"],
         candidate_tools=["read_file"],
         parameters={"path": signals.explicit_workspace_path},
-        execution_posture="direct_tool",
+        execution_posture="builtin_tool_lane",
         direct_route_reason="explicit_workspace_file_anchor",
         should_skip_rag=True,
         confidence=0.95,
@@ -446,12 +444,12 @@ def _build_direct_workspace_search_task(message: str, signals: TaskSignals) -> T
         source_kind="workspace",
         task_kind="workspace_file_search",
         modality="workspace",
-        route_hint="tool",
+        route_hint="workspace_path_search",
         preferred_skill=None,
-        capability_requests=["workspace_search"],
+        capability_requests=["workspace_path_search"],
         candidate_tools=["search_files"],
         parameters={"query": message},
-        execution_posture="direct_tool",
+        execution_posture="builtin_tool_lane",
         direct_route_reason="workspace_search_request",
         should_skip_rag=True,
         confidence=0.9,
@@ -460,67 +458,47 @@ def _build_direct_workspace_search_task(message: str, signals: TaskSignals) -> T
     )
 
 
-def _build_direct_weather_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not signals.weather_domain or signals.explicit_dataset_path or signals.explicit_pdf_path:
-        return None
-    return TaskUnderstanding(
-        intent="weather_query",
-        source_kind="external_web",
-        task_kind="realtime_lookup",
-        modality="realtime",
-        route_hint="tool",
-        preferred_skill=None,
-        capability_requests=["weather"],
-        candidate_tools=["get_weather"],
-        parameters={"query": message},
-        execution_posture="direct_tool",
-        direct_route_reason="dedicated_weather_capability",
-        should_skip_rag=True,
-        confidence=0.98,
-        reasons=["dedicated_weather_capability"],
-        structural_signals=signals.to_dict(),
-    )
-
-
-def _build_direct_gold_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not signals.gold_price_domain or signals.explicit_dataset_path or signals.explicit_pdf_path:
-        return None
-    return TaskUnderstanding(
-        intent="gold_price_query",
-        source_kind="external_web",
-        task_kind="realtime_lookup",
-        modality="realtime",
-        route_hint="tool",
-        preferred_skill=None,
-        capability_requests=["gold_price"],
-        candidate_tools=["get_gold_price"],
-        parameters={"query": message},
-        execution_posture="direct_tool",
-        direct_route_reason="dedicated_gold_price_capability",
-        should_skip_rag=True,
-        confidence=0.97,
-        reasons=["dedicated_gold_price_capability"],
-        structural_signals=signals.to_dict(),
-    )
-
-
 def _build_direct_web_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not signals.external_requirement:
+    if not (signals.external_requirement or signals.weather_domain or signals.gold_price_domain):
         return None
+    capability_requests: list[str] = []
+    reasons: list[str] = []
+    intent = "web_search_query"
+    task_kind = "web_lookup"
+    modality = "web"
+    confidence = 0.93
+    if signals.weather_domain:
+        capability_requests.append("weather")
+        reasons.append("weather_realtime_task")
+        intent = "weather_query"
+        task_kind = "realtime_lookup"
+        modality = "realtime"
+        confidence = 0.96
+    if signals.gold_price_domain:
+        capability_requests.append("gold_price")
+        reasons.append("gold_price_realtime_task")
+        intent = "gold_price_query"
+        task_kind = "realtime_lookup"
+        modality = "realtime"
+        confidence = 0.95
+    capability_requests.append("latest_information")
+    if not reasons:
+        reasons.append("explicit_external_constraint")
     return TaskUnderstanding(
-        intent="web_search_query",
+        intent=intent,
         source_kind="external_web",
-        task_kind="web_lookup",
-        modality="web",
-        route_hint="tool",
-        preferred_skill="web-search",
-        capability_requests=["latest_information"],
+        task_kind=task_kind,
+        modality=modality,
+        route_hint="realtime_network",
+        preferred_skill=None,
+        capability_requests=_dedupe(capability_requests),
+        candidate_tools=["web_search"],
         parameters={"query": message},
-        execution_posture="direct_tool",
-        direct_route_reason="explicit_external_constraint",
+        execution_posture="builtin_tool_lane",
+        direct_route_reason=reasons[0],
         should_skip_rag=True,
-        confidence=0.93,
-        reasons=["explicit_external_constraint"],
+        confidence=confidence,
+        reasons=reasons,
         structural_signals=signals.to_dict(),
     )
 
@@ -627,6 +605,18 @@ def _extract_explicit_workspace_file_reference(
 
 def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker in text for marker in markers)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _extract_knowledge_source_anchor(message: str) -> tuple[str, str]:
@@ -869,9 +859,9 @@ def _build_capability_requests(
     if signals.workspace_search_request:
         requests.append("workspace_search")
     if signals.weather_domain:
-        requests.append("weather")
+        requests.extend(["weather", "latest_information"])
     if signals.gold_price_domain:
-        requests.append("gold_price")
+        requests.extend(["gold_price", "latest_information"])
     if signals.external_requirement or signals.official_source_requirement or signals.freshness_requirement:
         requests.append("latest_information")
     if signals.faq_shape:
@@ -883,7 +873,7 @@ def _build_capability_requests(
         and "knowledge_lookup" not in requests
         and not any(
             item in requests
-            for item in ("dataset_analysis", "document_analysis", "workspace_read", "weather", "gold_price")
+            for item in ("dataset_analysis", "document_analysis", "workspace_read")
         )
     ):
         requests.insert(0, "knowledge_lookup")

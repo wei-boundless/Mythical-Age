@@ -15,21 +15,21 @@ from understanding.query_understanding import QueryUnderstanding
 def main() -> None:
     resolver = SkillPolicyResolver(SkillRegistry(ROOT))
 
-    weather = QueryUnderstanding(
+    realtime = QueryUnderstanding(
         source_kind="external_web",
         task_kind="realtime_lookup",
         modality="realtime",
-        route="tool",
-        tool_name="get_weather",
-        capability_requests=["weather"],
+        route="realtime_network",
+        tool_name="web_search",
+        capability_requests=["weather", "latest_information"],
     )
-    assert resolver.resolve(task_frame=weather) is None
+    assert resolver.resolve(task_frame=realtime) is None
 
     pdf = QueryUnderstanding(
         source_kind="document",
         task_kind="document_page",
         modality="pdf",
-        route="tool",
+        route="pdf",
         capability_requests=["document_analysis"],
     )
     pdf_frame = resolver.resolve(task_frame=pdf)

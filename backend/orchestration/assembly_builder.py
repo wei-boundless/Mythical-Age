@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from soul import SoulFacade
+from soul.projection_store import get_projection_card
 
 from .agent_registry import AgentRegistry
 from .agent_runtime_models import AgentRuntimeProfile
@@ -78,11 +79,13 @@ def build_orchestration_runtime_bundle(
     )
 
     projection_requirement = _build_projection_requirement(
+        base_dir=base_dir,
         task_id=task_id,
         projection_selection=projection_selection,
         agent_descriptor=descriptor,
         task_mode=str(task_execution_assembly.get("task_mode") or ""),
     )
+    projection_diagnostics = _projection_resolution_diagnostics(projection_requirement)
     prompt_contract = _build_runtime_prompt_contract(
         task_id=task_id,
         user_goal=user_goal,
@@ -104,7 +107,7 @@ def build_orchestration_runtime_bundle(
         projection_requirement=projection_requirement,
         skill_views=skill_runtime_views,
         resource_views=[],
-        soul_id=str(getattr(descriptor, "default_soul_id", "") or "runtime"),
+        soul_id=str(projection_requirement.get("soul_id") or getattr(descriptor, "default_soul_id", "") or "runtime"),
         agent_profile_id=str(getattr(runtime_profile, "agent_profile_id", "") or "runtime_agent"),
     )
     soul_runtime_view = dict(soul_runtime.get("runtime_view") or {})
@@ -151,6 +154,7 @@ def build_orchestration_runtime_bundle(
         diagnostics={
             "builder": "orchestration.build_orchestration_runtime_bundle",
             "projection_provider": "soul.build_soul_runtime_view",
+            "projection_resolution": projection_diagnostics,
             "memory_view_ref": str(memory_view.get("view_id") or ""),
             "context_policy_ref": _context_policy_ref(context_policy),
             "runtime_lane": runtime_lane_profile.lane_id,
@@ -186,6 +190,7 @@ def build_orchestration_runtime_bundle(
             "memory_scope_profile_ref": memory_scope_profile.profile_id,
             "runtime_lane_profile_ref": runtime_lane_profile.profile_id,
             "output_boundary_profile_ref": output_boundary_profile.profile_id,
+            "projection_resolution": projection_diagnostics,
         },
     )
     return {
@@ -202,6 +207,7 @@ def build_orchestration_runtime_bundle(
 
 def _build_projection_requirement(
     *,
+    base_dir: Path,
     task_id: str,
     projection_selection: dict[str, Any],
     agent_descriptor: Any | None,
@@ -212,19 +218,50 @@ def _build_projection_requirement(
     default_soul_id = str(getattr(agent_descriptor, "default_soul_id", "") or "").strip()
     selection_source = str(projection_selection.get("selection_source") or "task_binding").strip() or "task_binding"
     reason = str(projection_selection.get("selection_reason") or "").strip() or "derived from task-side projection selection"
+    resolved_projection_id = selected_projection_id or default_projection_id
+    issue = ""
+    if selected_projection_id:
+        resolution_source = "task_requirement"
+        if default_projection_id and default_projection_id != selected_projection_id:
+            issue = "task_projection_overrides_agent_default"
+    elif default_projection_id:
+        resolution_source = "agent_default"
+    else:
+        resolution_source = "no_projection"
+    projection_card = get_projection_card(base_dir, resolved_projection_id) if resolved_projection_id else None
     return {
         "task_id": task_id,
-        "role_type": str(projection_selection.get("role_type") or "task_default"),
-        "posture_tags": list(projection_selection.get("posture_tags") or ("concise",)),
-        "expression_density": "normal",
-        "attention_focus": ["task_goal", "workflow", "output"],
-        "projection_id": selected_projection_id or default_projection_id,
-        "soul_id": default_soul_id,
-        "projection_title": "",
-        "projection_prompt": "",
+        "role_type": str((projection_card or {}).get("role_type") or projection_selection.get("role_type") or "task_default"),
+        "posture_tags": list((projection_card or {}).get("posture_tags") or projection_selection.get("posture_tags") or ("concise",)),
+        "expression_density": str((projection_card or {}).get("expression_density") or "normal"),
+        "attention_focus": list((projection_card or {}).get("attention_focus") or ["task_goal", "workflow", "output"]),
+        "projection_id": resolved_projection_id,
+        "selected_projection_id": selected_projection_id,
+        "agent_default_projection_id": default_projection_id,
+        "resolution_source": resolution_source,
+        "issue": issue,
+        "projection_optional": True,
+        "soul_id": str((projection_card or {}).get("soul_id") or default_soul_id),
+        "projection_title": str((projection_card or {}).get("title") or ""),
+        "identity_anchor": str((projection_card or {}).get("identity_anchor") or ""),
+        "projection_prompt": str((projection_card or {}).get("projection_prompt") or ""),
         "reason": reason,
         "selection_source": selection_source,
         "task_mode": task_mode,
+    }
+
+
+def _projection_resolution_diagnostics(projection_requirement: dict[str, Any]) -> dict[str, Any]:
+    issue = str(projection_requirement.get("issue") or "").strip()
+    return {
+        "authority": "orchestration.projection_resolution",
+        "status": "warning" if issue else "ok",
+        "projection_optional": True,
+        "resolution_source": str(projection_requirement.get("resolution_source") or "no_projection"),
+        "selected_projection_id": str(projection_requirement.get("selected_projection_id") or ""),
+        "agent_default_projection_id": str(projection_requirement.get("agent_default_projection_id") or ""),
+        "resolved_projection_id": str(projection_requirement.get("projection_id") or ""),
+        "issue": issue,
     }
 
 
@@ -335,6 +372,9 @@ def _projection_section(projection_requirement: dict[str, Any]) -> str:
         f"Projection role: {str(projection_requirement.get('role_type') or 'task_default')}.",
         f"Posture tags: {', '.join(posture_tags) or 'none'}.",
     ]
+    identity_anchor = str(projection_requirement.get("identity_anchor") or "").strip()
+    if identity_anchor:
+        lines.append(f"Projection identity anchor: {identity_anchor}")
     projection_id = str(projection_requirement.get("projection_id") or "").strip()
     if projection_id:
         lines.append(f"Projection ID: {projection_id}.")

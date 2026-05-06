@@ -366,10 +366,8 @@ def _task_kind_from_capability(value: str) -> str:
         return "pdf"
     if capability == "structured_data":
         return "structured_data"
-    if capability == "weather":
-        return "weather"
-    if capability == "gold_price":
-        return "gold_price"
+    if capability in {"weather", "gold_price", "realtime_network"}:
+        return "realtime_network"
     return capability or "general"
 
 

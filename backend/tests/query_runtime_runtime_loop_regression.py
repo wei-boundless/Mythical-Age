@@ -15,7 +15,7 @@ from query import QueryRuntime
 from understanding.query_understanding import analyze_query_understanding
 from orchestration import RuntimeActionRequest, RuntimeLoopLimits
 from orchestration.runtime_loop.safety import build_task_safety_validators
-from orchestration.runtime_loop.task_run_loop import _direct_tool_answer_from_observation
+from orchestration.runtime_loop.task_run_loop import _builtin_tool_lane_answer_from_observation
 from orchestration.runtime_loop.observation_aggregator import ObservationAggregator
 from context_management.projection import projection_from_file_work
 from orchestration.runtime_loop.tool_adoption import build_tool_request_runtime_adoption
@@ -74,6 +74,9 @@ class _MemoryFacadeStub:
         return []
 
     def refresh_session_memory(self, *_args, **_kwargs):
+        return ""
+
+    def refresh_session_memory_from_context_state(self, *_args, **_kwargs):
         return ""
 
     def commit_durable_memory_extraction(self, *_args, **_kwargs):
@@ -175,6 +178,14 @@ class _BoundAnswerModelRuntimeStub:
         return SimpleNamespace(content="这份 PDF 的结论可以压成三条行动建议：聚焦产业落地、补齐治理规则、持续评估风险。")
 
 
+class _RagAnswerModelRuntimeStub:
+    async def invoke_messages(self, messages):
+        joined = "\n".join(str(dict(item).get("content") or "") for item in list(messages or []))
+        if "当前检索证据" in joined:
+            return SimpleNamespace(content="基于当前知识库证据，可以归纳出三类常见风险：模型滥用、数据与隐私风险，以及治理责任不清。")
+        return SimpleNamespace(content="single-agent runtime directive answer")
+
+
 class _RepeatingToolModelRuntimeStub:
     def __init__(self) -> None:
         self.tool_enabled_calls = 0
@@ -189,7 +200,7 @@ class _RepeatingToolModelRuntimeStub:
             tool_calls=[
                 {
                     "id": f"repeat-call-{self.tool_enabled_calls}",
-                    "name": "pdf_analysis",
+                    "name": "mcp_pdf",
                     "args": {
                         "query": "第二部分的约束重点是什么？",
                         "path": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
@@ -546,6 +557,90 @@ def _build_arcade_bundle_runtime(tmp_path: Path) -> QueryRuntime:
     return runtime
 
 
+def _build_rag_runtime() -> QueryRuntime:
+    class _RetrievalServiceStub:
+        def retrieve(self, query, top_k=5):
+            return [
+                {
+                    "source": "knowledge/rag/ai_governance.md",
+                    "text": "AI 治理中的常见风险通常包括模型滥用、数据与隐私风险，以及责任归属与治理流程不清。",
+                    "score": 0.92,
+                },
+                {
+                    "source": "knowledge/rag/ai_governance_faq.md",
+                    "text": "在落地场景里，组织往往还会把合规审计和外部披露视为治理的一部分，但核心仍是滥用、数据、责任三类。",
+                    "score": 0.81,
+                },
+            ]
+
+    runtime = QueryRuntime(
+        base_dir=_isolated_backend_root(),
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=_RetrievalServiceStub(),
+        tool_runtime=_ToolRuntimeStub(),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_RagAnswerModelRuntimeStub(),
+    )
+    return runtime
+
+
+def _build_pdf_mcp_runtime() -> QueryRuntime:
+    class _RetrievalServiceStub:
+        def retrieve(self, query, top_k=5):
+            return []
+
+    memory_facade = _MemoryFacadeStub(
+        state_snapshot={
+            "context_slots": {
+                "active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "committed_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+            }
+        }
+    )
+    runtime = QueryRuntime(
+        base_dir=BACKEND_DIR,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=memory_facade,
+        retrieval_service=_RetrievalServiceStub(),
+        tool_runtime=_LoopToolRuntimeStub(BACKEND_DIR),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_BoundAnswerModelRuntimeStub(),
+    )
+    return runtime
+
+
+def _build_structured_data_mcp_runtime() -> QueryRuntime:
+    class _RetrievalServiceStub:
+        def retrieve(self, query, top_k=5):
+            return []
+
+    memory_facade = _MemoryFacadeStub(
+        state_snapshot={
+            "context_slots": {
+                "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                "committed_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+            }
+        }
+    )
+    runtime = QueryRuntime(
+        base_dir=BACKEND_DIR,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=memory_facade,
+        retrieval_service=_RetrievalServiceStub(),
+        tool_runtime=_LoopToolRuntimeStub(BACKEND_DIR),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_ModelRuntimeStub(),
+    )
+    return runtime
+
+
 def _build_required_artifact_repair_runtime(tmp_path: Path) -> QueryRuntime:
     work_root = tmp_path / "backend"
     work_root.mkdir(parents=True, exist_ok=True)
@@ -729,6 +824,99 @@ def test_astream_executes_only_model_response_runtime_directive() -> None:
     assert dict(ledger_events[-1]["event"]["payload"]["task_run_ledger"])["status"] == "completed"
     assert any(step["status"] == "completed" for step in task_result["step_runs"])
     assert done_event["task_result_commit"]["commit_candidate"]["payload"]["task_result"]["result_id"] == task_result["result_id"]
+
+
+def test_astream_runs_rag_via_mcp_retrieval_phase() -> None:
+    runtime = _build_rag_runtime()
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-rag-mcp",
+                message="基于本地知识库，告诉我 AI 治理里最常见的三类风险。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [event["type"] for event in events]
+    done_event = next(event for event in events if event["type"] == "done")
+
+    assert "mcp_start" in event_types
+    assert "mcp_evidence" in event_types
+    assert "mcp_end" in event_types
+    assert done_event["answer_source"] == "mcp.retrieval_local"
+    assert "模型滥用" in done_event["content"]
+    assert "runtime_directive" in event_types
+
+
+def test_astream_runs_pdf_via_mcp_phase() -> None:
+    runtime = _build_pdf_mcp_runtime()
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-pdf-mcp",
+                message="把 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf 的结论压成三条行动建议。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [event["type"] for event in events]
+    done_event = next(event for event in events if event["type"] == "done")
+    mcp_end_event = next(event for event in events if event["type"] == "mcp_end")
+
+    assert "mcp_start" in event_types
+    assert "mcp_evidence" in event_types
+    assert "mcp_end" in event_types
+    assert dict(mcp_end_event.get("result") or {}).get("result_kind") == "pdf_answer"
+    assert done_event["answer_source"] == "mcp.pdf_local"
+    assert done_event["main_context"]["active_work_item"] == "pdf"
+    assert done_event["main_context"]["followup_binding_key"] == "active_pdf"
+    assert done_event["main_context"]["active_constraints"]["active_pdf"].endswith(".pdf")
+
+
+def test_astream_runs_structured_data_via_mcp_phase() -> None:
+    runtime = _build_structured_data_mcp_runtime()
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-structured-mcp",
+                message="分析 knowledge/E-commerce Data/inventory.xlsx，按仓库汇总前五。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [event["type"] for event in events]
+    done_event = next(event for event in events if event["type"] == "done")
+    mcp_end_event = next(event for event in events if event["type"] == "mcp_end")
+
+    assert "mcp_start" in event_types
+    assert "mcp_evidence" in event_types
+    assert "mcp_end" in event_types
+    assert dict(mcp_end_event.get("result") or {}).get("result_kind") == "structured_answer"
+    assert done_event["answer_source"] == "mcp.structured_data_local"
+    assert done_event["main_context"]["active_work_item"] == "structured_data"
+    assert done_event["main_context"]["followup_binding_key"] == "active_dataset"
+    assert done_event["main_context"]["active_constraints"]["active_dataset"].endswith(".xlsx")
 
 
 def test_astream_exposes_only_adopted_main_runtime_tools_to_model_lane(tmp_path: Path) -> None:
@@ -1101,8 +1289,8 @@ def test_followup_replays_deepseek_reasoning_content_after_tool_result(tmp_path:
     )
 
 
-def test_pdf_canonical_tool_result_can_finalize_directly() -> None:
-    answer = _direct_tool_answer_from_observation(
+def test_legacy_pdf_tool_result_no_longer_finalizes_directly() -> None:
+    answer = _builtin_tool_lane_answer_from_observation(
         user_message="打开这份 PDF，给我一个全文总览",
         observation_payload={
             "tool_name": "pdf_analysis",
@@ -1122,10 +1310,30 @@ def test_pdf_canonical_tool_result_can_finalize_directly() -> None:
         },
     )
 
-    assert answer is not None
-    assert answer["answer_source"] == "direct_tool.pdf_analysis"
-    assert answer["answer_channel"] == "tool_visible_summary"
-    assert "AI 治理正在从抽象风险转向现实产业落地" in answer["content"]
+    assert answer is None
+
+
+def test_web_search_raw_json_result_no_longer_finalizes_directly() -> None:
+    answer = _builtin_tool_lane_answer_from_observation(
+        user_message="帮我查一下黄金现在的价格",
+        observation_payload={
+            "tool_name": "web_search",
+            "tool_args": {"query": "黄金价格 今日 2026"},
+            "result": (
+                '{'
+                '"ok": true, '
+                '"query": "黄金价格 今日 2026", '
+                '"response_time": 0.96, '
+                '"request_id": "abc", '
+                '"results": ['
+                '{"title": "Gold price today", "content": "Gold opened at $4569.30 and rose to $4711.90."}'
+                "]"
+                "}"
+            ),
+        },
+    )
+
+    assert answer is None
 
 
 def test_observation_aggregator_merges_multiple_tool_projections() -> None:
@@ -1149,12 +1357,12 @@ def test_observation_aggregator_merges_multiple_tool_projections() -> None:
         [{"task_id": "result:data:b", "query": "前三仓库", "summary": "前三仓库摘要", "task_kind": "structured_data"}],
     )
 
-    aggregation = aggregator.add_projection(pdf_projection, tool_name="pdf_analysis")
-    aggregation = aggregator.add_projection(dataset_projection, tool_name="structured_data_analysis")
+    aggregation = aggregator.add_projection(pdf_projection, tool_name="mcp_pdf")
+    aggregation = aggregator.add_projection(dataset_projection, tool_name="mcp_structured_data")
 
     assert aggregation.is_compound is True
     assert len(aggregation.projection.task_summary_refs) == 2
-    assert set(aggregation.tool_names) == {"pdf_analysis", "structured_data_analysis"}
+    assert set(aggregation.tool_names) == {"mcp_pdf", "mcp_structured_data"}
 
 
 def test_bound_pdf_answer_writes_followup_context_without_new_tool_result() -> None:
@@ -1229,7 +1437,7 @@ def test_bundle_answer_projection_creates_ordinal_refs_for_model_synthesized_par
                 "user_text": "总结 PDF 第三页",
                 "template_id": "template.pdf.document_analysis",
                 "capability_kind": "pdf",
-                "required_tool": "pdf_analysis",
+                "required_tool": "",
             },
             {
                 "bundle_id": "bundle:task-bundle",
@@ -1238,16 +1446,16 @@ def test_bundle_answer_projection_creates_ordinal_refs_for_model_synthesized_par
                 "user_text": "inventory.xlsx 最缺货的前三个仓库",
                 "template_id": "template.data.structured_analysis",
                 "capability_kind": "structured_data",
-                "required_tool": "structured_data_analysis",
+                "required_tool": "",
             },
             {
                 "bundle_id": "bundle:task-bundle",
                 "item_id": "bundle:task-bundle:item:3",
                 "ordinal": 3,
                 "user_text": "补一句北京天气",
-                "template_id": "template.capability.direct_tool",
-                "capability_kind": "weather",
-                "required_tool": "get_weather",
+                "template_id": "template.search.information_search",
+                "capability_kind": "realtime_network",
+                "required_tool": "web_search",
             },
         ],
     )
@@ -1259,7 +1467,7 @@ def test_bundle_answer_projection_creates_ordinal_refs_for_model_synthesized_par
     assert projection.bundle_summary_refs[1]["item_id"] == "bundle:task-bundle:item:2"
     assert projection.bundle_summary_refs[1]["template_id"] == "template.data.structured_analysis"
     assert "深圳仓" in projection.bundle_summary_refs[1]["summary"]
-    assert projection.bundle_summary_refs[1]["required_tool"] == "structured_data_analysis"
+    assert projection.bundle_summary_refs[1]["required_tool"] == ""
 
 
 def test_bundle_answer_projection_only_projects_executed_ordinals() -> None:
@@ -1268,14 +1476,14 @@ def test_bundle_answer_projection_only_projects_executed_ordinals() -> None:
     projection = projection_from_bundle_answer(
         content="第三页摘要。",
         bundle_items=[
-            {"ordinal": 1, "user_text": "总结 PDF 第三页", "capability_kind": "pdf", "required_tool": "pdf_analysis"},
+            {"ordinal": 1, "user_text": "总结 PDF 第三页", "capability_kind": "pdf", "required_tool": ""},
             {
                 "ordinal": 2,
                 "user_text": "inventory.xlsx 最缺货的前三个仓库",
                 "capability_kind": "structured_data",
-                "required_tool": "structured_data_analysis",
+                "required_tool": "",
             },
-            {"ordinal": 3, "user_text": "补一句北京天气", "capability_kind": "weather", "required_tool": "get_weather"},
+            {"ordinal": 3, "user_text": "补一句北京天气", "capability_kind": "realtime_network", "required_tool": "web_search"},
         ],
         existing_task_summary_refs=[
             {"task_id": "result:pdf:a", "query": "第三页", "summary": "第三页摘要。", "task_kind": "pdf"}
@@ -1309,14 +1517,14 @@ def test_file_work_projection_only_creates_bundle_refs_for_matching_items() -> N
                 "ordinal": 1,
                 "user_text": "总结 PDF 第三页",
                 "capability_kind": "pdf",
-                "required_tool": "pdf_analysis",
+                "required_tool": "",
                 "target_binding": {"file_kind": "pdf", "metadata": {"path": "knowledge/AI/report.pdf"}},
             },
             {
                 "ordinal": 2,
                 "user_text": "inventory.xlsx 最缺货的前三个仓库",
                 "capability_kind": "structured_data",
-                "required_tool": "structured_data_analysis",
+                "required_tool": "",
                 "target_binding": {"file_kind": "dataset", "metadata": {"path": "knowledge/E-commerce Data/inventory.xlsx"}},
             },
         ],
@@ -1333,7 +1541,7 @@ def test_realtime_weather_intent_overrides_bound_dataset_followup() -> None:
     )
 
     assert understanding.intent == "weather_query"
-    assert understanding.capability_requests == ["weather"]
+    assert understanding.capability_requests == ["weather", "latest_information"]
     assert understanding.should_skip_rag is True
 
 

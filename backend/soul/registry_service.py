@@ -87,3 +87,14 @@ class SoulRegistryService:
         raw["enabled"] = bool(enabled)
         write_text(profile_path, json.dumps(raw, ensure_ascii=False, indent=2))
         return self.build_catalog()
+
+    def delete_custom_soul(self, soul_id: str) -> dict[str, Any]:
+        import shutil
+
+        normalized = str(soul_id or "").strip().lower()
+        soul_dir = (self.base_dir / "soul" / "custom" / normalized).resolve()
+        custom_root = (self.base_dir / "soul" / "custom").resolve()
+        if custom_root not in soul_dir.parents or not soul_dir.exists():
+            raise KeyError(normalized)
+        shutil.rmtree(soul_dir)
+        return self.build_catalog()

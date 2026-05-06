@@ -54,13 +54,9 @@ def build_capability_supply_package_from_base_dir(
                     "title": skill.prompt_view.title,
                     "activation_policy": skill.runtime.activation_policy,
                     "context_mode": skill.runtime.context_mode,
-                    "allowed_tools": list(skill.runtime.allowed_tools),
+                    "preferred_route": skill.runtime.preferred_route,
+                    "capability_tags": list(skill.runtime.capability_tags),
                 },
-                "allowed_operations": [
-                    tool.operation_id
-                    for tool in tool_registry.filter_names(list(skill.runtime.allowed_tools))
-                    if tool.operation_id
-                ],
             }
             for skill in skill_registry.skills
         ],
@@ -96,10 +92,7 @@ def build_capability_supply_package_from_catalog(
         mcp for mcp in mcps
         if not normalized_scope or str(mcp.get("operation_id") or "").strip() in normalized_scope
     ]
-    filtered_skills = [
-        skill for skill in skills
-        if not normalized_scope or set(str(item) for item in list(skill.get("allowed_operations") or [])).intersection(normalized_scope)
-    ]
+    filtered_skills = list(skills)
 
     tool_refs = [
         CapabilitySupplyToolRef(
@@ -119,8 +112,12 @@ def build_capability_supply_package_from_catalog(
             title=str(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("title") or ""),
             activation_policy=str(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("activation_policy") or ""),
             context_mode=str(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("context_mode") or ""),
-            allowed_tools=tuple(str(item) for item in list(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("allowed_tools") or [])),
-            allowed_operations=tuple(str(item) for item in list(skill.get("allowed_operations") or [])),
+            preferred_route=str(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("preferred_route") or ""),
+            capability_tags=tuple(
+                str(item)
+                for item in list(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("capability_tags") or [])
+                if str(item)
+            ),
         )
         for skill in filtered_skills
     ]
@@ -139,12 +136,6 @@ def build_capability_supply_package_from_catalog(
     available_operation_ids = sorted({
         *[ref.operation_id for ref in tool_refs if ref.operation_id],
         *[ref.operation_id for ref in mcp_refs if ref.operation_id],
-        *[
-            operation_id
-            for ref in skill_refs
-            for operation_id in ref.allowed_operations
-            if operation_id
-        ],
     })
 
     main_runtime_tools = sorted(

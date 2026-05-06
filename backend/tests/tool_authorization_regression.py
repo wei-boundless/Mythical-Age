@@ -24,10 +24,10 @@ def test_all_builtin_tools_have_explicit_operation_id() -> None:
 def test_tool_operation_resolution_does_not_use_operation_alias_collision() -> None:
     index = build_tool_authorization_index(get_tool_definitions())
 
-    assert resolve_tool_operation_id("pdf_analysis", definitions_by_name=index.definitions_by_name) == "op.pdf_analysis"
-    assert resolve_tool_operation_id("structured_data_analysis", definitions_by_name=index.definitions_by_name) == (
-        "op.structured_data_analysis"
-    )
+    assert resolve_tool_operation_id("read_file", definitions_by_name=index.definitions_by_name) == "op.read_file"
+    assert resolve_tool_operation_id("web_search", definitions_by_name=index.definitions_by_name) == "op.web_search"
+    assert resolve_tool_operation_id("list_dir", definitions_by_name=index.definitions_by_name) == "op.list_dir"
+    assert resolve_tool_operation_id("git_status", definitions_by_name=index.definitions_by_name) == "op.git_status"
     assert resolve_tool_operation_id("index_multimodal_file", definitions_by_name=index.definitions_by_name) == (
         "op.index_multimodal_file"
     )
@@ -40,15 +40,15 @@ def test_authorized_tool_set_filters_by_explicit_operation_and_main_runtime_visi
     authorized = build_authorized_tool_set(
         tool_instances=instances,
         definitions_by_name=index.definitions_by_name,
-        allowed_operations={"op.read_file", "op.pdf_analysis", "op.shell"},
+        allowed_operations={"op.read_file", "op.list_dir", "op.mcp_pdf", "op.shell"},
         runtime_lane="main_runtime",
     )
 
     assert "read_file" in authorized.tool_names
+    assert "list_dir" in authorized.tool_names
     assert "pdf_analysis" not in authorized.tool_names
     assert "terminal" not in authorized.tool_names
     assert "op.read_file" in authorized.operation_ids
-    assert any(item["tool_name"] == "pdf_analysis" and item["reason"] == "not_main_runtime_visible" for item in authorized.filtered_out)
     assert any(item["tool_name"] == "terminal" and item["reason"] == "not_main_runtime_visible" for item in authorized.filtered_out)
 
 
@@ -58,7 +58,7 @@ def test_task_run_loop_tool_filter_uses_tool_definition_operation_id() -> None:
     policy = ResourcePolicy(
         policy_id="respol-test",
         task_id="task-test",
-        allowed_operations=("op.pdf_analysis",),
+        allowed_operations=("op.mcp_pdf",),
         adopted=True,
         runtime_executable=True,
         runtime_view_only=False,

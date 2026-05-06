@@ -275,8 +275,15 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
     assert "light_web_game" in spawned_agent.task_scope
     assert len(trace["agent_runs"]) >= 2
     assert trace["coordination_runs"]
+    assert trace["coordination_runs"][0]["diagnostics"]["coordination_engine"] == "langgraph"
+    assert trace["coordination_runs"][0]["diagnostics"]["coordination_graph_spec"]["valid"] is True
     assert trace["coordination_runs"][0]["node_runs"]
+    assert all(node["diagnostics"]["coordination_engine"] == "langgraph" for node in trace["coordination_runs"][0]["node_runs"])
     assert trace["coordination_runs"][0]["handoff_envelopes"]
+    assert all(
+        handoff["diagnostics"]["coordination_engine"] == "langgraph"
+        for handoff in trace["coordination_runs"][0]["handoff_envelopes"]
+    )
     assert trace["coordination_runs"][0]["latest_merge_result"] is not None
 
 
@@ -395,6 +402,8 @@ def test_runtime_registers_coordination_flow_for_story_pipeline() -> None:
     assert "coordination_flow_finalized" in trace_event_types
     assert trace["agent_run_results"]
     coordination_run = trace["coordination_runs"][0]
+    assert coordination_run["diagnostics"]["coordination_engine"] == "langgraph"
+    assert coordination_run["diagnostics"]["coordination_graph_spec"]["valid"] is True
     flow = dict(coordination_run["diagnostics"].get("coordination_flow") or {})
     assert flow["revision_loop_enabled"] is True
     assert flow["required_revision_cycles"] == 1

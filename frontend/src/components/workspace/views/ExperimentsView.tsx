@@ -924,7 +924,7 @@ export function ExperimentsView() {
     if (!normalizedCatalogQuery) {
       return true;
     }
-    return `${skill.runtime.name} ${skill.runtime.title} ${skill.runtime.description} ${skill.runtime.allowed_tools.join(" ")} ${skill.runtime.capability_tags.join(" ")}`
+    return `${skill.runtime.name} ${skill.runtime.title} ${skill.runtime.description} ${skill.runtime.capability_tags.join(" ")} ${skill.runtime.supported_task_kinds.join(" ")} ${skill.runtime.supported_source_kinds.join(" ")}`
       .toLowerCase()
       .includes(normalizedCatalogQuery);
   });
@@ -1056,7 +1056,7 @@ export function ExperimentsView() {
           {catalogAction ? <div className="workspace-alert">{catalogAction}</div> : null}
           <div className="workspace-search">
             <Sparkles size={17} />
-            <input onChange={(event) => setCatalogQuery(event.target.value)} placeholder="查 skill、allowed tools、能力标签或 route" value={catalogQuery} />
+            <input onChange={(event) => setCatalogQuery(event.target.value)} placeholder="查 skill、能力标签、任务类型或 route" value={catalogQuery} />
           </div>
           <div className="orchestration-management-grid">
             {visibleCatalogSkills.map((skill) => (
@@ -1069,7 +1069,7 @@ export function ExperimentsView() {
                 <h3>{skill.runtime.title || skill.runtime.name}</h3>
                 <p>{skill.runtime.description}</p>
                 <div className="workspace-chip-row">
-                  {skill.runtime.allowed_tools.slice(0, 6).map((tool) => <span className="workspace-mini-chip" key={tool}>{tool}</span>)}
+                  {skill.runtime.capability_tags.slice(0, 6).map((tag) => <span className="workspace-mini-chip" key={tag}>{tag}</span>)}
                 </div>
                 <div className="orchestration-management-card__contract">
                   <b>Prompt 可见</b>

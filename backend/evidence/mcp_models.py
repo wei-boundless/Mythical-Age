@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from capability_system.local_mcp_registry import build_local_mcp_agent_map
 from evidence.models import BindingCandidate, EvidenceArtifact, EvidenceEnvelope
 
 
@@ -12,12 +13,7 @@ MCPTaskStatus = Literal["submitted", "working", "completed", "failed", "requires
 
 A2A_COMPATIBLE_PROTOCOL_VERSION = "a2a-compatible.v1"
 
-AGENT_ID_BY_MCP_ROUTE: dict[str, str] = {
-    "retrieval": "agent:knowledge:retrieval",
-    "evidence_orchestrator": "agent:knowledge:retrieval",
-    "pdf": "agent:document:pdf",
-    "structured_data": "agent:data:structured",
-}
+AGENT_ID_BY_MCP_ROUTE: dict[str, str] = build_local_mcp_agent_map()
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +112,7 @@ class MCPExecutionPlan:
     expected_result: Literal["evidence", "canonical", "clarification"] = "evidence"
     artifact_refs: list[str] = field(default_factory=list)
     candidate_refs: list[str] = field(default_factory=list)
-    fallback_execution_kind: Literal["agent", "direct_tool", "none"] = "agent"
+    fallback_execution_kind: Literal["agent", "builtin_tool_lane", "none"] = "agent"
     cutover_mode: Literal["shadow", "primary", "disabled"] = "primary"
 
     def to_dict(self) -> dict[str, Any]:

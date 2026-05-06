@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -16,6 +18,9 @@ from .models import (
     TaskRun,
 )
 from ..worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
+
+
+_STATE_INDEX_WRITE_LOCK = threading.RLock()
 
 
 class RuntimeStateIndex:
@@ -238,8 +243,26 @@ class RuntimeStateIndex:
 
     def _atomic_write(self, payload: dict[str, Any]) -> None:
         tmp = self.index_path.with_suffix(f"{self.index_path.suffix}.{uuid.uuid4().hex}.tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(self.index_path)
+        text = json.dumps(payload, ensure_ascii=False, indent=2)
+        with _STATE_INDEX_WRITE_LOCK:
+            tmp.write_text(text, encoding="utf-8")
+            last_error: OSError | None = None
+            for attempt in range(8):
+                try:
+                    os.replace(tmp, self.index_path)
+                    return
+                except PermissionError as exc:
+                    last_error = exc
+                    time.sleep(0.05 * (attempt + 1))
+            try:
+                self.index_path.write_text(text, encoding="utf-8")
+                tmp.unlink(missing_ok=True)
+                return
+            except OSError as exc:
+                tmp.unlink(missing_ok=True)
+                if last_error is not None:
+                    raise last_error from exc
+                raise
 
 
 def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:

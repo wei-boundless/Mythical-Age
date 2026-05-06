@@ -342,7 +342,7 @@ def _turn_problem_node_id(payload: dict[str, Any], failed_checks: list[Any]) -> 
         return "memory"
     if "prompt" in text:
         return "prompt"
-    if "tool" in text or "search_knowledge" in text:
+    if "tool" in text:
         return "tool"
     if "mcp" in text or "retrieval" in text or "evidence" in text:
         return "mcp"
@@ -427,7 +427,7 @@ def _suspect_edges(payload: dict[str, Any]) -> set[str]:
         suspect.add("query-model")
     if "timeout" in text:
         suspect.add("query-model")
-    if "tool" in text or "pdf_analysis" in text:
+    if "tool" in text:
         suspect.add("orchestration-tools")
         suspect.add("query-tools")
     if "pdf" in text or "retrieval" in text or "evidence" in text:

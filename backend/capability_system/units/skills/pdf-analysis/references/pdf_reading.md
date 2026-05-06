@@ -37,5 +37,5 @@ with pdfplumber.open("document.pdf") as pdf:
 
 ## 注意
 
-- 参考资料只帮助理解 PDF 处理方式，不替代 `pdf_analysis` 的正式执行链。
+- 参考资料只帮助理解 PDF 处理方式，不替代 PDF MCP 的正式执行链。
 - 图表页、扫描页和正文页要区别处理。
