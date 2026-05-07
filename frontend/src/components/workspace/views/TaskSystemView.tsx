@@ -472,14 +472,6 @@ function displayId(value: unknown, fallback = "未配置") {
     "light_web_game": "轻量网页小游戏",
     "arcade_game_bundle": "复合小游戏包",
     "short_story": "短篇写作",
-    "longform_novel_project": "长篇项目立项",
-    "novel_bible_build": "小说设定总纲",
-    "volume_planning": "卷规划",
-    "chapter_planning": "章节规划",
-    "chapter_drafting": "章节正文",
-    "chapter_revision": "章节审校",
-    "continuity_audit": "连续性审计",
-    "final_compilation": "阶段编纂",
     "issue_triage": "问题分诊",
     "trace_analysis": "Trace 分析",
     "case_draft": "案例草案",
@@ -551,73 +543,6 @@ const MEMORY_SHARING_POLICY_CHOICES = ["isolated_by_default", "shared_readonly"]
 const HANDOFF_POLICY_CHOICES = ["filtered_handoff", "direct_handoff"];
 const CONFLICT_POLICY_CHOICES = ["coordinator_review", "majority_vote"];
 const MERGE_POLICY_CHOICES = ["coordinator_final_merge", "ordered_append", "section_merge"];
-
-const LONGFORM_TEMPLATE_STAGES = [
-  {
-    node_id: "project_scope",
-    title: "项目规格锁定",
-    task_id: "task.writing.longform_novel_project",
-    agent_id: "agent:20",
-    role: "coordinator",
-    message_type: "project_scope",
-  },
-  {
-    node_id: "novel_bible",
-    title: "设定总纲构建",
-    task_id: "task.writing.novel_bible_build",
-    agent_id: "agent:21",
-    role: "participant",
-    message_type: "world_seed",
-  },
-  {
-    node_id: "volume_planning",
-    title: "卷规划",
-    task_id: "task.writing.volume_planning",
-    agent_id: "agent:22",
-    role: "participant",
-    message_type: "volume_plan",
-  },
-  {
-    node_id: "chapter_planning",
-    title: "章节批次规划",
-    task_id: "task.writing.chapter_planning",
-    agent_id: "agent:23",
-    role: "participant",
-    message_type: "chapter_plan",
-  },
-  {
-    node_id: "chapter_drafting",
-    title: "章节批次交付",
-    task_id: "task.writing.chapter_drafting",
-    agent_id: "agent:24",
-    role: "writer",
-    message_type: "chapter_batch",
-  },
-  {
-    node_id: "chapter_revision",
-    title: "章节轻审",
-    task_id: "task.writing.chapter_revision",
-    agent_id: "agent:25",
-    role: "reviewer",
-    message_type: "review_feedback",
-  },
-  {
-    node_id: "continuity_audit",
-    title: "连续性审计",
-    task_id: "task.writing.continuity_audit",
-    agent_id: "agent:26",
-    role: "reviewer",
-    message_type: "continuity_audit",
-  },
-  {
-    node_id: "final_compilation",
-    title: "阶段编纂",
-    task_id: "task.writing.final_compilation",
-    agent_id: "agent:20",
-    role: "coordinator",
-    message_type: "editor_merge",
-  },
-];
 
 function contractLabel(value: string, contracts: TaskContractDescriptor[] = []) {
   const contract = contracts.find((item) => item.contract_id === value);
@@ -884,14 +809,16 @@ function LayerNav<T extends string>({
   items,
   value,
   onChange,
+  variant = "primary",
 }: {
   ariaLabel: string;
   items: Array<LayerNavItem<T>>;
   value: T;
   onChange: (value: T) => void;
+  variant?: "primary" | "secondary";
 }) {
   return (
-    <nav className="task-system-layer-nav" aria-label={ariaLabel}>
+    <nav className={variant === "secondary" ? "task-system-layer-nav task-system-layer-nav--secondary" : "task-system-layer-nav"} aria-label={ariaLabel}>
       {items.map((item) => (
         <button
           className={value === item.value ? "task-system-layer-nav__item task-system-layer-nav__item--active" : "task-system-layer-nav__item"}
@@ -1106,13 +1033,6 @@ export function TaskSystemView() {
   }, [coordinationTasks, selectedCoordinationId]);
 
   useEffect(() => {
-    if (loading) return;
-    if (taskLayer !== "coordination") return;
-    if (coordinationTasks.length) return;
-    setTaskLayer("domain");
-  }, [coordinationTasks.length, loading, taskLayer]);
-
-  useEffect(() => {
     if (!selectedTask) return;
     setTaskDraft({ ...selectedTask, metadata: selectedTask.metadata ?? {}, task_policy: selectedTask.task_policy ?? {} });
     setTaskPolicyText(JSON.stringify(selectedTask.task_policy ?? {}, null, 2));
@@ -1125,10 +1045,19 @@ export function TaskSystemView() {
 
   useEffect(() => {
     setCoordinationDraft(coordinationDraftFrom(selectedCoordination));
-    setTopologyDraft(topologyDraftFrom(selectedTopology));
+    const nextTopology = topologyDraftFrom(selectedTopology);
+    const nextNodes = selectedCoordination?.graph_nodes?.length ? selectedCoordination.graph_nodes : (nextTopology.nodes ?? []);
+    const nextEdges = selectedCoordination?.graph_edges?.length ? selectedCoordination.graph_edges : (nextTopology.edges ?? []);
+    setTopologyDraft({
+      ...nextTopology,
+      nodes: nextNodes,
+      edges: nextEdges,
+      nodes_text: JSON.stringify(nextNodes, null, 2),
+      edges_text: JSON.stringify(nextEdges, null, 2),
+    });
     setProtocolDraft(protocolDraftFrom(selectedProtocol));
     setSelectedGraphNodeId(String((selectedCoordination?.graph_nodes ?? [])[0]?.node_id ?? ""));
-    setSelectedGraphEdgeId(graphEdgeId((selectedCoordination?.graph_edges ?? [])[0] ?? {}, 0));
+    setSelectedGraphEdgeId("");
     setLinkingFromNodeId("");
   }, [selectedCoordination, selectedTopology, selectedProtocol]);
 
@@ -1199,12 +1128,12 @@ export function TaskSystemView() {
   }
 
   function addCoordinationNode() {
-    const existingNodes = coordinationDraft.graph_nodes ?? [];
+    const existingNodes = topologyDraft.nodes ?? [];
     const nextIndex = existingNodes.length + 1;
     const existingTaskIds = new Set(existingNodes.map((node) => graphNodeTaskId(node)).filter(Boolean));
     const nextTask = selectedDomainTasks.find((task) => !existingTaskIds.has(task.task_id));
     const nodeId = nextTask ? `subtask_${nextIndex}` : `agent_${nextIndex}`;
-    setCoordinationDraft((current) => {
+    setTopologyDraft((current) => {
       const node = {
         node_id: nodeId,
         node_type: nextTask ? "subtask" : "agent_role",
@@ -1217,8 +1146,8 @@ export function TaskSystemView() {
       };
       return {
         ...current,
-        subtask_refs: coordinationSubtaskRefs({ ...current, graph_nodes: [...(current.graph_nodes ?? []), node] }),
-        graph_nodes: [...(current.graph_nodes ?? []), node],
+        nodes: [...(current.nodes ?? []), node],
+        nodes_text: JSON.stringify([...(current.nodes ?? []), node], null, 2),
       };
     });
     setSelectedGraphNodeId(nodeId);
@@ -1226,7 +1155,7 @@ export function TaskSystemView() {
   }
 
   function addCoordinationTaskNode(task: SpecificTaskRecord, role = "participant") {
-    const nodeId = `subtask_${String((coordinationDraft.graph_nodes?.length || 0) + 1)}`;
+    const nodeId = `subtask_${String((topologyDraft.nodes?.length || 0) + 1)}`;
     const node = {
       node_id: nodeId,
       node_type: "subtask",
@@ -1238,12 +1167,12 @@ export function TaskSystemView() {
       label: task.task_title,
       title: task.task_title,
     };
-    setCoordinationDraft((current) => {
-      const nextNodes = [...(current.graph_nodes ?? []), node];
+    setTopologyDraft((current) => {
+      const nextNodes = [...(current.nodes ?? []), node];
       return {
         ...current,
-        graph_nodes: nextNodes,
-        subtask_refs: coordinationSubtaskRefs({ ...current, graph_nodes: nextNodes }),
+        nodes: nextNodes,
+        nodes_text: JSON.stringify(nextNodes, null, 2),
       };
     });
     setSelectedGraphNodeId(nodeId);
@@ -1251,7 +1180,7 @@ export function TaskSystemView() {
   }
 
   function addCoordinationRoleNode(role: string) {
-    const nextIndex = (coordinationDraft.graph_nodes?.length || 0) + 1;
+    const nextIndex = (topologyDraft.nodes?.length || 0) + 1;
     const nodeId = role === "coordinator" ? `coordinator_${nextIndex}` : `agent_${nextIndex}`;
     const titleByRole: Record<string, string> = {
       coordinator: "协调器",
@@ -1271,16 +1200,17 @@ export function TaskSystemView() {
       label: titleByRole[role] ?? "协作节点",
       title: titleByRole[role] ?? "协作节点",
     };
-    setCoordinationDraft((current) => ({
+    setTopologyDraft((current) => ({
       ...current,
-      graph_nodes: [...(current.graph_nodes ?? []), node],
+      nodes: [...(current.nodes ?? []), node],
+      nodes_text: JSON.stringify([...(current.nodes ?? []), node], null, 2),
     }));
     setSelectedGraphNodeId(nodeId);
     setSelectedGraphEdgeId("");
   }
 
   function addCoordinationSuccessorNode(fromNodeId: string) {
-    const nextIndex = (coordinationDraft.graph_nodes?.length || 0) + 1;
+    const nextIndex = (topologyDraft.nodes?.length || 0) + 1;
     const nodeId = `agent_${nextIndex}`;
     const node = {
       node_id: nodeId,
@@ -1294,46 +1224,54 @@ export function TaskSystemView() {
       title: `节点 ${nextIndex}`,
     };
     const edge = {
-      edge_id: `edge_${String((coordinationDraft.graph_edges?.length || 0) + 1)}`,
+      edge_id: `edge_${String((topologyDraft.edges?.length || 0) + 1)}`,
       from: fromNodeId,
       to: nodeId,
       source_node_id: fromNodeId,
       target_node_id: nodeId,
       mode: coordinationDraft.communication_modes?.[0] || "structured_handoff",
     };
-    setCoordinationDraft((current) => ({
-      ...current,
-      graph_nodes: [...(current.graph_nodes ?? []), node],
-      graph_edges: [...(current.graph_edges ?? []), edge],
-    }));
+    setTopologyDraft((current) => {
+      const nextNodes = [...(current.nodes ?? []), node];
+      const nextEdges = [...(current.edges ?? []), edge];
+      return {
+        ...current,
+        nodes: nextNodes,
+        edges: nextEdges,
+        nodes_text: JSON.stringify(nextNodes, null, 2),
+        edges_text: JSON.stringify(nextEdges, null, 2),
+      };
+    });
     setSelectedGraphNodeId(nodeId);
     setSelectedGraphEdgeId("");
     setLinkingFromNodeId("");
   }
 
   function updateCoordinationNode(nodeId: string, patch: Record<string, unknown>) {
-    setCoordinationDraft((current) => {
-      const nextNodes = (current.graph_nodes ?? []).map((node) =>
+    setTopologyDraft((current) => {
+      const nextNodes = (current.nodes ?? []).map((node) =>
         String(node.node_id ?? "") === nodeId ? { ...node, ...patch } : node,
       );
       return {
         ...current,
-        graph_nodes: nextNodes,
-        subtask_refs: coordinationSubtaskRefs({ ...current, graph_nodes: nextNodes }),
+        nodes: nextNodes,
+        nodes_text: JSON.stringify(nextNodes, null, 2),
       };
     });
   }
 
   function removeCoordinationNode(nodeId: string) {
-    setCoordinationDraft((current) => {
-      const nextNodes = (current.graph_nodes ?? []).filter((node) => String(node.node_id ?? "") !== nodeId);
+    setTopologyDraft((current) => {
+      const nextNodes = (current.nodes ?? []).filter((node) => String(node.node_id ?? "") !== nodeId);
+      const nextEdges = (current.edges ?? []).filter(
+        (edge) => graphEdgeSource(edge) !== nodeId && graphEdgeTarget(edge) !== nodeId,
+      );
       return {
         ...current,
-        graph_nodes: nextNodes,
-        subtask_refs: coordinationSubtaskRefs({ ...current, graph_nodes: nextNodes }),
-        graph_edges: (current.graph_edges ?? []).filter(
-        (edge) => graphEdgeSource(edge) !== nodeId && graphEdgeTarget(edge) !== nodeId,
-        ),
+        nodes: nextNodes,
+        edges: nextEdges,
+        nodes_text: JSON.stringify(nextNodes, null, 2),
+        edges_text: JSON.stringify(nextEdges, null, 2),
       };
     });
     if (selectedGraphNodeId === nodeId) setSelectedGraphNodeId("");
@@ -1341,24 +1279,26 @@ export function TaskSystemView() {
   }
 
   function addCoordinationEdge() {
-    setCoordinationDraft((current) => {
-      const nodes = current.graph_nodes ?? [];
+    setTopologyDraft((current) => {
+      const nodes = current.nodes ?? [];
       if (nodes.length < 2) return current;
       const from = selectedGraphNodeId && nodes.some((node) => String(node.node_id ?? "") === selectedGraphNodeId)
         ? selectedGraphNodeId
         : String(nodes[0]?.node_id ?? "");
       const to = String(nodes.find((node) => String(node.node_id ?? "") !== from)?.node_id ?? "");
       if (!from || !to) return current;
-      const nextIndex = (current.graph_edges?.length || 0) + 1;
-      const edge = { edge_id: `edge_${nextIndex}`, from, to, source_node_id: from, target_node_id: to, mode: current.communication_modes?.[0] || "structured_handoff" };
+      const nextIndex = (current.edges?.length || 0) + 1;
+      const edge = { edge_id: `edge_${nextIndex}`, from, to, source_node_id: from, target_node_id: to, mode: coordinationDraft.communication_modes?.[0] || "structured_handoff" };
       setSelectedGraphEdgeId(graphEdgeId(edge, nextIndex - 1));
       setSelectedGraphNodeId("");
+      const nextEdges = [
+        ...(current.edges ?? []),
+        edge,
+      ];
       return {
         ...current,
-        graph_edges: [
-          ...(current.graph_edges ?? []),
-          edge,
-        ],
+        edges: nextEdges,
+        edges_text: JSON.stringify(nextEdges, null, 2),
       };
     });
   }
@@ -1367,23 +1307,25 @@ export function TaskSystemView() {
     const from = selectedGraphNodeId;
     const to = targetNodeId;
     if (!from || !to || from === to) return;
-    setCoordinationDraft((current) => {
-      const exists = (current.graph_edges ?? []).some((edge) => graphEdgeSource(edge) === from && graphEdgeTarget(edge) === to);
+    setTopologyDraft((current) => {
+      const exists = (current.edges ?? []).some((edge) => graphEdgeSource(edge) === from && graphEdgeTarget(edge) === to);
       if (exists) return current;
-      const nextIndex = (current.graph_edges?.length || 0) + 1;
+      const nextIndex = (current.edges?.length || 0) + 1;
       const edge = {
         edge_id: `edge_${nextIndex}`,
         from,
         to,
         source_node_id: from,
         target_node_id: to,
-        mode: current.communication_modes?.[0] || "structured_handoff",
+        mode: coordinationDraft.communication_modes?.[0] || "structured_handoff",
       };
       setSelectedGraphEdgeId(graphEdgeId(edge, nextIndex - 1));
       setSelectedGraphNodeId("");
+      const nextEdges = [...(current.edges ?? []), edge];
       return {
         ...current,
-        graph_edges: [...(current.graph_edges ?? []), edge],
+        edges: nextEdges,
+        edges_text: JSON.stringify(nextEdges, null, 2),
       };
     });
   }
@@ -1393,22 +1335,24 @@ export function TaskSystemView() {
       if (linkingFromNodeId !== nodeId) {
         const from = linkingFromNodeId;
         const to = nodeId;
-        setCoordinationDraft((current) => {
-          const exists = (current.graph_edges ?? []).some((edge) => graphEdgeSource(edge) === from && graphEdgeTarget(edge) === to);
+        setTopologyDraft((current) => {
+          const exists = (current.edges ?? []).some((edge) => graphEdgeSource(edge) === from && graphEdgeTarget(edge) === to);
           if (exists) return current;
-          const nextIndex = (current.graph_edges?.length || 0) + 1;
+          const nextIndex = (current.edges?.length || 0) + 1;
           const edge = {
             edge_id: `edge_${nextIndex}`,
             from,
             to,
             source_node_id: from,
             target_node_id: to,
-            mode: current.communication_modes?.[0] || "structured_handoff",
+            mode: coordinationDraft.communication_modes?.[0] || "structured_handoff",
           };
           setSelectedGraphEdgeId(graphEdgeId(edge, nextIndex - 1));
+          const nextEdges = [...(current.edges ?? []), edge];
           return {
             ...current,
-            graph_edges: [...(current.graph_edges ?? []), edge],
+            edges: nextEdges,
+            edges_text: JSON.stringify(nextEdges, null, 2),
           };
         });
       }
@@ -1428,12 +1372,16 @@ export function TaskSystemView() {
   }
 
   function updateCoordinationEdge(edgeId: string, patch: Record<string, unknown>) {
-    setCoordinationDraft((current) => ({
-      ...current,
-      graph_edges: (current.graph_edges ?? []).map((edge, index) =>
+    setTopologyDraft((current) => {
+      const nextEdges = (current.edges ?? []).map((edge, index) =>
         graphEdgeId(edge, index) === edgeId ? { ...edge, ...patch } : edge,
-      ),
-    }));
+      );
+      return {
+        ...current,
+        edges: nextEdges,
+        edges_text: JSON.stringify(nextEdges, null, 2),
+      };
+    });
   }
 
   function cycleCoordinationEdgeMode(edgeId: string, currentMode: string) {
@@ -1444,9 +1392,8 @@ export function TaskSystemView() {
   }
 
   function reverseCoordinationEdge(edgeId: string) {
-    setCoordinationDraft((current) => ({
-      ...current,
-      graph_edges: (current.graph_edges ?? []).map((edge, index) => {
+    setTopologyDraft((current) => {
+      const nextEdges = (current.edges ?? []).map((edge, index) => {
         if (graphEdgeId(edge, index) !== edgeId) {
           return edge;
         }
@@ -1459,16 +1406,43 @@ export function TaskSystemView() {
           source_node_id: to,
           target_node_id: from,
         };
-      }),
-    }));
+      });
+      return {
+        ...current,
+        edges: nextEdges,
+        edges_text: JSON.stringify(nextEdges, null, 2),
+      };
+    });
   }
 
   function removeCoordinationEdge(edgeId: string) {
+    setTopologyDraft((current) => {
+      const nextEdges = (current.edges ?? []).filter((edge, index) => graphEdgeId(edge, index) !== edgeId);
+      return {
+        ...current,
+        edges: nextEdges,
+        edges_text: JSON.stringify(nextEdges, null, 2),
+      };
+    });
+    if (selectedGraphEdgeId === edgeId) setSelectedGraphEdgeId("");
+  }
+
+  function saveTopologyDraftIntoCoordination() {
+    const nextNodes = (topologyDraft.nodes ?? []).map((node) => ({ ...node }));
+    const nextEdges = (topologyDraft.edges ?? []).map((edge) => ({ ...edge }));
     setCoordinationDraft((current) => ({
       ...current,
-      graph_edges: (current.graph_edges ?? []).filter((edge, index) => graphEdgeId(edge, index) !== edgeId),
+      graph_nodes: nextNodes,
+      graph_edges: nextEdges,
+      subtask_refs: coordinationSubtaskRefs({ ...current, graph_nodes: nextNodes }),
     }));
-    if (selectedGraphEdgeId === edgeId) setSelectedGraphEdgeId("");
+    setTopologyDraft((current) => ({
+      ...current,
+      nodes_text: JSON.stringify(current.nodes ?? [], null, 2),
+      edges_text: JSON.stringify(current.edges ?? [], null, 2),
+    }));
+    setNotice("拓扑草稿已同步到协调任务，接下来可继续保存草稿或发布。");
+    setError("");
   }
 
   async function createCoordinationDraft() {
@@ -1585,7 +1559,7 @@ export function TaskSystemView() {
       setTopologyDraft(nextTopology);
       setProtocolDraft(nextProtocol);
       setSelectedGraphNodeId(String((nextCoordination.graph_nodes ?? [])[0]?.node_id ?? ""));
-      setSelectedGraphEdgeId(graphEdgeId((nextCoordination.graph_edges ?? [])[0] ?? {}, 0));
+      setSelectedGraphEdgeId("");
       setLinkingFromNodeId("");
       setNotice(`已复制协调任务草稿：${nextCoordinationId}`);
     } catch (exc) {
@@ -1623,87 +1597,81 @@ export function TaskSystemView() {
       const coordinationId = ids.coordination_task_id;
       const topologyId = ids.topology_template_id;
       const protocolId = `protocol.${coordinationId.replace(/^coord\./, "")}`;
-      const taskById = new Map(selectedDomainTasks.map((task) => [task.task_id, task]));
-      const nodes = LONGFORM_TEMPLATE_STAGES.map((stage) => {
-        const task = taskById.get(stage.task_id);
+      const templateTasks = selectedDomainTasks.slice(0, 4);
+      const nodes = templateTasks.map((task, index) => {
+        const role = index === 0 ? "coordinator" : index === templateTasks.length - 1 ? "reviewer" : "participant";
         return {
-          node_id: stage.node_id,
+          node_id: `node_${index + 1}`,
           node_type: "subtask",
-          task_id: stage.task_id,
-          task_title: task?.task_title ?? stage.title,
-          task_family: "writing",
-          agent_id: stage.agent_id,
-          role: stage.role,
-          label: stage.title,
-          title: stage.title,
-          message_type: stage.message_type,
+          task_id: task.task_id,
+          task_title: task.task_title,
+          task_family: task.task_family,
+          agent_id: index === 0 ? "agent:20" : `agent:${21 + index}`,
+          role,
+          label: task.task_title,
+          title: task.task_title,
+          message_type: role === "coordinator" ? "task_scope" : role === "reviewer" ? "review_feedback" : "structured_handoff",
         };
       });
-      const edges = LONGFORM_TEMPLATE_STAGES.slice(0, -1).map((stage, index) => {
-        const nextStage = LONGFORM_TEMPLATE_STAGES[index + 1];
+      const edges = nodes.slice(0, -1).map((stage, index) => {
+        const nextStage = nodes[index + 1];
         return {
           edge_id: `edge_${index + 1}`,
-          from: stage.node_id,
-          to: nextStage.node_id,
-          source_node_id: stage.node_id,
-          target_node_id: nextStage.node_id,
-          mode: nextStage.message_type,
-          policy: "stage_contract_handoff",
+          from: String(stage.node_id || ""),
+          to: String(nextStage.node_id || ""),
+          source_node_id: String(stage.node_id || ""),
+          target_node_id: String(nextStage.node_id || ""),
+          mode: String(nextStage.message_type || "structured_handoff"),
+          policy: "filtered_handoff",
         };
       });
       const coordination: CoordinationDraft = {
         ...emptyCoordination(topologyId, protocolId, "writing", selectedDomain?.domain_id || "domain.writing"),
         coordination_task_id: coordinationId,
-        title: "长篇小说持续交付总协调",
-        coordination_mode: "continuous_delivery",
+        title: "写作任务协调草稿",
+        coordination_mode: "pipeline",
         coordinator_agent_id: "agent:20",
-        agent_group_id: "group.writing.longform_novel_core",
-        participant_agent_ids: ["agent:21", "agent:22", "agent:23", "agent:24", "agent:25", "agent:26"],
-        shared_context_policy: "project_bible_refs_only",
-        memory_sharing_policy: "shared_project_bible_refs",
-        handoff_policy: "stage_contract_handoff",
-        conflict_resolution_policy: "editor_gate_review",
-        output_merge_policy: "editor_gate_merge",
+        agent_group_id: "",
+        participant_agent_ids: uniqueStrings(nodes.slice(1).map((node) => String(node.agent_id || ""))),
+        shared_context_policy: "explicit_refs_only",
+        memory_sharing_policy: "isolated_by_default",
+        handoff_policy: "filtered_handoff",
+        conflict_resolution_policy: "coordinator_review",
+        output_merge_policy: "coordinator_final_merge",
         stop_conditions: [
-          "project_scope_locked",
-          "bible_backlog_defined",
-          "volume_plan_accepted",
-          "chapter_batch_accepted",
-          "continuity_report_accepted",
-          "compilation_ready",
+          "subtasks_completed",
+          "review_concluded",
+          "coordinator_finalized",
         ],
         stop_conditions_text: [
-          "project_scope_locked",
-          "bible_backlog_defined",
-          "volume_plan_accepted",
-          "chapter_batch_accepted",
-          "continuity_report_accepted",
-          "compilation_ready",
+          "subtasks_completed",
+          "review_concluded",
+          "coordinator_finalized",
         ].join("\n"),
         graph_nodes: nodes,
         graph_edges: edges,
-        subtask_refs: uniqueStrings(nodes.map((node) => node.task_id)),
-        communication_modes: uniqueStrings(["structured_handoff", ...LONGFORM_TEMPLATE_STAGES.map((stage) => stage.message_type)]),
+        subtask_refs: uniqueStrings(nodes.map((node) => String(node.task_id || ""))),
+        communication_modes: uniqueStrings(["structured_handoff", ...nodes.map((node) => String(node.message_type || ""))]),
         enabled: false,
         metadata: {
           managed_by: "task_domain_console",
-          template_kind: "longform_novel_continuous_delivery",
+          template_kind: "generic_writing_pipeline",
           protocol_id: protocolId,
-          task_id: "task.writing.longform_novel_project",
+          task_id: String(nodes[0]?.task_id || ""),
           task_family: "writing",
           domain_id: selectedDomain?.domain_id || "domain.writing",
           continuation_policy: {
             mode: "topology_driven",
             auto_continue: true,
-            max_auto_steps: 100,
-            retry_budget: { default: 0, revision_loop: 2 },
+            max_auto_steps: 24,
+            retry_budget: { default: 1 },
           },
         },
       };
       const topology: TopologyDraft = {
         ...emptyTopology(),
         template_id: topologyId,
-        title: "长篇小说持续交付拓扑",
+        title: "写作任务协调拓扑",
         nodes,
         edges,
         join_policy: "explicit_join",
@@ -1712,7 +1680,7 @@ export function TaskSystemView() {
         enabled: false,
         metadata: {
           managed_by: "task_domain_console",
-          template_kind: "longform_novel_continuous_delivery",
+          template_kind: "generic_writing_pipeline",
           task_family: "writing",
           domain_id: selectedDomain?.domain_id || "domain.writing",
         },
@@ -1722,7 +1690,7 @@ export function TaskSystemView() {
       const protocol: ProtocolDraft = {
         ...emptyProtocol(),
         protocol_id: protocolId,
-        title: "长篇小说持续交付协议",
+        title: "写作任务协调协议",
         message_types: coordination.communication_modes,
         message_types_text: coordination.communication_modes.join("\n"),
         ack_policy: "explicit_ack",
@@ -1731,7 +1699,7 @@ export function TaskSystemView() {
         enabled: false,
         metadata: {
           managed_by: "task_domain_console",
-          template_kind: "longform_novel_continuous_delivery",
+          template_kind: "generic_writing_pipeline",
           task_family: "writing",
           domain_id: selectedDomain?.domain_id || "domain.writing",
         },
@@ -1741,12 +1709,12 @@ export function TaskSystemView() {
       setCoordinationDraft(coordination);
       setTopologyDraft(topology);
       setProtocolDraft(protocol);
-      setSelectedGraphNodeId("project_scope");
+      setSelectedGraphNodeId(String(nodes[0]?.node_id || ""));
       setSelectedGraphEdgeId("");
       setLinkingFromNodeId("");
-      setNotice("已生成长篇小说持续交付协调任务草稿，可继续在拓扑图中调整后保存或发布。");
+      setNotice("已生成通用写作协调任务草稿，可继续在拓扑图中调整后保存或发布。");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "生成长篇小说协调模板失败");
+      setError(exc instanceof Error ? exc.message : "生成写作协调模板失败");
     } finally {
       setSaving("");
     }
@@ -1882,6 +1850,8 @@ export function TaskSystemView() {
       const effectiveProtocolDraft = nextPublished === undefined
         ? protocolDraft
         : { ...protocolDraft, enabled: nextPublished };
+      const coordinationNodes = effectiveCoordinationDraft.graph_nodes ?? [];
+      const coordinationEdges = effectiveCoordinationDraft.graph_edges ?? [];
       const subtaskRefs = coordinationSubtaskRefs(effectiveCoordinationDraft);
       const protocolPayload: TaskCommunicationProtocol = {
         ...effectiveProtocolDraft,
@@ -1898,8 +1868,8 @@ export function TaskSystemView() {
       await upsertTaskSystemCommunicationProtocol(protocolPayload.protocol_id, protocolPayload);
       await upsertTaskSystemTopologyTemplate(effectiveTopologyDraft.template_id, {
         ...effectiveTopologyDraft,
-        nodes: effectiveCoordinationDraft.graph_nodes ?? [],
-        edges: effectiveCoordinationDraft.graph_edges ?? [],
+        nodes: coordinationNodes,
+        edges: coordinationEdges,
         handoff_rules: [],
         metadata: {
           ...(effectiveTopologyDraft.metadata ?? {}),
@@ -1941,14 +1911,16 @@ export function TaskSystemView() {
   }
 
   const taskPolicyError = jsonError(taskPolicyText, "任务策略", "object");
-  const activeGraphNodes = coordinationDraft.graph_nodes ?? [];
-  const activeGraphEdges = coordinationDraft.graph_edges ?? [];
+  const activeGraphNodes = topologyDraft.nodes ?? [];
+  const activeGraphEdges = topologyDraft.edges ?? [];
   const selectedGraphNode = activeGraphNodes.find((node) => String(node.node_id ?? "") === selectedGraphNodeId) ?? null;
   const selectedGraphEdge = activeGraphEdges.find((edge, index) => graphEdgeId(edge, index) === selectedGraphEdgeId) ?? null;
   const boundCoordinationTaskIds = new Set(activeGraphNodes.map((node) => graphNodeTaskId(node)).filter(Boolean));
   const editorIssueCount = selectedCoordinationGraphSpec?.issues?.length ?? 0;
   const editorValid = selectedCoordinationGraphSpec?.valid !== false;
   const editorPublished = Boolean(coordinationDraft.enabled && topologyDraft.enabled && protocolDraft.enabled);
+  const topologyDirty = JSON.stringify(topologyDraft.nodes ?? []) !== JSON.stringify(coordinationDraft.graph_nodes ?? [])
+    || JSON.stringify(topologyDraft.edges ?? []) !== JSON.stringify(coordinationDraft.graph_edges ?? []);
   const taskReadiness = [
     { label: "任务定义", value: taskDraft.task_title || taskDraft.task_id, ready: Boolean(taskDraft.task_id && taskDraft.task_title) },
     { label: "执行流程", value: workflowDraft.title || "已选择", ready: Boolean(workflowDraft.workflow_id) },
@@ -2059,7 +2031,7 @@ export function TaskSystemView() {
       {error ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{error}</div> : null}
       {notice ? <div className="boundary-notice"><CheckCircle2 size={16} />{notice}</div> : null}
 
-      <section className={taskLayer === "coordination" ? "boundary-workbench boundary-workbench--coordination-focus" : "boundary-workbench"}>
+      <section className="boundary-workbench">
         <aside className="boundary-rail">
           <div className="boundary-rail__head">
             <strong>任务域</strong>
@@ -2083,7 +2055,6 @@ export function TaskSystemView() {
                     const domainFamily = domain.task_family;
                     const nextCoordination = (consolePayload?.coordination_management.coordination_tasks ?? []).find((item) => coordinationFamily(item, tasks) === domainFamily);
                     setSelectedCoordinationId(nextCoordination?.coordination_task_id || "");
-                    setTaskLayer("domain");
                     setDomainPanel("taskDetail");
                     setEditingDomainName(false);
                   }}
@@ -2155,7 +2126,7 @@ export function TaskSystemView() {
                     <span>域内页面</span>
                     <strong>{domainPanelItems.find((item) => item.value === domainPanel)?.meta || "未选择页面"}</strong>
                   </div>
-                  <LayerNav ariaLabel="任务域页面" items={domainPanelItems} value={domainPanel} onChange={setDomainPanel} />
+                  <LayerNav ariaLabel="任务域页面" items={domainPanelItems} value={domainPanel} onChange={setDomainPanel} variant="secondary" />
                 </div>
                 <div className="boundary-list">
                   {selectedDomain?.tasks.map((task) => (
@@ -2287,7 +2258,7 @@ export function TaskSystemView() {
                       <span>装配页面</span>
                       <strong>{assemblyPanelItems.find((item) => item.value === assemblyPanel)?.meta || "未选择页面"}</strong>
                     </div>
-                    <LayerNav ariaLabel="任务装配页面" items={assemblyPanelItems} value={assemblyPanel} onChange={setAssemblyPanel} />
+                    <LayerNav ariaLabel="任务装配页面" items={assemblyPanelItems} value={assemblyPanel} onChange={setAssemblyPanel} variant="secondary" />
                   </div>
                   <header className="boundary-editor-title">
                     <div className="task-system-context-bar__copy">
@@ -2394,6 +2365,7 @@ export function TaskSystemView() {
               removeCoordinationNode={removeCoordinationNode}
               reverseCoordinationEdge={reverseCoordinationEdge}
               saveCoordinationStack={saveCoordinationStack}
+              saveTopologyDraftIntoCoordination={saveTopologyDraftIntoCoordination}
               saving={saving}
               selectedCoordination={selectedCoordination}
               selectedCoordinationGraphSpec={selectedCoordinationGraphSpec}
@@ -2413,6 +2385,7 @@ export function TaskSystemView() {
               setSelectedGraphEdgeId={setSelectedGraphEdgeId}
               setSelectedGraphNodeId={setSelectedGraphNodeId}
               setTopologyDraft={setTopologyDraft}
+              topologyDirty={topologyDirty}
               topologyDraft={topologyDraft}
               updateCoordinationEdge={updateCoordinationEdge}
               updateCoordinationNode={updateCoordinationNode}

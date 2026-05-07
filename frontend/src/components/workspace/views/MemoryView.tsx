@@ -58,17 +58,6 @@ function valueText(value: unknown) {
   return String(value ?? "").trim() || "空";
 }
 
-function jsonText(value: unknown) {
-  if (value == null) {
-    return "空";
-  }
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
 function formatBytes(value: number) {
   if (!value) {
     return "0 B";
@@ -113,10 +102,6 @@ function traceItemsText(sections: MemoryTraceSection[], emptyText: string) {
     return emptyText;
   }
   return items.slice(0, 5).join("\n\n");
-}
-
-function traceSectionsCount(sections: MemoryTraceSection[]) {
-  return sections.reduce((sum, section) => sum + section.count, 0);
 }
 
 function TraceSectionCards({
@@ -203,9 +188,6 @@ export function MemoryView() {
     messages: Array<{ role: "user" | "assistant"; content: string; tool_calls?: ToolCall[] }>;
   } | null>(null);
   const [expandedMessageIds, setExpandedMessageIds] = useState<string[]>([]);
-  const [selectedConversationId, setSelectedConversationId] = useState("");
-  const [turnInspectingId, setTurnInspectingId] = useState("");
-  const [turnRecallPreview, setTurnRecallPreview] = useState<MemoryRecallPreview | null>(null);
   const [linkedMemoryTrace, setLinkedMemoryTrace] = useState<ExperimentTurnMemoryTrace | null>(null);
   const [linkedMemoryTraceStatus, setLinkedMemoryTraceStatus] = useState("");
   const [linkedMemoryTraceLoading, setLinkedMemoryTraceLoading] = useState(false);
@@ -306,10 +288,6 @@ export function MemoryView() {
       { label: "摘要缺失记录", count: missingSummary.length, tone: missingSummary.length ? "warning" : "ok", hint: "会影响检索和人工判断。" }
     ];
   }, [overview?.durable_memory.headers]);
-  const selectedConversationItem = useMemo(
-    () => conversationItems.find((item) => item.id === selectedConversationId) ?? null,
-    [conversationItems, selectedConversationId]
-  );
   const linkedTurnContext = linkedMemoryTrace?.turn_context ?? null;
   const linkedTraceHasProblem = linkedTurnContext?.status === "failed" || Boolean(linkedTurnContext?.failed_checks?.length);
   const linkedSessionSections = linkedMemoryTrace?.session_memory.model_sections.length
@@ -436,8 +414,6 @@ export function MemoryView() {
 
   useEffect(() => {
     setExpandedMessageIds([]);
-    setSelectedConversationId("");
-    setTurnRecallPreview(null);
     void loadConversationHistory();
   }, [loadConversationHistory]);
 
@@ -477,32 +453,6 @@ export function MemoryView() {
       return;
     }
     setExpandedMessageIds(filteredConversationItems.map((item) => item.id));
-  }
-
-  async function inspectConversationItem(item: ConversationItem) {
-    const text = item.content.trim();
-    if (!text) {
-      setError("这一轮没有可分析的文本内容。");
-      return;
-    }
-    setSelectedConversationId(item.id);
-    setQuery(text);
-    setTurnInspectingId(item.id);
-    setError("");
-    try {
-      const payload = await recallMemoryPreview({
-        query: text,
-        session_id: currentSessionId || undefined,
-        limit: 6
-      });
-      setTurnRecallPreview(payload);
-      setRecallPreview(payload);
-    } catch (exc) {
-      setTurnRecallPreview(null);
-      setError(exc instanceof Error ? exc.message : "这一轮记忆链路分析失败");
-    } finally {
-      setTurnInspectingId("");
-    }
   }
 
   async function runGovernanceAction(label: string, action: () => Promise<unknown>, options?: { refreshSelected?: boolean }) {
@@ -731,55 +681,34 @@ export function MemoryView() {
       {activeLayer === "conversation" ? (
         <>
           {memoryInspectorTarget ? (
-            <section className="workspace-section memory-linked-turn">
+            <section className="workspace-section memory-management-panel">
               <div className="workspace-section__head">
                 <GitBranch size={18} />
-                <h3>测试轮次真实对话链路</h3>
+                <h3>测试轮次对话定位</h3>
                 {memoryInspectorTarget.turnIndex ? <span className="tag-chip">第 {memoryInspectorTarget.turnIndex} 轮</span> : null}
-                <span className="tag-chip">{linkedMemoryTrace ? "真实链路" : linkedMemoryTraceLoading ? "加载中" : "链路不完整"}</span>
+                <span className="tag-chip">{linkedMemoryTrace ? "已连接" : linkedMemoryTraceLoading ? "加载中" : "未命中"}</span>
               </div>
               {linkedMemoryTrace ? (
-                <>
-                  <div className="memory-linked-turn__dialogue">
-                    <article>
-                      <span>用户输入</span>
-                      <p>{linkedTurnContext?.user_input || memoryInspectorTarget.reason || "该轮测试记录没有用户输入。"}</p>
-                    </article>
-                    <article>
-                      <span>助手输出</span>
-                      <p>{linkedTurnContext?.assistant_output || "该轮测试记录没有助手输出。"}</p>
-                    </article>
-                  </div>
-                  <div className="memory-chain-map memory-chain-map--observed">
-                    <article className="memory-chain-node memory-chain-node--input">
-                      <span>01</span>
-                      <strong>输入进入运行链</strong>
-                      <p>{compactText(linkedTurnContext?.user_input || memoryInspectorTarget.reason || "空输入", 260)}</p>
-                    </article>
-                    <article className="memory-chain-node memory-chain-node--session">
-                      <span>02</span>
-                      <strong>状态记忆参与</strong>
-                      <p>{traceItemsText(linkedSessionSections, "这一轮没有状态记忆片段进入模型上下文。")}</p>
-                    </article>
-                    <article className="memory-chain-node memory-chain-node--durable">
-                      <span>03</span>
-                      <strong>长期记忆命中</strong>
-                      <p>
-                        {linkedMemoryTrace.durable_memory.exact_count || linkedMemoryTrace.durable_memory.relevant_count
-                          ? `精确 ${linkedMemoryTrace.durable_memory.exact_count} 条，相关 ${linkedMemoryTrace.durable_memory.relevant_count} 条。`
-                          : "这一轮没有长期记忆命中。"}
-                      </p>
-                    </article>
-                    <article className="memory-chain-node memory-chain-node--prompt">
-                      <span>04</span>
-                      <strong>上下文装配结果</strong>
-                      <p>{linkedMemoryTrace.prompt_injection.sections[0]?.preview || "没有记录到记忆相关装配片段。"}</p>
-                    </article>
-                  </div>
-                </>
+                <div className="memory-management-panel__grid">
+                  <article>
+                    <span>用户输入</span>
+                    <strong>{linkedTurnContext?.session_alias || "测试系统跳转"}</strong>
+                    <p>{compactText(linkedTurnContext?.user_input || memoryInspectorTarget.reason || "该轮测试记录没有用户输入。", 260)}</p>
+                  </article>
+                  <article>
+                    <span>助手输出</span>
+                    <strong>{linkedTurnContext?.status === "passed" ? "测试通过" : linkedTurnContext?.status === "failed" ? "测试失败" : "状态未知"}</strong>
+                    <p>{compactText(linkedTurnContext?.assistant_output || "该轮测试记录没有助手输出。", 260)}</p>
+                  </article>
+                  <article>
+                    <span>记忆摘要</span>
+                    <strong>{linkedMemoryTrace.summary || "暂无摘要"}</strong>
+                    <p>{traceItemsText(linkedSessionSections, "这一轮没有状态记忆片段进入模型上下文。")}</p>
+                  </article>
+                </div>
               ) : (
                 <article className="workspace-record">
-                  <h3>{linkedMemoryTraceLoading ? "正在读取真实链路" : "这一轮没有可用记忆链路"}</h3>
+                  <h3>{linkedMemoryTraceLoading ? "正在读取测试轮次" : "这一轮没有可用记忆链路"}</h3>
                   <p>{linkedMemoryTraceStatus || "可以回到测试系统选择带有记忆标记的轮次。"}</p>
                 </article>
               )}
@@ -859,7 +788,7 @@ export function MemoryView() {
                 return (
                   <article className={`memory-dialogue-turn memory-dialogue-turn--${item.role}`} key={item.id}>
                     <button
-                      className={`memory-dialogue-turn__head ${selectedConversationId === item.id ? "memory-dialogue-turn__head--selected" : ""}`}
+                      className="memory-dialogue-turn__head"
                       onClick={() => toggleConversationItem(item.id)}
                       type="button"
                     >
@@ -884,14 +813,6 @@ export function MemoryView() {
                             ))}
                           </div>
                         ) : null}
-                        <button
-                          className="action-button action-button--ghost"
-                          onClick={() => void inspectConversationItem(item)}
-                          type="button"
-                        >
-                          {turnInspectingId === item.id ? <Loader2 className="animate-spin" size={14} /> : <GitBranch size={14} />}
-                          查看这一轮记忆链路
-                        </button>
                       </div>
                     ) : null}
                   </article>
@@ -905,107 +826,6 @@ export function MemoryView() {
             </div>
           </section>
 
-          <section className="workspace-section memory-turn-chain">
-            <div className="workspace-section__head">
-              <GitBranch size={18} />
-              <h3>单轮记忆链路</h3>
-              <span className="tag-chip">{selectedConversationItem ? `Turn ${selectedConversationItem.index}` : "未选择"}</span>
-              <span className="tag-chip">{turnRecallPreview ? "模拟链路已生成" : "等待分析"}</span>
-            </div>
-            {selectedConversationItem ? (
-              <div className="memory-chain-map">
-                <article className="memory-chain-node memory-chain-node--input">
-                  <span>01</span>
-                  <strong>{selectedConversationItem.role === "user" ? "用户输入" : "助手回应"}</strong>
-                  <p>{compactText(selectedConversationItem.content, 260)}</p>
-                </article>
-                <article className="memory-chain-node memory-chain-node--session">
-                  <span>02</span>
-                  <strong>状态记忆</strong>
-                  <p>{turnRecallPreview?.context_result?.debug_preview || session?.debug_preview || "当前没有可展示的状态记忆。"}</p>
-                </article>
-                <article className="memory-chain-node memory-chain-node--durable">
-                  <span>03</span>
-                  <strong>长期召回</strong>
-                  <p>
-                    {turnRecallPreview
-                      ? turnRecallPreview.selection.should_recall
-                        ? `选中 ${turnRecallPreview.selected_notes.length} 条：${turnRecallPreview.selection.reason || "命中长期记忆"}`
-                        : turnRecallPreview.selection.reason || "这一轮没有触发长期记忆召回。"
-                      : "展开某一轮后点击“查看这一轮记忆链路”。"}
-                  </p>
-                </article>
-                <article className="memory-chain-node memory-chain-node--prompt">
-                  <span>04</span>
-                  <strong>上下文装配</strong>
-                  <p>{turnRecallPreview?.rendered_summary || "没有生成长期记忆装配片段。"}</p>
-                </article>
-              </div>
-            ) : (
-              <article className="workspace-record">
-                <h3>请选择一轮对话</h3>
-                <p>在“对话现场”展开某一轮，然后点击“查看这一轮记忆链路”，这里会显示输入如何经过状态记忆、长期召回和上下文装配。</p>
-              </article>
-            )}
-            {turnRecallPreview?.selected_notes.length ? (
-              <div className="memory-chain-notes">
-                {turnRecallPreview.selected_notes.map((note) => (
-                  <article key={note.note_id || note.filename}>
-                    <span>{note.memory_class}/{note.memory_type} · {note.confidence}</span>
-                    <strong>{note.title || note.filename}</strong>
-                    <p>{note.canonical_statement || note.summary || note.content_preview}</p>
-                    <button onClick={() => void loadInspectorFile(`durable_memory/notes/${note.filename}`)} type="button">
-                      打开记忆
-                    </button>
-                  </article>
-                ))}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="workspace-section memory-trace-compare">
-            <div className="workspace-section__head">
-              <GitBranch size={18} />
-              <h3>真实链路 / 模拟链路对照</h3>
-              <span className="tag-chip">{linkedMemoryTrace ? "真实 trace 已连接" : "等待测试系统 turn"}</span>
-              {memoryInspectorTarget?.turnIndex ? <span className="tag-chip">Turn {memoryInspectorTarget.turnIndex}</span> : null}
-            </div>
-            {linkedMemoryTrace ? (
-              <div className="memory-compare-grid">
-                <article className="memory-compare-card memory-compare-card--real">
-                  <span>Observed Trace</span>
-                  <strong>测试系统真实链路</strong>
-                  <p>{linkedMemoryTrace.summary}</p>
-                  <div className="memory-compare-card__metrics">
-                    <b>{linkedMemoryTrace.session_memory.section_count} 状态片段</b>
-                    <b>{linkedMemoryTrace.durable_memory.exact_count + linkedMemoryTrace.durable_memory.relevant_count} 长期命中</b>
-                    <b>{linkedMemoryTrace.prompt_injection.section_count} Prompt 片段</b>
-                  </div>
-                </article>
-                <article className="memory-compare-card memory-compare-card--sim">
-                  <span>Recall Preview</span>
-                  <strong>当前普通会话模拟</strong>
-                  <p>
-                    {turnRecallPreview
-                      ? turnRecallPreview.selection.should_recall
-                        ? `会召回 ${turnRecallPreview.selected_notes.length} 条：${turnRecallPreview.selection.reason || "命中长期记忆"}`
-                        : turnRecallPreview.selection.reason || "模拟结果不召回长期记忆。"
-                      : "展开当前会话某一轮并点击“查看这一轮记忆链路”，这里会形成模拟链路。"}
-                  </p>
-                  <div className="memory-compare-card__metrics">
-                    <b>{turnRecallPreview?.context_result?.present ? "有状态上下文" : "状态待模拟"}</b>
-                    <b>{turnRecallPreview ? `${turnRecallPreview.selected_notes.length} 长期命中` : "未模拟"}</b>
-                    <b>{turnRecallPreview?.rendered_summary ? "有注入摘要" : "无注入摘要"}</b>
-                  </div>
-                </article>
-              </div>
-            ) : (
-              <article className="workspace-record">
-                <h3>还没有真实 memory trace</h3>
-                <p>从测试系统点击某个 turn 的“记忆链路”，或从系统框架图点击“去状态记忆阅读”，这里会展示真实链路并与当前模拟链路对照。</p>
-              </article>
-            )}
-          </section>
         </>
       ) : null}
 
@@ -1107,57 +927,6 @@ export function MemoryView() {
                 )}
               </article>
             </div>
-          </section>
-
-          <section className="workspace-section memory-state-runtime">
-            <div className="workspace-section__head">
-              <GitBranch size={18} />
-              <h3>测试系统联动状态</h3>
-              {memoryInspectorTarget?.turnIndex ? <span className="tag-chip">Turn {memoryInspectorTarget.turnIndex}</span> : null}
-              <span className="tag-chip">{linkedMemoryTrace ? "真实 trace 已连接" : "等待测试 turn"}</span>
-            </div>
-            {linkedMemoryTrace ? (
-              <>
-                <article className="memory-state-runtime__hero">
-                  <span>真实测试 turn</span>
-                  <strong>第 {memoryInspectorTarget?.turnIndex ?? linkedTurnContext?.index ?? "?"} 个节点的状态记忆</strong>
-                  <p>{linkedTurnContext?.user_input || memoryInspectorTarget?.reason || "这是一条从测试系统跳转过来的真实运行记录。"}</p>
-                </article>
-                <div className="memory-trace-readable">
-                  <TraceSectionCards
-                    emptyText="测试 artifact 没有记录状态记忆片段，可能这一轮没有触发 session memory 注入。"
-                    sections={linkedSessionSections}
-                  />
-                </div>
-                <div className="memory-state-reader__grid">
-                  <article className="memory-state-reader__panel">
-                    <span>Context Slots</span>
-                    <strong>该轮上下文槽位</strong>
-                    <pre>{jsonText(linkedMemoryTrace.session_memory.context_slots)}</pre>
-                  </article>
-                  <article className="memory-state-reader__panel">
-                    <span>Flow / Task</span>
-                    <strong>该轮流程与任务状态</strong>
-                    <pre>{jsonText({ flow_state: linkedMemoryTrace.session_memory.flow_state, task_state: linkedMemoryTrace.session_memory.task_state })}</pre>
-                  </article>
-                  <article className="memory-state-reader__panel">
-                    <span>Context Management</span>
-                    <strong>该轮上下文选择</strong>
-                    <pre>{jsonText(linkedMemoryTrace.context_management)}</pre>
-                  </article>
-                  <article className="memory-state-reader__panel">
-                    <span>Assistant Output</span>
-                    <strong>该轮最终输出</strong>
-                    <pre>{linkedTurnContext?.assistant_output || "没有记录助手输出。"}</pre>
-                  </article>
-                </div>
-              </>
-            ) : (
-              <article className="workspace-record">
-                <h3>还没有测试链路</h3>
-                <p>从测试系统点击某个 turn 的“记忆链路”后，这里会把真实运行时携带的状态片段和当前 session 文件分开展示。</p>
-              </article>
-            )}
           </section>
 
         </>

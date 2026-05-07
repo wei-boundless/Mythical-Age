@@ -1,6 +1,7 @@
 "use client";
 
 import { Gauge, Plus, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { useAppStore } from "@/lib/store";
 
@@ -10,7 +11,9 @@ export function Navbar() {
     createNewSession,
     tokenStats
   } = useAppStore();
+  const [mounted, setMounted] = useState(false);
   const isWorkbench = activeWorkspaceView === "task-system" || activeWorkspaceView === "orchestration";
+  const workspaceLabel = mounted && isWorkbench ? "工作台" : "智能体";
   const remainingPercent = tokenStats
     ? Math.max(0, Math.min(100, Math.round(tokenStats.history_remaining_ratio * 100)))
     : null;
@@ -19,6 +22,10 @@ export function Navbar() {
     ? `有效历史上下文 ${tokenStats.history_tokens}/${tokenStats.history_budget_tokens} tokens，余量 ${remainingPercent}%`
       + (tokenStats.history_did_compact ? `；已自动压缩，原始历史 ${tokenStats.raw_history_tokens} tokens` : "")
     : "";
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <header className={`panel navbar-shell ${isWorkbench ? "navbar-shell--work" : ""}`}>
@@ -33,7 +40,7 @@ export function Navbar() {
               <span className="mythic-brand-title__cn">洪荒时代</span>
               <span className="mythic-brand-title__divider">—</span>
               <span className="mythic-brand-title__cn mythic-brand-title__cn--accent">
-                {isWorkbench ? "工作台" : "智能体"}
+                {workspaceLabel}
               </span>
             </h1>
           </div>

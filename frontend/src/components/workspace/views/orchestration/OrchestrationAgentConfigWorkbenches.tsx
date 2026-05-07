@@ -5,8 +5,10 @@ import { AlertTriangle } from "lucide-react";
 import {
   OrchestrationBadge,
   OrchestrationField,
+  OrchestrationOptionSelection,
   OrchestrationReadinessCard,
   OrchestrationSuggestionGrid,
+  type OrchestrationOption,
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 
 type RuntimeDraftLike = {
@@ -28,6 +30,17 @@ type AgentDraftLike = {
   managed_object_types_text?: string;
   capability_refs_text?: string;
 };
+
+function splitList(value: string | undefined) {
+  return String(value || "")
+    .split(/[\n,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function serializeList(values: string[]) {
+  return Array.from(new Set(values.map((item) => String(item || "").trim()).filter(Boolean))).join("\n");
+}
 
 export function OrchestrationScopeWorkbench({
   agentDraft,
@@ -76,9 +89,12 @@ export function OrchestrationRuntimeWorkbench({
   patchRuntimeDraft,
   approvalPolicies,
   tracePolicies,
+  approvalPolicyOptions,
+  tracePolicyOptions,
   taskModeOptions,
   runtimeLaneOptions,
-  addRuntimeLine,
+  taskModeOptionItems,
+  runtimeLaneOptionItems,
   displayId,
   taskModesSummary,
   runtimeLanesSummary,
@@ -87,9 +103,12 @@ export function OrchestrationRuntimeWorkbench({
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
   approvalPolicies: string[];
   tracePolicies: string[];
+  approvalPolicyOptions: OrchestrationOption[];
+  tracePolicyOptions: OrchestrationOption[];
   taskModeOptions: string[];
   runtimeLaneOptions: string[];
-  addRuntimeLine: (field: keyof RuntimeDraftLike, value: string) => void;
+  taskModeOptionItems: OrchestrationOption[];
+  runtimeLaneOptionItems: OrchestrationOption[];
   displayId: (value: unknown, fallback?: string) => string;
   taskModesSummary: string;
   runtimeLanesSummary: string;
@@ -102,20 +121,32 @@ export function OrchestrationRuntimeWorkbench({
           <OrchestrationField label="运行档案标识"><input value={runtimeDraft.agent_profile_id || ""} onChange={(event) => patchRuntimeDraft({ agent_profile_id: event.target.value })} /></OrchestrationField>
           <OrchestrationField label="审批策略">
             <select value={runtimeDraft.approval_policy} onChange={(event) => patchRuntimeDraft({ approval_policy: event.target.value })}>
-              {approvalPolicies.map((item) => <option key={item} value={item}>{displayId(item)}</option>)}
+              {(approvalPolicyOptions.length ? approvalPolicyOptions : approvalPolicies.map((item) => ({ id: item, value: item, label: displayId(item) }))).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </OrchestrationField>
           <OrchestrationField label="追踪策略">
             <select value={runtimeDraft.trace_policy} onChange={(event) => patchRuntimeDraft({ trace_policy: event.target.value })}>
-              {tracePolicies.map((item) => <option key={item} value={item}>{displayId(item)}</option>)}
+              {(tracePolicyOptions.length ? tracePolicyOptions : tracePolicies.map((item) => ({ id: item, value: item, label: displayId(item) }))).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
           </OrchestrationField>
           <OrchestrationField label="生命周期"><input value={runtimeDraft.lifecycle_policy || ""} onChange={(event) => patchRuntimeDraft({ lifecycle_policy: event.target.value })} /></OrchestrationField>
-          <OrchestrationField label="允许任务模式" wide><textarea value={runtimeDraft.allowed_task_modes_text || ""} onChange={(event) => patchRuntimeDraft({ allowed_task_modes_text: event.target.value })} /></OrchestrationField>
-          <OrchestrationField label="允许运行通道" wide><textarea value={runtimeDraft.allowed_runtime_lanes_text || ""} onChange={(event) => patchRuntimeDraft({ allowed_runtime_lanes_text: event.target.value })} /></OrchestrationField>
         </div>
-        <OrchestrationSuggestionGrid items={taskModeOptions} onAdd={(item) => addRuntimeLine("allowed_task_modes_text", item)} />
-        <OrchestrationSuggestionGrid items={runtimeLaneOptions} onAdd={(item) => addRuntimeLine("allowed_runtime_lanes_text", item)} />
+        <OrchestrationOptionSelection
+          displayId={displayId}
+          fallbackOptions={taskModeOptions}
+          label="允许任务模式"
+          onChange={(values) => patchRuntimeDraft({ allowed_task_modes_text: serializeList(values) })}
+          options={taskModeOptionItems}
+          selectedValues={splitList(runtimeDraft.allowed_task_modes_text)}
+        />
+        <OrchestrationOptionSelection
+          displayId={displayId}
+          fallbackOptions={runtimeLaneOptions}
+          label="允许运行通道"
+          onChange={(values) => patchRuntimeDraft({ allowed_runtime_lanes_text: serializeList(values) })}
+          options={runtimeLaneOptionItems}
+          selectedValues={splitList(runtimeDraft.allowed_runtime_lanes_text)}
+        />
       </div>
       <aside className="boundary-card">
         <header><strong>运行摘要</strong></header>
@@ -133,7 +164,8 @@ export function OrchestrationPermissionsWorkbench({
   patchRuntimeDraft,
   overlapOps,
   operationOptions,
-  addRuntimeLine,
+  operationOptionItems,
+  displayId,
   allowedOpsCount,
   blockedOpsCount,
   overlapSummary,
@@ -142,7 +174,8 @@ export function OrchestrationPermissionsWorkbench({
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
   overlapOps: string[];
   operationOptions: string[];
-  addRuntimeLine: (field: keyof RuntimeDraftLike, value: string) => void;
+  operationOptionItems: OrchestrationOption[];
+  displayId: (value: unknown, fallback?: string) => string;
   allowedOpsCount: number;
   blockedOpsCount: number;
   overlapSummary: string;
@@ -152,11 +185,22 @@ export function OrchestrationPermissionsWorkbench({
       <div className="boundary-card">
         <header><strong>权限与能力边界</strong><OrchestrationBadge tone={overlapOps.length ? "danger" : "ok"}>{overlapOps.length ? "冲突" : "清晰"}</OrchestrationBadge></header>
         {overlapOps.length ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{overlapOps.join(" / ")} 同时出现在允许和阻断列表。</div> : null}
-        <div className="boundary-form">
-          <OrchestrationField label="允许操作" wide><textarea value={runtimeDraft.allowed_operations_text || ""} onChange={(event) => patchRuntimeDraft({ allowed_operations_text: event.target.value })} /></OrchestrationField>
-          <OrchestrationField label="阻断操作" wide><textarea value={runtimeDraft.blocked_operations_text || ""} onChange={(event) => patchRuntimeDraft({ blocked_operations_text: event.target.value })} /></OrchestrationField>
-        </div>
-        <OrchestrationSuggestionGrid items={operationOptions} onAdd={(item) => addRuntimeLine("allowed_operations_text", item)} />
+        <OrchestrationOptionSelection
+          displayId={displayId}
+          fallbackOptions={operationOptions}
+          label="允许操作"
+          onChange={(values) => patchRuntimeDraft({ allowed_operations_text: serializeList(values) })}
+          options={operationOptionItems}
+          selectedValues={splitList(runtimeDraft.allowed_operations_text)}
+        />
+        <OrchestrationOptionSelection
+          displayId={displayId}
+          fallbackOptions={operationOptions}
+          label="阻断操作"
+          onChange={(values) => patchRuntimeDraft({ blocked_operations_text: serializeList(values) })}
+          options={operationOptionItems}
+          selectedValues={splitList(runtimeDraft.blocked_operations_text)}
+        />
       </div>
       <aside className="boundary-card">
         <header><strong>权限摘要</strong></header>
@@ -176,7 +220,10 @@ export function OrchestrationContextWorkbench({
   memoryScopeOptions,
   contextSectionOptions,
   outputContractOptions,
-  addRuntimeLine,
+  memoryScopeOptionItems,
+  contextSectionOptionItems,
+  outputContractOptionItems,
+  displayId,
   memorySummary,
   contextSummary,
   outputSummary,
@@ -187,7 +234,10 @@ export function OrchestrationContextWorkbench({
   memoryScopeOptions: string[];
   contextSectionOptions: string[];
   outputContractOptions: string[];
-  addRuntimeLine: (field: keyof RuntimeDraftLike, value: string) => void;
+  memoryScopeOptionItems: OrchestrationOption[];
+  contextSectionOptionItems: OrchestrationOption[];
+  outputContractOptionItems: OrchestrationOption[];
+  displayId: (value: unknown, fallback?: string) => string;
   memorySummary: string;
   contextSummary: string;
   outputSummary: string;
@@ -197,14 +247,30 @@ export function OrchestrationContextWorkbench({
     <section className="boundary-layer-grid boundary-layer-grid--wide">
       <div className="boundary-card">
         <header><strong>记忆、上下文、输出边界</strong><OrchestrationBadge>{outputCount} 项输出</OrchestrationBadge></header>
-        <div className="boundary-form">
-          <OrchestrationField label="允许记忆范围" wide><textarea value={runtimeDraft.allowed_memory_scopes_text || ""} onChange={(event) => patchRuntimeDraft({ allowed_memory_scopes_text: event.target.value })} /></OrchestrationField>
-          <OrchestrationField label="允许上下文段" wide><textarea value={runtimeDraft.allowed_context_sections_text || ""} onChange={(event) => patchRuntimeDraft({ allowed_context_sections_text: event.target.value })} /></OrchestrationField>
-          <OrchestrationField label="输出契约" wide><textarea value={runtimeDraft.output_contracts_text || ""} onChange={(event) => patchRuntimeDraft({ output_contracts_text: event.target.value })} /></OrchestrationField>
-        </div>
-        <OrchestrationSuggestionGrid items={memoryScopeOptions} onAdd={(item) => addRuntimeLine("allowed_memory_scopes_text", item)} />
-        <OrchestrationSuggestionGrid items={contextSectionOptions} onAdd={(item) => addRuntimeLine("allowed_context_sections_text", item)} />
-        <OrchestrationSuggestionGrid items={outputContractOptions} onAdd={(item) => addRuntimeLine("output_contracts_text", item)} />
+        <OrchestrationOptionSelection
+          displayId={displayId}
+          fallbackOptions={memoryScopeOptions}
+          label="允许记忆范围"
+          onChange={(values) => patchRuntimeDraft({ allowed_memory_scopes_text: serializeList(values) })}
+          options={memoryScopeOptionItems}
+          selectedValues={splitList(runtimeDraft.allowed_memory_scopes_text)}
+        />
+        <OrchestrationOptionSelection
+          displayId={displayId}
+          fallbackOptions={contextSectionOptions}
+          label="允许上下文段"
+          onChange={(values) => patchRuntimeDraft({ allowed_context_sections_text: serializeList(values) })}
+          options={contextSectionOptionItems}
+          selectedValues={splitList(runtimeDraft.allowed_context_sections_text)}
+        />
+        <OrchestrationOptionSelection
+          displayId={displayId}
+          fallbackOptions={outputContractOptions}
+          label="输出契约"
+          onChange={(values) => patchRuntimeDraft({ output_contracts_text: serializeList(values) })}
+          options={outputContractOptionItems}
+          selectedValues={splitList(runtimeDraft.output_contracts_text)}
+        />
       </div>
       <aside className="boundary-card">
         <header><strong>边界摘要</strong></header>

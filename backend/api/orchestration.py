@@ -17,6 +17,8 @@ from orchestration import (
     build_base_unit_catalog,
 )
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
+from tasks.definitions import default_task_definitions
+from tasks.flow_registry import CONTRACT_TITLE_MAP
 
 router = APIRouter()
 
@@ -88,6 +90,95 @@ class CoordinationRunResumeRequest(BaseModel):
     resume_payload: dict[str, Any] = Field(default_factory=dict)
 
 
+OPTION_LABELS: dict[str, str] = {
+    "op.model_response": "模型响应",
+    "op.read_file": "读取文件",
+    "op.search_files": "搜索文件",
+    "op.search_text": "搜索文本",
+    "op.list_dir": "列出目录",
+    "op.stat_path": "读取路径信息",
+    "op.path_exists": "检查路径存在",
+    "op.glob_paths": "通配查找路径",
+    "op.read_structured_file": "读取结构化文件",
+    "op.web_search": "网页搜索",
+    "op.fetch_url": "抓取网页",
+    "op.git_status": "查看 Git 状态",
+    "op.git_diff": "查看 Git 差异",
+    "op.git_log": "查看 Git 日志",
+    "op.git_show": "查看 Git 对象",
+    "op.analyze_multimodal_file": "分析多模态文件",
+    "op.index_multimodal_file": "索引多模态文件",
+    "op.write_file": "写入文件",
+    "op.edit_file": "编辑文件",
+    "op.shell": "终端命令",
+    "op.python_repl": "Python 执行",
+    "op.memory_read": "读取记忆",
+    "op.memory_write_candidate": "提交记忆候选",
+    "op.mcp_retrieval": "检索 MCP",
+    "op.mcp_pdf": "PDF MCP",
+    "op.mcp_structured_data": "结构化数据 MCP",
+    "op.agent_bounded": "运行受限 Agent",
+    "op.session_message_candidate": "提交会话消息候选",
+    "op.artifact_result_ref": "提交产物引用候选",
+    "default": "默认审批",
+    "read_only_first": "只读优先",
+    "manual_approval_required": "需要人工审批",
+    "deny_destructive": "拒绝破坏性操作",
+    "runtime_event_log": "运行事件追踪",
+    "full_trace": "完整追踪",
+    "minimal_trace": "最小追踪",
+    "conversation": "会话内容",
+    "state": "当前状态",
+    "task": "任务信息",
+    "projection": "投影信息",
+    "tool": "工具结果",
+    "health_issue": "健康事项",
+    "runtime_trace": "运行追踪",
+    "prompt_manifest": "提示结构",
+    "memory_runtime_view": "记忆视图",
+    "assertions": "验收断言",
+    "AssistantFinalAnswer": "最终回答",
+}
+
+
+def _option_label(value: str, fallback: str = "") -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return fallback or "未配置"
+    if normalized in OPTION_LABELS:
+        return OPTION_LABELS[normalized]
+    return fallback or normalized
+
+
+def _option(value: str, *, label: str = "", description: str = "") -> dict[str, str]:
+    normalized = str(value or "").strip()
+    return {
+        "id": normalized,
+        "value": normalized,
+        "label": _option_label(normalized, label),
+        "description": str(description or "").strip(),
+    }
+
+
+def _operation_option(operation: Any) -> dict[str, str]:
+    operation_id = str(getattr(operation, "operation_id", "") or "").strip()
+    return {
+        **_option(
+            operation_id,
+            label=str(getattr(operation, "title", "") or ""),
+            description=str(getattr(operation, "capability_summary", "") or ""),
+        ),
+        "operation_type": str(getattr(operation, "operation_type", "") or ""),
+    }
+
+
+def _choice_label_from_map(value: str, labels: dict[str, str]) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return "未配置"
+    return str(labels.get(normalized) or _option_label(normalized, normalized)).strip()
+
+
 @router.post("/orchestration/dry-run")
 async def orchestration_dry_run(payload: BehaviorDryRunRequest) -> dict[str, Any]:
     runtime = require_runtime()
@@ -152,35 +243,89 @@ async def orchestration_agents() -> dict[str, Any]:
     task_registry = TaskFlowRegistry(runtime.base_dir)
     operations = build_default_operation_registry().list_operations()
     workflows = TaskWorkflowRegistry(runtime.base_dir).list_workflows()
+    flow_items = task_registry.list_flows()
+    definition_items = list(default_task_definitions().values())
+    task_mode_labels = {
+        str(item.task_mode): str(item.title)
+        for item in definition_items
+        if str(item.task_mode or "").strip()
+    }
+    task_mode_labels.update({
+        str(item.task_mode): str(item.title)
+        for item in workflows
+        if str(item.task_mode or "").strip() and str(item.title or "").strip()
+    })
+    task_modes = sorted({
+        *[item.task_mode for item in flow_items if item.task_mode],
+        *[item.task_mode for item in workflows if item.task_mode],
+        *[item.task_mode for item in definition_items if item.task_mode],
+    })
+    runtime_lane_labels = {
+        "main_conversation": "主会话通道",
+        "general_task": "通用任务通道",
+        "workspace_task": "工作区任务通道",
+        "coordination_task": "协调任务通道",
+        "health_task": "健康任务通道",
+    }
+    runtime_lanes = sorted({item.default_runtime_lane for item in flow_items if item.default_runtime_lane})
+    memory_scope_labels = {
+        "session_read": "会话只读记忆",
+        "session_working_set": "会话工作记忆",
+        "workspace_context": "工作区上下文",
+        "project_longform": "长篇项目记忆",
+        "health_case_memory": "健康案例记忆",
+    }
+    memory_scopes = sorted({item.default_memory_scope for item in flow_items if item.default_memory_scope})
+    context_sections = [
+        "conversation",
+        "state",
+        "task",
+        "projection",
+        "tool",
+        "health_issue",
+        "runtime_trace",
+        "prompt_manifest",
+        "memory_runtime_view",
+        "assertions",
+    ]
+    output_contracts = sorted(
+        {
+            *[item.output_contract_id for item in flow_items if item.output_contract_id],
+            *[item.output_contract_id for item in workflows if item.output_contract_id],
+            "AssistantFinalAnswer",
+        }
+    )
+    contract_labels = {
+        **CONTRACT_TITLE_MAP,
+        **OPTION_LABELS,
+    }
+    contract_labels.update({
+        item.contract_id: item.title
+        for item in task_registry.list_contract_descriptors()
+        if str(item.contract_id or "").strip()
+    })
+    approval_policies = ["default", "read_only_first", "manual_approval_required", "deny_destructive"]
+    trace_policies = ["runtime_event_log", "full_trace", "minimal_trace"]
     return {
         **catalog,
         "agent_groups": [item.to_dict() for item in groups],
         "options": {
             "operations": [item.to_dict() for item in operations],
-            "task_modes": sorted({item.task_mode for item in task_registry.list_flows() if item.task_mode}),
-            "runtime_lanes": sorted({item.default_runtime_lane for item in task_registry.list_flows() if item.default_runtime_lane}),
-            "memory_scopes": sorted({item.default_memory_scope for item in task_registry.list_flows() if item.default_memory_scope}),
-            "context_sections": [
-                "conversation",
-                "state",
-                "task",
-                "projection",
-                "tool",
-                "health_issue",
-                "runtime_trace",
-                "prompt_manifest",
-                "memory_runtime_view",
-                "assertions",
-            ],
-            "output_contracts": sorted(
-                {
-                    *[item.output_contract_id for item in task_registry.list_flows() if item.output_contract_id],
-                    *[item.output_contract_id for item in workflows if item.output_contract_id],
-                    "AssistantFinalAnswer",
-                }
-            ),
-            "approval_policies": ["default", "read_only_first", "manual_approval_required", "deny_destructive"],
-            "trace_policies": ["runtime_event_log", "full_trace", "minimal_trace"],
+            "task_modes": task_modes,
+            "runtime_lanes": runtime_lanes,
+            "memory_scopes": memory_scopes,
+            "context_sections": context_sections,
+            "output_contracts": output_contracts,
+            "approval_policies": approval_policies,
+            "trace_policies": trace_policies,
+            "operation_options": [_operation_option(item) for item in operations],
+            "task_mode_options": [_option(item, label=_choice_label_from_map(item, task_mode_labels)) for item in task_modes],
+            "runtime_lane_options": [_option(item, label=_choice_label_from_map(item, runtime_lane_labels)) for item in runtime_lanes],
+            "memory_scope_options": [_option(item, label=_choice_label_from_map(item, memory_scope_labels)) for item in memory_scopes],
+            "context_section_options": [_option(item) for item in context_sections],
+            "output_contract_options": [_option(item, label=_choice_label_from_map(item, contract_labels)) for item in output_contracts],
+            "approval_policy_options": [_option(item) for item in approval_policies],
+            "trace_policy_options": [_option(item) for item in trace_policies],
         },
     }
 
@@ -257,6 +402,16 @@ async def upsert_orchestration_agent_group(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await orchestration_agents()
+
+
+@router.delete("/orchestration/agent-groups/{group_id}")
+async def delete_orchestration_agent_group(group_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        AgentGroupRegistry(runtime.base_dir).delete_group(group_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent group not found") from exc
     return await orchestration_agents()
 
 

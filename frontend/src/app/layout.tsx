@@ -22,7 +22,7 @@ const monoFont = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mini-OpenClaw",
+  title: "The Mythical Agent",
   description: "A transparent, file-first local AI agent system."
 };
 

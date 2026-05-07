@@ -3,12 +3,9 @@
 import {
   AlertTriangle,
   CheckCircle2,
-  CopyPlus,
   Gauge,
   KeyRound,
   Layers3,
-  Network,
-  Plus,
   RefreshCw,
   Save,
   ShieldCheck,
@@ -18,14 +15,15 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  deleteOrchestrationAgentGroup,
   deleteOrchestrationAgent,
   getSoulProjectionCards,
-  getNextOrchestrationWorkerAgentId,
   getOrchestrationAgents,
   upsertOrchestrationAgent,
   upsertOrchestrationAgentGroup,
   updateOrchestrationAgentRuntimeProfile,
   type OrchestrationAgentGroup,
+  type OrchestrationOption,
   type OrchestrationAgentRuntimeCatalog,
   type OrchestrationAgentRuntimeProfile,
   type OrchestrationAgentUpsertPayload,
@@ -229,6 +227,14 @@ function displayList(values: string[], fallback = "未配置") {
   return values.length ? values.map((item) => displayId(item)).join(" / ") : fallback;
 }
 
+function optionLabelMap(options: OrchestrationOption[] = []) {
+  return new Map(options.map((item) => [item.value || item.id, item.label || item.value || item.id]));
+}
+
+function displayOptionList(values: string[], labels: Map<string, string>, fallback = "未配置") {
+  return values.length ? values.map((item) => labels.get(item) || displayId(item)).join(" / ") : fallback;
+}
+
 function projectionLabel(value: string, cards: SoulProjectionCard[] = []) {
   const raw = String(value || "").trim();
   if (!raw) return "不使用投影";
@@ -406,6 +412,36 @@ export function OrchestrationView() {
     () => (catalog?.options.operations ?? []).map((item) => String(item.operation_id || "")).filter(Boolean),
     [catalog],
   );
+  const operationOptionItems = useMemo(() => catalog?.options.operation_options ?? [], [catalog]);
+  const taskModeOptionItems = useMemo(() => catalog?.options.task_mode_options ?? [], [catalog]);
+  const runtimeLaneOptionItems = useMemo(() => catalog?.options.runtime_lane_options ?? [], [catalog]);
+  const memoryScopeOptionItems = useMemo(() => catalog?.options.memory_scope_options ?? [], [catalog]);
+  const contextSectionOptionItems = useMemo(() => catalog?.options.context_section_options ?? [], [catalog]);
+  const outputContractOptionItems = useMemo(() => catalog?.options.output_contract_options ?? [], [catalog]);
+  const approvalPolicyOptions = useMemo(() => catalog?.options.approval_policy_options ?? [], [catalog]);
+  const tracePolicyOptions = useMemo(() => catalog?.options.trace_policy_options ?? [], [catalog]);
+  const runtimeOptionLabels = useMemo(
+    () => new Map([
+      ...optionLabelMap(operationOptionItems),
+      ...optionLabelMap(taskModeOptionItems),
+      ...optionLabelMap(runtimeLaneOptionItems),
+      ...optionLabelMap(memoryScopeOptionItems),
+      ...optionLabelMap(contextSectionOptionItems),
+      ...optionLabelMap(outputContractOptionItems),
+      ...optionLabelMap(approvalPolicyOptions),
+      ...optionLabelMap(tracePolicyOptions),
+    ]),
+    [
+      approvalPolicyOptions,
+      contextSectionOptionItems,
+      memoryScopeOptionItems,
+      operationOptionItems,
+      outputContractOptionItems,
+      runtimeLaneOptionItems,
+      taskModeOptionItems,
+      tracePolicyOptions,
+    ],
+  );
   const normalizedQuery = query.trim().toLowerCase();
   const visibleAgents = useMemo(
     () => agents.filter((agent) => !normalizedQuery || searchText(agent).includes(normalizedQuery)),
@@ -464,11 +500,8 @@ export function OrchestrationView() {
     if (firstGroupId !== selectedGroupId) {
       setSelectedGroupId(firstGroupId);
     }
-    if (activeLayer !== "groups") {
+    if (!selectedAgentId && activeLayer !== "groups") {
       setActiveLayer("groups");
-    }
-    if (selectedAgentId) {
-      setSelectedAgentId("");
     }
   }, [
     activeCategory,
@@ -508,7 +541,7 @@ export function OrchestrationView() {
     { label: "类别", value: CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? text(agentDraft.agent_category), ready: Boolean(agentDraft.agent_category) },
     { label: "任务范围", value: taskScope.slice(0, 4).join(" / ") || "未配置", ready: Boolean(taskScope.length) },
     { label: "能力引用", value: capabilityRefs.slice(0, 4).join(" / ") || "未配置", ready: Boolean(capabilityRefs.length) || agentDraft.agent_category !== "system_management_agent" },
-    { label: "允许操作", value: allowedOps.slice(0, 4).join(" / ") || "未配置", ready: Boolean(allowedOps.length) },
+    { label: "允许操作", value: displayOptionList(allowedOps.slice(0, 4), runtimeOptionLabels), ready: Boolean(allowedOps.length) },
     { label: "阻断冲突", value: overlapOps.length ? overlapOps.join(" / ") : "无", ready: !overlapOps.length },
     { label: "输出契约", value: splitList(runtimeDraft.output_contracts_text).slice(0, 4).join(" / ") || "未配置", ready: Boolean(splitList(runtimeDraft.output_contracts_text).length) },
   ];
@@ -524,9 +557,15 @@ export function OrchestrationView() {
     ? workerDirectoryMode === "grouped" && !selectedAgent && agentMode !== "new"
       ? [["groups", "组", String(agentGroups.length)]]
       : workerDirectoryMode === "grouped"
-        ? [["groups", "组", String(agentGroups.length)]]
+        ? [["groups", "组", String(agentGroups.length)], ...agentLayerTabs]
         : agentLayerTabs
     : agentLayerTabs;
+
+  const selectedGroupAgents = useMemo(() => {
+    if (!selectedGroup) return [];
+    const memberIds = new Set((selectedGroup.member_agent_ids ?? []).map((item) => String(item)));
+    return visibleWorkerAgents.filter((agent) => memberIds.has(String(agent.agent_id)));
+  }, [selectedGroup, visibleWorkerAgents]);
 
   function selectCategory(category: AgentCategory) {
     setActiveCategory(category);
@@ -603,50 +642,37 @@ export function OrchestrationView() {
   }
 
   function startBlankAgentDraft() {
+    const numericIds = agents
+      .map((agent) => /^agent:(\d+)$/.exec(String(agent.agent_id || "")))
+      .filter((match): match is RegExpExecArray => Boolean(match))
+      .map((match) => Number.parseInt(match[1], 10))
+      .filter((value) => Number.isFinite(value));
+    let nextIndex = numericIds.length ? Math.max(...numericIds) + 1 : 1;
+    let draftAgentId = `agent:${nextIndex}`;
+    const existingIds = new Set(agents.map((agent) => String(agent.agent_id)));
+    while (existingIds.has(draftAgentId)) {
+      nextIndex += 1;
+      draftAgentId = `agent:${nextIndex}`;
+    }
     setAgentMode("new");
     setGroupMode("existing");
     setSelectedAgentId("");
     setActiveCategory("worker_sub_agent");
     setWorkerDirectoryMode("ungrouped");
     setActiveLayer("registry");
-    setAgentDraft({ ...EMPTY_AGENT_DRAFT, metadata: { ...EMPTY_AGENT_DRAFT.metadata } });
-    setRuntimeDraft({ ...EMPTY_RUNTIME_DRAFT, metadata: { ...EMPTY_RUNTIME_DRAFT.metadata } });
+    setAgentDraft({
+      ...EMPTY_AGENT_DRAFT,
+      agent_id: draftAgentId,
+      metadata: { ...EMPTY_AGENT_DRAFT.metadata },
+    });
+    setRuntimeDraft({
+      ...EMPTY_RUNTIME_DRAFT,
+      agent_id: draftAgentId,
+      agent_profile_id: `${draftAgentId.replace(/[:]/g, "_")}_runtime`,
+      metadata: { ...EMPTY_RUNTIME_DRAFT.metadata },
+    });
     setNotice("已进入新 Agent 草稿。先保存 Agent 名册，再配置运行档案。");
     setError("");
-  }
-
-  async function createWorkerDraft() {
-    setSaving("create");
-    setError("");
-    setNotice("");
-    try {
-      const payload = await getNextOrchestrationWorkerAgentId();
-      setAgentMode("new");
-      setGroupMode("existing");
-      setSelectedAgentId("");
-      setActiveCategory("worker_sub_agent");
-      setWorkerDirectoryMode("ungrouped");
-      setActiveLayer("registry");
-      setAgentDraft({
-        ...EMPTY_AGENT_DRAFT,
-        agent_id: payload.agent_id,
-        agent_name: `${payload.agent_id} 工作子 Agent`,
-        agent_category: "worker_sub_agent",
-        interface_target: "worker_task_console",
-        metadata: { managed_by: "orchestration_console" },
-      });
-      setRuntimeDraft({
-        ...EMPTY_RUNTIME_DRAFT,
-        agent_id: payload.agent_id,
-        agent_profile_id: `${payload.agent_id.replace(/[:]/g, "_")}_runtime`,
-        metadata: { managed_by: "orchestration_console" },
-      });
-      setNotice(`已生成工作子 Agent 草稿：${payload.agent_id}`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "生成工作子 Agent 草稿失败");
-    } finally {
-      setSaving("");
-    }
   }
 
   async function saveAgent() {
@@ -765,20 +791,47 @@ export function OrchestrationView() {
     setGroupDraft((current) => ({ ...current, member_agent_ids_text: "" }));
   }
 
-  async function removeAgent() {
-    if (!selectedAgent) return;
+  async function removeAgent(agentId?: string) {
+    const targetAgent = agentId
+      ? agents.find((item) => String(item.agent_id) === agentId) ?? null
+      : selectedAgent;
+    if (!targetAgent) return;
     setSaving("delete");
     setError("");
     setNotice("");
     try {
-      const payload = await deleteOrchestrationAgent(String(selectedAgent.agent_id));
+      const payload = await deleteOrchestrationAgent(String(targetAgent.agent_id));
       const firstWorkerAgent = payload.agents.find((agent) => agentCategory(agent) === "worker_sub_agent");
       setCatalog(payload);
       setSelectedAgentId(String(firstWorkerAgent?.agent_id || payload.agents[0]?.agent_id || ""));
       setGroupMode("existing");
-      setNotice(`${displayName(selectedAgent)} 已删除。`);
+      setNotice(`${displayName(targetAgent)} 已删除。`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "删除 Agent 失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function removeAgentGroup() {
+    if (!selectedGroupId) return;
+    const currentGroup = selectedGroup;
+    setSaving("delete");
+    setError("");
+    setNotice("");
+    try {
+      const payload = await deleteOrchestrationAgentGroup(selectedGroupId);
+      const nextGroupId = String(payload.agent_groups?.[0]?.group_id || "");
+      setCatalog(payload);
+      setSelectedGroupId(nextGroupId);
+      setSelectedAgentId("");
+      setGroupMode("existing");
+      setActiveCategory("worker_sub_agent");
+      setWorkerDirectoryMode("grouped");
+      setActiveLayer("groups");
+      setNotice(`${currentGroup?.title || selectedGroupId} 已删除。`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "删除 Agent 组失败");
     } finally {
       setSaving("");
     }
@@ -794,9 +847,6 @@ export function OrchestrationView() {
         </div>
         <div className="boundary-actions">
           <OrchestrationToolbarButton onClick={() => void load()}><RefreshCw size={15} />刷新</OrchestrationToolbarButton>
-          <OrchestrationToolbarButton onClick={startBlankAgentDraft}><Plus size={15} />新建 Agent</OrchestrationToolbarButton>
-          <OrchestrationToolbarButton onClick={startBlankGroupDraft}><Network size={15} />新建 Agent 组</OrchestrationToolbarButton>
-          <OrchestrationToolbarButton disabled={saving === "create"} onClick={() => void createWorkerDraft()}><CopyPlus size={15} />生成工作子 Agent</OrchestrationToolbarButton>
         </div>
       </header>
 
@@ -819,8 +869,18 @@ export function OrchestrationView() {
           selectSubAgentGroup={selectSubAgentGroup}
           selectWorkerDirectoryMode={selectWorkerDirectoryMode}
           setQuery={setQuery}
+          selectedGroupAgents={selectedGroupAgents}
+          saving={saving}
+          startBlankAgentDraft={startBlankAgentDraft}
+          startBlankGroupDraft={startBlankGroupDraft}
           ungroupedWorkerAgents={ungroupedWorkerAgents}
           workerDirectoryMode={workerDirectoryMode}
+          removeAgentById={(agentId, agentName) => {
+            if (window.confirm(`确认删除 ${agentName || agentId} 吗？`)) {
+              void removeAgent(agentId);
+            }
+          }}
+          removeSelectedGroup={() => void removeAgentGroup()}
         />
 
         <main className="boundary-main">
@@ -837,12 +897,10 @@ export function OrchestrationView() {
 
           {activeCategory === "worker_sub_agent" && activeLayer === "groups" ? (
             <OrchestrationGroupWorkbench
-              clearGroupMembers={clearGroupMembers}
               groupDraft={groupDraft}
               groupDraftAvailableAgents={groupDraftAvailableAgents}
               groupDraftMemberAgents={groupDraftMemberAgents}
               groupMembersChanged={groupMembersChanged}
-              includeAllVisibleWorkers={includeAllVisibleWorkers}
               saveAgentGroup={saveAgentGroup}
               saving={saving}
               setGroupDraft={setGroupDraft}
@@ -889,27 +947,31 @@ export function OrchestrationView() {
 
               {activeLayer === "runtime" ? (
                 <OrchestrationRuntimeWorkbench
-                  addRuntimeLine={addRuntimeLine}
                   approvalPolicies={catalog?.options.approval_policies ?? ["default"]}
+                  approvalPolicyOptions={approvalPolicyOptions}
                   displayId={displayId}
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   runtimeDraft={runtimeDraft}
+                  runtimeLaneOptionItems={runtimeLaneOptionItems}
                   runtimeLaneOptions={catalog?.options.runtime_lanes ?? []}
-                  runtimeLanesSummary={displayList(splitList(runtimeDraft.allowed_runtime_lanes_text))}
+                  runtimeLanesSummary={displayOptionList(splitList(runtimeDraft.allowed_runtime_lanes_text), runtimeOptionLabels)}
+                  taskModeOptionItems={taskModeOptionItems}
                   taskModeOptions={catalog?.options.task_modes ?? []}
-                  taskModesSummary={displayList(splitList(runtimeDraft.allowed_task_modes_text))}
+                  taskModesSummary={displayOptionList(splitList(runtimeDraft.allowed_task_modes_text), runtimeOptionLabels)}
+                  tracePolicyOptions={tracePolicyOptions}
                   tracePolicies={catalog?.options.trace_policies ?? ["runtime_event_log"]}
                 />
               ) : null}
 
               {activeLayer === "permissions" ? (
                 <OrchestrationPermissionsWorkbench
-                  addRuntimeLine={addRuntimeLine}
                   allowedOpsCount={allowedOps.length}
                   blockedOpsCount={blockedOps.length}
+                  displayId={displayId}
+                  operationOptionItems={operationOptionItems}
                   operationOptions={operationOptions}
                   overlapOps={overlapOps}
-                  overlapSummary={displayList(overlapOps, "无")}
+                  overlapSummary={displayOptionList(overlapOps, runtimeOptionLabels, "无")}
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   runtimeDraft={runtimeDraft}
                 />
@@ -917,14 +979,17 @@ export function OrchestrationView() {
 
               {activeLayer === "context" ? (
                 <OrchestrationContextWorkbench
-                  addRuntimeLine={addRuntimeLine}
+                  contextSectionOptionItems={contextSectionOptionItems}
                   contextSectionOptions={catalog?.options.context_sections ?? []}
-                  contextSummary={displayList(splitList(runtimeDraft.allowed_context_sections_text))}
+                  contextSummary={displayOptionList(splitList(runtimeDraft.allowed_context_sections_text), runtimeOptionLabels)}
+                  displayId={displayId}
+                  memoryScopeOptionItems={memoryScopeOptionItems}
                   memoryScopeOptions={catalog?.options.memory_scopes ?? []}
-                  memorySummary={displayList(splitList(runtimeDraft.allowed_memory_scopes_text))}
+                  memorySummary={displayOptionList(splitList(runtimeDraft.allowed_memory_scopes_text), runtimeOptionLabels)}
+                  outputContractOptionItems={outputContractOptionItems}
                   outputContractOptions={catalog?.options.output_contracts ?? []}
                   outputCount={splitList(runtimeDraft.output_contracts_text).length}
-                  outputSummary={displayList(splitList(runtimeDraft.output_contracts_text))}
+                  outputSummary={displayOptionList(splitList(runtimeDraft.output_contracts_text), runtimeOptionLabels)}
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   runtimeDraft={runtimeDraft}
                 />

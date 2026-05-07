@@ -1,6 +1,8 @@
 "use client";
 
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Network, Plus, Search, Trash2 } from "lucide-react";
+
+import { OrchestrationToolbarButton } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 
 type AgentCategory = "main_agent" | "system_management_agent" | "worker_sub_agent";
 type WorkerDirectoryMode = "grouped" | "ungrouped";
@@ -40,10 +42,16 @@ export function OrchestrationDirectoryRail({
   agentGroups,
   selectedGroupId,
   selectSubAgentGroup,
+  selectedGroupAgents,
   ungroupedWorkerAgents,
   selectedAgentId,
   selectAgent,
   activeGroupItems,
+  saving,
+  startBlankAgentDraft,
+  startBlankGroupDraft,
+  removeAgentById,
+  removeSelectedGroup,
 }: {
   agents: Array<Record<string, unknown>>;
   loading: boolean;
@@ -57,16 +65,42 @@ export function OrchestrationDirectoryRail({
   agentGroups: Array<{ group_id: string; title: string; member_agent_ids: string[] }>;
   selectedGroupId: string;
   selectSubAgentGroup: (groupId: string) => void;
+  selectedGroupAgents: Array<Record<string, unknown>>;
   ungroupedWorkerAgents: Array<Record<string, unknown>>;
   selectedAgentId: string;
   selectAgent: (agentId: string) => void;
   activeGroupItems: Array<Record<string, unknown>>;
+  saving: "" | "agent" | "runtime" | "group" | "create" | "delete";
+  startBlankAgentDraft: () => void;
+  startBlankGroupDraft: () => void;
+  removeAgentById: (agentId: string, agentName: string) => void;
+  removeSelectedGroup: () => void;
 }) {
   const categoryLabels: Record<AgentCategory, string> = {
     main_agent: "主 Agent",
     system_management_agent: "系统管理 Agent",
     worker_sub_agent: "子 Agent",
   };
+
+  function WorkerAgentCard({ agent }: { agent: Record<string, unknown> }) {
+    const agentId = String(agent.agent_id);
+    const name = displayName(agent);
+    return (
+      <article className={agentId === selectedAgentId ? "orchestration-subagent-card orchestration-subagent-card--active" : "orchestration-subagent-card"}>
+        <button className="orchestration-subagent-card__main" onClick={() => selectAgent(agentId)} type="button">
+          <strong>{name}</strong>
+        </button>
+        <button
+          className="orchestration-subagent-card__delete"
+          disabled={saving === "delete"}
+          onClick={() => removeAgentById(agentId, name)}
+          type="button"
+        >
+          <Trash2 size={14} />
+        </button>
+      </article>
+    );
+  }
 
   return (
     <aside className="boundary-rail orchestration-subagent-rail">
@@ -100,13 +134,19 @@ export function OrchestrationDirectoryRail({
         {loading ? <div className="boundary-empty"><Loader2 className="spin" size={16} />加载中</div> : null}
         {activeCategory === "worker_sub_agent" && workerDirectoryMode === "grouped" ? (
           <>
-            <div className="orchestration-list-label">有组子 Agent</div>
+            <div className="orchestration-list-label">子Agent组</div>
             {agentGroups.map((group) => (
               <div className={group.group_id === selectedGroupId ? "orchestration-group-tree orchestration-group-tree--active" : "orchestration-group-tree"} key={group.group_id}>
                 <button className="boundary-list-row" onClick={() => selectSubAgentGroup(group.group_id)} type="button">
                   <strong>{group.title}</strong>
                   <span>{group.member_agent_ids.length} 个成员</span>
                 </button>
+                {group.group_id === selectedGroupId ? (
+                  <div className="orchestration-group-members">
+                    {selectedGroupAgents.map((agent) => <WorkerAgentCard agent={agent} key={String(agent.agent_id)} />)}
+                    {!selectedGroupAgents.length ? <div className="boundary-empty">当前组还没有成员。</div> : null}
+                  </div>
+                ) : null}
               </div>
             ))}
             {!loading && !agentGroups.length ? <div className="boundary-empty">暂无子 Agent 组。</div> : null}
@@ -115,16 +155,11 @@ export function OrchestrationDirectoryRail({
         {activeCategory === "worker_sub_agent" && workerDirectoryMode === "ungrouped" ? (
           <>
             <div className="orchestration-list-label">无组子 Agent</div>
-            {ungroupedWorkerAgents.map((agent) => (
-              <button
-                className={String(agent.agent_id) === selectedAgentId ? "boundary-list-row boundary-list-row--active" : "boundary-list-row"}
-                key={String(agent.agent_id)}
-                onClick={() => selectAgent(String(agent.agent_id))}
-                type="button"
-              >
-                <strong>{displayName(agent)}</strong>
-              </button>
-            ))}
+            {ungroupedWorkerAgents.map((agent) => <WorkerAgentCard agent={agent} key={String(agent.agent_id)} />)}
+            <button className="orchestration-subagent-create-card" onClick={startBlankAgentDraft} type="button">
+              <Plus size={16} />
+              <span>新增子 Agent</span>
+            </button>
             {!loading && !ungroupedWorkerAgents.length ? <div className="boundary-empty">暂无无组子 Agent。</div> : null}
           </>
         ) : null}
@@ -146,6 +181,22 @@ export function OrchestrationDirectoryRail({
             : !activeGroupItems.length
         ) ? <div className="boundary-empty">当前层级暂无 Agent。</div> : null}
       </div>
+      {activeCategory === "worker_sub_agent" && workerDirectoryMode === "grouped" ? (
+        <div className="orchestration-directory-actions">
+          <OrchestrationToolbarButton onClick={startBlankGroupDraft} variant="ghost">
+            <Network size={14} />
+            新建 Agent 组
+          </OrchestrationToolbarButton>
+          <OrchestrationToolbarButton
+            disabled={!selectedGroupId || saving === "delete"}
+            onClick={removeSelectedGroup}
+            variant="danger"
+          >
+            <Trash2 size={14} />
+            删除当前组
+          </OrchestrationToolbarButton>
+        </div>
+      ) : null}
     </aside>
   );
 }

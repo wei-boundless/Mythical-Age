@@ -37,7 +37,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
     return (
         AgentDescriptor(
             agent_id="agent:0",
-            agent_name="0号主Agent",
+            agent_name="主 Agent",
             agent_category="main_agent",
             interface_target="main_conversation",
             description="系统主会话入口，承接通用任务并负责最终整合输出。",
@@ -130,148 +130,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "system_key": "soul_system", "slot_index": 5},
-        ),
-        AgentDescriptor(
-            agent_id="agent:20",
-            agent_name="长篇主编Agent",
-            agent_category="worker_sub_agent",
-            interface_target="writing_domain_editor",
-            description="长篇小说项目的主编型常态子 Agent，负责项目级目标、验收、合并与质量闸门。",
-            enabled=True,
-            builtin=False,
-            editable=True,
-            task_scope=(
-                "longform_novel_project",
-                "novel_bible_build",
-                "volume_planning",
-                "chapter_acceptance",
-                "arc_review",
-                "final_compilation",
-            ),
-            created_at=timestamp,
-            updated_at=timestamp,
-            metadata={
-                "role": "writing_editor_in_chief",
-                "domain_key": "longform_novel",
-                "agent_team": "longform_novel_core",
-                "slot_index": 20,
-            },
-        ),
-        AgentDescriptor(
-            agent_id="agent:21",
-            agent_name="长篇设定Agent",
-            agent_category="worker_sub_agent",
-            interface_target="writing_domain_worldbuilding",
-            description="长篇小说世界观、时间线、设定规则与设定债务维护的常态子 Agent。",
-            enabled=True,
-            builtin=False,
-            editable=True,
-            task_scope=("novel_bible_build", "world_bible_maintenance", "continuity_audit"),
-            created_at=timestamp,
-            updated_at=timestamp,
-            metadata={
-                "role": "worldbuilding_keeper",
-                "domain_key": "longform_novel",
-                "agent_team": "longform_novel_core",
-                "slot_index": 21,
-            },
-        ),
-        AgentDescriptor(
-            agent_id="agent:22",
-            agent_name="长篇人物Agent",
-            agent_category="worker_sub_agent",
-            interface_target="writing_domain_character",
-            description="长篇小说人物档案、人物关系、动机链和成长弧线维护的常态子 Agent。",
-            enabled=True,
-            builtin=False,
-            editable=True,
-            task_scope=("novel_bible_build", "character_bible_maintenance", "volume_planning", "arc_review"),
-            created_at=timestamp,
-            updated_at=timestamp,
-            metadata={
-                "role": "character_arc_keeper",
-                "domain_key": "longform_novel",
-                "agent_team": "longform_novel_core",
-                "slot_index": 22,
-            },
-        ),
-        AgentDescriptor(
-            agent_id="agent:23",
-            agent_name="长篇剧情Agent",
-            agent_category="worker_sub_agent",
-            interface_target="writing_domain_plot",
-            description="长篇小说主线、卷纲、章节事件链、伏笔投放与回收规划的常态子 Agent。",
-            enabled=True,
-            builtin=False,
-            editable=True,
-            task_scope=("volume_planning", "chapter_planning", "foreshadowing_ledger", "arc_review"),
-            created_at=timestamp,
-            updated_at=timestamp,
-            metadata={
-                "role": "plot_architect",
-                "domain_key": "longform_novel",
-                "agent_team": "longform_novel_core",
-                "slot_index": 23,
-            },
-        ),
-        AgentDescriptor(
-            agent_id="agent:24",
-            agent_name="长篇写作Agent",
-            agent_category="worker_sub_agent",
-            interface_target="writing_domain_drafting",
-            description="长篇小说章节正文生成、分场景扩写和修订落稿的常态子 Agent。",
-            enabled=True,
-            builtin=False,
-            editable=True,
-            task_scope=("chapter_planning", "chapter_drafting", "chapter_revision"),
-            created_at=timestamp,
-            updated_at=timestamp,
-            metadata={
-                "role": "chapter_drafter",
-                "domain_key": "longform_novel",
-                "agent_team": "longform_novel_core",
-                "slot_index": 24,
-            },
-        ),
-        AgentDescriptor(
-            agent_id="agent:25",
-            agent_name="长篇审校Agent",
-            agent_category="worker_sub_agent",
-            interface_target="writing_domain_review",
-            description="长篇小说章节质量、风格偏移、重复桥段和可读性问题审校的常态子 Agent。",
-            enabled=True,
-            builtin=False,
-            editable=True,
-            task_scope=("chapter_revision", "style_audit", "arc_review", "chapter_acceptance"),
-            created_at=timestamp,
-            updated_at=timestamp,
-            metadata={
-                "role": "style_and_quality_reviewer",
-                "domain_key": "longform_novel",
-                "agent_team": "longform_novel_core",
-                "slot_index": 25,
-            },
-        ),
-        AgentDescriptor(
-            agent_id="agent:26",
-            agent_name="长篇连续性Agent",
-            agent_category="worker_sub_agent",
-            interface_target="writing_domain_continuity",
-            description="长篇小说跨章连续性、设定冲突、时间线和伏笔债务检查的常态子 Agent。",
-            enabled=True,
-            builtin=False,
-            editable=True,
-            default_soul_id="hebo",
-            default_projection_id="hebo__longform_continuity_auditor",
-            task_scope=("continuity_audit", "chapter_revision", "arc_review"),
-            created_at=timestamp,
-            updated_at=timestamp,
-            metadata={
-                "role": "continuity_auditor",
-                "domain_key": "longform_novel",
-                "agent_team": "longform_novel_core",
-                "slot_index": 26,
-            },
         ),
     )
 
@@ -426,14 +284,19 @@ class AgentRegistry:
             projection_id=str(payload.get("default_projection_id") or ""),
             soul_id=str(payload.get("default_soul_id") or ""),
         )
+        normalized_name = str(payload.get("agent_name") or payload.get("display_name") or "").strip()
+        expected_name = "主 Agent"
         if (
             projection_id == str(payload.get("default_projection_id") or "")
             and soul_id == str(payload.get("default_soul_id") or "").strip().lower()
+            and normalized_name == expected_name
         ):
             return payload
         next_payload = dict(payload)
         next_payload["default_projection_id"] = projection_id
         next_payload["default_soul_id"] = soul_id
+        next_payload["agent_name"] = expected_name
+        next_payload["display_name"] = expected_name
         return next_payload
 
     def delete_agent(self, agent_id: str) -> None:

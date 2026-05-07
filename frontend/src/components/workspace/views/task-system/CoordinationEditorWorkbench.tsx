@@ -77,9 +77,6 @@ function displayId(value: unknown, fallback = "未配置") {
   if (!raw) return fallback;
   const labels: Record<string, string> = {
     bounded_patch: "受限补丁",
-    longform_novel_project: "长篇项目立项",
-    chapter_drafting: "章节正文",
-    chapter_revision: "章节审校",
     review_merge: "审查汇总",
     pipeline: "流水推进",
     parallel_review: "并行审查",
@@ -228,7 +225,10 @@ function CoordinationTaskPoolPanel({
   return (
     <>
       <section className="boundary-inspector-block">
-        <header><strong>任务池</strong></header>
+        <header>
+          <strong>任务池</strong>
+          <span>{selectedDomainTasks.length}</span>
+        </header>
         <div className="boundary-task-table">
           {selectedDomainTasks.map((task) => (
             <article key={task.task_id}>
@@ -252,7 +252,10 @@ function CoordinationTaskPoolPanel({
       </section>
 
       <section className="boundary-inspector-block">
-        <header><strong>节点模板</strong></header>
+        <header>
+          <strong>节点模板</strong>
+          <span>快捷</span>
+        </header>
         <div className="boundary-chip-grid">
           <button className="boundary-chip" onClick={() => addCoordinationRoleNode("coordinator")} type="button"><span>协调器节点</span></button>
           <button className="boundary-chip" onClick={() => addCoordinationRoleNode("participant")} type="button"><span>协作节点</span></button>
@@ -308,116 +311,138 @@ function CoordinationCanvasPanel({
   selectedGraphNode: Record<string, unknown> | null;
   connectSelectedNodeTo: (targetNodeId: string) => void;
 }) {
+  const selectedNodeTitle = selectedGraphNode ? graphNodeLabel(selectedGraphNode, 0) : "";
+
   return (
     <>
-      <div className="coordination-editor-toolbar">
-        <button className="boundary-chip" disabled={activeGraphNodes.length < 2} onClick={addCoordinationEdge} type="button">
-          <GitBranch size={14} />
-          <span>默认通信</span>
-        </button>
-        <button
-          className={linkingFromNodeId ? "boundary-chip boundary-chip--active" : "boundary-chip"}
-          disabled={!activeGraphNodes.length}
-          onClick={() => {
-            setLinkingFromNodeId(selectedGraphNodeId || String(activeGraphNodes[0]?.node_id ?? ""));
-            setSelectedGraphEdgeId("");
-          }}
-          type="button"
-        >
-          <span>{linkingFromNodeId ? "选择目标节点" : "图上连线"}</span>
-        </button>
-        {linkingFromNodeId ? (
-          <button className="boundary-chip" onClick={() => setLinkingFromNodeId("")} type="button">
-            <span>取消连线</span>
-          </button>
-        ) : null}
-      </div>
-      <CoordinationGraph
-        edges={activeGraphEdges}
-        messages={coordinationDraft.communication_modes ?? []}
-        linkingFromNodeId={linkingFromNodeId}
-        nodes={activeGraphNodes}
-        onSelectEdge={(edgeId) => {
-          setSelectedGraphEdgeId(edgeId);
-          setSelectedGraphNodeId("");
-          setLinkingFromNodeId("");
-        }}
-        onSelectNode={handleTopologyNodeClick}
-        renderEdgeTools={(edge, edgeId) => {
-          const mode = String(edge.mode ?? edge.policy ?? "structured_handoff");
-          return (
-            <>
-              <button onClick={(event) => {
-                event.stopPropagation();
-                reverseCoordinationEdge(edgeId);
-              }} title="反转方向" type="button">
-                <RotateCcw size={13} />
-              </button>
-              <button onClick={(event) => {
-                event.stopPropagation();
-                cycleCoordinationEdgeMode(edgeId, mode);
-              }} title="切换通信模式" type="button">
-                <SquarePen size={13} />
-              </button>
-              <button onClick={(event) => {
-                event.stopPropagation();
-                removeCoordinationEdge(edgeId);
-              }} title="删除通信" type="button">
-                <Trash2 size={13} />
-              </button>
-            </>
-          );
-        }}
-        renderNodeTools={(node, nodeId) => {
-          const role = String(node.role ?? "participant");
-          return (
-            <>
-              <button onClick={(event) => {
-                event.stopPropagation();
-                addCoordinationSuccessorNode(nodeId);
-              }} title="添加后继节点" type="button">
-                <GitCommitHorizontal size={13} />
-              </button>
-              <button onClick={(event) => {
-                event.stopPropagation();
-                cycleCoordinationNodeRole(nodeId, role);
-              }} title="切换节点角色" type="button">
-                <SquarePen size={13} />
-              </button>
-              {role !== "coordinator" ? (
-                <button onClick={(event) => {
-                  event.stopPropagation();
-                  removeCoordinationNode(nodeId);
-                }} title="删除节点" type="button">
-                  <Trash2 size={13} />
-                </button>
-              ) : null}
-            </>
-          );
-        }}
-        selectedEdgeId={selectedGraphEdgeId}
-        selectedNodeId={selectedGraphNodeId}
-        tasks={selectedDomainTasks}
-      />
-
-      <section className="boundary-inspector-block">
-        <header><strong>快速连线</strong></header>
-        {linkingFromNodeId ? (
-          <div className="boundary-empty">正在从 {linkingFromNodeId} 连线，点击图上的目标节点即可创建通信边。</div>
-        ) : selectedGraphNode ? (
-          <div className="boundary-chip-grid">
-            {activeGraphNodes
-              .filter((node) => String(node.node_id ?? "") !== String(selectedGraphNode.node_id ?? ""))
-              .map((node) => (
-                <button className="boundary-chip" key={String(node.node_id ?? "")} onClick={() => connectSelectedNodeTo(String(node.node_id ?? ""))} type="button">
-                  <span>{String(node.label ?? node.title ?? node.node_id ?? "")}</span>
-                </button>
-              ))}
-            {activeGraphNodes.length <= 1 ? <div className="boundary-empty">至少需要两个节点才能建立通信。</div> : null}
+      <section className="coordination-editor-canvas-shell">
+        <header className="coordination-editor-canvas-head">
+          <div className="boundary-identity-stack">
+            <span>拓扑画布</span>
+            <strong>节点与通信关系</strong>
+            <small>优先在图上装配节点，再进入右侧检查器细化属性。</small>
           </div>
-        ) : (
-          <div className="boundary-empty">先在图中选中一个节点，再选择它要连接的目标节点。</div>
-        )}
+          <div className="coordination-editor-toolbar">
+            <button className="boundary-chip" disabled={activeGraphNodes.length < 2} onClick={addCoordinationEdge} type="button">
+              <GitBranch size={14} />
+              <span>默认通信</span>
+            </button>
+            <button
+              className={linkingFromNodeId ? "boundary-chip boundary-chip--active" : "boundary-chip"}
+              disabled={!activeGraphNodes.length}
+              onClick={() => {
+                setLinkingFromNodeId(selectedGraphNodeId || String(activeGraphNodes[0]?.node_id ?? ""));
+                setSelectedGraphEdgeId("");
+              }}
+              type="button"
+            >
+              <span>{linkingFromNodeId ? "选择目标节点" : "图上连线"}</span>
+            </button>
+            {linkingFromNodeId ? (
+              <button className="boundary-chip" onClick={() => setLinkingFromNodeId("")} type="button">
+                <span>取消连线</span>
+              </button>
+            ) : null}
+          </div>
+        </header>
+
+        <div className="coordination-editor-canvas-stage">
+          <div className="coordination-editor-canvas-main">
+            <CoordinationGraph
+              edges={activeGraphEdges}
+              messages={coordinationDraft.communication_modes ?? []}
+              linkingFromNodeId={linkingFromNodeId}
+              nodes={activeGraphNodes}
+              onSelectEdge={(edgeId) => {
+                setSelectedGraphEdgeId(edgeId);
+                setSelectedGraphNodeId("");
+                setLinkingFromNodeId("");
+              }}
+              onSelectNode={handleTopologyNodeClick}
+              renderEdgeTools={(edge, edgeId) => {
+                const mode = String(edge.mode ?? edge.policy ?? "structured_handoff");
+                return (
+                  <>
+                    <button onClick={(event) => {
+                      event.stopPropagation();
+                      reverseCoordinationEdge(edgeId);
+                    }} title="反转方向" type="button">
+                      <RotateCcw size={13} />
+                    </button>
+                    <button onClick={(event) => {
+                      event.stopPropagation();
+                      cycleCoordinationEdgeMode(edgeId, mode);
+                    }} title="切换通信模式" type="button">
+                      <SquarePen size={13} />
+                    </button>
+                    <button onClick={(event) => {
+                      event.stopPropagation();
+                      removeCoordinationEdge(edgeId);
+                    }} title="删除通信" type="button">
+                      <Trash2 size={13} />
+                    </button>
+                  </>
+                );
+              }}
+              renderNodeTools={(node, nodeId) => {
+                const role = String(node.role ?? "participant");
+                return (
+                  <>
+                    <button onClick={(event) => {
+                      event.stopPropagation();
+                      addCoordinationSuccessorNode(nodeId);
+                    }} title="添加后继节点" type="button">
+                      <GitCommitHorizontal size={13} />
+                    </button>
+                    <button onClick={(event) => {
+                      event.stopPropagation();
+                      cycleCoordinationNodeRole(nodeId, role);
+                    }} title="切换节点角色" type="button">
+                      <SquarePen size={13} />
+                    </button>
+                    {role !== "coordinator" ? (
+                      <button onClick={(event) => {
+                        event.stopPropagation();
+                        removeCoordinationNode(nodeId);
+                      }} title="删除节点" type="button">
+                        <Trash2 size={13} />
+                      </button>
+                    ) : null}
+                  </>
+                );
+              }}
+              selectedEdgeId={selectedGraphEdgeId}
+              selectedNodeId={selectedGraphNodeId}
+              tasks={selectedDomainTasks}
+            />
+          </div>
+
+          <section className="coordination-editor-assist">
+            <header className="coordination-editor-assist__head">
+              <div className="boundary-identity-stack">
+                <span>快速操作</span>
+                <strong>{linkingFromNodeId ? "等待选择目标节点" : selectedNodeTitle || "选择一个节点开始连线"}</strong>
+                <small>{linkingFromNodeId ? `当前起点：${linkingFromNodeId}` : "画布下方只保留当前动作，不再堆积无关信息。"}</small>
+              </div>
+            </header>
+            {linkingFromNodeId ? (
+              <div className="boundary-empty">正在从 {linkingFromNodeId} 连线，点击图上的目标节点即可创建通信边。</div>
+            ) : selectedGraphNode ? (
+              <div className="boundary-chip-grid">
+                {activeGraphNodes
+                  .filter((node) => String(node.node_id ?? "") !== String(selectedGraphNode.node_id ?? ""))
+                  .map((node) => (
+                    <button className="boundary-chip" key={String(node.node_id ?? "")} onClick={() => connectSelectedNodeTo(String(node.node_id ?? ""))} type="button">
+                      <span>{String(node.label ?? node.title ?? node.node_id ?? "")}</span>
+                    </button>
+                  ))}
+                {activeGraphNodes.length <= 1 ? <div className="boundary-empty">至少需要两个节点才能建立通信。</div> : null}
+              </div>
+            ) : (
+              <div className="boundary-empty">先在图中选中一个节点，再选择它要连接的目标节点。</div>
+            )}
+          </section>
+        </div>
       </section>
     </>
   );
@@ -569,10 +594,12 @@ export function CoordinationEditorWorkbench({
   applyLongformNovelTemplate,
   duplicateCoordinationDraft,
   sendCoordinationToChat,
+  saveTopologyDraftIntoCoordination,
   saveCoordinationStack,
   editorValid,
   editorIssueCount,
   editorPublished,
+  topologyDirty,
   activeGraphNodes,
   activeGraphEdges,
   selectedDomainTasks,
@@ -619,10 +646,12 @@ export function CoordinationEditorWorkbench({
   applyLongformNovelTemplate: () => Promise<void>;
   duplicateCoordinationDraft: () => Promise<void>;
   sendCoordinationToChat: (task: CoordinationTask | null, domain: DomainRecordLike | null) => void;
+  saveTopologyDraftIntoCoordination: () => void;
   saveCoordinationStack: (nextPublished?: boolean) => Promise<void>;
   editorValid: boolean;
   editorIssueCount: number;
   editorPublished: boolean;
+  topologyDirty: boolean;
   activeGraphNodes: Array<Record<string, unknown>>;
   activeGraphEdges: Array<Record<string, unknown>>;
   selectedDomainTasks: SpecificTaskRecord[];
@@ -659,6 +688,10 @@ export function CoordinationEditorWorkbench({
   updateCoordinationEdge: (edgeId: string, patch: Record<string, unknown>) => void;
   selectedCoordinationGraphSpec: CoordinationGraphSpec | null;
 }) {
+  const communicationLabel = (coordinationDraft.communication_modes ?? []).length
+    ? (coordinationDraft.communication_modes ?? []).slice(0, 3).join(" / ")
+    : "未设置";
+
   return (
     <section className="boundary-layer-stack">
       <div className="boundary-card boundary-card--summary">
@@ -683,8 +716,11 @@ export function CoordinationEditorWorkbench({
               </div>
             </div>
             <div className="coordination-editor-command-group">
-              <span>运行与发布</span>
+              <span>拓扑与发布</span>
               <div className="boundary-actions">
+                <TaskSystemToolbarButton onClick={saveTopologyDraftIntoCoordination}>
+                  <Save size={15} />保存拓扑
+                </TaskSystemToolbarButton>
                 <TaskSystemToolbarButton onClick={() => sendCoordinationToChat(selectedCoordination, selectedDomain)}>带入主会话</TaskSystemToolbarButton>
                 <TaskSystemToolbarButton disabled={saving === "coordination"} onClick={() => { void saveCoordinationStack(false); }}>
                   <Save size={15} />保存草稿
@@ -697,19 +733,51 @@ export function CoordinationEditorWorkbench({
           </div>
         </header>
         {coordinationTasks.length ? (
-          <div className="boundary-selector-strip coordination-editor-selector">
+          <div className="task-system-section-switch coordination-editor-selector">
+            <div className="task-system-section-switch__head">
+              <span>协调对象</span>
+              <strong>{selectedCoordination?.title || coordinationDraft.title || "未选择协调任务"}</strong>
+            </div>
+            <div className="boundary-selector-strip boundary-selector-strip--compact">
             {coordinationTasks.map((task) => (
               <button className={task.coordination_task_id === selectedCoordinationId ? "active" : ""} key={task.coordination_task_id} onClick={() => setSelectedCoordinationId(task.coordination_task_id)} type="button">
                 <strong>{task.title}</strong>
+                <span>{displayId(task.coordination_mode)}</span>
               </button>
             ))}
+            </div>
           </div>
         ) : <div className="boundary-empty">当前任务域暂无协调任务。</div>}
+        <div className="coordination-editor-meta-strip">
+          <article className="coordination-editor-meta-card">
+            <span>协调模式</span>
+            <strong>{displayId(coordinationDraft.coordination_mode)}</strong>
+            <small>决定拓扑推进和汇合方式。</small>
+          </article>
+          <article className="coordination-editor-meta-card">
+            <span>Agent 组</span>
+            <strong>{coordinationDraft.agent_group_id || "未绑定"}</strong>
+            <small>运行时从该组分派执行主体。</small>
+          </article>
+          <article className="coordination-editor-meta-card">
+            <span>通信模式</span>
+            <strong>{communicationLabel}</strong>
+            <small>图上边的默认语义来源于这里。</small>
+          </article>
+          <article className="coordination-editor-meta-card">
+            <span>图规模</span>
+            <strong>{activeGraphNodes.length} 节点 / {activeGraphEdges.length} 边</strong>
+            <small>{editorValid ? "当前拓扑可发布运行。" : `仍有 ${editorIssueCount} 个问题待处理。`}</small>
+          </article>
+        </div>
       </div>
       <section className="boundary-card boundary-card--editor">
         <header className="boundary-editor-title">
           <strong>协调任务搭建器</strong>
           <div className="boundary-graph-status">
+            <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>
+              {topologyDirty ? "拓扑未保存" : "拓扑已同步"}
+            </span>
             <span className={editorValid ? "boundary-status boundary-status--ok" : "boundary-status boundary-status--danger"}>
               {editorValid ? "图校验通过" : `图校验未通过 ${editorIssueCount}`}
             </span>

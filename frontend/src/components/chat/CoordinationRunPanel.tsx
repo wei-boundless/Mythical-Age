@@ -272,11 +272,7 @@ function agentLabel(profileId: string, agentId = "") {
 function nodeTitle(nodeId: string, fallback = "") {
   const labels: Record<string, string> = {
     project_scope: "项目规格锁定",
-    novel_bible: "设定总纲构建",
-    volume_planning: "卷规划",
     chapter_pipeline: "章节批次交付",
-    continuity_audit: "连续性审计",
-    final_compilation: "全书编纂",
     batch_plan: "批次规划",
     batch_draft: "批次起草",
     sampling_review: "抽样审查",
@@ -321,16 +317,6 @@ function statusLabel(status: string) {
 
 function compactTaskLabel(value: string) {
   const labels: Record<string, string> = {
-    "coord.writing.chapter_pipeline": "写作域：长篇章节协调任务",
-    "coord.writing.longform_project_bootstrap": "写作域：长篇小说持续交付",
-    "protocol.writing.longform_project_bootstrap": "长篇持续交付协议",
-    "task.writing.longform_novel_project": "长篇项目立项",
-    "task.writing.novel_bible_build": "设定总纲构建",
-    "task.writing.volume_planning": "卷规划",
-    "task.writing.chapter_drafting": "章节批次交付",
-    "task.writing.continuity_audit": "连续性审计",
-    "task.writing.final_compilation": "全书编纂",
-    "protocol.writing.chapter_pipeline": "章节交接协议",
     langgraph: "LangGraph"
   };
   return labels[value] ?? value;

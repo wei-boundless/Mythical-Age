@@ -36,6 +36,8 @@ type TopologyEdgeLayout = CoordinationTopologyEdge & {
 type TopologyLayout = {
   width: number;
   height: number;
+  compact: boolean;
+  dense: boolean;
   nodes: TopologyNodeLayout[];
   edges: TopologyEdgeLayout[];
 };
@@ -68,21 +70,29 @@ export function buildCoordinationTopologyLayout(
     return {
       width: 760,
       height: 320,
+      compact: false,
+      dense: false,
       nodes: [],
       edges: [],
     };
   }
 
   const nodeCount = nodes.length;
-  const columns = nodeCount <= 4 ? nodeCount : Math.min(4, Math.ceil(nodeCount / 2));
+  const compact = nodeCount >= 6;
+  const dense = nodeCount >= 10;
+  const columns = nodeCount <= 4
+    ? nodeCount
+    : dense
+      ? Math.min(6, Math.ceil(nodeCount / 2))
+      : Math.min(5, Math.ceil(nodeCount / 2));
   const rows = Math.ceil(nodeCount / columns);
-  const xGap = 220;
-  const yGap = 210;
-  const sidePadding = 120;
-  const topPadding = 120;
-  const bottomPadding = 120;
+  const xGap = dense ? 154 : compact ? 176 : 220;
+  const yGap = dense ? 146 : compact ? 174 : 210;
+  const sidePadding = dense ? 70 : compact ? 88 : 120;
+  const topPadding = dense ? 82 : compact ? 96 : 120;
+  const bottomPadding = dense ? 88 : compact ? 100 : 120;
   const width = Math.max(760, sidePadding * 2 + Math.max(columns - 1, 0) * xGap);
-  const height = Math.max(300, topPadding + bottomPadding + Math.max(rows - 1, 0) * yGap);
+  const height = Math.max(dense ? 280 : 300, topPadding + bottomPadding + Math.max(rows - 1, 0) * yGap);
   const positioned = new Map<string, TopologyNodeLayout>();
 
   for (let row = 0; row < rows; row += 1) {
@@ -129,6 +139,8 @@ export function buildCoordinationTopologyLayout(
   return {
     width,
     height,
+    compact,
+    dense,
     nodes: Array.from(positioned.values()),
     edges: edgeLayouts,
   };
@@ -166,6 +178,16 @@ export function CoordinationTopologyGraph({
   linkingFromNodeId?: string;
 }) {
   const topology = buildCoordinationTopologyLayout(nodes, edges, currentNodeId, currentHandoffKey);
+  const haloRadius = topology.dense ? 22 : topology.compact ? 26 : 30;
+  const surfaceRadius = topology.dense ? 14 : topology.compact ? 17 : 20;
+  const agentLabelY = topology.dense ? -42 : topology.compact ? -48 : -56;
+  const titleY = topology.dense ? 38 : topology.compact ? 44 : 52;
+  const glyphY = topology.dense ? 4 : 5;
+  const nodeToolsY = topology.dense ? 50 : topology.compact ? 58 : 68;
+  const nodeToolsX = topology.dense ? -54 : -66;
+  const nodeToolsWidth = topology.dense ? 108 : 132;
+  const edgeToolsWidth = topology.dense ? 112 : 132;
+  const edgeToolsHalfWidth = edgeToolsWidth / 2;
 
   if (!topology.nodes.length) {
     return (
@@ -214,9 +236,9 @@ export function CoordinationTopologyGraph({
                 <foreignObject
                   className="coordination-topology-edge-tools"
                   height="40"
-                  width="132"
-                  x={edge.toolX - 66}
-                  y={edge.toolY - 20}
+                  width={edgeToolsWidth}
+                  x={edge.toolX - edgeToolsHalfWidth}
+                  y={topology.dense ? edge.toolY - 18 : edge.toolY - 20}
                 >
                   <div className="coordination-topology-node-tools__bar">
                     {renderEdgeTools(edge)}
@@ -246,7 +268,7 @@ export function CoordinationTopologyGraph({
               }}
               transform={`translate(${node.x}, ${node.y})`}
             >
-              <text className={`coordination-topology-agent-label ${current || selected || linking ? "is-current" : ""}`} textAnchor="middle" x="0" y="-56">
+              <text className={`coordination-topology-agent-label ${topology.compact ? "is-compact" : ""} ${current || selected || linking ? "is-current" : ""}`} textAnchor="middle" x="0" y={agentLabelY}>
                 {node.agentLabel || node.title}
               </text>
               <circle
@@ -254,17 +276,17 @@ export function CoordinationTopologyGraph({
                 cx="0"
                 cy="0"
                 filter={current ? "url(#coordination-node-glow)" : undefined}
-                r="30"
+                r={haloRadius}
               />
-              <circle className={`coordination-topology-node-surface ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`} cx="0" cy="0" r="20" />
-              <text className="coordination-topology-node-glyph" textAnchor="middle" x="0" y="5">
+              <circle className={`coordination-topology-node-surface ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`} cx="0" cy="0" r={surfaceRadius} />
+              <text className={`coordination-topology-node-glyph ${topology.compact ? "is-compact" : ""}`} textAnchor="middle" x="0" y={glyphY}>
                 {node.shortLabel}
               </text>
-              <text className={`coordination-topology-node-title ${current || selected || linking ? "is-current" : ""}`} textAnchor="middle" x="0" y="52">
+              <text className={`coordination-topology-node-title ${topology.compact ? "is-compact" : ""} ${current || selected || linking ? "is-current" : ""}`} textAnchor="middle" x="0" y={titleY}>
                 {node.title}
               </text>
               {renderNodeTools && selected ? (
-                <foreignObject className="coordination-topology-node-tools" height="40" width="132" x="-66" y="68">
+                <foreignObject className="coordination-topology-node-tools" height="40" width={nodeToolsWidth} x={nodeToolsX} y={nodeToolsY}>
                   <div className="coordination-topology-node-tools__bar">
                     {renderNodeTools(node)}
                   </div>

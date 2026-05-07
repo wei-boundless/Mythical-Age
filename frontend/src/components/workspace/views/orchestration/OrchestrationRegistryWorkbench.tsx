@@ -45,11 +45,13 @@ function projectionLabel(value: string, cards: SoulProjectionCard[] = []) {
 
 function ProjectionSelectField({
   cards,
+  disabled = false,
   label,
   onChange,
   value,
 }: {
   cards: SoulProjectionCard[];
+  disabled?: boolean;
   label: string;
   onChange: (value: string) => void;
   value: string;
@@ -57,7 +59,7 @@ function ProjectionSelectField({
   const options = Array.from(new Set(["", value, ...cards.map((item) => item.projection_id).filter(Boolean)]));
   return (
     <OrchestrationField label={label}>
-      <select value={value || ""} onChange={(event) => onChange(event.target.value)}>
+      <select disabled={disabled} value={value || ""} onChange={(event) => onChange(event.target.value)}>
         {options.map((item) => (
           <option key={item || "none"} value={item}>
             {projectionLabel(item, cards)}
@@ -105,6 +107,9 @@ export function OrchestrationRegistryWorkbench({
   projectionCards: SoulProjectionCard[];
   legacySystemKey: string;
 }) {
+  const fixedIdentityAgent =
+    agentDraft.agent_category === "main_agent" || agentDraft.agent_category === "system_management_agent";
+
   return (
     <>
       <section className="boundary-layer-grid boundary-layer-grid--wide">
@@ -135,7 +140,16 @@ export function OrchestrationRegistryWorkbench({
               <Gauge size={15} />
               保存运行档案
             </OrchestrationToolbarButton>
-            <OrchestrationToolbarButton disabled={saving === "delete" || agentDeleteBlocked || agentMode === "new"} onClick={() => void removeAgent()} variant="danger">
+            <OrchestrationToolbarButton
+              disabled={
+                saving === "delete" ||
+                agentDeleteBlocked ||
+                agentMode === "new" ||
+                agentDraft.agent_category !== "worker_sub_agent"
+              }
+              onClick={() => void removeAgent()}
+              variant="danger"
+            >
               <Trash2 size={15} />
               删除 Agent
             </OrchestrationToolbarButton>
@@ -145,40 +159,68 @@ export function OrchestrationRegistryWorkbench({
 
       <section className="boundary-card">
         <header>
-          <strong>Agent 名册</strong>
+          <strong>Agent 属性</strong>
           <OrchestrationBadge>{agentMode === "new" ? "草稿" : text(selectedAgentBuiltin ? "内置" : "自定义")}</OrchestrationBadge>
         </header>
         <div className="boundary-form">
           <OrchestrationField label="Agent 标识">
-            <input value={agentDraft.agent_id} onChange={(event) => patchAgentDraft({ agent_id: event.target.value })} />
+            <input readOnly value={agentDraft.agent_id} />
           </OrchestrationField>
           <OrchestrationField label="名称">
             <input value={agentDraft.agent_name} onChange={(event) => patchAgentDraft({ agent_name: event.target.value })} />
           </OrchestrationField>
           <OrchestrationField label="类别">
-            <select value={agentDraft.agent_category} onChange={(event) => patchAgentDraft({ agent_category: event.target.value as AgentCategory })}>
-              <option value="main_agent">主 Agent</option>
-              <option value="system_management_agent">系统管理 Agent</option>
-              <option value="worker_sub_agent">子 Agent</option>
-            </select>
+            <input readOnly value={categoryLabels[agentDraft.agent_category as AgentCategory] ?? text(agentDraft.agent_category, "未配置")} />
           </OrchestrationField>
           <OrchestrationField label="入口位置">
-            <input value={agentDraft.interface_target || ""} onChange={(event) => patchAgentDraft({ interface_target: event.target.value })} />
+            <input
+              readOnly={fixedIdentityAgent}
+              value={agentDraft.interface_target || ""}
+              onChange={(event) => patchAgentDraft({ interface_target: event.target.value })}
+            />
           </OrchestrationField>
           <OrchestrationField label="默认灵魂">
-            <input value={agentDraft.default_soul_id || ""} onChange={(event) => patchAgentDraft({ default_soul_id: event.target.value })} />
+            <input
+              readOnly={fixedIdentityAgent}
+              value={agentDraft.default_soul_id || ""}
+              onChange={(event) => patchAgentDraft({ default_soul_id: event.target.value })}
+            />
           </OrchestrationField>
           <ProjectionSelectField
             cards={projectionCards}
+            disabled={fixedIdentityAgent}
             label="默认投影"
-            onChange={(value) => patchAgentDraft({ default_projection_id: value })}
+            onChange={(value) => {
+              if (fixedIdentityAgent) return;
+              patchAgentDraft({ default_projection_id: value });
+            }}
             value={agentDraft.default_projection_id || ""}
           />
           <OrchestrationField label="职责说明" wide>
-            <textarea value={agentDraft.description || ""} onChange={(event) => patchAgentDraft({ description: event.target.value })} />
+            <textarea
+              readOnly={fixedIdentityAgent}
+              value={agentDraft.description || ""}
+              onChange={(event) => patchAgentDraft({ description: event.target.value })}
+            />
           </OrchestrationField>
-          <label className="boundary-check"><input checked={Boolean(agentDraft.enabled)} onChange={(event) => patchAgentDraft({ enabled: event.target.checked })} type="checkbox" />启用 Agent</label>
-          <label className="boundary-check"><input checked={Boolean(agentDraft.editable)} onChange={(event) => patchAgentDraft({ editable: event.target.checked })} type="checkbox" />允许编辑</label>
+          <label className="boundary-check">
+            <input
+              checked={Boolean(agentDraft.enabled)}
+              disabled={fixedIdentityAgent}
+              onChange={(event) => patchAgentDraft({ enabled: event.target.checked })}
+              type="checkbox"
+            />
+            启用 Agent
+          </label>
+          <label className="boundary-check">
+            <input
+              checked={Boolean(agentDraft.editable)}
+              disabled={fixedIdentityAgent}
+              onChange={(event) => patchAgentDraft({ editable: event.target.checked })}
+              type="checkbox"
+            />
+            允许编辑
+          </label>
         </div>
         {legacySystemKey ? <div className="boundary-legacy">legacy system_key：{legacySystemKey}</div> : null}
       </section>

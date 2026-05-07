@@ -1,3 +1,0 @@
-长篇小说持续交付已启动，并已完成首轮项目规格落盘。
-项目规格文件：docs/系统规划/任务系统实测记录/artifacts/20260506/E5-longform-novel-langgraph-real/project_spec.md
-系统会基于已生成产物继续推进后续长篇流程，不需要重新发送启动指令。

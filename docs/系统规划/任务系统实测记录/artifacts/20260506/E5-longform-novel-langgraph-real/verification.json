@@ -1,8 +1,0 @@
-{
-  "status": "fail",
-  "prebaked_payload": false,
-  "error": "06-batch-review missing artifact: D:\\AI应用\\langchain-agent\\docs\\系统规划\\任务系统实测记录\\artifacts\\20260506\\E5-longform-novel-langgraph-real\\reviews\\batch_001_005_review.md",
-  "artifact_root": "docs/系统规划/任务系统实测记录/artifacts/20260506/E5-longform-novel-langgraph-real",
-  "completed_phase_count": 5,
-  "run_token": "20260507-161150-cadfefb3"
-}

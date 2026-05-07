@@ -669,6 +669,14 @@ export type OrchestrationAgentGroup = {
   metadata?: Record<string, unknown>;
 };
 
+export type OrchestrationOption = {
+  id: string;
+  value: string;
+  label: string;
+  description?: string;
+  operation_type?: string;
+};
+
 export type OrchestrationAgentRuntimeCatalog = {
   authority: string;
   agents: Array<Record<string, unknown> & { runtime_profile?: Partial<OrchestrationAgentRuntimeProfile> }>;
@@ -684,6 +692,14 @@ export type OrchestrationAgentRuntimeCatalog = {
     output_contracts: string[];
     approval_policies: string[];
     trace_policies: string[];
+    operation_options?: OrchestrationOption[];
+    task_mode_options?: OrchestrationOption[];
+    runtime_lane_options?: OrchestrationOption[];
+    memory_scope_options?: OrchestrationOption[];
+    context_section_options?: OrchestrationOption[];
+    output_contract_options?: OrchestrationOption[];
+    approval_policy_options?: OrchestrationOption[];
+    trace_policy_options?: OrchestrationOption[];
   };
 };
 
@@ -2167,6 +2183,12 @@ export async function upsertOrchestrationAgentGroup(groupId: string, payload: Or
   return request<OrchestrationAgentRuntimeCatalog>(`/orchestration/agent-groups/${encodeURIComponent(groupId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteOrchestrationAgentGroup(groupId: string) {
+  return request<OrchestrationAgentRuntimeCatalog>(`/orchestration/agent-groups/${encodeURIComponent(groupId)}`, {
+    method: "DELETE"
   });
 }
 

@@ -3,38 +3,27 @@
     {
       "domain_id": "domain.development",
       "task_family": "development",
-      "title": "开发任务域",
-      "description": "承接代码、网页、工具和工程交付类特定任务。",
+      "title": "开发任务",
+      "description": "",
       "enabled": true,
       "sort_order": 10,
       "metadata": {
-        "seed": "default"
+        "derived": true
       }
     },
     {
       "domain_id": "domain.writing",
       "task_family": "writing",
-      "title": "写作任务域",
-      "description": "承接短篇、长篇、章节、审校和编纂类写作任务。",
-      "enabled": true,
-      "sort_order": 20,
-      "metadata": {
-        "seed": "default"
-      }
-    },
-    {
-      "domain_id": "domain.health",
-      "task_family": "health",
-      "title": "健康管理任务域",
-      "description": "承接系统健康、链路分析、复现和修复验证类任务。",
+      "title": "写作任务",
+      "description": "",
       "enabled": true,
       "sort_order": 30,
       "metadata": {
-        "seed": "default"
+        "derived": true
       }
     }
   ],
   "deleted_domain_ids": [
-    "domain.custom_4"
+    "domain.health"
   ]
 }

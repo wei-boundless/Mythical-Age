@@ -33,42 +33,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def default_agent_groups() -> tuple[AgentGroup, ...]:
-    return (
-        AgentGroup(
-            group_id="group.writing.longform_novel_core",
-            title="长篇小说核心团队",
-            group_kind="coordination_team",
-            coordinator_agent_id="agent:20",
-            member_agent_ids=("agent:20", "agent:21", "agent:22", "agent:23", "agent:24", "agent:25", "agent:26"),
-            description="负责长篇小说项目、设定、人物、剧情、正文、审校与连续性检查的常态协作团队。",
-            default_topology_template_ids=(
-                "topology.writing.longform_project_bootstrap",
-                "topology.writing.novel_bible_build",
-                "topology.writing.volume_planning",
-                "topology.writing.chapter_pipeline",
-                "topology.writing.continuity_audit",
-                "topology.writing.final_compilation",
-            ),
-            default_communication_protocol_ids=(
-                "protocol.writing.longform_project_bootstrap",
-                "protocol.writing.novel_bible_build",
-                "protocol.writing.volume_planning",
-                "protocol.writing.chapter_pipeline",
-                "protocol.writing.continuity_audit",
-                "protocol.writing.final_compilation",
-            ),
-            allowed_coordination_task_ids=(
-                "coord.writing.longform_project_bootstrap",
-                "coord.writing.novel_bible_build",
-                "coord.writing.volume_planning",
-                "coord.writing.chapter_pipeline",
-                "coord.writing.continuity_audit",
-                "coord.writing.final_compilation",
-            ),
-            lifecycle_state="enabled",
-            metadata={"domain_key": "longform_novel"},
-        ),
-    )
+    return ()
 
 
 def _merge_items_by_key(
@@ -172,3 +137,11 @@ class AgentGroupRegistry:
         groups.append(group)
         _write_json(self.path, {"groups": [item.to_dict() for item in groups]})
         return group
+
+    def delete_group(self, group_id: str) -> None:
+        target = str(group_id or "").strip()
+        groups = self.list_groups()
+        if not any(item.group_id == target for item in groups):
+            raise KeyError(target)
+        remaining = [item for item in groups if item.group_id != target]
+        _write_json(self.path, {"groups": [item.to_dict() for item in remaining]})
