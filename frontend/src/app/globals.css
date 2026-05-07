@@ -1597,6 +1597,11 @@ button:hover {
   overflow: visible;
 }
 
+.coordination-topology-edge-tools {
+  overflow: visible;
+  pointer-events: auto;
+}
+
 .coordination-topology-node-tools__bar {
   display: flex;
   justify-content: center;
@@ -15083,6 +15088,14 @@ html[data-soul="xuannv"] .soul-portrait__label {
   overflow: hidden;
 }
 
+.boundary-workbench--coordination-focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.boundary-workbench--coordination-focus > .boundary-rail {
+  display: none;
+}
+
 .orchestration-workbench {
   grid-template-columns: 300px minmax(0, 1fr);
 }
@@ -15739,7 +15752,16 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .boundary-task-table article {
-  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.28fr) minmax(160px, 0.34fr);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.boundary-task-table article > strong {
+  color: var(--color-text);
+}
+
+.boundary-task-table article > span {
+  margin-top: -0.1rem;
 }
 
 .boundary-task-table article span,
@@ -15825,10 +15847,25 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .coordination-editor-layout {
   display: grid;
-  grid-template-columns: minmax(240px, 0.25fr) minmax(0, 1fr) minmax(280px, 0.32fr);
+  grid-template-areas:
+    "canvas canvas"
+    "sidebar inspector";
+  grid-template-columns: minmax(240px, 0.42fr) minmax(280px, 0.58fr);
   gap: 0.8rem;
   align-items: start;
   min-height: 0;
+}
+
+.coordination-editor-sidebar {
+  grid-area: sidebar;
+}
+
+.coordination-editor-canvas {
+  grid-area: canvas;
+}
+
+.coordination-editor-inspector {
+  grid-area: inspector;
 }
 
 .coordination-editor-sidebar,
@@ -15847,6 +15884,35 @@ html[data-soul="xuannv"] .soul-portrait__label {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
+}
+
+.coordination-editor-summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.coordination-editor-command-groups {
+  display: grid;
+  gap: 0.6rem;
+  min-width: min(100%, 540px);
+}
+
+.coordination-editor-command-group {
+  display: grid;
+  gap: 0.38rem;
+  justify-items: end;
+}
+
+.coordination-editor-command-group > span {
+  color: var(--color-text-soft);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.coordination-editor-selector {
+  margin-top: 0.2rem;
 }
 
 .coordination-editor-actions {
@@ -16041,6 +16107,22 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .boundary-rail,
   .boundary-main {
     overflow: visible;
+  }
+
+  .coordination-editor-summary-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .coordination-editor-command-groups,
+  .coordination-editor-command-group {
+    width: 100%;
+    min-width: 0;
+    justify-items: stretch;
+  }
+
+  .coordination-editor-command-group .boundary-actions {
+    justify-content: flex-start;
   }
 
   .boundary-graph {

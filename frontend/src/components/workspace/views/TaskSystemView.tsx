@@ -10,7 +10,9 @@ import {
   Network,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
+  Send,
   Pencil,
   ShieldCheck,
   SquarePen,
@@ -549,6 +551,73 @@ const HANDOFF_POLICY_CHOICES = ["filtered_handoff", "direct_handoff"];
 const CONFLICT_POLICY_CHOICES = ["coordinator_review", "majority_vote"];
 const MERGE_POLICY_CHOICES = ["coordinator_final_merge", "ordered_append", "section_merge"];
 
+const LONGFORM_TEMPLATE_STAGES = [
+  {
+    node_id: "project_scope",
+    title: "项目规格锁定",
+    task_id: "task.writing.longform_novel_project",
+    agent_id: "agent:20",
+    role: "coordinator",
+    message_type: "project_scope",
+  },
+  {
+    node_id: "novel_bible",
+    title: "设定总纲构建",
+    task_id: "task.writing.novel_bible_build",
+    agent_id: "agent:21",
+    role: "participant",
+    message_type: "world_seed",
+  },
+  {
+    node_id: "volume_planning",
+    title: "卷规划",
+    task_id: "task.writing.volume_planning",
+    agent_id: "agent:22",
+    role: "participant",
+    message_type: "volume_plan",
+  },
+  {
+    node_id: "chapter_planning",
+    title: "章节批次规划",
+    task_id: "task.writing.chapter_planning",
+    agent_id: "agent:23",
+    role: "participant",
+    message_type: "chapter_plan",
+  },
+  {
+    node_id: "chapter_drafting",
+    title: "章节批次交付",
+    task_id: "task.writing.chapter_drafting",
+    agent_id: "agent:24",
+    role: "writer",
+    message_type: "chapter_batch",
+  },
+  {
+    node_id: "chapter_revision",
+    title: "章节轻审",
+    task_id: "task.writing.chapter_revision",
+    agent_id: "agent:25",
+    role: "reviewer",
+    message_type: "review_feedback",
+  },
+  {
+    node_id: "continuity_audit",
+    title: "连续性审计",
+    task_id: "task.writing.continuity_audit",
+    agent_id: "agent:26",
+    role: "reviewer",
+    message_type: "continuity_audit",
+  },
+  {
+    node_id: "final_compilation",
+    title: "阶段编纂",
+    task_id: "task.writing.final_compilation",
+    agent_id: "agent:20",
+    role: "coordinator",
+    message_type: "editor_merge",
+  },
+];
+
 function optionLabel(value: string) {
   return displayId(value);
 }
@@ -930,6 +999,7 @@ function CoordinationGraph({
   selectedEdgeId = "",
   linkingFromNodeId = "",
   renderNodeTools,
+  renderEdgeTools,
   onSelectNode,
   onSelectEdge,
 }: {
@@ -941,6 +1011,7 @@ function CoordinationGraph({
   selectedEdgeId?: string;
   linkingFromNodeId?: string;
   renderNodeTools?: (node: Record<string, unknown>, nodeId: string) => ReactNode;
+  renderEdgeTools?: (edge: Record<string, unknown>, edgeId: string) => ReactNode;
   onSelectNode?: (nodeId: string) => void;
   onSelectEdge?: (edgeId: string) => void;
 }) {
@@ -1001,6 +1072,10 @@ function CoordinationGraph({
             const rawNode = safeNodes.find((item) => String(item.node_id ?? item.id ?? "") === node.id) ?? {};
             return renderNodeTools(rawNode, node.id);
           } : undefined}
+          renderEdgeTools={renderEdgeTools ? (edge) => {
+            const rawEdge = resolvedEdges.find((item, index) => graphEdgeId(item as Record<string, unknown>, index) === edge.id) as Record<string, unknown> | undefined;
+            return renderEdgeTools(rawEdge ?? {}, edge.id);
+          } : undefined}
           selectedEdgeId={selectedEdgeId}
           selectedNodeId={selectedNodeId}
         />
@@ -1036,7 +1111,6 @@ function taskTitleById(taskId: string, tasks: SpecificTaskRecord[]) {
 
 function coordinationSubtaskRefs(draft: CoordinationTask | CoordinationDraft) {
   return uniqueStrings([
-    ...(draft.subtask_refs ?? []),
     ...((draft.graph_nodes ?? []).map((node) => graphNodeTaskId(node))),
   ]);
 }
@@ -1557,6 +1631,33 @@ export function TaskSystemView() {
     }));
   }
 
+  function cycleCoordinationEdgeMode(edgeId: string, currentMode: string) {
+    const modes = coordinationDraft.communication_modes?.length ? coordinationDraft.communication_modes : GRAPH_EDGE_MODE_CHOICES;
+    const currentIndex = modes.indexOf(currentMode);
+    const nextMode = modes[(currentIndex + 1) % modes.length] ?? "structured_handoff";
+    updateCoordinationEdge(edgeId, { mode: nextMode, policy: nextMode });
+  }
+
+  function reverseCoordinationEdge(edgeId: string) {
+    setCoordinationDraft((current) => ({
+      ...current,
+      graph_edges: (current.graph_edges ?? []).map((edge, index) => {
+        if (graphEdgeId(edge, index) !== edgeId) {
+          return edge;
+        }
+        const from = graphEdgeSource(edge);
+        const to = graphEdgeTarget(edge);
+        return {
+          ...edge,
+          from: to,
+          to: from,
+          source_node_id: to,
+          target_node_id: from,
+        };
+      }),
+    }));
+  }
+
   function removeCoordinationEdge(edgeId: string) {
     setCoordinationDraft((current) => ({
       ...current,
@@ -1611,6 +1712,236 @@ export function TaskSystemView() {
       setNotice(`已生成协调任务草稿：${coordination.coordination_task_id}`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "生成协调任务草稿失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function duplicateCoordinationDraft() {
+    if (!selectedCoordination) {
+      setError("当前没有可复制的协调任务");
+      return;
+    }
+    setSaving("coordination-duplicate");
+    setError("");
+    setNotice("");
+    try {
+      const ids = await getTaskSystemNextIds();
+      const nextCoordinationId = ids.coordination_task_id;
+      const nextTopologyId = ids.topology_template_id;
+      const nextProtocolId = `protocol.${nextCoordinationId.replace(/^coord\./, "")}`;
+      const nextTitle = `${selectedCoordination.title || ids.display_numbers.coordination} 副本`;
+      const nextCoordination: CoordinationDraft = {
+        ...coordinationDraft,
+        coordination_task_id: nextCoordinationId,
+        title: nextTitle,
+        topology_template_id: nextTopologyId,
+        enabled: false,
+        stop_conditions_text: coordinationDraft.stop_conditions_text,
+        graph_nodes: (coordinationDraft.graph_nodes ?? []).map((node) => ({ ...node })),
+        graph_edges: (coordinationDraft.graph_edges ?? []).map((edge) => ({ ...edge })),
+        subtask_refs: coordinationSubtaskRefs(coordinationDraft),
+        metadata: {
+          ...(coordinationDraft.metadata ?? {}),
+          protocol_id: nextProtocolId,
+          task_family: selectedDomain?.task_family || coordinationDraft.task_family || "",
+          domain_id: selectedDomain?.domain_id || coordinationDraft.domain_id || "",
+        },
+      };
+      const nextTopology: TopologyDraft = {
+        ...topologyDraft,
+        template_id: nextTopologyId,
+        title: `${topologyDraft.title || nextTitle} 副本`,
+        enabled: false,
+        nodes: nextCoordination.graph_nodes ?? [],
+        edges: nextCoordination.graph_edges ?? [],
+        nodes_text: JSON.stringify(nextCoordination.graph_nodes ?? [], null, 2),
+        edges_text: JSON.stringify(nextCoordination.graph_edges ?? [], null, 2),
+        metadata: {
+          ...(topologyDraft.metadata ?? {}),
+          task_family: selectedDomain?.task_family || "",
+          domain_id: selectedDomain?.domain_id || "",
+        },
+      };
+      const nextProtocol: ProtocolDraft = {
+        ...protocolDraft,
+        protocol_id: nextProtocolId,
+        title: `${protocolDraft.title || nextTitle} 副本`,
+        enabled: false,
+        metadata: {
+          ...(protocolDraft.metadata ?? {}),
+          task_family: selectedDomain?.task_family || "",
+          domain_id: selectedDomain?.domain_id || "",
+        },
+      };
+      setSelectedCoordinationId(nextCoordinationId);
+      setTaskLayer("coordination");
+      setCoordinationDraft(nextCoordination);
+      setTopologyDraft(nextTopology);
+      setProtocolDraft(nextProtocol);
+      setSelectedGraphNodeId(String((nextCoordination.graph_nodes ?? [])[0]?.node_id ?? ""));
+      setSelectedGraphEdgeId(graphEdgeId((nextCoordination.graph_edges ?? [])[0] ?? {}, 0));
+      setLinkingFromNodeId("");
+      setNotice(`已复制协调任务草稿：${nextCoordinationId}`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "复制协调任务草稿失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  function setCoordinationPublished(enabled: boolean) {
+    setCoordinationDraft((current) => ({
+      ...current,
+      enabled,
+    }));
+    setTopologyDraft((current) => ({
+      ...current,
+      enabled,
+    }));
+    setProtocolDraft((current) => ({
+      ...current,
+      enabled,
+    }));
+  }
+
+  async function applyLongformNovelTemplate() {
+    if ((selectedDomain?.task_family || "") !== "writing") {
+      setError("长篇小说持续交付模板只能用于写作任务域");
+      return;
+    }
+    setSaving("coordination-template-longform");
+    setError("");
+    setNotice("");
+    try {
+      const ids = await getTaskSystemNextIds();
+      const coordinationId = ids.coordination_task_id;
+      const topologyId = ids.topology_template_id;
+      const protocolId = `protocol.${coordinationId.replace(/^coord\./, "")}`;
+      const taskById = new Map(selectedDomainTasks.map((task) => [task.task_id, task]));
+      const nodes = LONGFORM_TEMPLATE_STAGES.map((stage) => {
+        const task = taskById.get(stage.task_id);
+        return {
+          node_id: stage.node_id,
+          node_type: "subtask",
+          task_id: stage.task_id,
+          task_title: task?.task_title ?? stage.title,
+          task_family: "writing",
+          agent_id: stage.agent_id,
+          role: stage.role,
+          label: stage.title,
+          title: stage.title,
+          message_type: stage.message_type,
+        };
+      });
+      const edges = LONGFORM_TEMPLATE_STAGES.slice(0, -1).map((stage, index) => {
+        const nextStage = LONGFORM_TEMPLATE_STAGES[index + 1];
+        return {
+          edge_id: `edge_${index + 1}`,
+          from: stage.node_id,
+          to: nextStage.node_id,
+          source_node_id: stage.node_id,
+          target_node_id: nextStage.node_id,
+          mode: nextStage.message_type,
+          policy: "stage_contract_handoff",
+        };
+      });
+      const coordination: CoordinationDraft = {
+        ...emptyCoordination(topologyId, protocolId, "writing", selectedDomain?.domain_id || "domain.writing"),
+        coordination_task_id: coordinationId,
+        title: "长篇小说持续交付总协调",
+        coordination_mode: "continuous_delivery",
+        coordinator_agent_id: "agent:20",
+        agent_group_id: "group.writing.longform_novel_core",
+        participant_agent_ids: ["agent:21", "agent:22", "agent:23", "agent:24", "agent:25", "agent:26"],
+        shared_context_policy: "project_bible_refs_only",
+        memory_sharing_policy: "shared_project_bible_refs",
+        handoff_policy: "stage_contract_handoff",
+        conflict_resolution_policy: "editor_gate_review",
+        output_merge_policy: "editor_gate_merge",
+        stop_conditions: [
+          "project_scope_locked",
+          "bible_backlog_defined",
+          "volume_plan_accepted",
+          "chapter_batch_accepted",
+          "continuity_report_accepted",
+          "compilation_ready",
+        ],
+        stop_conditions_text: [
+          "project_scope_locked",
+          "bible_backlog_defined",
+          "volume_plan_accepted",
+          "chapter_batch_accepted",
+          "continuity_report_accepted",
+          "compilation_ready",
+        ].join("\n"),
+        graph_nodes: nodes,
+        graph_edges: edges,
+        subtask_refs: uniqueStrings(nodes.map((node) => node.task_id)),
+        communication_modes: uniqueStrings(["structured_handoff", ...LONGFORM_TEMPLATE_STAGES.map((stage) => stage.message_type)]),
+        enabled: false,
+        metadata: {
+          managed_by: "task_domain_console",
+          template_kind: "longform_novel_continuous_delivery",
+          protocol_id: protocolId,
+          task_id: "task.writing.longform_novel_project",
+          task_family: "writing",
+          domain_id: selectedDomain?.domain_id || "domain.writing",
+          continuation_policy: {
+            mode: "topology_driven",
+            auto_continue: true,
+            max_auto_steps: 100,
+            retry_budget: { default: 0, revision_loop: 2 },
+          },
+        },
+      };
+      const topology: TopologyDraft = {
+        ...emptyTopology(),
+        template_id: topologyId,
+        title: "长篇小说持续交付拓扑",
+        nodes,
+        edges,
+        join_policy: "explicit_join",
+        failure_policy: "fail_closed",
+        terminal_policy: "coordinator_terminal",
+        enabled: false,
+        metadata: {
+          managed_by: "task_domain_console",
+          template_kind: "longform_novel_continuous_delivery",
+          task_family: "writing",
+          domain_id: selectedDomain?.domain_id || "domain.writing",
+        },
+        nodes_text: JSON.stringify(nodes, null, 2),
+        edges_text: JSON.stringify(edges, null, 2),
+      };
+      const protocol: ProtocolDraft = {
+        ...emptyProtocol(),
+        protocol_id: protocolId,
+        title: "长篇小说持续交付协议",
+        message_types: coordination.communication_modes,
+        message_types_text: coordination.communication_modes.join("\n"),
+        ack_policy: "explicit_ack",
+        timeout_policy: "fail_closed",
+        error_signal_policy: "raise_to_coordinator",
+        enabled: false,
+        metadata: {
+          managed_by: "task_domain_console",
+          template_kind: "longform_novel_continuous_delivery",
+          task_family: "writing",
+          domain_id: selectedDomain?.domain_id || "domain.writing",
+        },
+      };
+      setSelectedCoordinationId(coordinationId);
+      setTaskLayer("coordination");
+      setCoordinationDraft(coordination);
+      setTopologyDraft(topology);
+      setProtocolDraft(protocol);
+      setSelectedGraphNodeId("project_scope");
+      setSelectedGraphEdgeId("");
+      setLinkingFromNodeId("");
+      setNotice("已生成长篇小说持续交付协调任务草稿，可继续在拓扑图中调整后保存或发布。");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "生成长篇小说协调模板失败");
     } finally {
       setSaving("");
     }
@@ -1732,59 +2063,71 @@ export function TaskSystemView() {
     }
   }
 
-  async function saveCoordinationStack() {
+  async function saveCoordinationStack(nextPublished?: boolean) {
     setSaving("coordination");
     setError("");
     setNotice("");
     try {
-      const subtaskRefs = coordinationSubtaskRefs(coordinationDraft);
+      const effectiveCoordinationDraft = nextPublished === undefined
+        ? coordinationDraft
+        : { ...coordinationDraft, enabled: nextPublished };
+      const effectiveTopologyDraft = nextPublished === undefined
+        ? topologyDraft
+        : { ...topologyDraft, enabled: nextPublished };
+      const effectiveProtocolDraft = nextPublished === undefined
+        ? protocolDraft
+        : { ...protocolDraft, enabled: nextPublished };
+      const subtaskRefs = coordinationSubtaskRefs(effectiveCoordinationDraft);
       const protocolPayload: TaskCommunicationProtocol = {
-        ...protocolDraft,
-        message_types: coordinationDraft.communication_modes?.length ? coordinationDraft.communication_modes : splitList(protocolDraft.message_types_text),
-        payload_contracts: splitList(protocolDraft.payload_contracts_text),
-        signal_rules: splitList(protocolDraft.signal_rules_text),
-        handoff_rules: splitList(protocolDraft.handoff_rules_text),
+        ...effectiveProtocolDraft,
+        message_types: effectiveCoordinationDraft.communication_modes?.length ? effectiveCoordinationDraft.communication_modes : splitList(effectiveProtocolDraft.message_types_text),
+        payload_contracts: splitList(effectiveProtocolDraft.payload_contracts_text),
+        signal_rules: splitList(effectiveProtocolDraft.signal_rules_text),
+        handoff_rules: splitList(effectiveProtocolDraft.handoff_rules_text),
         metadata: {
-          ...(protocolDraft.metadata ?? {}),
+          ...(effectiveProtocolDraft.metadata ?? {}),
           task_family: selectedDomain?.task_family || "",
           domain_id: selectedDomain?.domain_id || "",
         },
       };
       await upsertTaskSystemCommunicationProtocol(protocolPayload.protocol_id, protocolPayload);
-      await upsertTaskSystemTopologyTemplate(topologyDraft.template_id, {
-        ...topologyDraft,
-        nodes: coordinationDraft.graph_nodes ?? [],
-        edges: coordinationDraft.graph_edges ?? [],
+      await upsertTaskSystemTopologyTemplate(effectiveTopologyDraft.template_id, {
+        ...effectiveTopologyDraft,
+        nodes: effectiveCoordinationDraft.graph_nodes ?? [],
+        edges: effectiveCoordinationDraft.graph_edges ?? [],
         handoff_rules: [],
         metadata: {
-          ...(topologyDraft.metadata ?? {}),
+          ...(effectiveTopologyDraft.metadata ?? {}),
           task_family: selectedDomain?.task_family || "",
           domain_id: selectedDomain?.domain_id || "",
         },
       });
-      const payload = await upsertTaskSystemCoordinationTask(coordinationDraft.coordination_task_id, {
-        ...coordinationDraft,
-        task_family: selectedDomain?.task_family || coordinationDraft.task_family || "",
-        domain_id: selectedDomain?.domain_id || coordinationDraft.domain_id || "",
-        participant_agent_ids: (coordinationDraft.graph_nodes ?? [])
+      const payload = await upsertTaskSystemCoordinationTask(effectiveCoordinationDraft.coordination_task_id, {
+        ...effectiveCoordinationDraft,
+        task_family: selectedDomain?.task_family || effectiveCoordinationDraft.task_family || "",
+        domain_id: selectedDomain?.domain_id || effectiveCoordinationDraft.domain_id || "",
+        participant_agent_ids: (effectiveCoordinationDraft.graph_nodes ?? [])
           .filter((node) => String(node.role ?? "") !== "coordinator")
           .map((node) => String(node.agent_id ?? "").trim())
           .filter(Boolean),
-        stop_conditions: splitList(coordinationDraft.stop_conditions_text),
+        stop_conditions: splitList(effectiveCoordinationDraft.stop_conditions_text),
         subtask_refs: subtaskRefs,
-        communication_modes: coordinationDraft.communication_modes ?? [],
-        graph_nodes: coordinationDraft.graph_nodes ?? [],
-        graph_edges: coordinationDraft.graph_edges ?? [],
+        communication_modes: effectiveCoordinationDraft.communication_modes ?? [],
+        graph_nodes: effectiveCoordinationDraft.graph_nodes ?? [],
+        graph_edges: effectiveCoordinationDraft.graph_edges ?? [],
         metadata: {
-          ...(coordinationDraft.metadata ?? {}),
+          ...(effectiveCoordinationDraft.metadata ?? {}),
           protocol_id: protocolPayload.protocol_id,
           task_family: selectedDomain?.task_family || "",
           domain_id: selectedDomain?.domain_id || "",
         },
       });
+      setCoordinationDraft(effectiveCoordinationDraft);
+      setTopologyDraft(effectiveTopologyDraft);
+      setProtocolDraft(effectiveProtocolDraft);
       setConsolePayload(payload);
-      setSelectedCoordinationId(coordinationDraft.coordination_task_id);
-      setNotice("协调任务、拓扑和协议已保存。");
+      setSelectedCoordinationId(effectiveCoordinationDraft.coordination_task_id);
+      setNotice(nextPublished === true ? "协调任务、拓扑和协议已发布。" : "协调任务、拓扑和协议已保存。");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "保存协调任务失败");
     } finally {
@@ -1798,6 +2141,9 @@ export function TaskSystemView() {
   const selectedGraphNode = activeGraphNodes.find((node) => String(node.node_id ?? "") === selectedGraphNodeId) ?? null;
   const selectedGraphEdge = activeGraphEdges.find((edge, index) => graphEdgeId(edge, index) === selectedGraphEdgeId) ?? null;
   const boundCoordinationTaskIds = new Set(activeGraphNodes.map((node) => graphNodeTaskId(node)).filter(Boolean));
+  const editorIssueCount = selectedCoordinationGraphSpec?.issues?.length ?? 0;
+  const editorValid = selectedCoordinationGraphSpec?.valid !== false;
+  const editorPublished = Boolean(coordinationDraft.enabled && topologyDraft.enabled && protocolDraft.enabled);
   const taskReadiness = [
     { label: "任务定义", value: taskDraft.task_title || taskDraft.task_id, ready: Boolean(taskDraft.task_id && taskDraft.task_title) },
     { label: "执行流程", value: workflowDraft.title || "已选择", ready: Boolean(workflowDraft.workflow_id) },
@@ -1830,7 +2176,7 @@ export function TaskSystemView() {
       {error ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{error}</div> : null}
       {notice ? <div className="boundary-notice"><CheckCircle2 size={16} />{notice}</div> : null}
 
-      <section className="boundary-workbench">
+      <section className={taskLayer === "coordination" ? "boundary-workbench boundary-workbench--coordination-focus" : "boundary-workbench"}>
         <aside className="boundary-rail">
           <div className="boundary-rail__head">
             <strong>任务域</strong>
@@ -2135,32 +2481,80 @@ export function TaskSystemView() {
           {taskLayer === "coordination" ? (
             <section className="boundary-layer-stack">
               <div className="boundary-card boundary-card--summary">
-                <header>
+                <header className="coordination-editor-summary-head">
                   <div className="boundary-identity-stack">
                     <span>{selectedDomain?.title || "任务域"} / 域内协调任务</span>
                     <strong>{coordinationDraft.title || "协调任务"}</strong>
                     <small>{coordinationTasks.length} 个协调对象</small>
                   </div>
-                  <div className="boundary-actions">
-                    <ToolbarButton onClick={() => sendCoordinationToChat(selectedCoordination, selectedDomain)}>带入主会话</ToolbarButton>
-                    <ToolbarButton disabled={saving === "coordination"} onClick={() => void saveCoordinationStack()} variant="primary"><Save size={15} />保存协调任务</ToolbarButton>
+                  <div className="coordination-editor-command-groups">
+                    <div className="coordination-editor-command-group">
+                      <span>模板与草稿</span>
+                      <div className="boundary-actions">
+                        {selectedDomain?.task_family === "writing" ? (
+                          <ToolbarButton
+                            disabled={saving === "coordination-template-longform"}
+                            onClick={() => {
+                              void applyLongformNovelTemplate();
+                            }}
+                          >
+                            <Workflow size={15} />长篇模板
+                          </ToolbarButton>
+                        ) : null}
+                        <ToolbarButton
+                          disabled={!selectedCoordination || saving === "coordination-duplicate"}
+                          onClick={() => {
+                            void duplicateCoordinationDraft();
+                          }}
+                        >
+                          <Plus size={15} />复制为草稿
+                        </ToolbarButton>
+                      </div>
+                    </div>
+                    <div className="coordination-editor-command-group">
+                      <span>运行与发布</span>
+                      <div className="boundary-actions">
+                        <ToolbarButton onClick={() => sendCoordinationToChat(selectedCoordination, selectedDomain)}>带入主会话</ToolbarButton>
+                        <ToolbarButton
+                          disabled={saving === "coordination"}
+                          onClick={() => {
+                            void saveCoordinationStack(false);
+                          }}
+                        >
+                          <Save size={15} />保存草稿
+                        </ToolbarButton>
+                        <ToolbarButton
+                          disabled={saving === "coordination"}
+                          onClick={() => {
+                            void saveCoordinationStack(true);
+                          }}
+                          variant="primary"
+                        >
+                          <Send size={15} />发布可运行
+                        </ToolbarButton>
+                      </div>
+                    </div>
                   </div>
                 </header>
-                <div className="boundary-selector-strip">
-                  {coordinationTasks.map((task) => (
-                    <button className={task.coordination_task_id === selectedCoordinationId ? "active" : ""} key={task.coordination_task_id} onClick={() => setSelectedCoordinationId(task.coordination_task_id)} type="button">
-                      <strong>{task.title}</strong>
-                    </button>
-                  ))}
-                  {!coordinationTasks.length ? <div className="boundary-empty">当前任务域暂无协调任务。</div> : null}
-                </div>
+                {coordinationTasks.length ? (
+                  <div className="boundary-selector-strip coordination-editor-selector">
+                    {coordinationTasks.map((task) => (
+                      <button className={task.coordination_task_id === selectedCoordinationId ? "active" : ""} key={task.coordination_task_id} onClick={() => setSelectedCoordinationId(task.coordination_task_id)} type="button">
+                        <strong>{task.title}</strong>
+                      </button>
+                    ))}
+                  </div>
+                ) : <div className="boundary-empty">当前任务域暂无协调任务。</div>}
               </div>
               <section className="boundary-card boundary-card--editor">
                 <header className="boundary-editor-title">
                   <strong>协调任务搭建器</strong>
                   <div className="boundary-graph-status">
-                    <span className={selectedCoordinationGraphSpec?.valid === false ? "boundary-status boundary-status--danger" : "boundary-status boundary-status--ok"}>
-                      {selectedCoordinationGraphSpec?.valid === false ? "图校验未通过" : "图校验通过"}
+                    <span className={editorValid ? "boundary-status boundary-status--ok" : "boundary-status boundary-status--danger"}>
+                      {editorValid ? "图校验通过" : `图校验未通过 ${editorIssueCount}`}
+                    </span>
+                    <span className={editorPublished ? "boundary-status boundary-status--ok" : "boundary-status"}>
+                      {editorPublished ? "已发布" : "草稿"}
                     </span>
                     <span>{activeGraphNodes.length} 个节点</span>
                     <span>{activeGraphEdges.length} 条通信边</span>
@@ -2183,6 +2577,9 @@ export function TaskSystemView() {
                               <button className="boundary-chip" disabled={boundCoordinationTaskIds.has(task.task_id)} onClick={() => addCoordinationTaskNode(task, "reviewer")} type="button">
                                 <span>加入审查</span>
                               </button>
+                              <button className="boundary-chip" disabled={boundCoordinationTaskIds.has(task.task_id)} onClick={() => addCoordinationTaskNode(task, "acceptance")} type="button">
+                                <span>加入验收</span>
+                              </button>
                             </div>
                           </article>
                         ))}
@@ -2204,6 +2601,15 @@ export function TaskSystemView() {
 
                   <div className="coordination-editor-canvas">
                     <div className="coordination-editor-toolbar">
+                      <button
+                        className="boundary-chip"
+                        disabled={activeGraphNodes.length < 2}
+                        onClick={addCoordinationEdge}
+                        type="button"
+                      >
+                        <GitBranch size={14} />
+                        <span>默认通信</span>
+                      </button>
                       <button
                         className={linkingFromNodeId ? "boundary-chip boundary-chip--active" : "boundary-chip"}
                         disabled={!activeGraphNodes.length}
@@ -2232,6 +2638,43 @@ export function TaskSystemView() {
                         setLinkingFromNodeId("");
                       }}
                       onSelectNode={handleTopologyNodeClick}
+                      renderEdgeTools={(edge, edgeId) => {
+                        const mode = String(edge.mode ?? edge.policy ?? "structured_handoff");
+                        return (
+                          <>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                reverseCoordinationEdge(edgeId);
+                              }}
+                              title="反转方向"
+                              type="button"
+                            >
+                              <RotateCcw size={13} />
+                            </button>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                cycleCoordinationEdgeMode(edgeId, mode);
+                              }}
+                              title="切换通信模式"
+                              type="button"
+                            >
+                              <SquarePen size={13} />
+                            </button>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                removeCoordinationEdge(edgeId);
+                              }}
+                              title="删除通信"
+                              type="button"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </>
+                        );
+                      }}
                       renderNodeTools={(node, nodeId) => {
                         const role = String(node.role ?? "participant");
                         return (
@@ -2305,7 +2748,10 @@ export function TaskSystemView() {
                           <Field label="标题"><input value={coordinationDraft.title} onChange={(event) => setCoordinationDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
                           <SelectField label="协调模式" onChange={(value) => setCoordinationDraft((current) => ({ ...current, coordination_mode: value }))} options={COORDINATION_MODE_CHOICES} value={coordinationDraft.coordination_mode} />
                           <SelectField label="Agent 组" onChange={(value) => setCoordinationDraft((current) => ({ ...current, agent_group_id: value }))} options={agentGroupOptions} value={coordinationDraft.agent_group_id || ""} />
-                          <label className="boundary-check"><input checked={coordinationDraft.enabled} onChange={(event) => setCoordinationDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用协调任务</label>
+                          <label className="boundary-check">
+                            <input checked={editorPublished} onChange={(event) => setCoordinationPublished(event.target.checked)} type="checkbox" />
+                            发布为可运行协调任务
+                          </label>
                         </section>
 
                         <section className="boundary-inspector-block">
@@ -2363,11 +2809,12 @@ export function TaskSystemView() {
                     {selectedGraphEdge ? (
                       <section className="boundary-inspector-block">
                         <header><strong>通信检查器</strong></header>
-                        <SelectField label="起点" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { from: value, source_node_id: value })} options={activeGraphNodes.map((node) => String(node.node_id ?? ""))} value={graphEdgeSource(selectedGraphEdge)} />
-                        <SelectField label="终点" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { to: value, target_node_id: value })} options={activeGraphNodes.map((node) => String(node.node_id ?? ""))} value={graphEdgeTarget(selectedGraphEdge)} />
-                        <SelectField label="通信模式" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { mode: value })} options={GRAPH_EDGE_MODE_CHOICES} value={String(selectedGraphEdge.mode ?? "structured_handoff")} />
-                        <ToolbarButton onClick={() => removeCoordinationEdge(graphEdgeId(selectedGraphEdge))}><Trash2 size={14} />删除通信</ToolbarButton>
-                      </section>
+                          <SelectField label="起点" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { from: value, source_node_id: value })} options={activeGraphNodes.map((node) => String(node.node_id ?? ""))} value={graphEdgeSource(selectedGraphEdge)} />
+                          <SelectField label="终点" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { to: value, target_node_id: value })} options={activeGraphNodes.map((node) => String(node.node_id ?? ""))} value={graphEdgeTarget(selectedGraphEdge)} />
+                          <SelectField label="通信模式" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { mode: value })} options={GRAPH_EDGE_MODE_CHOICES} value={String(selectedGraphEdge.mode ?? "structured_handoff")} />
+                          <ToolbarButton onClick={() => reverseCoordinationEdge(graphEdgeId(selectedGraphEdge))}><RotateCcw size={14} />反转方向</ToolbarButton>
+                          <ToolbarButton onClick={() => removeCoordinationEdge(graphEdgeId(selectedGraphEdge))}><Trash2 size={14} />删除通信</ToolbarButton>
+                        </section>
                     ) : null}
 
                     {selectedCoordinationGraphSpec?.issues?.length ? (

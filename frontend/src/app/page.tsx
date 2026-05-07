@@ -13,6 +13,7 @@ import { AppProvider, useAppStore } from "@/lib/store";
 function Workspace() {
   const { sidebarWidth, setSidebarWidth, activeSoulKey, activeWorkspaceView, setWorkspaceView } = useAppStore();
   const isBoundaryWorkspace = activeWorkspaceView === "task-system" || activeWorkspaceView === "orchestration";
+  const showRightRail = !isBoundaryWorkspace;
 
   useEffect(() => {
     if (activeSoulKey) {
@@ -47,9 +48,11 @@ function Workspace() {
           </div>
           <ResizeHandle onResize={(delta) => setSidebarWidth(Math.max(280, sidebarWidth + delta))} />
           <WorkspacePanel />
-          <div className={`w-full xl:shrink-0 ${isBoundaryWorkspace ? "xl:ml-0 xl:w-[308px]" : "xl:ml-4 xl:w-[320px]"}`}>
-            <RightRail />
-          </div>
+          {showRightRail ? (
+            <div className={`w-full xl:shrink-0 ${isBoundaryWorkspace ? "xl:ml-0 xl:w-[308px]" : "xl:ml-4 xl:w-[320px]"}`}>
+              <RightRail />
+            </div>
+          ) : null}
         </div>
       </div>
     </main>

@@ -29,6 +29,8 @@ type TopologyNodeLayout = CoordinationTopologyNode & {
 type TopologyEdgeLayout = CoordinationTopologyEdge & {
   path: string;
   current: boolean;
+  toolX: number;
+  toolY: number;
 };
 
 type TopologyLayout = {
@@ -118,6 +120,8 @@ export function buildCoordinationTopologyLayout(
           || edge.from === currentNodeId
           || edge.to === currentNodeId,
         path: `M ${from.x} ${from.y} C ${middleX} ${from.y}, ${middleX} ${to.y}, ${to.x} ${to.y}`,
+        toolX: middleX,
+        toolY: (from.y + to.y) / 2,
       };
     })
     .filter((edge): edge is TopologyEdgeLayout => Boolean(edge));
@@ -141,6 +145,7 @@ export function CoordinationTopologyGraph({
   onSelectEdge,
   onConnectNode,
   renderNodeTools,
+  renderEdgeTools,
   selectedNodeId = "",
   selectedEdgeId = "",
   linkingFromNodeId = "",
@@ -155,6 +160,7 @@ export function CoordinationTopologyGraph({
   onSelectEdge?: (edgeId: string) => void;
   onConnectNode?: (nodeId: string) => void;
   renderNodeTools?: (node: CoordinationTopologyNode) => ReactNode;
+  renderEdgeTools?: (edge: CoordinationTopologyEdge) => ReactNode;
   selectedNodeId?: string;
   selectedEdgeId?: string;
   linkingFromNodeId?: string;
@@ -197,13 +203,27 @@ export function CoordinationTopologyGraph({
         {topology.edges.map((edge) => {
           const selected = edge.id === selectedEdgeId;
           return (
-            <path
-              key={edge.id}
-              className={`coordination-topology-edge ${statusClass(edge.status)} ${edge.current ? "is-current" : ""} ${selected ? "is-selected" : ""}`}
-              d={edge.path}
-              markerEnd="url(#coordination-topology-arrow)"
-              onClick={() => onSelectEdge?.(edge.id)}
-            />
+            <g key={edge.id}>
+              <path
+                className={`coordination-topology-edge ${statusClass(edge.status)} ${edge.current ? "is-current" : ""} ${selected ? "is-selected" : ""}`}
+                d={edge.path}
+                markerEnd="url(#coordination-topology-arrow)"
+                onClick={() => onSelectEdge?.(edge.id)}
+              />
+              {renderEdgeTools && selected ? (
+                <foreignObject
+                  className="coordination-topology-edge-tools"
+                  height="40"
+                  width="132"
+                  x={edge.toolX - 66}
+                  y={edge.toolY - 20}
+                >
+                  <div className="coordination-topology-node-tools__bar">
+                    {renderEdgeTools(edge)}
+                  </div>
+                </foreignObject>
+              ) : null}
+            </g>
           );
         })}
       </g>
