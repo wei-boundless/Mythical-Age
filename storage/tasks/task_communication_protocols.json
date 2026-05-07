@@ -72,28 +72,36 @@
     },
     {
       "protocol_id": "protocol.writing.longform_project_bootstrap",
-      "title": "长篇小说项目立项协议",
+      "title": "长篇小说持续交付协议",
       "message_types": [
-        "project_goal",
+        "project_scope",
         "world_seed",
         "character_seed",
-        "plot_seed",
-        "editor_project_spec"
+        "volume_plan",
+        "chapter_batch",
+        "continuity_audit",
+        "editor_merge"
       ],
       "payload_contracts": [
         "LongformNovelProjectInput",
         "WorldSeed",
         "CharacterSeed",
-        "PlotSeed",
-        "NovelProjectSpec"
+        "VolumePlan",
+        "ChapterDraft",
+        "ContinuityAuditReport",
+        "LongformNovelCompilation"
       ],
       "signal_rules": [
         "participants_report_to_editor",
-        "editor_locks_project_scope"
+        "editor_locks_project_scope",
+        "stage_gate_required",
+        "editor_merge_gate"
       ],
       "handoff_rules": [
         "project_refs_only",
-        "structured_spec_only"
+        "structured_spec_only",
+        "chapter_refs_only",
+        "artifact_refs_only"
       ],
       "ack_policy": "explicit_ack",
       "timeout_policy": "fail_closed",
@@ -101,13 +109,15 @@
       "enabled": true,
       "metadata": {
         "task_id": "task.writing.longform_novel_project",
-        "agent_group_id": "group.writing.longform_novel_core"
+        "agent_group_id": "group.writing.longform_novel_core",
+        "managed_by": "task_system",
+        "task_resource": "longform_novel_project"
       },
       "authority": "task_system.task_communication_protocol"
     },
     {
       "protocol_id": "protocol.writing.novel_bible_build",
-      "title": "长篇小说圣经构建协议",
+      "title": "长篇小说设定总纲协议",
       "message_types": [
         "world_bible_section",
         "character_bible_section",
@@ -138,7 +148,10 @@
       "enabled": true,
       "metadata": {
         "task_id": "task.writing.novel_bible_build",
-        "agent_group_id": "group.writing.longform_novel_core"
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true,
+        "managed_by": "task_system",
+        "task_resource": "novel_bible_build"
       },
       "authority": "task_system.task_communication_protocol"
     },
@@ -174,13 +187,16 @@
       "enabled": true,
       "metadata": {
         "task_id": "task.writing.volume_planning",
-        "agent_group_id": "group.writing.longform_novel_core"
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true,
+        "managed_by": "task_system",
+        "task_resource": "volume_planning"
       },
       "authority": "task_system.task_communication_protocol"
     },
     {
       "protocol_id": "protocol.writing.chapter_pipeline",
-      "title": "长篇小说章节流水线协议",
+      "title": "长篇小说章节协作协议",
       "message_types": [
         "chapter_goal",
         "chapter_plan",
@@ -203,8 +219,8 @@
       ],
       "signal_rules": [
         "plan_before_draft",
-        "dual_review_required",
-        "revision_loop_until_acceptance",
+        "review_before_acceptance",
+        "revision_loop_optional",
         "editor_acceptance_required"
       ],
       "handoff_rules": [
@@ -218,7 +234,11 @@
       "enabled": true,
       "metadata": {
         "task_id": "task.writing.chapter_drafting",
-        "agent_group_id": "group.writing.longform_novel_core"
+        "agent_group_id": "group.writing.longform_novel_core",
+        "protocol_role": "message_contract_only",
+        "internal_stage": true,
+        "managed_by": "task_system",
+        "task_resource": "chapter_pipeline"
       },
       "authority": "task_system.task_communication_protocol"
     },
@@ -254,7 +274,10 @@
       "enabled": true,
       "metadata": {
         "task_id": "task.writing.continuity_audit",
-        "agent_group_id": "group.writing.longform_novel_core"
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true,
+        "managed_by": "task_system",
+        "task_resource": "continuity_audit"
       },
       "authority": "task_system.task_communication_protocol"
     },
@@ -290,7 +313,10 @@
       "enabled": true,
       "metadata": {
         "task_id": "task.writing.final_compilation",
-        "agent_group_id": "group.writing.longform_novel_core"
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true,
+        "managed_by": "task_system",
+        "task_resource": "final_compilation"
       },
       "authority": "task_system.task_communication_protocol"
     },

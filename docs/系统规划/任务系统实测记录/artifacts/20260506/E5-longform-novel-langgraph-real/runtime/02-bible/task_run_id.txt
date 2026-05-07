@@ -1,1 +1,1 @@
-taskrun:lnlg_202605060953240ac2fdce_02_bible_a1:taskinst:turn:lnlg_202605060953240ac2fdce_02_bible_a1:1:novel_bible_build:1823f236
+taskrun:lnlg_20260507094406cff3ff2b_02_bible_a1:taskinst:turn:lnlg_20260507094406cff3ff2b_02_bible_a1:1:novel_bible_build:6799193b

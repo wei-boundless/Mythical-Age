@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from api import orchestration as orchestration_api
@@ -514,41 +515,42 @@ def test_task_system_includes_formal_short_story_task_objects(tmp_path: Path) ->
     assert coordination.enabled is True
 
 
-def test_task_system_includes_longform_novel_coordination_stack_and_agent_group(tmp_path: Path) -> None:
+def test_task_system_includes_longform_novel_continuous_delivery_stack_and_agent_group(tmp_path: Path) -> None:
     registry = TaskFlowRegistry(tmp_path)
     group_registry = AgentGroupRegistry(tmp_path)
 
-    flow = registry.get_flow("flow.writing.chapter_drafting")
-    record = registry.get_specific_task_record("task.writing.chapter_drafting")
-    protocol = registry.get_task_communication_protocol("protocol.writing.chapter_pipeline")
-    coordination = registry.get_coordination_task("coord.writing.chapter_pipeline")
-    memory_profile = registry.get_task_memory_request_profile("task.writing.chapter_drafting")
-    adoption_plan = registry.get_task_agent_adoption_plan("task.writing.chapter_drafting")
+    flow = registry.get_flow("flow.writing.longform_novel_project")
+    record = registry.get_specific_task_record("task.writing.longform_novel_project")
+    protocol = registry.get_task_communication_protocol("protocol.writing.longform_project_bootstrap")
+    coordination = registry.get_coordination_task("coord.writing.longform_project_bootstrap")
+    memory_profile = registry.get_task_memory_request_profile("task.writing.longform_novel_project")
+    adoption_plan = registry.get_task_agent_adoption_plan("task.writing.longform_novel_project")
     agent_group = group_registry.get_group("group.writing.longform_novel_core")
 
     assert flow is not None
-    assert flow.default_agent_id == "agent:24"
-    assert flow.metadata.get("coordination_task_id") == "coord.writing.chapter_pipeline"
+    assert flow.title == "长篇小说持续交付"
+    assert flow.default_runtime_lane == "novel_continuous_delivery"
+    assert flow.metadata.get("coordination_task_id") == "coord.writing.longform_project_bootstrap"
 
     assert record is not None
-    assert record.task_mode == "chapter_drafting"
+    assert record.task_mode == "longform_novel_project"
 
     assert protocol is not None
     assert protocol.enabled is True
-    assert "chapter_draft" in protocol.message_types
+    assert "chapter_batch" in protocol.message_types
 
     assert coordination is not None
     assert coordination.enabled is True
     assert coordination.agent_group_id == "group.writing.longform_novel_core"
-    assert "task.writing.chapter_planning" in coordination.subtask_refs
+    assert "task.writing.novel_bible_build" in coordination.subtask_refs
     assert "task.writing.chapter_drafting" in coordination.subtask_refs
-    assert "task.writing.chapter_revision" in coordination.subtask_refs
+    assert "task.writing.final_compilation" in coordination.subtask_refs
+    assert "agent:21" in coordination.participant_agent_ids
     assert "agent:24" in coordination.participant_agent_ids
-    assert "agent:25" in coordination.participant_agent_ids
     assert "agent:26" in coordination.participant_agent_ids
 
     assert memory_profile is not None
-    assert "novel_bible" in memory_profile.requested_topics
+    assert "novel_project_spec" in memory_profile.requested_topics
 
     assert adoption_plan is not None
     assert adoption_plan.to_dict()["execution_chain_type"] == "coordination_chain"
@@ -556,3 +558,64 @@ def test_task_system_includes_longform_novel_coordination_stack_and_agent_group(
     assert agent_group is not None
     assert agent_group.coordinator_agent_id == "agent:20"
     assert "agent:24" in agent_group.member_agent_ids
+
+
+def test_system_managed_longform_coordination_overrides_stale_storage_payload(tmp_path: Path) -> None:
+    tasks_dir = tmp_path / "storage" / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    (tasks_dir / "coordination_tasks.json").write_text(
+        json.dumps(
+            {
+                "coordination_tasks": [
+                    {
+                        "coordination_task_id": "coord.writing.longform_project_bootstrap",
+                        "title": "旧长篇立项协调",
+                        "coordination_mode": "project_bootstrap",
+                        "coordinator_agent_id": "agent:20",
+                        "task_family": "writing",
+                        "domain_id": "domain.writing",
+                        "participant_agent_ids": ["agent:21", "agent:22", "agent:23"],
+                        "topology_template_id": "topology.writing.longform_project_bootstrap",
+                        "subtask_refs": ["task.writing.longform_novel_project"],
+                        "metadata": {"task_id": "task.writing.longform_novel_project"},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (tasks_dir / "task_communication_protocols.json").write_text(
+        json.dumps(
+            {
+                "communication_protocols": [
+                    {
+                        "protocol_id": "protocol.writing.longform_project_bootstrap",
+                        "title": "旧长篇立项协议",
+                        "message_types": ["project_goal", "world_seed", "character_seed", "plot_seed", "editor_project_spec"],
+                        "payload_contracts": ["LongformNovelProjectInput", "WorldSeed", "CharacterSeed", "PlotSeed", "NovelProjectSpec"],
+                        "signal_rules": ["participants_report_to_editor", "editor_locks_project_scope"],
+                        "handoff_rules": ["project_refs_only", "structured_spec_only"],
+                        "enabled": True,
+                        "metadata": {"task_id": "task.writing.longform_novel_project"},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    registry = TaskFlowRegistry(tmp_path)
+    coordination = registry.get_coordination_task("coord.writing.longform_project_bootstrap")
+    protocol = registry.get_task_communication_protocol("protocol.writing.longform_project_bootstrap")
+
+    assert coordination is not None
+    assert coordination.coordination_mode == "continuous_delivery"
+    assert "task.writing.novel_bible_build" in coordination.subtask_refs
+    assert coordination.metadata.get("managed_by") == "task_system"
+    assert protocol is not None
+    assert "chapter_batch" in protocol.message_types
+    assert protocol.metadata.get("managed_by") == "task_system"

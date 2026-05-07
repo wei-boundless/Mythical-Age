@@ -212,10 +212,10 @@
     },
     {
       "task_id": "task.writing.longform_novel_project",
-      "task_title": "长篇小说项目立项",
+      "task_title": "长篇小说持续交付",
       "task_family": "writing",
       "task_mode": "longform_novel_project",
-      "description": "长篇小说项目立项",
+      "description": "长篇小说持续交付总入口",
       "enabled": true,
       "input_contract_id": "LongformNovelProjectInput",
       "output_contract_id": "NovelProjectSpec",
@@ -253,12 +253,24 @@
               "title": "汇总设定、人物与剧情种子"
             },
             {
-              "step_id": "define_artifact_layout",
-              "title": "定义长篇产物库结构"
+              "step_id": "deliver_novel_bible",
+              "title": "交付设定总纲"
             },
             {
-              "step_id": "accept_project_spec",
-              "title": "验收项目规格"
+              "step_id": "deliver_volume_plan",
+              "title": "交付卷规划"
+            },
+            {
+              "step_id": "deliver_chapter_batches",
+              "title": "持续交付章节批次"
+            },
+            {
+              "step_id": "deliver_continuity_audit",
+              "title": "交付连续性审计"
+            },
+            {
+              "step_id": "finalize_compilation",
+              "title": "交付全书编纂结果"
             }
           ],
           "task_resource_kind": "longform_novel_project",
@@ -351,7 +363,8 @@
         "communication_protocol_id": "protocol.writing.novel_bible_build",
         "topology_template_id": "topology.writing.novel_bible_build",
         "agent_group_id": "group.writing.longform_novel_core",
-        "source_flow_id": "flow.writing.novel_bible_build"
+        "source_flow_id": "flow.writing.novel_bible_build",
+        "internal_stage": true
       }
     },
     {
@@ -425,7 +438,8 @@
         "communication_protocol_id": "protocol.writing.volume_planning",
         "topology_template_id": "topology.writing.volume_planning",
         "agent_group_id": "group.writing.longform_novel_core",
-        "source_flow_id": "flow.writing.volume_planning"
+        "source_flow_id": "flow.writing.volume_planning",
+        "internal_stage": true
       }
     },
     {
@@ -491,7 +505,8 @@
         "communication_protocol_id": "protocol.writing.chapter_pipeline",
         "topology_template_id": "topology.writing.chapter_pipeline",
         "agent_group_id": "group.writing.longform_novel_core",
-        "source_flow_id": "flow.writing.chapter_planning"
+        "source_flow_id": "flow.writing.chapter_planning",
+        "internal_stage": true
       }
     },
     {
@@ -557,7 +572,8 @@
         "communication_protocol_id": "protocol.writing.chapter_pipeline",
         "topology_template_id": "topology.writing.chapter_pipeline",
         "agent_group_id": "group.writing.longform_novel_core",
-        "source_flow_id": "flow.writing.chapter_drafting"
+        "source_flow_id": "flow.writing.chapter_drafting",
+        "internal_stage": true
       }
     },
     {
@@ -623,7 +639,8 @@
         "communication_protocol_id": "protocol.writing.chapter_pipeline",
         "topology_template_id": "topology.writing.chapter_pipeline",
         "agent_group_id": "group.writing.longform_novel_core",
-        "source_flow_id": "flow.writing.chapter_revision"
+        "source_flow_id": "flow.writing.chapter_revision",
+        "internal_stage": true
       }
     },
     {
@@ -693,7 +710,8 @@
         "communication_protocol_id": "protocol.writing.continuity_audit",
         "topology_template_id": "topology.writing.continuity_audit",
         "agent_group_id": "group.writing.longform_novel_core",
-        "source_flow_id": "flow.writing.continuity_audit"
+        "source_flow_id": "flow.writing.continuity_audit",
+        "internal_stage": true
       }
     },
     {
@@ -763,7 +781,8 @@
         "communication_protocol_id": "protocol.writing.final_compilation",
         "topology_template_id": "topology.writing.final_compilation",
         "agent_group_id": "group.writing.longform_novel_core",
-        "source_flow_id": "flow.writing.final_compilation"
+        "source_flow_id": "flow.writing.final_compilation",
+        "internal_stage": true
       }
     },
     {

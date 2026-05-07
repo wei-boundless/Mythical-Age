@@ -84,6 +84,10 @@ class OrchestrationPreviewRequest(BaseModel):
     task_selection: dict[str, Any] = Field(default_factory=dict)
 
 
+class CoordinationRunResumeRequest(BaseModel):
+    resume_payload: dict[str, Any] = Field(default_factory=dict)
+
+
 @router.post("/orchestration/dry-run")
 async def orchestration_dry_run(payload: BehaviorDryRunRequest) -> dict[str, Any]:
     runtime = require_runtime()
@@ -363,6 +367,37 @@ async def get_runtime_loop_trace(
     if trace is None:
         raise HTTPException(status_code=404, detail="TaskRun trace not found")
     return trace
+
+
+@router.post("/orchestration/coordination-runs/{coordination_run_id}/resume")
+async def resume_coordination_run(
+    coordination_run_id: str,
+    payload: CoordinationRunResumeRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    result = runtime.query_runtime.task_run_loop.langgraph_coordination_runtime.resume_human_gate(
+        coordination_run_id=coordination_run_id,
+        resume_payload=dict(payload.resume_payload or {}),
+    )
+    if result.diagnostics.get("reason") == "missing_coordination_run":
+        raise HTTPException(status_code=404, detail="CoordinationRun not found")
+    if result.diagnostics.get("reason") == "missing_checkpoint":
+        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+    return {
+        "authority": "orchestration.coordination_run_resume",
+        "coordination_run_id": coordination_run_id,
+        "checkpoint_ref": result.checkpoint_ref,
+        "diagnostics": dict(result.diagnostics),
+        "stage_execution_request": (
+            result.stage_execution_request.to_dict()
+            if result.stage_execution_request is not None
+            else None
+        ),
+        "events": [
+            event.to_dict() if hasattr(event, "to_dict") else dict(event)
+            for event in result.events
+        ],
+    }
 
 
 @router.put("/orchestration/plan-mode")

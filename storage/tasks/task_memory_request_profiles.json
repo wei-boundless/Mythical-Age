@@ -1,0 +1,389 @@
+{
+  "memory_request_profiles": [
+    {
+      "profile_id": "taskmem:general.conversation.default",
+      "task_id": "general.conversation.default",
+      "requested_memory_layers": [
+        "conversation"
+      ],
+      "requested_topics": [
+        "current_conversation"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "conversation_read_write",
+      "metadata": {
+        "derived_from": "task_assignment"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.dev.bounded_patch",
+      "task_id": "task.dev.bounded_patch",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "project_background",
+        "recent_workspace_state",
+        "bounded_patch"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "conversation_read_write",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.dev.light_web_game",
+      "task_id": "task.dev.light_web_game",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "project_background",
+        "recent_workspace_state",
+        "light_web_game"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "conversation_read_write",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.short_story",
+      "task_id": "task.writing.short_story",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "story_goal",
+        "story_style",
+        "short_story"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "conversation_read_write",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.longform_novel_project",
+      "task_id": "task.writing.longform_novel_project",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "novel_project_spec",
+        "novel_bible",
+        "volume_plan",
+        "chapter_refs",
+        "longform_novel_project"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "novel_project_state",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.novel_bible_build",
+      "task_id": "task.writing.novel_bible_build",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "novel_project_spec",
+        "novel_bible",
+        "volume_plan",
+        "chapter_refs",
+        "novel_bible_build"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "novel_bible_read_write",
+      "metadata": {
+        "derived_from": "specific_task_record",
+        "internal_stage": true
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.volume_planning",
+      "task_id": "task.writing.volume_planning",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "novel_project_spec",
+        "novel_bible",
+        "volume_plan",
+        "chapter_refs",
+        "volume_planning"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "novel_bible_read_write",
+      "metadata": {
+        "derived_from": "specific_task_record",
+        "internal_stage": true
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.chapter_planning",
+      "task_id": "task.writing.chapter_planning",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "novel_project_spec",
+        "novel_bible",
+        "volume_plan",
+        "chapter_refs",
+        "chapter_planning"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "novel_chapter_refs",
+      "metadata": {
+        "derived_from": "specific_task_record",
+        "internal_stage": true
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.chapter_drafting",
+      "task_id": "task.writing.chapter_drafting",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "novel_project_spec",
+        "novel_bible",
+        "volume_plan",
+        "chapter_refs",
+        "chapter_drafting"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "chapter_draft_workspace",
+      "metadata": {
+        "derived_from": "specific_task_record",
+        "internal_stage": true
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.chapter_revision",
+      "task_id": "task.writing.chapter_revision",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "novel_project_spec",
+        "novel_bible",
+        "volume_plan",
+        "chapter_refs",
+        "chapter_revision"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "chapter_draft_workspace",
+      "metadata": {
+        "derived_from": "specific_task_record",
+        "internal_stage": true
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.continuity_audit",
+      "task_id": "task.writing.continuity_audit",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "novel_project_spec",
+        "novel_bible",
+        "volume_plan",
+        "chapter_refs",
+        "continuity_audit"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "continuity_workspace",
+      "metadata": {
+        "derived_from": "specific_task_record",
+        "internal_stage": true
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.final_compilation",
+      "task_id": "task.writing.final_compilation",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "novel_project_spec",
+        "novel_bible",
+        "volume_plan",
+        "chapter_refs",
+        "final_compilation"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "novel_bible_read_write",
+      "metadata": {
+        "derived_from": "specific_task_record",
+        "internal_stage": true
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.dev.arcade_game_bundle",
+      "task_id": "task.dev.arcade_game_bundle",
+      "requested_memory_layers": [
+        "conversation",
+        "state",
+        "long_term"
+      ],
+      "requested_topics": [
+        "project_background",
+        "recent_workspace_state",
+        "arcade_game_bundle"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "conversation_read_write",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.health.issue_triage",
+      "task_id": "task.health.issue_triage",
+      "requested_memory_layers": [
+        "state",
+        "conversation"
+      ],
+      "requested_topics": [
+        "health_issue",
+        "issue_triage"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "issue_local_readonly",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.health.trace_analysis",
+      "task_id": "task.health.trace_analysis",
+      "requested_memory_layers": [
+        "state",
+        "conversation"
+      ],
+      "requested_topics": [
+        "health_issue",
+        "trace_analysis"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "health_trace_readonly",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.health.case_draft",
+      "task_id": "task.health.case_draft",
+      "requested_memory_layers": [
+        "state",
+        "conversation"
+      ],
+      "requested_topics": [
+        "health_issue",
+        "case_draft"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "issue_local_readonly",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.health.fix_verification",
+      "task_id": "task.health.fix_verification",
+      "requested_memory_layers": [
+        "state",
+        "conversation"
+      ],
+      "requested_topics": [
+        "health_issue",
+        "fix_verification"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "health_trace_readonly",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    }
+  ]
+}

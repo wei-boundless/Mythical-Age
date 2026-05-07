@@ -139,12 +139,12 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
             flow_id="flow.writing.longform_novel_project",
             task_mode="longform_novel_project",
             task_family="writing",
-            title="长篇小说项目立项",
+            title="长篇小说持续交付",
             input_contract_id="LongformNovelProjectInput",
             output_contract_id="NovelProjectSpec",
             default_agent_id="agent:20",
             default_workflow_id="workflow.writing.longform_novel_project",
-            default_runtime_lane="novel_project_control",
+            default_runtime_lane="novel_continuous_delivery",
             default_memory_scope="novel_project_state",
             metadata={
                 "task_resource": "longform_novel_project",
@@ -175,6 +175,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
                 "communication_protocol_id": "protocol.writing.novel_bible_build",
                 "topology_template_id": "topology.writing.novel_bible_build",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
             },
         ),
         TaskFlowDefinition(
@@ -196,6 +197,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
                 "communication_protocol_id": "protocol.writing.volume_planning",
                 "topology_template_id": "topology.writing.volume_planning",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
             },
         ),
         TaskFlowDefinition(
@@ -217,6 +219,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
                 "communication_protocol_id": "protocol.writing.chapter_pipeline",
                 "topology_template_id": "topology.writing.chapter_pipeline",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
             },
         ),
         TaskFlowDefinition(
@@ -238,6 +241,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
                 "communication_protocol_id": "protocol.writing.chapter_pipeline",
                 "topology_template_id": "topology.writing.chapter_pipeline",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
             },
         ),
         TaskFlowDefinition(
@@ -259,6 +263,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
                 "communication_protocol_id": "protocol.writing.chapter_pipeline",
                 "topology_template_id": "topology.writing.chapter_pipeline",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
             },
         ),
         TaskFlowDefinition(
@@ -280,6 +285,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
                 "communication_protocol_id": "protocol.writing.continuity_audit",
                 "topology_template_id": "topology.writing.continuity_audit",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
             },
         ),
         TaskFlowDefinition(
@@ -301,6 +307,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
                 "communication_protocol_id": "protocol.writing.final_compilation",
                 "topology_template_id": "topology.writing.final_compilation",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
             },
         ),
         TaskFlowDefinition(
@@ -507,6 +514,39 @@ def _merge_default_overlay_by_key(
             merged_item["task_policy"] = merged_policy
         merged[item_key] = merged_item
     return list(merged.values())
+
+
+def _merge_authoritative_defaults_by_key(
+    default_items: list[dict[str, Any]],
+    stored_items: list[dict[str, Any]],
+    *,
+    key: str,
+) -> list[dict[str, Any]]:
+    defaults_by_key = {
+        str(item.get(key) or "").strip(): dict(item)
+        for item in default_items
+        if str(item.get(key) or "").strip()
+    }
+    merged: dict[str, dict[str, Any]] = {item_key: dict(item) for item_key, item in defaults_by_key.items()}
+    for stored in stored_items:
+        item_key = str(stored.get(key) or "").strip()
+        if not item_key:
+            continue
+        default_item = dict(defaults_by_key.get(item_key) or {})
+        if default_item and _is_system_managed_item(default_item):
+            continue
+        if default_item:
+            merged[item_key] = {**default_item, **dict(stored)}
+            continue
+        merged[item_key] = dict(stored)
+    return list(merged.values())
+
+
+def _is_system_managed_item(item: dict[str, Any]) -> bool:
+    metadata = dict(item.get("metadata") or {})
+    if str(metadata.get("managed_by") or "").strip() == "task_system":
+        return True
+    return bool(str(metadata.get("task_resource") or "").strip())
 
 
 def _next_prefixed_id(existing_ids: list[str], *, prefix: str, width: int = 6) -> str:
@@ -730,23 +770,289 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
         ),
         CoordinationTaskDefinition(
             coordination_task_id="coord.writing.longform_project_bootstrap",
-            title="长篇小说项目立项协作",
-            coordination_mode="project_bootstrap",
+            title="长篇小说持续交付总协调",
+            coordination_mode="continuous_delivery",
             coordinator_agent_id="agent:20",
             task_family="writing",
             domain_id="domain.writing",
             agent_group_id="group.writing.longform_novel_core",
-            participant_agent_ids=("agent:21", "agent:22", "agent:23"),
+            participant_agent_ids=("agent:21", "agent:22", "agent:23", "agent:24", "agent:25", "agent:26"),
             topology_template_id="topology.writing.longform_project_bootstrap",
-            shared_context_policy="project_spec_refs_only",
+            shared_context_policy="project_bible_refs_only",
             memory_sharing_policy="shared_project_bible_refs",
-            handoff_policy="project_contract_handoff",
+            handoff_policy="stage_contract_handoff",
             conflict_resolution_policy="editor_gate_review",
             output_merge_policy="editor_gate_merge",
-            stop_conditions=("project_scope_locked", "bible_backlog_defined"),
-            subtask_refs=("task.writing.longform_novel_project",),
+            stop_conditions=(
+                "project_scope_locked",
+                "bible_backlog_defined",
+                "volume_plan_accepted",
+                "chapter_batch_accepted",
+                "continuity_report_accepted",
+                "compilation_ready",
+            ),
+            subtask_refs=(
+                "task.writing.novel_bible_build",
+                "task.writing.volume_planning",
+                "task.writing.chapter_planning",
+                "task.writing.chapter_drafting",
+                "task.writing.chapter_revision",
+                "task.writing.continuity_audit",
+                "task.writing.final_compilation",
+            ),
             enabled=True,
-            metadata={"task_id": "task.writing.longform_novel_project"},
+            metadata={
+                "task_id": "task.writing.longform_novel_project",
+                "managed_by": "task_system",
+                "task_resource": "longform_novel_project",
+                "stage_sequence": [
+                    {
+                        "stage_id": "project_scope",
+                        "title": "项目规格锁定",
+                        "node_id": "project_scope",
+                        "role": "coordinator",
+                        "task_ref": "task.writing.longform_novel_project",
+                        "message_type": "project_scope",
+                    },
+                    {
+                        "stage_id": "novel_bible",
+                        "title": "设定总纲构建",
+                        "node_id": "novel_bible",
+                        "role": "participant",
+                        "task_ref": "task.writing.novel_bible_build",
+                        "message_type": "world_seed",
+                    },
+                    {
+                        "stage_id": "volume_planning",
+                        "title": "卷规划",
+                        "node_id": "volume_planning",
+                        "role": "participant",
+                        "task_ref": "task.writing.volume_planning",
+                        "message_type": "volume_plan",
+                    },
+                    {
+                        "stage_id": "chapter_planning",
+                        "title": "章节批次规划",
+                        "node_id": "chapter_pipeline",
+                        "role": "participant",
+                        "task_ref": "task.writing.chapter_planning",
+                        "message_type": "chapter_plan",
+                    },
+                    {
+                        "stage_id": "chapter_pipeline",
+                        "title": "章节批次交付",
+                        "node_id": "chapter_drafting",
+                        "role": "participant",
+                        "task_ref": "task.writing.chapter_drafting",
+                        "message_type": "chapter_batch",
+                    },
+                    {
+                        "stage_id": "continuity_audit",
+                        "title": "连续性审计",
+                        "node_id": "continuity_audit",
+                        "role": "participant",
+                        "task_ref": "task.writing.continuity_audit",
+                        "message_type": "continuity_audit",
+                    },
+                    {
+                        "stage_id": "final_compilation",
+                        "title": "全书编纂",
+                        "node_id": "final_compilation",
+                        "role": "coordinator",
+                        "task_ref": "task.writing.final_compilation",
+                        "message_type": "editor_merge",
+                    },
+                ],
+                "continuation_policy": {
+                    "mode": "topology_driven",
+                    "auto_continue": True,
+                    "max_auto_steps": 100,
+                    "stop_on_missing_required_input": True,
+                    "terminal_policy": "terminal_node_or_stop_condition",
+                    "human_gate_stage_ids": [],
+                    "retry_budget": {"default": 0, "revision_loop": 2},
+                },
+                "stage_contracts": [
+                    {
+                        "stage_id": "project_scope",
+                        "node_id": "project_scope",
+                        "task_ref": "task.writing.longform_novel_project",
+                        "required_inputs": [],
+                        "optional_inputs": ["artifact_root", "run_request"],
+                        "input_bindings": [],
+                        "output_mappings": [
+                            {"output_key": "project_spec_ref", "ref_kind": "artifact", "required": True}
+                        ],
+                        "gate_policy": "artifact_validation_required",
+                    },
+                    {
+                        "stage_id": "novel_bible",
+                        "node_id": "novel_bible",
+                        "task_ref": "task.writing.novel_bible_build",
+                        "required_inputs": ["project_spec_ref"],
+                        "optional_inputs": ["artifact_root", "run_request"],
+                        "input_bindings": [
+                            {
+                                "input_key": "project_spec_ref",
+                                "source": "latest_output",
+                                "task_ref": "task.writing.longform_novel_project",
+                                "required": True,
+                            }
+                        ],
+                        "output_mappings": [
+                            {"output_key": "novel_bible_ref", "ref_kind": "artifact", "required": True}
+                        ],
+                        "gate_policy": "artifact_validation_required",
+                    },
+                    {
+                        "stage_id": "volume_planning",
+                        "node_id": "volume_planning",
+                        "task_ref": "task.writing.volume_planning",
+                        "required_inputs": ["novel_bible_ref"],
+                        "optional_inputs": ["artifact_root", "volume_index", "run_request"],
+                        "input_bindings": [
+                            {
+                                "input_key": "novel_bible_ref",
+                                "source": "latest_output",
+                                "task_ref": "task.writing.novel_bible_build",
+                                "required": True,
+                            },
+                            {"input_key": "volume_index", "source": "literal", "value": 1},
+                        ],
+                        "output_mappings": [
+                            {"output_key": "volume_plan_ref", "ref_kind": "artifact", "required": True}
+                        ],
+                        "gate_policy": "artifact_validation_required",
+                    },
+                    {
+                        "stage_id": "chapter_planning",
+                        "node_id": "chapter_pipeline",
+                        "task_ref": "task.writing.chapter_planning",
+                        "required_inputs": ["novel_bible_ref", "volume_plan_ref", "context_refs"],
+                        "optional_inputs": ["artifact_root", "chapter_index", "run_request"],
+                        "input_bindings": [
+                            {
+                                "input_key": "novel_bible_ref",
+                                "source": "latest_output",
+                                "task_ref": "task.writing.novel_bible_build",
+                                "required": True,
+                            },
+                            {
+                                "input_key": "volume_plan_ref",
+                                "source": "latest_output",
+                                "task_ref": "task.writing.volume_planning",
+                                "required": True,
+                            },
+                            {
+                                "input_key": "context_refs",
+                                "source": "collect",
+                                "required": True,
+                                "items": [
+                                    {"source": "latest_output", "task_ref": "task.writing.novel_bible_build"},
+                                    {"source": "latest_output", "task_ref": "task.writing.volume_planning"},
+                                ],
+                            },
+                            {"input_key": "chapter_index", "source": "literal", "value": 1},
+                            {
+                                "input_key": "run_request",
+                                "source": "literal",
+                                "value": "按持续交付流程生成当前批次章节正文，单轮目标约一万字、约五章，最多两轮轻审，不等待用户再次确认。",
+                            },
+                        ],
+                        "output_mappings": [
+                            {"output_key": "chapter_plan_ref", "ref_kind": "artifact", "required": True}
+                        ],
+                        "gate_policy": "artifact_validation_required",
+                    },
+                    {
+                        "stage_id": "chapter_pipeline",
+                        "node_id": "chapter_drafting",
+                        "task_ref": "task.writing.chapter_drafting",
+                        "required_inputs": ["chapter_plan_ref", "context_refs"],
+                        "optional_inputs": ["artifact_root", "run_request"],
+                        "input_bindings": [
+                            {
+                                "input_key": "chapter_plan_ref",
+                                "source": "stage_output",
+                                "output_key": "chapter_plan_ref",
+                                "required": True,
+                            },
+                            {
+                                "input_key": "context_refs",
+                                "source": "collect",
+                                "required": True,
+                                "items": [
+                                    {"source": "stage_output", "output_key": "novel_bible_ref"},
+                                    {"source": "stage_output", "output_key": "volume_plan_ref"},
+                                    {"source": "stage_output", "output_key": "chapter_plan_ref"},
+                                ],
+                            },
+                            {
+                                "input_key": "run_request",
+                                "source": "literal",
+                                "value": "按持续交付流程生成当前批次章节正文，单轮目标约一万字、约五章，最多两轮轻审，不等待用户再次确认。",
+                            },
+                        ],
+                        "output_mappings": [
+                            {"output_key": "chapter_refs", "ref_kind": "artifact", "required": True, "single": False}
+                        ],
+                        "gate_policy": "artifact_validation_required",
+                    },
+                    {
+                        "stage_id": "continuity_audit",
+                        "node_id": "continuity_audit",
+                        "task_ref": "task.writing.continuity_audit",
+                        "required_inputs": ["novel_bible_ref", "chapter_refs"],
+                        "optional_inputs": ["artifact_root"],
+                        "input_bindings": [
+                            {
+                                "input_key": "novel_bible_ref",
+                                "source": "latest_output",
+                                "task_ref": "task.writing.novel_bible_build",
+                                "required": True,
+                            },
+                            {
+                                "input_key": "chapter_refs",
+                                "source": "latest_output",
+                                "task_ref": "task.writing.chapter_drafting",
+                                "required": True,
+                                "single": False,
+                            },
+                        ],
+                        "output_mappings": [
+                            {"output_key": "final_audit_refs", "ref_kind": "artifact", "required": True}
+                        ],
+                        "gate_policy": "artifact_validation_required",
+                    },
+                    {
+                        "stage_id": "final_compilation",
+                        "node_id": "final_compilation",
+                        "task_ref": "task.writing.final_compilation",
+                        "required_inputs": ["accepted_chapter_refs", "final_audit_refs"],
+                        "optional_inputs": ["artifact_root"],
+                        "input_bindings": [
+                            {
+                                "input_key": "accepted_chapter_refs",
+                                "source": "stage_output",
+                                "output_key": "chapter_refs",
+                                "required": True,
+                                "single": False,
+                            },
+                            {
+                                "input_key": "final_audit_refs",
+                                "source": "latest_output",
+                                "task_ref": "task.writing.continuity_audit",
+                                "required": True,
+                                "single": False,
+                            },
+                        ],
+                        "output_mappings": [
+                            {"output_key": "final_manuscript_ref", "ref_kind": "artifact", "required": True}
+                        ],
+                        "gate_policy": "artifact_validation_required",
+                    },
+                ],
+            },
         ),
         CoordinationTaskDefinition(
             coordination_task_id="coord.writing.novel_bible_build",
@@ -766,7 +1072,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             stop_conditions=("story_bible_complete", "consistency_passed"),
             subtask_refs=("task.writing.novel_bible_build",),
             enabled=True,
-            metadata={"task_id": "task.writing.novel_bible_build"},
+            metadata={"task_id": "task.writing.novel_bible_build", "internal_stage": True, "managed_by": "task_system", "task_resource": "novel_bible_build"},
         ),
         CoordinationTaskDefinition(
             coordination_task_id="coord.writing.volume_planning",
@@ -786,7 +1092,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             stop_conditions=("volume_plan_accepted",),
             subtask_refs=("task.writing.volume_planning",),
             enabled=True,
-            metadata={"task_id": "task.writing.volume_planning"},
+            metadata={"task_id": "task.writing.volume_planning", "internal_stage": True, "managed_by": "task_system", "task_resource": "volume_planning"},
         ),
         CoordinationTaskDefinition(
             coordination_task_id="coord.writing.chapter_pipeline",
@@ -817,7 +1123,9 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
                 "request_policy": "runtime_request_is_carried_as_natural_language_brief",
                 "max_revision_cycles": 2,
                 "required_revision_cycles": 0,
-                "review_policy": "light_gate_review",
+                "internal_stage": True,
+                "managed_by": "task_system",
+                "task_resource": "chapter_pipeline",
             },
         ),
         CoordinationTaskDefinition(
@@ -838,7 +1146,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             stop_conditions=("continuity_report_accepted",),
             subtask_refs=("task.writing.continuity_audit",),
             enabled=True,
-            metadata={"task_id": "task.writing.continuity_audit"},
+            metadata={"task_id": "task.writing.continuity_audit", "internal_stage": True, "managed_by": "task_system", "task_resource": "continuity_audit"},
         ),
         CoordinationTaskDefinition(
             coordination_task_id="coord.writing.final_compilation",
@@ -858,7 +1166,7 @@ def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
             stop_conditions=("book_compilation_accepted",),
             subtask_refs=("task.writing.final_compilation",),
             enabled=True,
-            metadata={"task_id": "task.writing.final_compilation"},
+            metadata={"task_id": "task.writing.final_compilation", "internal_stage": True, "managed_by": "task_system", "task_resource": "final_compilation"},
         ),
     )
 
@@ -909,16 +1217,16 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
         ),
         TaskCommunicationProtocol(
             protocol_id="protocol.writing.longform_project_bootstrap",
-            title="长篇小说项目立项协议",
-            message_types=("project_goal", "world_seed", "character_seed", "plot_seed", "editor_project_spec"),
-            payload_contracts=("LongformNovelProjectInput", "WorldSeed", "CharacterSeed", "PlotSeed", "NovelProjectSpec"),
-            signal_rules=("participants_report_to_editor", "editor_locks_project_scope"),
-            handoff_rules=("project_refs_only", "structured_spec_only"),
+            title="长篇小说持续交付协议",
+            message_types=("project_scope", "world_seed", "character_seed", "volume_plan", "chapter_batch", "continuity_audit", "editor_merge"),
+            payload_contracts=("LongformNovelProjectInput", "WorldSeed", "CharacterSeed", "VolumePlan", "ChapterDraft", "ContinuityAuditReport", "LongformNovelCompilation"),
+            signal_rules=("participants_report_to_editor", "editor_locks_project_scope", "stage_gate_required", "editor_merge_gate"),
+            handoff_rules=("project_refs_only", "structured_spec_only", "chapter_refs_only", "artifact_refs_only"),
             ack_policy="explicit_ack",
             timeout_policy="fail_closed",
             error_signal_policy="raise_to_editor",
             enabled=True,
-            metadata={"task_id": "task.writing.longform_novel_project", "agent_group_id": "group.writing.longform_novel_core"},
+            metadata={"task_id": "task.writing.longform_novel_project", "agent_group_id": "group.writing.longform_novel_core", "managed_by": "task_system", "task_resource": "longform_novel_project"},
         ),
         TaskCommunicationProtocol(
             protocol_id="protocol.writing.novel_bible_build",
@@ -931,7 +1239,7 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
             timeout_policy="fail_closed",
             error_signal_policy="raise_to_editor",
             enabled=True,
-            metadata={"task_id": "task.writing.novel_bible_build", "agent_group_id": "group.writing.longform_novel_core"},
+            metadata={"task_id": "task.writing.novel_bible_build", "agent_group_id": "group.writing.longform_novel_core", "internal_stage": True, "managed_by": "task_system", "task_resource": "novel_bible_build"},
         ),
         TaskCommunicationProtocol(
             protocol_id="protocol.writing.volume_planning",
@@ -944,7 +1252,7 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
             timeout_policy="fail_closed",
             error_signal_policy="raise_to_editor",
             enabled=True,
-            metadata={"task_id": "task.writing.volume_planning", "agent_group_id": "group.writing.longform_novel_core"},
+            metadata={"task_id": "task.writing.volume_planning", "agent_group_id": "group.writing.longform_novel_core", "internal_stage": True, "managed_by": "task_system", "task_resource": "volume_planning"},
         ),
         TaskCommunicationProtocol(
             protocol_id="protocol.writing.chapter_pipeline",
@@ -979,6 +1287,9 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
                 "task_id": "task.writing.chapter_drafting",
                 "agent_group_id": "group.writing.longform_novel_core",
                 "protocol_role": "message_contract_only",
+                "internal_stage": True,
+                "managed_by": "task_system",
+                "task_resource": "chapter_pipeline",
             },
         ),
         TaskCommunicationProtocol(
@@ -992,7 +1303,7 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
             timeout_policy="fail_closed",
             error_signal_policy="raise_to_editor",
             enabled=True,
-            metadata={"task_id": "task.writing.continuity_audit", "agent_group_id": "group.writing.longform_novel_core"},
+            metadata={"task_id": "task.writing.continuity_audit", "agent_group_id": "group.writing.longform_novel_core", "internal_stage": True, "managed_by": "task_system", "task_resource": "continuity_audit"},
         ),
         TaskCommunicationProtocol(
             protocol_id="protocol.writing.final_compilation",
@@ -1005,7 +1316,7 @@ def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, .
             timeout_policy="fail_closed",
             error_signal_policy="raise_to_editor",
             enabled=True,
-            metadata={"task_id": "task.writing.final_compilation", "agent_group_id": "group.writing.longform_novel_core"},
+            metadata={"task_id": "task.writing.final_compilation", "agent_group_id": "group.writing.longform_novel_core", "internal_stage": True, "managed_by": "task_system", "task_resource": "final_compilation"},
         ),
     )
 
@@ -1050,19 +1361,27 @@ def default_topology_templates() -> tuple[TopologyTemplate, ...]:
         ),
         TopologyTemplate(
             template_id="topology.writing.longform_project_bootstrap",
-            title="长篇小说项目立项拓扑",
+            title="长篇小说持续交付拓扑",
             nodes=(
-                {"node_id": "editor_gate", "agent_id": "agent:20", "lane": "novel_project_control", "role": "coordinator"},
-                {"node_id": "world_seed", "agent_id": "agent:21", "lane": "world_bible_build", "role": "participant"},
-                {"node_id": "character_seed", "agent_id": "agent:22", "lane": "character_bible_build", "role": "participant"},
-                {"node_id": "plot_seed", "agent_id": "agent:23", "lane": "volume_plot_plan", "role": "participant"},
+                {"node_id": "coordinator", "agent_id": "agent:20", "lane": "novel_project_control", "role": "coordinator"},
+                {"node_id": "project_scope", "agent_id": "agent:20", "lane": "novel_project_control", "role": "participant"},
+                {"node_id": "novel_bible", "agent_id": "agent:21", "lane": "novel_bible_gate", "role": "participant"},
+                {"node_id": "volume_planning", "agent_id": "agent:22", "lane": "volume_acceptance", "role": "participant"},
+                {"node_id": "chapter_pipeline", "agent_id": "agent:23", "lane": "chapter_planning", "role": "participant"},
+                {"node_id": "chapter_drafting", "agent_id": "agent:24", "lane": "chapter_drafting", "role": "participant"},
+                {"node_id": "continuity_audit", "agent_id": "agent:26", "lane": "continuity_audit", "role": "participant"},
+                {"node_id": "final_compilation", "agent_id": "agent:20", "lane": "final_compilation", "role": "coordinator"},
             ),
             edges=(
-                {"from": "world_seed", "to": "editor_gate", "policy": "project_contract_handoff"},
-                {"from": "character_seed", "to": "editor_gate", "policy": "project_contract_handoff"},
-                {"from": "plot_seed", "to": "editor_gate", "policy": "project_contract_handoff"},
+                {"from": "project_scope", "to": "novel_bible", "policy": "project_contract_handoff"},
+                {"from": "novel_bible", "to": "volume_planning", "policy": "stage_contract_handoff"},
+                {"from": "volume_planning", "to": "chapter_pipeline", "policy": "stage_contract_handoff"},
+                {"from": "chapter_pipeline", "to": "chapter_drafting", "policy": "stage_contract_handoff"},
+                {"from": "chapter_drafting", "to": "continuity_audit", "policy": "stage_contract_handoff"},
+                {"from": "continuity_audit", "to": "final_compilation", "policy": "stage_contract_handoff"},
             ),
             enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "longform_project_bootstrap"},
         ),
         TopologyTemplate(
             template_id="topology.writing.novel_bible_build",
@@ -2586,7 +2905,7 @@ class TaskFlowRegistry:
             _coordination_tasks_path(self.base_dir),
             {"coordination_tasks": default_payload},
         )
-        merged_payload = _merge_items_by_key(
+        merged_payload = _merge_authoritative_defaults_by_key(
             default_payload,
             [item for item in list(payload.get("coordination_tasks") or []) if isinstance(item, dict)],
             key="coordination_task_id",
@@ -2689,7 +3008,7 @@ class TaskFlowRegistry:
             _topology_templates_path(self.base_dir),
             {"topology_templates": default_payload},
         )
-        merged_payload = _merge_items_by_key(
+        merged_payload = _merge_authoritative_defaults_by_key(
             default_payload,
             [item for item in list(payload.get("topology_templates") or []) if isinstance(item, dict)],
             key="template_id",
@@ -2727,7 +3046,7 @@ class TaskFlowRegistry:
             _communication_protocols_path(self.base_dir),
             {"communication_protocols": default_payload},
         )
-        merged_payload = _merge_items_by_key(
+        merged_payload = _merge_authoritative_defaults_by_key(
             default_payload,
             [item for item in list(payload.get("communication_protocols") or []) if isinstance(item, dict)],
             key="protocol_id",

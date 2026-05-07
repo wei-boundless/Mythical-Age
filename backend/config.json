@@ -24,5 +24,13 @@
       "terminal_timeout_seconds": 300,
       "component_char_limit": 20000
     }
+  },
+  "model_provider": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro",
+    "base_url": "https://api.deepseek.com",
+    "fallback_provider": "openai",
+    "fallback_model": "deepseek-v4-flash",
+    "fallback_base_url": "https://api.deepseek.com"
   }
 }

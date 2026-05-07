@@ -56,6 +56,7 @@ from .action_request import (
 )
 from .checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from .coordination_flow import (
+    advance_coordination_flow_state,
     build_coordination_flow_state,
     build_coordination_node_status_map,
     finalize_coordination_flow_state,
@@ -72,6 +73,9 @@ from .execution_record import (
 from .event_log import RuntimeEventLog
 from .loop_control import RuntimeLoopLimits, check_runtime_loop_control
 from .langgraph_coordination_runner import LangGraphCoordinationRunner
+from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs, dedupe_refs as dedupe_artifact_refs
+from .langgraph_coordination_runtime import LangGraphCoordinationRuntime
+from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
 from .model_adoption import build_model_response_runtime_adoption
 from .models import (
     AgentHandoffEnvelope,
@@ -115,6 +119,15 @@ class TaskRunLoopStartResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class FinishedTaskRunResult:
+    events: tuple[Any, ...]
+    continuation_payload: dict[str, Any] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "continuation_payload", dict(self.continuation_payload or {}))
+
+
 class TaskRunLoop:
     """Single-agent loop owner.
 
@@ -150,6 +163,14 @@ class TaskRunLoop:
         self.agent_runtime_registry = AgentRuntimeRegistry(self.backend_dir)
         self.worker_agent_factory = WorkerAgentFactory(self.backend_dir)
         self.langgraph_coordination_runner = LangGraphCoordinationRunner()
+        self.langgraph_coordination_runtime = LangGraphCoordinationRuntime(
+            root_dir=self.root_dir,
+            state_index=self.state_index,
+            event_log=self.event_log,
+            task_flow_registry=self.task_flow_registry,
+            trace_reader=self,
+        )
+        self.artifact_ref_index = ArtifactRefIndex(self.state_index, self)
         self.evidence_orchestrator = evidence_orchestrator
 
     @staticmethod
@@ -397,23 +418,6 @@ class TaskRunLoop:
     ):
         """Run the current single-agent lane inside the TaskRunLoop trace spine."""
 
-        start = self.start(
-            session_id=session_id,
-            task_id=task_id,
-            diagnostics={"runtime_channel": "single_agent_runtime"},
-        )
-        state = start.loop_state
-        yield {
-            "type": "runtime_loop_started",
-            "task_run": start.task_run.to_dict(),
-            "agent_run": start.agent_run.to_dict(),
-            "coordination_run": start.coordination_run.to_dict() if start.coordination_run is not None else None,
-            "checkpoint": start.checkpoint.to_dict(),
-            "events": [dict(item) for item in start.events],
-        }
-        for event in start.events:
-            yield {"type": "runtime_loop_event", "event": dict(event)}
-
         chain_runtime = agent_runtime_chain.build_runtime(
             session_id=session_id,
             task_id=task_id,
@@ -447,6 +451,37 @@ class TaskRunLoop:
         result_refs: list[str] = []
         final_main_context: dict[str, Any] = {}
         final_task_summary_refs: list[dict[str, Any]] = []
+        start = self.start(
+            session_id=session_id,
+            task_id=task_id,
+            task_contract_ref=str(task_contract.get("task_id") or task_id),
+            agent_id=str(agent_runtime_spec_payload.get("agent_id") or "agent:0"),
+            agent_profile_id=str(
+                getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"
+            ),
+            runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or "full_interactive"),
+            task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
+            adoption_mode=adoption_mode,
+            coordination_task_ref=str(coordination_task_payload.get("coordination_task_id") or ""),
+            coordinator_agent_id=str(coordination_task_payload.get("coordinator_agent_id") or ""),
+            topology_template_id=str(coordination_task_payload.get("topology_template_id") or ""),
+            communication_protocol_id=str(task_communication_protocol_payload.get("protocol_id") or ""),
+            handoff_policy=str(coordination_task_payload.get("handoff_policy") or ""),
+            failure_policy=str(coordination_task_payload.get("conflict_resolution_policy") or ""),
+            merge_policy=str(coordination_task_payload.get("output_merge_policy") or ""),
+            diagnostics={"runtime_channel": "single_agent_runtime"},
+        )
+        state = start.loop_state
+        yield {
+            "type": "runtime_loop_started",
+            "task_run": start.task_run.to_dict(),
+            "agent_run": start.agent_run.to_dict(),
+            "coordination_run": start.coordination_run.to_dict() if start.coordination_run is not None else None,
+            "checkpoint": start.checkpoint.to_dict(),
+            "events": [dict(item) for item in start.events],
+        }
+        for event in start.events:
+            yield {"type": "runtime_loop_event", "event": dict(event)}
 
         task_contract_ref = str(task_contract.get("task_id") or task_id)
         runtime_task_ledger = _build_initial_task_run_ledger(
@@ -804,7 +839,7 @@ class TaskRunLoop:
             yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
             checkpoint_event = self._write_checkpoint_event(terminal_state, event_offset=terminal_event.offset)
             yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
-            self._upsert_finished_task_run(
+            finished = self._upsert_finished_task_run(
                 start_task_run=start.task_run,
                 start_agent_run=start.agent_run,
                 start_coordination_run=start.coordination_run,
@@ -814,6 +849,8 @@ class TaskRunLoop:
                 final_content="",
                 diagnostics={"runtime_loop_control_reason": control_decision.reason},
             )
+            for runtime_event in finished.events:
+                yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
             return
 
         directive, resource_policy = build_model_response_runtime_adoption(
@@ -930,7 +967,7 @@ class TaskRunLoop:
             yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
             checkpoint_event = self._write_checkpoint_event(terminal_state, event_offset=terminal_event.offset)
             yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
-            self._upsert_finished_task_run(
+            finished = self._upsert_finished_task_run(
                 start_task_run=start.task_run,
                 start_agent_run=start.agent_run,
                 start_coordination_run=start.coordination_run,
@@ -940,6 +977,8 @@ class TaskRunLoop:
                 final_content="",
                 diagnostics={"operation_gate_reason": gate_result.reason},
             )
+            for runtime_event in finished.events:
+                yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
             return
 
         final_content = ""
@@ -1849,6 +1888,41 @@ class TaskRunLoop:
             )
             yield {"type": "runtime_loop_event", "event": recovery_event.to_dict()}
 
+        if (
+            terminal_reason == "completed"
+            and str(selected_template_payload.get("task_mode") or "").strip() == "longform_novel_project"
+            and artifact_validation["passed"]
+        ):
+            current_flow = (
+                dict(start.coordination_run.diagnostics.get("coordination_flow") or {})
+                if start.coordination_run is not None
+                else {}
+            )
+            final_content = _build_longform_continuous_delivery_progress_answer(
+                selected_template_payload=selected_template_payload,
+                artifact_validation=artifact_validation,
+                coordination_flow=current_flow,
+            )
+            final_answer_metadata = {
+                "answer_channel": "tool_visible_summary",
+                "answer_source": "runtime_loop.longform_progress_summary",
+                "answer_canonical_state": "stable_answer",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": "",
+            }
+            progress_event = self.event_log.append(
+                state.task_run_id,
+                "longform_progress_summary_finalized",
+                payload={
+                    "artifact_validation": artifact_validation,
+                    "coordination_flow": current_flow,
+                    "final_content_chars": len(final_content),
+                },
+                refs={"task_contract_ref": task_contract_ref},
+            )
+            yield {"type": "runtime_loop_event", "event": progress_event.to_dict()}
+
         if not artifact_validation["passed"] and terminal_reason == "completed":
             terminal_reason = "artifact_validation_failed"
             final_answer_metadata = {
@@ -1905,6 +1979,16 @@ class TaskRunLoop:
                     final_task_summary_refs,
                     final_bundle_summary_refs,
                 ) = self._apply_observation_aggregation(aggregation)
+        context_answer_source = str(final_main_context.get("answer_source") or "").strip()
+        if context_answer_source and str(final_answer_metadata.get("answer_source") or "").strip() in {
+            "",
+            "runtime_directive:model_response",
+            "runtime_mcp",
+        }:
+            final_answer_metadata = {
+                **dict(final_answer_metadata),
+                "answer_source": context_answer_source,
+            }
         assistant_commit = build_assistant_session_message_commit_decision(
             session_id=session_id,
             task_run_id=terminal_state.task_run_id,
@@ -2125,7 +2209,7 @@ class TaskRunLoop:
         yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
         checkpoint_event = self._write_checkpoint_event(terminal_state, event_offset=terminal_event.offset)
         yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
-        self._upsert_finished_task_run(
+        finished = self._upsert_finished_task_run(
             start_task_run=start.task_run,
             start_agent_run=start.agent_run,
             start_coordination_run=start.coordination_run,
@@ -2133,8 +2217,33 @@ class TaskRunLoop:
             terminal_state=terminal_state,
             checkpoint_event=checkpoint_event,
             final_content=final_content,
+            task_result=task_result.to_dict() if task_result is not None else {},
+            task_spec_payload=task_spec_payload,
+            current_turn_context=current_turn_context,
+            user_message=user_message,
             diagnostics={"final_content_chars": len(final_content)},
         )
+        for runtime_event in finished.events:
+            yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+        continuation_payload = dict(finished.continuation_payload or {})
+        if continuation_payload:
+            async for event in self._continue_coordination_delivery_stream(
+                session_id=session_id,
+                history=history,
+                source=source,
+                agent_runtime_chain=agent_runtime_chain,
+                model_response_executor=model_response_executor,
+                runtime_context_manager=runtime_context_manager,
+                stage_projection_cycle=stage_projection_cycle,
+                memory_intent=memory_intent,
+                assistant_message_committer=assistant_message_committer,
+                tool_runtime_executor=tool_runtime_executor,
+                tool_instances=tool_instances,
+                agent_runtime_profile=agent_runtime_profile,
+                continuation_payload=continuation_payload,
+            ):
+                yield event
+            return
 
     def _upsert_finished_task_run(
         self,
@@ -2146,8 +2255,14 @@ class TaskRunLoop:
         terminal_state: RuntimeLoopState,
         checkpoint_event: Any,
         final_content: str,
+        task_result: dict[str, Any] | None = None,
+        task_spec_payload: dict[str, Any] | None = None,
+        current_turn_context: dict[str, Any] | None = None,
+        user_message: str = "",
         diagnostics: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> FinishedTaskRunResult:
+        events: list[Any] = []
+        continuation_payload: dict[str, Any] = {}
         existing_task_run = self.state_index.get_task_run(start_task_run.task_run_id)
         base_task_run = existing_task_run or start_task_run
         self.state_index.upsert_task_run(
@@ -2253,8 +2368,21 @@ class TaskRunLoop:
                     },
                 )
             )
+        continuation_coordination_run_id = str(
+            dict(current_turn_context or {}).get("coordination_run_id")
+            or dict(task_spec_payload or {}).get("inputs", {}).get("coordination_run_id")
+            or ""
+        ).strip()
+        continuation_coordination_run = (
+            self.state_index.get_coordination_run(continuation_coordination_run_id)
+            if continuation_coordination_run_id
+            else None
+        )
         current_coordination_runs = self.state_index.list_task_coordination_runs(start_task_run.task_run_id)
-        target_coordination_run = current_coordination_runs[0] if current_coordination_runs else start_coordination_run
+        target_coordination_run = (
+            continuation_coordination_run
+            or (current_coordination_runs[0] if current_coordination_runs else start_coordination_run)
+        )
         worker_spawn_results = self.state_index.list_task_worker_spawn_results(start_task_run.task_run_id)
         worker_agent_runs = [
             item
@@ -2273,11 +2401,100 @@ class TaskRunLoop:
             "worker_agent_run_ids": [str(item.agent_run_id or "") for item in worker_agent_runs if str(item.agent_run_id or "")],
         }
         if target_coordination_run is not None:
-            finalized_flow, unresolved_issue_refs = finalize_coordination_flow_state(
-                dict(target_coordination_run.diagnostics.get("coordination_flow") or {}),
-                accepted=terminal_state.status == "completed",
-                final_result_ref=agent_run_result.agent_run_result_id,
+            coordination_task_record = self.task_flow_registry.get_coordination_task(target_coordination_run.coordination_task_ref)
+            coordination_mode = str(
+                (coordination_task_record.coordination_mode if coordination_task_record is not None else "")
+                or dict(target_coordination_run.diagnostics.get("coordination_flow") or {}).get("coordination_mode")
+                or ""
+            ).strip()
+            if self.langgraph_coordination_runtime.supports(target_coordination_run):
+                raw_flow_state = dict(target_coordination_run.diagnostics.get("coordination_flow") or {})
+                current_stage_id = str(raw_flow_state.get("current_stage_id") or "").strip()
+                if not current_stage_id:
+                    current_stage_id = self._stage_id_for_task_ref(
+                        coordination_task=coordination_task_record,
+                        task_ref=task_contract_ref or start_task_run.task_id,
+                    )
+                output_refs = self._collect_task_result_output_refs(dict(task_result or {}))
+                task_result_ref = str(dict(task_result or {}).get("result_id") or agent_run_result.agent_run_result_id)
+                ready_event = TaskResultReadyEvent(
+                    event_type="task_result_ready",
+                    coordination_run_id=target_coordination_run.coordination_run_id,
+                    task_run_id=start_task_run.task_run_id,
+                    stage_id=current_stage_id,
+                    task_ref=task_contract_ref or start_task_run.task_id,
+                    task_result_ref=task_result_ref,
+                    artifact_refs=tuple(output_refs),
+                    accepted=terminal_state.status == "completed",
+                    agent_run_result_ref=agent_run_result.agent_run_result_id,
+                    diagnostics={"terminal_reason": terminal_state.terminal_reason},
+                )
+                artifact_root = self._artifact_root_from_context_or_events(
+                    current_task_run_id=start_task_run.task_run_id,
+                    current_turn_context=dict(current_turn_context or {}),
+                )
+                runtime_result = self.langgraph_coordination_runtime.resume_from_task_result(
+                    coordination_run=target_coordination_run,
+                    event=ready_event,
+                    current_task_result=dict(task_result or {}),
+                    inherited_inputs=dict(dict(current_turn_context or {}).get("explicit_inputs") or {}),
+                    artifact_root=artifact_root,
+                )
+                events.extend(runtime_result.events)
+                if runtime_result.stage_execution_request is not None:
+                    continuation_payload = runtime_result.continuation_payload(
+                        session_id=start_task_run.session_id,
+                        current_turn_context=dict(current_turn_context or {}),
+                    )
+                worker_spawn_summary = {
+                    **worker_spawn_summary,
+                    "coordination_runtime": "langgraph_runtime",
+                    "stage_execution_request": bool(runtime_result.stage_execution_request is not None),
+                }
+                self.state_index.upsert_task_run(
+                    TaskRun(
+                        task_run_id=start_task_run.task_run_id,
+                        session_id=start_task_run.session_id,
+                        task_id=start_task_run.task_id,
+                        task_contract_ref=task_contract_ref,
+                        agent_id=start_task_run.agent_id,
+                        agent_profile_id=start_task_run.agent_profile_id,
+                        runtime_lane=start_task_run.runtime_lane,
+                        status=terminal_state.status,
+                        created_at=start_task_run.created_at,
+                        updated_at=time.time(),
+                        latest_event_offset=checkpoint_event.offset,
+                        latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+                        terminal_reason=terminal_state.terminal_reason,
+                        diagnostics={
+                            **dict(self.state_index.get_task_run(start_task_run.task_run_id).diagnostics if self.state_index.get_task_run(start_task_run.task_run_id) else {}),
+                            **dict(diagnostics or {}),
+                            "worker_spawn_summary": worker_spawn_summary,
+                        },
+                    )
+                )
+                return FinishedTaskRunResult(events=tuple(events), continuation_payload=continuation_payload)
+            raw_flow_state = dict(target_coordination_run.diagnostics.get("coordination_flow") or {})
+            next_task_ref = self._next_coordination_subtask_ref(
+                coordination_task=coordination_task_record,
+                flow_state=raw_flow_state,
             )
+            is_continuous_progression = coordination_mode == "continuous_delivery" and terminal_state.status == "completed"
+            if is_continuous_progression and str(next_task_ref or "").strip():
+                finalized_flow = advance_coordination_flow_state(
+                    raw_flow_state,
+                    final_result_ref=agent_run_result.agent_run_result_id,
+                    next_task_ref=next_task_ref,
+                )
+                unresolved_issue_refs = ()
+                continuous_progression_active = True
+            else:
+                finalized_flow, unresolved_issue_refs = finalize_coordination_flow_state(
+                    raw_flow_state,
+                    accepted=terminal_state.status == "completed",
+                    final_result_ref=agent_run_result.agent_run_result_id,
+                )
+                continuous_progression_active = False
             finalized_node_status_map = build_coordination_node_status_map(finalized_flow)
             merge_result = CoordinationMergeResult(
                 merge_result_id=f"coordmerge:{target_coordination_run.coordination_run_id}",
@@ -2285,29 +2502,32 @@ class TaskRunLoop:
                 task_run_id=target_coordination_run.task_run_id,
                 merge_policy=target_coordination_run.merge_policy or "coordinator_final_merge",
                 final_result_ref=agent_run_result.agent_run_result_id,
-                accepted=terminal_state.status == "completed",
+                accepted=False if continuous_progression_active else terminal_state.status == "completed",
                 unresolved_issue_refs=unresolved_issue_refs,
                 created_at=time.time(),
                 diagnostics={
                     "terminal_reason": terminal_state.terminal_reason,
                     "final_agent_run_result_ref": agent_run_result.agent_run_result_id,
                     "coordination_flow": finalized_flow,
+                    "coordination_mode": coordination_mode,
+                    "next_task_ref": next_task_ref,
+                    "continuous_progression": continuous_progression_active,
                 },
             )
             self.state_index.upsert_coordination_merge_result(merge_result)
-            self.event_log.append(
+            events.append(self.event_log.append(
                 start_task_run.task_run_id,
                 "coordination_merge_result_created",
                 payload={"coordination_merge_result": merge_result.to_dict()},
                 refs={"coordination_merge_result_ref": merge_result.merge_result_id},
-            )
+            ))
             if finalized_flow:
-                self.event_log.append(
+                events.append(self.event_log.append(
                     start_task_run.task_run_id,
-                    "coordination_flow_finalized",
+                    "coordination_flow_advanced" if continuous_progression_active else "coordination_flow_finalized",
                     payload={"coordination_flow": finalized_flow},
                     refs={"coordination_run_ref": target_coordination_run.coordination_run_id},
-                )
+                ))
             current_node_runs = self.state_index.list_coordination_node_runs(target_coordination_run.coordination_run_id)
             for node_run in current_node_runs:
                 node_flow = dict(finalized_node_status_map.get(node_run.node_id) or {})
@@ -2332,12 +2552,12 @@ class TaskRunLoop:
                     },
                 )
                 self.state_index.upsert_coordination_node_run(updated_node_run)
-                self.event_log.append(
+                events.append(self.event_log.append(
                     start_task_run.task_run_id,
                     "coordination_node_run_updated",
                     payload={"coordination_node_run": updated_node_run.to_dict()},
                     refs={"coordination_node_run_ref": updated_node_run.node_run_id},
-                )
+                ))
             self.state_index.upsert_coordination_run(
                 CoordinationRun(
                     coordination_run_id=target_coordination_run.coordination_run_id,
@@ -2349,7 +2569,11 @@ class TaskRunLoop:
                     handoff_policy=target_coordination_run.handoff_policy,
                     failure_policy=target_coordination_run.failure_policy,
                     merge_policy=target_coordination_run.merge_policy,
-                    status="completed" if terminal_state.status == "completed" else "failed",
+                    status=(
+                        "running"
+                        if continuous_progression_active and str(finalized_flow.get("current_stage_id") or "").strip()
+                        else ("completed" if terminal_state.status == "completed" else "failed")
+                    ),
                     latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
                     latest_merge_result_ref=merge_result.merge_result_id,
                     created_at=target_coordination_run.created_at,
@@ -2359,9 +2583,31 @@ class TaskRunLoop:
                         "terminal_reason": terminal_state.terminal_reason,
                         "coordination_flow": finalized_flow,
                         "worker_spawn_summary": worker_spawn_summary,
+                        "next_task_ref": next_task_ref,
+                        "continuous_progression": continuous_progression_active,
                     },
                 )
             )
+            if (
+                continuous_progression_active
+                and str(finalized_flow.get("current_stage_id") or "").strip()
+                and str(next_task_ref or "").strip()
+            ):
+                continuation_payload = self._build_continuous_delivery_payload(
+                    session_id=start_task_run.session_id,
+                    coordination_run_id=target_coordination_run.coordination_run_id,
+                    current_task_run_id=start_task_run.task_run_id,
+                    current_task_id=start_task_run.task_id,
+                    current_task_ref=task_contract_ref or start_task_run.task_id,
+                    next_task_ref=next_task_ref,
+                    finalized_flow=finalized_flow,
+                    task_result=dict(task_result or {}),
+                    task_spec_payload=dict(task_spec_payload or {}),
+                    current_turn_context=dict(current_turn_context or {}),
+                    user_message=user_message,
+                    final_content=final_content,
+                    agent_run_result_id=agent_run_result.agent_run_result_id,
+                )
         self.state_index.upsert_task_run(
             TaskRun(
                 task_run_id=start_task_run.task_run_id,
@@ -2383,6 +2629,10 @@ class TaskRunLoop:
                     "worker_spawn_summary": worker_spawn_summary,
                 },
             )
+        )
+        return FinishedTaskRunResult(
+            events=tuple(events),
+            continuation_payload=continuation_payload,
         )
 
     def _write_checkpoint_event(self, state: RuntimeLoopState, *, event_offset: int):
@@ -2536,6 +2786,15 @@ class TaskRunLoop:
                     )
                 )
             current_coordination_run = coordination_run
+            if self.langgraph_coordination_runtime.supports(coordination_run):
+                runtime_result = self.langgraph_coordination_runtime.initialize(
+                    coordination_run=coordination_run,
+                    event_task_run_id=start_result.task_run.task_run_id,
+                )
+                events.extend(runtime_result.events)
+                refreshed = self.state_index.get_coordination_run(coordination_run.coordination_run_id)
+                if refreshed is not None:
+                    current_coordination_run = refreshed
         else:
             existing_coordination_runs = self.state_index.list_task_coordination_runs(start_result.task_run.task_run_id)
             current_coordination_run = existing_coordination_runs[0] if existing_coordination_runs else None
@@ -2551,7 +2810,7 @@ class TaskRunLoop:
         )
         events.extend(spawn_events)
 
-        if current_coordination_run is not None:
+        if current_coordination_run is not None and not self.langgraph_coordination_runtime.supports(current_coordination_run):
             coordination_events = self._sync_coordination_runtime_objects(
                 task_run_id=start_result.task_run.task_run_id,
                 coordinator_agent_run=updated_agent_run,
@@ -3120,6 +3379,365 @@ class TaskRunLoop:
             return {}
         match = next((item for item in self.task_flow_registry.list_topology_templates() if item.template_id == target), None)
         return match.to_dict() if match is not None else {}
+
+    @staticmethod
+    def _next_coordination_subtask_ref(*, coordination_task: Any | None, flow_state: dict[str, Any]) -> str:
+        stages = [dict(item) for item in list(flow_state.get("stages") or []) if isinstance(item, dict)]
+        if stages:
+            current_index = next(
+                (index for index, stage in enumerate(stages) if str(stage.get("status") or "").strip() == "running"),
+                -1,
+            )
+            next_stage = stages[current_index + 1] if current_index >= 0 and current_index + 1 < len(stages) else {}
+            next_stage_task_ref = str(next_stage.get("task_ref") or "").strip()
+            return next_stage_task_ref
+        subtask_refs = tuple(getattr(coordination_task, "subtask_refs", ()) or ()) if coordination_task is not None else ()
+        return str(subtask_refs[0] or "").strip() if subtask_refs else ""
+
+    @staticmethod
+    def _stage_id_for_task_ref(*, coordination_task: Any | None, task_ref: str) -> str:
+        target = str(task_ref or "").strip()
+        metadata = dict(getattr(coordination_task, "metadata", {}) or {}) if coordination_task is not None else {}
+        for stage in list(metadata.get("stage_sequence") or []):
+            if not isinstance(stage, dict):
+                continue
+            if str(stage.get("task_ref") or "").strip() == target:
+                return str(stage.get("stage_id") or "").strip()
+        contracts = list(metadata.get("stage_contracts") or [])
+        for contract in contracts:
+            if not isinstance(contract, dict):
+                continue
+            if str(contract.get("task_ref") or "").strip() == target:
+                return str(contract.get("stage_id") or "").strip()
+        return ""
+
+    def _artifact_root_from_context_or_events(
+        self,
+        *,
+        current_task_run_id: str,
+        current_turn_context: dict[str, Any],
+    ) -> str:
+        artifact_root = str(
+            current_turn_context.get("artifact_root")
+            or current_turn_context.get("workspace_root")
+            or dict(current_turn_context.get("explicit_inputs") or {}).get("artifact_root")
+            or dict(current_turn_context.get("explicit_inputs") or {}).get("workspace_root")
+            or ""
+        ).strip()
+        if not artifact_root:
+            write_paths = _successful_write_file_paths(
+                root_dir=self.root_dir,
+                event_log_events=[item.to_dict() for item in self.event_log.list_events(current_task_run_id)],
+            )
+            if write_paths:
+                artifact_root = str(Path(write_paths[0]["absolute_path"]).parent.as_posix())
+        if artifact_root:
+            workspace_root = _workspace_root_from_runtime_root(self.root_dir)
+            artifact_root = artifact_root.replace("\\", "/").rstrip("/")
+            workspace_posix = workspace_root.as_posix().rstrip("/")
+            if artifact_root.startswith(workspace_posix + "/"):
+                artifact_root = artifact_root[len(workspace_posix) + 1 :]
+        return artifact_root
+
+    def _build_continuous_delivery_payload(
+        self,
+        *,
+        session_id: str,
+        coordination_run_id: str,
+        current_task_run_id: str,
+        current_task_id: str,
+        current_task_ref: str,
+        next_task_ref: str,
+        finalized_flow: dict[str, Any],
+        task_result: dict[str, Any],
+        task_spec_payload: dict[str, Any],
+        current_turn_context: dict[str, Any],
+        user_message: str,
+        final_content: str,
+        agent_run_result_id: str,
+    ) -> dict[str, Any]:
+        next_stage_id = str(finalized_flow.get("current_stage_id") or "").strip()
+        if not next_stage_id or not str(next_task_ref or "").strip():
+            return {}
+        workspace_root = _workspace_root_from_runtime_root(self.root_dir)
+        artifact_root = str(
+            current_turn_context.get("artifact_root")
+            or current_turn_context.get("workspace_root")
+            or dict(current_turn_context.get("explicit_inputs") or {}).get("artifact_root")
+            or dict(current_turn_context.get("explicit_inputs") or {}).get("workspace_root")
+            or ""
+        ).strip()
+        if not artifact_root:
+            write_paths = _successful_write_file_paths(
+                root_dir=self.root_dir,
+                event_log_events=[item.to_dict() for item in self.event_log.list_events(current_task_run_id)],
+            )
+            if write_paths:
+                artifact_root = str(Path(write_paths[0]["absolute_path"]).parent.as_posix())
+        if artifact_root:
+            artifact_root = artifact_root.replace("\\", "/").rstrip("/")
+            workspace_posix = workspace_root.as_posix().rstrip("/")
+            if artifact_root.startswith(workspace_posix + "/"):
+                artifact_root = artifact_root[len(workspace_posix) + 1 :]
+        explicit_inputs = self._build_continuation_explicit_inputs(
+            current_task_ref=current_task_ref,
+            next_task_ref=next_task_ref,
+            task_result=task_result,
+            current_turn_context=current_turn_context,
+            artifact_root=artifact_root,
+            final_content=final_content,
+            agent_run_result_id=agent_run_result_id,
+        )
+        next_turn_context = {
+            **{
+                key: value
+                for key, value in current_turn_context.items()
+                if key not in {"selected_task_id", "task_id", "specific_task_id", "task_assignment_id", "turn_id", "explicit_inputs"}
+                and value not in ("", None, [], {})
+            },
+            "authority": str(current_turn_context.get("authority") or "context.current_turn"),
+            "selected_task_id": next_task_ref,
+            "task_id": next_task_ref,
+            "coordination_run_id": coordination_run_id,
+            "continuation_from_task_run_id": current_task_run_id,
+            "continuation_from_task_id": current_task_id,
+            "continuation_from_task_ref": current_task_ref,
+            "continuation_stage_id": next_stage_id,
+            "execution_mode": str(current_turn_context.get("execution_mode") or "single"),
+            "explicit_inputs": explicit_inputs,
+        }
+        next_message = self._build_continuation_user_message(
+            next_task_ref=next_task_ref,
+            next_stage_id=next_stage_id,
+            original_user_message=user_message,
+            final_content=final_content,
+            explicit_inputs=explicit_inputs,
+        )
+        return {
+            "session_id": session_id,
+            "coordination_run_id": coordination_run_id,
+            "current_task_run_id": current_task_run_id,
+            "next_task_ref": next_task_ref,
+            "next_stage_id": next_stage_id,
+            "task_selection": {"selected_task_id": next_task_ref, "task_id": next_task_ref},
+            "current_turn_context": next_turn_context,
+            "message": next_message,
+            "suppress_done": True,
+        }
+
+    def _build_continuation_explicit_inputs(
+        self,
+        *,
+        current_task_ref: str,
+        next_task_ref: str,
+        task_result: dict[str, Any],
+        current_turn_context: dict[str, Any],
+        artifact_root: str,
+        final_content: str,
+        agent_run_result_id: str,
+    ) -> dict[str, Any]:
+        explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+        if artifact_root:
+            explicit_inputs.setdefault("artifact_root", artifact_root)
+            explicit_inputs.setdefault("workspace_root", artifact_root)
+        output_refs = self._collect_task_result_output_refs(task_result)
+        result_id = str(task_result.get("result_id") or "").strip()
+        if result_id:
+            explicit_inputs.setdefault("upstream_task_result_ref", result_id)
+        explicit_inputs.setdefault("upstream_agent_run_result_ref", str(agent_run_result_id or ""))
+        explicit_inputs.setdefault("upstream_task_ref", str(current_task_ref or ""))
+        explicit_inputs.setdefault("upstream_output_refs", output_refs)
+        explicit_inputs.setdefault("upstream_final_content", str(final_content or ""))
+        if current_task_ref == "task.writing.longform_novel_project":
+            if output_refs:
+                explicit_inputs["project_spec_ref"] = output_refs[0]
+        elif current_task_ref == "task.writing.novel_bible_build":
+            if output_refs:
+                explicit_inputs["novel_bible_ref"] = output_refs[0]
+            explicit_inputs.setdefault("volume_index", 1)
+        elif current_task_ref == "task.writing.volume_planning":
+            if output_refs:
+                explicit_inputs["volume_plan_ref"] = output_refs[0]
+            explicit_inputs.setdefault("chapter_index", 1)
+            explicit_inputs.setdefault("run_request", self._default_chapter_batch_request())
+            explicit_inputs.setdefault("context_refs", self._dedupe_refs([
+                explicit_inputs.get("novel_bible_ref"),
+                explicit_inputs.get("volume_plan_ref"),
+            ]))
+            explicit_inputs.setdefault("chapter_batch_ref", output_refs[0] if output_refs else "")
+        elif current_task_ref == "task.writing.chapter_planning":
+            if output_refs:
+                explicit_inputs["chapter_plan_ref"] = output_refs[0]
+                explicit_inputs.setdefault("context_refs", self._dedupe_refs([
+                    explicit_inputs.get("novel_bible_ref"),
+                    explicit_inputs.get("volume_plan_ref"),
+                    output_refs[0],
+                ]))
+        elif current_task_ref == "task.writing.chapter_drafting":
+            if output_refs:
+                explicit_inputs["chapter_range_refs"] = output_refs
+                explicit_inputs["chapter_refs"] = output_refs
+                explicit_inputs["accepted_chapter_refs"] = output_refs
+        elif current_task_ref == "task.writing.continuity_audit":
+            if output_refs:
+                explicit_inputs["final_audit_refs"] = output_refs
+        if next_task_ref == "task.writing.continuity_audit":
+            if "chapter_range_refs" not in explicit_inputs and output_refs:
+                explicit_inputs["chapter_range_refs"] = output_refs
+            if not str(explicit_inputs.get("novel_bible_ref") or "").strip():
+                novel_bible_ref = self._latest_output_ref_for_task(task_ref="task.writing.novel_bible_build")
+                if novel_bible_ref:
+                    explicit_inputs["novel_bible_ref"] = novel_bible_ref
+            if "chapter_refs" not in explicit_inputs:
+                explicit_inputs["chapter_refs"] = list(explicit_inputs.get("chapter_range_refs") or output_refs)
+        if next_task_ref == "task.writing.final_compilation":
+            if "accepted_chapter_refs" not in explicit_inputs:
+                accepted_refs = self._latest_output_refs_for_task(task_ref="task.writing.chapter_drafting")
+                if accepted_refs:
+                    explicit_inputs["accepted_chapter_refs"] = accepted_refs
+            if "final_audit_refs" not in explicit_inputs:
+                audit_refs = self._latest_output_refs_for_task(task_ref="task.writing.continuity_audit")
+                if audit_refs:
+                    explicit_inputs["final_audit_refs"] = audit_refs
+        if next_task_ref == "task.writing.novel_bible_build":
+            if not str(explicit_inputs.get("project_spec_ref") or "").strip():
+                project_spec_ref = self._latest_output_ref_for_task(task_ref="task.writing.longform_novel_project")
+                if project_spec_ref:
+                    explicit_inputs["project_spec_ref"] = project_spec_ref
+        elif next_task_ref == "task.writing.volume_planning":
+            if not str(explicit_inputs.get("novel_bible_ref") or "").strip():
+                novel_bible_ref = self._latest_output_ref_for_task(task_ref="task.writing.novel_bible_build")
+                if novel_bible_ref:
+                    explicit_inputs["novel_bible_ref"] = novel_bible_ref
+            explicit_inputs.setdefault("volume_index", 1)
+        elif next_task_ref == "task.writing.chapter_planning":
+            if not str(explicit_inputs.get("volume_plan_ref") or "").strip():
+                volume_plan_ref = self._latest_output_ref_for_task(task_ref="task.writing.volume_planning")
+                if volume_plan_ref:
+                    explicit_inputs["volume_plan_ref"] = volume_plan_ref
+            if not str(explicit_inputs.get("novel_bible_ref") or "").strip():
+                novel_bible_ref = self._latest_output_ref_for_task(task_ref="task.writing.novel_bible_build")
+                if novel_bible_ref:
+                    explicit_inputs["novel_bible_ref"] = novel_bible_ref
+            explicit_inputs.setdefault("chapter_index", 1)
+            explicit_inputs.setdefault("run_request", self._default_chapter_batch_request())
+            explicit_inputs["context_refs"] = self._dedupe_refs([
+                explicit_inputs.get("novel_bible_ref"),
+                explicit_inputs.get("volume_plan_ref"),
+            ])
+        elif next_task_ref == "task.writing.chapter_drafting":
+            if not str(explicit_inputs.get("chapter_plan_ref") or "").strip():
+                chapter_plan_ref = self._latest_output_ref_for_task(task_ref="task.writing.chapter_planning")
+                if chapter_plan_ref:
+                    explicit_inputs["chapter_plan_ref"] = chapter_plan_ref
+            if not list(explicit_inputs.get("context_refs") or []):
+                explicit_inputs["context_refs"] = self._dedupe_refs([
+                    explicit_inputs.get("novel_bible_ref"),
+                    explicit_inputs.get("volume_plan_ref"),
+                    explicit_inputs.get("chapter_plan_ref"),
+                ])
+            explicit_inputs.setdefault("run_request", self._default_chapter_batch_request())
+        explicit_inputs["upstream_output_refs"] = self._dedupe_refs(explicit_inputs.get("upstream_output_refs") or [])
+        return explicit_inputs
+
+    def _build_continuation_user_message(
+        self,
+        *,
+        next_task_ref: str,
+        next_stage_id: str,
+        original_user_message: str,
+        final_content: str,
+        explicit_inputs: dict[str, Any],
+    ) -> str:
+        artifact_root = str(explicit_inputs.get("artifact_root") or "").strip()
+        lines = [
+            f"继续推进长篇小说持续交付流程，当前进入阶段：{next_stage_id or next_task_ref}。",
+            f"当前执行任务：{next_task_ref}。",
+            "这是从同一协调流程自动续接的内部阶段，不需要向用户重新确认。",
+            "必须基于上游真实产物继续推进，不得伪造全书完结。",
+        ]
+        if artifact_root:
+            lines.append(f"产物根目录：{artifact_root}")
+        if original_user_message:
+            lines.append(f"原始用户要求：{original_user_message}")
+        if final_content:
+            lines.append(f"上一阶段摘要：{final_content[:400]}")
+        return "\n".join(lines)
+
+    async def _continue_coordination_delivery_stream(
+        self,
+        *,
+        session_id: str,
+        history: list[dict[str, Any]],
+        source: str,
+        agent_runtime_chain: Any,
+        model_response_executor: Any,
+        runtime_context_manager: RuntimeContextManager,
+        stage_projection_cycle: StageProjectionCycle | None,
+        memory_intent: Any | None,
+        assistant_message_committer: Callable[[dict[str, Any]], Any] | None,
+        tool_runtime_executor: Any | None,
+        tool_instances: list[Any] | None,
+        agent_runtime_profile: Any | None,
+        continuation_payload: dict[str, Any],
+    ):
+        next_task_ref = str(continuation_payload.get("next_task_ref") or "").strip()
+        next_message = str(continuation_payload.get("message") or "").strip()
+        next_turn_context = dict(continuation_payload.get("current_turn_context") or {})
+        if not next_task_ref or not next_message:
+            return
+        turn_marker = str(next_turn_context.get("turn_id") or "").strip() or f"turn:{session_id}:{uuid.uuid4().hex[:8]}"
+        next_turn_context["turn_id"] = turn_marker
+        next_task_id = f"taskinst:{turn_marker}:{next_task_ref.split('.')[-1]}"
+        task_selection = {
+            **dict(continuation_payload.get("task_selection") or {}),
+            **{
+                key: value
+                for key, value in next_turn_context.items()
+                if key in {"turn_id", "selected_task_id", "task_id", "runtime_limits", "agent_group_id", "artifact_root", "workspace_root", "explicit_inputs"}
+            },
+        }
+        async for event in self.run_single_agent_stream(
+            session_id=session_id,
+            task_id=next_task_id,
+            user_message=next_message,
+            history=list(history or []),
+            source=source,
+            agent_runtime_chain=_ContinuationAgentRuntimeChain(
+                base=agent_runtime_chain,
+                forced_turn_context=next_turn_context,
+            ),
+            model_response_executor=model_response_executor,
+            runtime_context_manager=runtime_context_manager,
+            stage_projection_cycle=stage_projection_cycle,
+            memory_intent=memory_intent,
+            task_selection=task_selection,
+            assistant_message_committer=assistant_message_committer,
+            tool_runtime_executor=tool_runtime_executor,
+            tool_instances=tool_instances,
+            agent_runtime_profile=agent_runtime_profile,
+        ):
+            if continuation_payload.get("suppress_done") and event.get("type") == "done":
+                continue
+            yield event
+
+    def _latest_output_ref_for_task(self, *, task_ref: str) -> str:
+        return self.artifact_ref_index.latest_output_ref(task_ref=task_ref)
+
+    def _latest_output_refs_for_task(self, *, task_ref: str) -> list[str]:
+        return self.artifact_ref_index.latest_output_refs(task_ref=task_ref)
+
+    @staticmethod
+    def _collect_task_result_output_refs(task_result: dict[str, Any]) -> list[str]:
+        return collect_task_result_output_refs(task_result)
+
+    @staticmethod
+    def _dedupe_refs(refs: Any) -> list[str]:
+        return dedupe_artifact_refs(refs)
+
+    @staticmethod
+    def _default_chapter_batch_request() -> str:
+        return "按持续交付流程生成当前批次章节正文，单轮目标约一万字、约五章，最多两轮轻审，不等待用户再次确认。"
 
     @staticmethod
     def _render_worker_agent_name(*, naming_rule: str, blueprint_template: str, index: int) -> str:
@@ -4375,6 +4993,8 @@ def _build_required_artifact_write_messages(
 
 def _required_artifact_target_path(*, task_spec_payload: dict[str, Any], user_message: str) -> str:
     inputs = dict(task_spec_payload.get("inputs") or {})
+    selected_template = dict(task_spec_payload.get("selected_template") or {})
+    template_metadata = dict(selected_template.get("metadata") or {})
     tool_input = dict(inputs.get("tool_input") or {})
     for value in (
         tool_input.get("path"),
@@ -4385,6 +5005,21 @@ def _required_artifact_target_path(*, task_spec_payload: dict[str, Any], user_me
         cleaned = str(value or "").strip()
         if cleaned:
             return cleaned
+    default_artifact_name = str(template_metadata.get("default_artifact_name") or "").strip()
+    if default_artifact_name:
+        artifact_root = str(
+            inputs.get("artifact_root")
+            or inputs.get("workspace_root")
+            or template_metadata.get("default_write_root")
+            or template_metadata.get("default_write_roots", [""])[0]
+            or "docs/系统规划/任务系统实测记录/artifacts"
+        ).strip()
+        if artifact_root:
+            artifact_root = artifact_root.rstrip("/\\")
+            task_mode = str(selected_template.get("task_mode") or "").strip()
+            if task_mode:
+                return f"{artifact_root}/{task_mode}/{default_artifact_name}"
+            return f"{artifact_root}/{default_artifact_name}"
     return _extract_workspace_path_from_text(user_message)
 
 
@@ -4605,6 +5240,36 @@ def _build_artifact_success_fallback_answer(
     else:
         lines.append("本轮所需 artifact 已通过 write_file 写入并通过存在性校验。")
     lines.append("模型后续收口阶段中断，但正式产物已经落盘，可基于现有产物继续下一阶段。")
+    return "\n".join(lines)
+
+
+def _build_longform_continuous_delivery_progress_answer(
+    *,
+    selected_template_payload: dict[str, Any],
+    artifact_validation: dict[str, Any],
+    coordination_flow: dict[str, Any],
+) -> str:
+    task_title = str(
+        selected_template_payload.get("title")
+        or selected_template_payload.get("task_mode")
+        or selected_template_payload.get("template_id")
+        or "长篇小说持续交付任务"
+    ).strip()
+    artifact_items = [
+        str(dict(item).get("path") or "").strip()
+        for item in list(artifact_validation.get("artifacts") or [])
+        if str(dict(item).get("path") or "").strip()
+    ]
+    next_stage_title = str(coordination_flow.get("next_stage_title") or coordination_flow.get("current_stage_id") or "").strip()
+    next_task_ref = str(coordination_flow.get("next_task_ref") or "").strip()
+    lines = [f"{task_title}已启动，并已完成首轮项目规格落盘。"]
+    if artifact_items:
+        lines.append(f"项目规格文件：{artifact_items[0]}")
+    if next_stage_title:
+        lines.append(f"当前已自动进入下一阶段：{next_stage_title}。")
+    if next_task_ref:
+        lines.append(f"续跑任务：{next_task_ref}")
+    lines.append("系统会基于已生成产物继续推进后续长篇流程，不需要重新发送启动指令。")
     return "\n".join(lines)
 
 
@@ -5024,3 +5689,30 @@ def _match_bundle_ordinal_for_tool_observation(
         if ordinal > 0 and ordinal not in executed:
             return ordinal
     return _safe_int(matching_items[0].get("ordinal"))
+
+
+class _ContinuationAgentRuntimeChain:
+    def __init__(self, *, base: Any, forced_turn_context: dict[str, Any]) -> None:
+        self._base = base
+        self._forced_turn_context = dict(forced_turn_context or {})
+
+    def build_runtime(self, **kwargs) -> dict[str, Any]:
+        runtime = dict(self._base.build_runtime(**kwargs) or {})
+        current_turn_context = {
+            **dict(runtime.get("current_turn_context") or {}),
+            **dict(self._forced_turn_context),
+        }
+        task_operation = dict(runtime.get("task_operation") or {})
+        task_operation["current_turn_context"] = current_turn_context
+        task_spec = dict(task_operation.get("task_spec") or {})
+        task_spec["inputs"] = {
+            **dict(task_spec.get("inputs") or {}),
+            **dict(current_turn_context.get("explicit_inputs") or {}),
+        }
+        task_operation["task_spec"] = task_spec
+        runtime["current_turn_context"] = current_turn_context
+        runtime["task_operation"] = task_operation
+        return runtime
+
+    def build_context_policy_result(self, *args, **kwargs):
+        return self._base.build_context_policy_result(*args, **kwargs)

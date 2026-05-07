@@ -257,6 +257,13 @@ export class WorkspaceRuntime {
     const ephemeralSystemMessages = [...(state.pendingEphemeralSystemMessages ?? [])];
     const searchPolicy = this.enabledSearchPolicy(state);
     let consumedEphemeralSystemMessages = false;
+    this.store.setState((prev) => ({
+      ...prev,
+      orchestrationSnapshot: null,
+      orchestrationInspectorTarget: prev.orchestrationInspectorTarget?.source === "live-session"
+        ? null
+        : prev.orchestrationInspectorTarget,
+    }));
     let transition = startStreamingTurn(this.store.getState(), trimmed);
     this.store.setState(() => transition.state);
 

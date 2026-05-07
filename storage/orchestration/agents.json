@@ -11,8 +11,8 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "",
-      "default_projection_id": "",
+      "default_soul_id": "goumang",
+      "default_projection_id": "goumang__primary",
       "task_scope": [
         "general_task",
         "final_integration"

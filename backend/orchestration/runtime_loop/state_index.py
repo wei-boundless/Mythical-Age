@@ -157,6 +157,11 @@ class RuntimeStateIndex:
             return None
         return _task_run_from_payload(task_run)
 
+    def list_task_runs(self) -> list[TaskRun]:
+        payload = self._read()
+        task_runs = dict(payload.get("task_runs") or {})
+        return [_task_run_from_payload(item) for item in task_runs.values() if isinstance(item, dict)]
+
     def list_session_task_runs(self, session_id: str) -> list[TaskRun]:
         payload = self._read()
         task_runs = dict(payload.get("task_runs") or {})
@@ -174,6 +179,12 @@ class RuntimeStateIndex:
         coordination_runs = dict(payload.get("coordination_runs") or {})
         ids = list((payload.get("task_coordination_runs") or {}).get(task_run_id) or [])
         return [_coordination_run_from_payload(coordination_runs[item]) for item in ids if item in coordination_runs]
+
+    def get_coordination_run(self, coordination_run_id: str) -> CoordinationRun | None:
+        coordination_run = dict((self._read().get("coordination_runs") or {}).get(coordination_run_id) or {})
+        if not coordination_run:
+            return None
+        return _coordination_run_from_payload(coordination_run)
 
     def list_task_agent_run_results(self, task_run_id: str) -> list[AgentRunResult]:
         payload = self._read()

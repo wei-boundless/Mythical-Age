@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import tempfile
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,6 +18,8 @@ from orchestration import RuntimeActionRequest, RuntimeLoopLimits
 from orchestration.runtime_loop.safety import build_task_safety_validators
 from orchestration.runtime_loop.task_run_loop import _builtin_tool_lane_answer_from_observation
 from orchestration.runtime_loop.observation_aggregator import ObservationAggregator
+from orchestration.runtime_loop.models import TaskRun
+from orchestration.runtime_loop.models import CoordinationRun, RuntimeLoopState, AgentRun
 from context_management.projection import projection_from_file_work
 from orchestration.runtime_loop.tool_adoption import build_tool_request_runtime_adoption
 from orchestration import ResourceDecision, ResourcePolicy, OperationGatePipelineContext
@@ -1137,6 +1140,332 @@ def test_required_artifact_task_repairs_claim_without_write_file_into_real_tool_
         for event in trace["events"]
         if dict(event).get("event_type") == "task_artifact_validation_checked"
     )
+
+
+def test_longform_public_entry_advances_continuous_delivery_instead_of_finalizing_project(tmp_path: Path) -> None:
+    runtime = _build_required_artifact_repair_runtime(tmp_path)
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-longform-continuous-delivery",
+                message=(
+                    "通过长篇小说持续交付任务启动《洪荒时代》。只根据用户给出的五个灵魂背景建立项目规格，"
+                    "不要替用户预写完整世界观。写入 project_spec.md 后继续交给下一阶段。"
+                ),
+                history=[],
+                task_selection={"selected_task_id": "task.writing.longform_novel_project"},
+            )
+        ):
+            events.append(event)
+        return events, _task_run_id_from_events(events)
+
+    events, task_run_id = asyncio.run(_collect())
+    runtime_event_types = [
+        dict(event.get("event") or {}).get("event_type")
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    trace = runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)
+    done_event = next(event for event in events if event["type"] == "done")
+
+    assert "coordination_flow_advanced" in runtime_event_types
+    assert "longform_progress_summary_finalized" in runtime_event_types
+    assert trace is not None
+    coordination_run = trace["coordination_runs"][0]
+    flow = dict(coordination_run["diagnostics"].get("coordination_flow") or {})
+    started_task_ids = [
+        str(dict(event.get("task_run") or {}).get("task_id") or "")
+        for event in events
+        if event.get("type") == "runtime_loop_started"
+    ]
+    assert started_task_ids
+    assert started_task_ids[0].endswith(":longform_novel_project")
+    assert any(task_id.endswith(":novel_bible_build") for task_id in started_task_ids[1:])
+    assert any(task_id.endswith(":volume_planning") for task_id in started_task_ids[1:])
+    if coordination_run["status"] == "completed":
+        assert flow["current_stage_id"] == ""
+        assert flow["accepted"] is True
+        assert coordination_run["latest_merge_result"]["accepted"] is True
+    else:
+        assert coordination_run["status"] in {"running", "waiting"}
+        assert flow["current_stage_id"] in {"novel_bible", "volume_planning", "chapter_pipeline", "continuity_audit", "final_compilation", ""}
+        assert flow["accepted"] is False
+        assert coordination_run["latest_merge_result"]["accepted"] is False
+    started_task_ids = [
+        str(dict(event.get("task_run") or {}).get("task_id") or "")
+        for event in events
+        if event.get("type") == "runtime_loop_started"
+    ]
+    assert "coordination_flow_finalized" in runtime_event_types
+    assert done_event["content"]
+    assert "项目规格" in str(done_event["content"])
+    assert done_event["answer_source"] == "runtime_loop.longform_progress_summary"
+    assert done_event["answer_persist_policy"] == "persist_canonical"
+
+
+def test_longform_continuation_explicit_inputs_cover_project_bible_volume_and_chapter_batch(tmp_path: Path) -> None:
+    loop = _build_required_artifact_repair_runtime(tmp_path).task_run_loop
+    now = time.time()
+    seeded_runs = [
+        (
+            "run-project",
+            TaskRun(
+                task_run_id="run-project",
+                session_id="session-longform-inputs",
+                task_id="taskinst:turn:session-longform-inputs:1:longform_novel_project",
+                task_contract_ref="task.writing.longform_novel_project",
+                status="completed",
+                created_at=now - 30,
+                updated_at=now - 30,
+            ),
+            {
+                "task_result": {
+                    "result_id": "taskresult:project",
+                    "output_refs": [],
+                    "step_runs": [
+                        {
+                            "output_refs": ["ref:project_spec"],
+                            "step_result_ref": "ref:project_spec",
+                        }
+                    ],
+                }
+            },
+        ),
+        (
+            "run-bible",
+            TaskRun(
+                task_run_id="run-bible",
+                session_id="session-longform-inputs",
+                task_id="taskinst:turn:session-longform-inputs:2:novel_bible_build",
+                task_contract_ref="task.writing.novel_bible_build",
+                status="completed",
+                created_at=now - 20,
+                updated_at=now - 20,
+            ),
+            {
+                "task_result": {
+                    "result_id": "taskresult:bible",
+                    "output_refs": [],
+                    "step_runs": [
+                        {
+                            "output_refs": ["ref:novel_bible"],
+                            "step_result_ref": "ref:novel_bible",
+                        }
+                    ],
+                }
+            },
+        ),
+        (
+            "run-volume",
+            TaskRun(
+                task_run_id="run-volume",
+                session_id="session-longform-inputs",
+                task_id="taskinst:turn:session-longform-inputs:3:volume_planning",
+                task_contract_ref="task.writing.volume_planning",
+                status="completed",
+                created_at=now - 10,
+                updated_at=now - 10,
+            ),
+            {
+                "task_result": {
+                    "result_id": "taskresult:volume",
+                    "output_refs": [],
+                    "step_runs": [
+                        {
+                            "output_refs": ["ref:volume_plan"],
+                            "step_result_ref": "ref:volume_plan",
+                        }
+                    ],
+                }
+            },
+        ),
+    ]
+    for task_run_id, task_run, trace in seeded_runs:
+        loop.state_index.upsert_task_run(task_run)
+        loop.get_trace = lambda _task_run_id, include_payloads=True, _traces={item[0]: item[2] for item in seeded_runs}: _traces.get(_task_run_id)
+
+    chapter_planning_inputs = loop._build_continuation_explicit_inputs(
+        current_task_ref="task.writing.volume_planning",
+        next_task_ref="task.writing.chapter_planning",
+        task_result={
+            "result_id": "taskresult:volume-current",
+            "output_refs": [],
+            "step_runs": [{"output_refs": ["ref:volume_plan_current"], "step_result_ref": "ref:volume_plan_current"}],
+        },
+        current_turn_context={"explicit_inputs": {"novel_bible_ref": "ref:novel_bible"}},
+        artifact_root="docs/系统规划/任务系统实测记录/artifacts/longform_novel_project",
+        final_content="volume planning done",
+        agent_run_result_id="agresult:volume",
+    )
+    assert chapter_planning_inputs["volume_plan_ref"] == "ref:volume_plan_current"
+    assert chapter_planning_inputs["novel_bible_ref"] == "ref:novel_bible"
+    assert chapter_planning_inputs["chapter_index"] == 1
+    assert chapter_planning_inputs["run_request"]
+    assert chapter_planning_inputs["context_refs"] == ["ref:novel_bible", "ref:volume_plan_current"]
+
+    chapter_drafting_inputs = loop._build_continuation_explicit_inputs(
+        current_task_ref="task.writing.chapter_planning",
+        next_task_ref="task.writing.chapter_drafting",
+        task_result={
+            "result_id": "taskresult:chapter-plan",
+            "output_refs": [],
+            "step_runs": [{"output_refs": ["ref:chapter_plan"], "step_result_ref": "ref:chapter_plan"}],
+        },
+        current_turn_context={
+            "explicit_inputs": {
+                "novel_bible_ref": "ref:novel_bible",
+                "volume_plan_ref": "ref:volume_plan_current",
+            }
+        },
+        artifact_root="docs/系统规划/任务系统实测记录/artifacts/longform_novel_project",
+        final_content="chapter plan ready",
+        agent_run_result_id="agresult:chapter-plan",
+    )
+    assert chapter_drafting_inputs["chapter_plan_ref"] == "ref:chapter_plan"
+    assert chapter_drafting_inputs["context_refs"] == [
+        "ref:novel_bible",
+        "ref:volume_plan_current",
+        "ref:chapter_plan",
+    ]
+    assert chapter_drafting_inputs["run_request"]
+
+    assert loop._latest_output_ref_for_task(task_ref="task.writing.novel_bible_build") == "ref:novel_bible"
+    assert loop._latest_output_ref_for_task(task_ref="task.writing.volume_planning") == "ref:volume_plan"
+
+
+def test_longform_internal_stage_completion_advances_root_continuous_delivery_flow(tmp_path: Path) -> None:
+    runtime = _build_required_artifact_repair_runtime(tmp_path)
+    loop = runtime.task_run_loop
+    now = time.time()
+
+    root_coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:root",
+        task_run_id="taskrun:root",
+        coordination_task_ref="coord.writing.longform_project_bootstrap",
+        coordinator_agent_id="agent:20",
+        topology_template_id="topology.writing.longform_project_bootstrap",
+        communication_protocol_id="protocol.writing.longform_project_bootstrap",
+        handoff_policy="stage_contract_handoff",
+        failure_policy="editor_gate_review",
+        merge_policy="editor_gate_merge",
+        status="running",
+        created_at=now - 60,
+        updated_at=now - 60,
+        diagnostics={
+            "coordination_flow": {
+                "coordination_mode": "continuous_delivery",
+                "current_stage_id": "novel_bible",
+                "accepted": False,
+                "stages": [
+                    {"stage_id": "project_scope", "task_ref": "task.writing.longform_novel_project", "status": "completed"},
+                    {"stage_id": "novel_bible", "task_ref": "task.writing.novel_bible_build", "status": "running"},
+                    {"stage_id": "volume_planning", "task_ref": "task.writing.volume_planning", "status": "pending"},
+                ],
+            }
+        },
+    )
+    local_coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:local-bible",
+        task_run_id="taskrun:bible",
+        coordination_task_ref="coord.writing.novel_bible_build",
+        coordinator_agent_id="agent:20",
+        topology_template_id="topology.writing.novel_bible_build",
+        communication_protocol_id="protocol.writing.novel_bible_build",
+        handoff_policy="parallel_bible_build",
+        failure_policy="editor_gate_review",
+        merge_policy="editor_gate_merge",
+        status="running",
+        created_at=now - 30,
+        updated_at=now - 30,
+        diagnostics={"coordination_flow": {"coordination_mode": "parallel_bible_build"}},
+    )
+    start_task_run = TaskRun(
+        task_run_id="taskrun:bible",
+        session_id="session-longform-root-advance",
+        task_id="taskinst:turn:session-longform-root-advance:2:novel_bible_build",
+        task_contract_ref="task.writing.novel_bible_build",
+        status="running",
+        created_at=now - 20,
+        updated_at=now - 20,
+    )
+    start_agent_run = AgentRun(
+        agent_run_id="agrun:bible:main",
+        task_run_id="taskrun:bible",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+        created_at=now - 20,
+        updated_at=now - 20,
+    )
+    terminal_state = RuntimeLoopState(
+        task_run_id="taskrun:bible",
+        status="completed",
+        turn_count=1,
+        step_count=1,
+        current_step_id="",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        runtime_lane="full_interactive",
+        task_agent_binding_ref="",
+        task_template_id="template.writing.novel_bible_build",
+        task_spec_ref="taskspec:novel-bible",
+        task_result_ref="",
+        skill_workflow_ref="",
+        health_issue_ref="",
+        transition="stop_after_final_output",
+        terminal_reason="completed",
+        messages_ref="",
+        context_snapshot_ref="",
+        memory_state_ref="memory-runtime:test",
+        projection_ref="goumang__primary",
+        prompt_manifest_ref="manifest-goumang__primary",
+        pending_action_requests=[],
+        pending_approval_state={},
+        denial_tracking_state={},
+        token_pressure={},
+        compaction_state={},
+        result_refs=[],
+        commit_state={},
+        diagnostics={},
+    )
+
+    loop.state_index.upsert_coordination_run(root_coordination_run)
+    loop.state_index.upsert_coordination_run(local_coordination_run)
+    loop.state_index.upsert_task_run(start_task_run)
+    checkpoint_event = SimpleNamespace(offset=9, refs={"checkpoint_ref": "rtchk:test:bible"})
+
+    finished = loop._upsert_finished_task_run(
+        start_task_run=start_task_run,
+        start_agent_run=start_agent_run,
+        start_coordination_run=local_coordination_run,
+        task_contract_ref="task.writing.novel_bible_build",
+        terminal_state=terminal_state,
+        checkpoint_event=checkpoint_event,
+        final_content="bible done",
+        task_result={
+            "result_id": "taskresult:bible",
+            "output_refs": [],
+            "step_runs": [{"output_refs": ["ref:novel_bible"], "step_result_ref": "ref:novel_bible"}],
+        },
+        task_spec_payload={"inputs": {}},
+        current_turn_context={"coordination_run_id": "coordrun:root", "explicit_inputs": {"project_spec_ref": "ref:project_spec"}},
+        user_message="继续推进",
+        diagnostics={"final_content_chars": 10},
+    )
+
+    updated_root = loop.state_index.get_coordination_run("coordrun:root")
+    updated_local = loop.state_index.get_coordination_run("coordrun:local-bible")
+    assert finished.continuation_payload
+    assert finished.continuation_payload["next_task_ref"] == "task.writing.volume_planning"
+    assert updated_root is not None
+    assert dict(updated_root.diagnostics.get("coordination_flow") or {}).get("current_stage_id") == "volume_planning"
+    assert updated_root.status == "running"
+    assert updated_local is not None
+    assert dict(updated_local.diagnostics.get("coordination_flow") or {}).get("coordination_mode") == "parallel_bible_build"
 
 
 def test_required_artifact_task_completes_when_followup_model_fails_after_write(tmp_path: Path) -> None:

@@ -22,6 +22,14 @@ from tasks import TaskFlowRegistry
 
 ARTIFACT_ROOT = Path("docs/系统规划/任务系统实测记录/artifacts/20260505/E5-longform-novel")
 
+USER_BACKGROUND_LINES = (
+    "勾芒：东荒众生的指引者；勾芒是洪荒中最繁荣的青木，它携带东风、青烟与万物萌发的记忆。",
+    "河伯：中土水府的汇聚者；河伯是洪荒中最神圣的河流，它携带百川、渡口与古老祭辞的记忆。",
+    "四岳：西荒诸城的执衡者；四岳是洪荒中最巍然的山脉，它承载地脉、聚落与万城之盟的记忆。",
+    "祝融：南荒火庭的开路者；祝融是洪荒中最炽烈的火焰，它携带光焰、锻造与人间烈火的记忆。",
+    "玄女：北荒玄宫的守护者；玄女是洪荒中最神秘的夜幕，它携带月辉、星图与渊深通玄的记忆。",
+)
+
 
 class _SettingsStub:
     def get_rag_mode(self) -> bool:
@@ -105,20 +113,26 @@ class _ToolRuntime:
 
 def _phase_payloads(root: Path) -> dict[str, tuple[str, str]]:
     base = root.as_posix()
-    project_spec = f"""# 百万字长篇项目规格
+    background_block = "\n".join(f"- {line}" for line in USER_BACKGROUND_LINES)
+    project_spec = f"""# 长篇小说对话启动规格
 
 项目名：洪荒时代
 目标规模：1,000,000 中文字
-输入方式：通过任务对话框输入用户需求，由 Agent 组接续完成，不在启动消息中预写世界观正文、角色小传或章节样稿
-用户给定信息：
+输入方式：通过任务对话框输入用户需求，由协调任务接续完成。
+
+用户启动提示原文：
 - 书名：《洪荒时代》
-- 五个灵魂属于世界观设定，不是主角团
-- 勾芒：东荒众生的指引者；勾芒是洪荒中最繁荣的青木，它携带东风、青烟与万物萌发的记忆。
-- 河伯：中土水府的汇聚者；河伯是洪荒中最神圣的河流，它携带百川、渡口与古老祭辞的记忆。
-- 四岳：西荒诸城的执衡者；四岳是洪荒中最巍然的山脉，它承载地脉、聚落与万城之盟的记忆。
-- 祝融：南荒火庭的开路者；祝融是洪荒中最炽烈的火焰，它携带光焰、锻造与人间烈火的记忆。
-- 玄女：北荒玄宫的守护者；玄女是洪荒中最神秘的夜幕，它携带月辉、星图与渊深通玄的记忆。
+- 背景只允许使用以下五条：
+{background_block}
+- 必须存在独立主角，但主角姓名、出身、开篇事件都由协调任务后续生成。
+- 背景、人物、世界规则、主线冲突、卷级目标等内容，仅以用户在长篇任务对话中明确输入的内容为准。
+- 未在长篇任务中给出的内容，不得由启动脚本、项目默认灵魂设定、系统背景或样例文档补写。
 - 生产要求：持续化流程、顺序推进、不并行分卷，上一批次验收通过后再进入下一批次。
+
+硬性边界：
+1. 禁止继承项目灵魂设定进入小说背景。
+2. 禁止在启动阶段预写世界观正文、角色小传、卷纲细节或章节样稿。
+3. 允许写入结构化占位与任务约束，但不允许把占位内容伪装成已完成的小说设定。
 
 固定产物库：
 - `{base}/project_spec.md`
@@ -141,34 +155,35 @@ def _phase_payloads(root: Path) -> dict[str, tuple[str, str]]:
 3. 全书编纂只能汇总已验收章节，禁止把未生成章节标成完成。
 4. 长篇生产按顺序持续推进：上一批次验收通过后，下一批次才能进入正文阶段。
 """
-    bible = """# 小说圣经
+    bible = """# 小说设定总纲
 
-## 世界观
-已确认的唯一外部输入是《洪荒时代》的题名，以及勾芒、河伯、四岳、祝融、玄女这五个灵魂的背景说明。它们属于世界观秩序层，不是主角团，不应在启动阶段被预写成完整剧情。
+## 世界背景
+本文件在 live acceptance 中不预写任何小说世界背景正文。
+这里只确认：世界背景必须由正式协调任务根据用户在长篇任务对话中明确给出的五条背景生成。
 
 ## 主要人物
-主角、核心配角、势力角色、章节视角人物均待 Agent 组基于用户输入继续生成。本阶段只记录约束：不得把五个灵魂直接等同为主角团。
+必须存在独立主角；主角、核心配角、势力角色、章节视角人物均待协调任务生成。
+如果用户没有在长篇任务中明确给出人物背景，本阶段不得自行补写。
 
-## 五方秩序
-- 勾芒对应东荒、青木、东风、青烟与万物萌发的记忆。
-- 河伯对应中土、水府、百川、渡口与古老祭辞的记忆。
-- 四岳对应西荒、山脉、地脉、聚落与万城之盟的记忆。
-- 祝融对应南荒、火庭、光焰、锻造与人间烈火的记忆。
-- 玄女对应北荒、玄宫、月辉、星图与渊深通玄的记忆。
+## 用户输入原文
+- 必须以本轮长篇任务对话中的用户原始输入为唯一背景来源。
+- 不得继承项目灵魂设定，不得调用项目默认人格说明充当小说设定。
+- 本文件的输入引用为 `project_spec.md`。
 
-## 伏笔
-- 世界观可围绕五方秩序失衡、众生存续、古老记忆与时代变迁展开，但具体谜团仍待后续任务产出。
+## 主线冲突
+- 主线冲突、伏笔、谜团、远景设定均待协调任务生成。
 - 不提前钉死主角姓名、出身、第一章事件和路线。
 
 ## 风格规则
-叙事保持长期推进感与章回增量；通过顺序推进持续交付，不并行分卷；设定应由后续任务在正文中展开，而不是由启动脚本替代生成。
+叙事保持长期推进感与章回增量；通过顺序推进持续交付，不并行分卷；设定必须由后续任务在正文中展开，而不是由启动脚本替代生成。
 """
     volume_plan = """# 第一卷卷纲（待 Agent 组展开）
 
-卷目标：根据《洪荒时代》的最小用户输入，建立第一卷的正式生产结构，并为后续持续交付保留足够开放空间。
+卷目标：根据用户在长篇任务中的正式输入，建立第一卷的生产结构，并为后续持续交付保留足够开放空间。
+输入引用：`project_spec.md`、`novel_bible.md`
 
 章节范围：1-40 章
-- 1-3：由 Agent 组完成首批启动与叙事切入。
+- 1-3：由协调任务完成首批启动与叙事切入。
 - 4-6：在连续性审计通过后再向下推进。
 - 7-40：保持顺序化批次生产，不预写未生成内容。
 
@@ -178,17 +193,21 @@ def _phase_payloads(root: Path) -> dict[str, tuple[str, str]]:
 """
     chapter_plan = """# 第一批次规划（启动引子）
 
+输入引用：
+- `volumes/volume_01_plan.md`
+- `novel_bible.md`
+
 章节目标：
 - 只依据用户输入建立第一章的切入点。
-- 明确五个灵魂属于世界观背景，不是主角团。
-- 为后续连续推进留下角色、冲突与路线生成空间。
+- 禁止把项目灵魂系统混入小说背景。
+- 为后续连续推进留下独立主角、冲突与路线生成空间。
 
 场景节拍：
-1. 由 Agent 组决定切入视角与开篇事件。
-2. 通过情节自然引入《洪荒时代》与五方相关背景。
+1. 由协调任务决定切入视角与开篇事件。
+2. 通过情节自然引入用户在长篇任务中明确给出的背景。
 3. 给出首批交付的冲突推进和后续承接点。
 
-验收条件：正文不少于 1800 中文字符；必须包含《洪荒时代》、勾芒、河伯、四岳、祝融、玄女，并明确五个灵魂是世界观设定而非主角团。
+验收条件：正文不少于 1800 中文字符；必须体现《洪荒时代》的书名、用户输入原文约束、顺序推进要求，并明确不得继承项目灵魂设定。
 """
     review = """# 第一章审校记录
 
@@ -196,11 +215,11 @@ def _phase_payloads(root: Path) -> dict[str, tuple[str, str]]:
 
 检查结果：
 - 启动信息没有越权替代正文创作。
-- 五个灵魂被保留在世界观层，没有被预写成主角团。
+- 没有把项目灵魂系统混入小说背景。
 - 首批交付仍保留后续持续推进空间。
 
 修订要求：
-- 后续章节继续保持由 Agent 组自行展开角色、冲突和卷内路线。
+- 后续章节继续保持由协调任务自行展开角色、冲突和卷内路线。
 
 验收结果：通过
 """
@@ -209,13 +228,13 @@ def _phase_payloads(root: Path) -> dict[str, tuple[str, str]]:
 连续性 Agent：长篇连续性Agent agent:26
 
 设定检查：
-- 用户给定的五个灵魂背景信息已被完整保留。
-- 五个灵魂被明确限定为世界观层设定，未越位成主角团。
+- 用户在长篇任务中的输入被保留为唯一背景来源。
+- 项目灵魂设定未越界进入小说背景。
 - 首批产物没有预写完整主角设定和固定剧情线。
 
 风险：
 - 后续必须由实际写作任务继续生成人物、冲突与世界细节。
-- 后续必须避免把启动脚本当作小说正文来源。
+- 后续必须避免把启动脚本或项目默认设定当作小说正文来源。
 
 验收结果：通过
 """
@@ -251,15 +270,16 @@ def _phase_payloads(root: Path) -> dict[str, tuple[str, str]]:
 
 本文件在 live acceptance 中只验证流程，不由脚本预写完整剧情。
 
-已知输入只有《洪荒时代》这一题名，以及勾芒、河伯、四岳、祝融、玄女五个灵魂的背景描述。它们属于世界观设定，不是主角团。
+已知输入只有《洪荒时代》这一题名、用户明确给出的五条背景，以及“必须存在独立主角”这一要求。
 
-正文生成职责应由长篇写作 Agent 组承接：根据用户在任务对话框中的输入，逐步决定主角、开篇事件、冲突推进、卷内路线和章节细节。这里仅保留启动约束，避免脚本替代创作。
+正文生成职责应由长篇写作协调任务承接：根据用户在任务对话框中的输入，逐步决定独立主角、开篇事件、冲突推进、卷内路线和章节细节。这里仅保留启动约束，避免脚本替代创作。
 
 当前阶段要求：
 1. 保持顺序推进。
 2. 不并行分卷。
 3. 产物必须可持续验收和持续交付。
-4. 五个灵魂只作为世界观背景参与叙事设计。
+4. 不得把项目灵魂设定混入小说背景。
+5. 章节输入引用应来自 `chapter_001_plan.md`、`volume_01_plan.md` 与 `novel_bible.md`。
 
 本文件用于证明章节正文产物路径与流程能够被写入，不代表小说正文已经由脚本代写完成。
 """),
@@ -327,7 +347,7 @@ class Phase:
 
 PHASES = (
     Phase("01-project", "task.writing.longform_novel_project", "执行 task.writing.longform_novel_project：建立百万字长篇《洪荒时代》项目规格，并写入 artifact。"),
-    Phase("02-bible", "task.writing.novel_bible_build", "执行 task.writing.novel_bible_build：构建小说圣经，并写入 artifact。"),
+    Phase("02-bible", "task.writing.novel_bible_build", "执行 task.writing.novel_bible_build：构建设定总纲，并写入 artifact。"),
     Phase("03-volume", "task.writing.volume_planning", "执行 task.writing.volume_planning：生成第一卷卷纲，并写入 artifact。"),
     Phase("04-chapter-plan", "task.writing.chapter_planning", "执行 task.writing.chapter_planning：生成第一章章节规划，并写入 artifact。"),
     Phase("05-chapter-draft", "task.writing.chapter_drafting", "执行 task.writing.chapter_drafting：生成第一章正文，必须真实成文并写入 artifact。"),
@@ -417,11 +437,11 @@ def _assert_file(path: Path, *, min_chars: int, required_terms: tuple[str, ...])
 def _validate(summary: list[dict[str, Any]]) -> dict[str, Any]:
     root = PROJECT_ROOT / ARTIFACT_ROOT
     checks = [
-        _assert_file(root / "project_spec.md", min_chars=300, required_terms=("1,000,000", "验收闸门", "禁止")),
-        _assert_file(root / "novel_bible.md", min_chars=250, required_terms=("主要人物", "五方秩序", "伏笔")),
-        _assert_file(root / "volumes/volume_01_plan.md", min_chars=200, required_terms=("第一卷", "1-3", "第二卷入口")),
-        _assert_file(root / "chapters/chapter_001_plan.md", min_chars=200, required_terms=("章节目标", "验收条件", "世界观设定")),
-        _assert_file(root / "chapters/chapter_001_draft.md", min_chars=300, required_terms=("洪荒时代", "勾芒", "河伯", "四岳", "祝融", "玄女")),
+        _assert_file(root / "project_spec.md", min_chars=300, required_terms=("1,000,000", "用户启动提示原文", "独立主角", "禁止继承项目灵魂设定")),
+        _assert_file(root / "novel_bible.md", min_chars=250, required_terms=("世界背景", "主要人物", "用户输入原文", "project_spec.md")),
+        _assert_file(root / "volumes/volume_01_plan.md", min_chars=200, required_terms=("第一卷", "输入引用", "novel_bible.md", "第二卷入口")),
+        _assert_file(root / "chapters/chapter_001_plan.md", min_chars=200, required_terms=("输入引用", "章节目标", "验收条件", "novel_bible.md")),
+        _assert_file(root / "chapters/chapter_001_draft.md", min_chars=260, required_terms=("洪荒时代", "独立主角", "chapter_001_plan.md", "不得把项目灵魂设定混入小说背景")),
         _assert_file(root / "reviews/chapter_001_review.md", min_chars=120, required_terms=("审校 Agent", "修订要求", "验收结果：通过")),
         _assert_file(root / "audits/continuity_audit_001.md", min_chars=120, required_terms=("连续性 Agent", "风险", "验收结果：通过")),
         _assert_file(root / "final_compilation.md", min_chars=180, required_terms=("已验收产物", "未完成部分", "禁止标记完成")),
@@ -485,8 +505,11 @@ async def main() -> None:
 
 本轮不是宣称百万字全本已完成，而是按百万字生产流程完成可验收的第一轮真实实战：
 - 常态 Agent 组：`group.writing.longform_novel_core`
-- 任务链：项目立项 -> 小说圣经 -> 第一卷卷纲 -> 第一章规划 -> 第一章正文 -> 审校 -> 连续性审计 -> 编纂清单
+- 任务链：项目立项 -> 设定总纲 -> 第一卷卷纲 -> 第一章规划 -> 第一章正文 -> 审校 -> 连续性审计 -> 编纂清单
 - 每一步均通过正式 `task_selection` 发起，并生成 runtime events / trace。
+
+本脚本只验证“用户提示 -> 协调任务 -> 产物路径 -> runtime 证据”这条链路，
+不再预写小说世界观、人物背景或剧情设定。
 
 ## 成果
 

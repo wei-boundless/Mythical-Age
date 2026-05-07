@@ -96,6 +96,10 @@ type DomainRecord = {
   entry_policy: ConversationEntryPolicy | null;
 };
 
+function isInternalLongformItem(item: { metadata?: Record<string, unknown> } | null | undefined) {
+  return Boolean(item && item.metadata && item.metadata.internal_stage === true);
+}
+
 function text(value: unknown, fallback = "-") {
   if (value === null || value === undefined || value === "") return fallback;
   if (Array.isArray(value)) return value.length ? value.join(" / ") : fallback;
@@ -629,7 +633,7 @@ function ProjectionMultiSelectField({
 }
 
 function buildDomains(consolePayload: TaskSystemOverview | null): DomainRecord[] {
-  const tasks = consolePayload?.task_management.specific_task_records ?? [];
+  const tasks = (consolePayload?.task_management.specific_task_records ?? []).filter((task) => !isInternalLongformItem(task));
   const entryPolicies = consolePayload?.task_management.entry_policies ?? [];
   const formalDomains = consolePayload?.task_management.task_domains ?? [];
   const grouped = new Map<string, SpecificTaskRecord[]>();
@@ -1134,15 +1138,15 @@ export function TaskSystemView() {
   const allCommunicationProtocols = useMemo(() => consolePayload?.coordination_management.communication_protocols ?? [], [consolePayload]);
   const activeFamily = selectedDomain?.task_family || "";
   const coordinationTasks = useMemo(
-    () => allCoordinationTasks.filter((item) => coordinationFamily(item, tasks) === activeFamily),
+    () => allCoordinationTasks.filter((item) => !isInternalLongformItem(item) && coordinationFamily(item, tasks) === activeFamily),
     [activeFamily, allCoordinationTasks, tasks],
   );
   const topologyTemplates = useMemo(
-    () => allTopologyTemplates.filter((item) => topologyFamily(item) === activeFamily),
+    () => allTopologyTemplates.filter((item) => !isInternalLongformItem(item) && topologyFamily(item) === activeFamily),
     [activeFamily, allTopologyTemplates],
   );
   const communicationProtocols = useMemo(
-    () => allCommunicationProtocols.filter((item) => protocolFamily(item, tasks) === activeFamily),
+    () => allCommunicationProtocols.filter((item) => !isInternalLongformItem(item) && protocolFamily(item, tasks) === activeFamily),
     [activeFamily, allCommunicationProtocols, tasks],
   );
   const selectedCoordination = coordinationTasks.find((item) => item.coordination_task_id === selectedCoordinationId) ?? coordinationTasks[0] ?? null;

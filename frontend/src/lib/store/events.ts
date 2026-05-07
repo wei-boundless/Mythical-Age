@@ -142,6 +142,22 @@ function makeOrchestrationSnapshot(state: StoreState, userContent: string): Orch
     summary: node.id === "input" ? userContent.trim() : "",
     source_event: node.id === "input" ? "user_message" : ""
   }));
+  const taskSelection = state.taskSelection ?? null;
+  const initialEvents = taskSelection
+    ? [{
+        index: 1,
+        event: "task_selection_bound",
+        node_id: "input",
+        summary: taskSelection.coordination_task_id
+          ? `已绑定协调任务 ${String(taskSelection.coordination_task_id)}`
+          : `已绑定特定任务 ${String(taskSelection.selected_task_id ?? "")}`,
+        data: {
+          task_selection: taskSelection,
+          coordination_task_id: taskSelection.coordination_task_id ?? "",
+          selected_task_id: taskSelection.selected_task_id ?? "",
+        }
+      }]
+    : [];
   return {
     source: "live-session",
     session_id: state.currentSessionId ?? "",
@@ -152,7 +168,7 @@ function makeOrchestrationSnapshot(state: StoreState, userContent: string): Orch
     problem_node_id: "",
     nodes,
     edges: deriveOrchestrationEdges(nodes),
-    events: []
+    events: initialEvents
   };
 }
 

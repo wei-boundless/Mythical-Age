@@ -50,6 +50,13 @@ export function ChatPanel() {
   }, [messages, activePage]);
 
   useEffect(() => {
+    if (isStreaming && coordinationActive) {
+      setActivePage("monitor");
+      setMonitorMode("flow");
+    }
+  }, [isStreaming, coordinationActive]);
+
+  useEffect(() => {
     const justActivated = coordinationActive && !coordinationWasActiveRef.current;
     if (justActivated) {
       setActivePage("monitor");

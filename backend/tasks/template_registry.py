@@ -502,8 +502,8 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
         ),
         TaskTemplate(
             template_id="template.writing.longform_novel_project",
-            title="长篇小说项目立项",
-            description="建立百万字级长篇小说项目规格、产物库结构、卷章拆解策略与验收闸门。",
+            title="长篇小说持续交付",
+            description="作为唯一用户入口持续推进长篇小说的立项、设定、卷规划、章节交付、连续性审计与编纂收口。",
             task_family="writing",
             task_mode="longform_novel_project",
             input_schema={"goal": "string", "target_word_count": "number", "artifact_root": "string"},
@@ -515,7 +515,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             step_blueprints=(
                 TaskStepBlueprint(
                     step_id="step.longform_project_spec",
-                    title="生成项目规格",
+                    title="启动持续交付并建立项目规格",
                     step_kind="coordinate",
                     executor_type="agent",
                     required_operations=("op.model_response", "op.write_file"),
@@ -536,6 +536,8 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             metadata={
                 "coordination_task_id": "coord.writing.longform_project_bootstrap",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "default_artifact_name": "project_spec.md",
+                "default_artifact_path_policy": "title_subdir_or_task_mode",
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
                 **_LONGFORM_WRITE_FIRST_METADATA,
             },
@@ -576,6 +578,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             metadata={
                 "coordination_task_id": "coord.writing.novel_bible_build",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
                 **_LONGFORM_WRITE_FIRST_METADATA,
             },
@@ -608,6 +611,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             metadata={
                 "coordination_task_id": "coord.writing.volume_planning",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
                 **_LONGFORM_WRITE_FIRST_METADATA,
             },
@@ -640,6 +644,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             metadata={
                 "coordination_task_id": "coord.writing.chapter_pipeline",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
                 **_LONGFORM_WRITE_FIRST_METADATA,
             },
@@ -672,6 +677,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             metadata={
                 "coordination_task_id": "coord.writing.chapter_pipeline",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
                 **_LONGFORM_WRITE_FIRST_METADATA,
                 "final_answer_requirements": ["must_include_complete_batch_body_or_artifact_ref", "must_include_review_and_revision_status"],
@@ -706,6 +712,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             metadata={
                 "coordination_task_id": "coord.writing.chapter_pipeline",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
                 **_LONGFORM_WRITE_FIRST_METADATA,
             },
@@ -738,6 +745,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             metadata={
                 "coordination_task_id": "coord.writing.continuity_audit",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
                 **_LONGFORM_WRITE_FIRST_METADATA,
             },
@@ -770,6 +778,7 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             metadata={
                 "coordination_task_id": "coord.writing.final_compilation",
                 "agent_group_id": "group.writing.longform_novel_core",
+                "internal_stage": True,
                 "runtime_limits": _LONGFORM_RUNTIME_LIMITS,
                 **_LONGFORM_WRITE_FIRST_METADATA,
             },

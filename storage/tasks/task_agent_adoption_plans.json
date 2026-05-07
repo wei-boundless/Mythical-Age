@@ -16,22 +16,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "",
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
         "coordination_task_id": "",
         "communication_protocol_id": "",
         "topology_template_id": "",
-        "runtime_limits": {}
+        "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:general.conversation.default",
       "execution_chain_type": "single_agent_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "",
-      "communication_protocol_id": "",
-      "topology_template_id": "",
-      "agent_group_id": ""
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.dev.bounded_patch",
@@ -49,22 +46,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "",
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
         "coordination_task_id": "",
         "communication_protocol_id": "",
         "topology_template_id": "",
-        "runtime_limits": {}
+        "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.dev.bounded_patch",
       "execution_chain_type": "single_agent_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "",
-      "communication_protocol_id": "",
-      "topology_template_id": "",
-      "agent_group_id": ""
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.dev.light_web_game",
@@ -81,22 +75,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "",
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
         "coordination_task_id": "",
         "communication_protocol_id": "",
         "topology_template_id": "",
-        "runtime_limits": {}
+        "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.dev.light_web_game",
-      "execution_chain_type": "coordination_chain",
+      "execution_chain_type": "single_agent_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "",
-      "communication_protocol_id": "",
-      "topology_template_id": "",
-      "agent_group_id": ""
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.writing.short_story",
@@ -114,22 +105,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "",
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_chain",
         "coordination_task_id": "coord.writing.short_story_pipeline",
         "communication_protocol_id": "protocol.writing.short_story_pipeline",
         "topology_template_id": "",
-        "runtime_limits": {}
+        "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.short_story",
       "execution_chain_type": "coordination_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "coord.writing.short_story_pipeline",
-      "communication_protocol_id": "protocol.writing.short_story_pipeline",
-      "topology_template_id": "",
-      "agent_group_id": ""
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.writing.longform_novel_project",
@@ -147,22 +135,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "group.writing.longform_novel_core",
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_chain",
         "coordination_task_id": "coord.writing.longform_project_bootstrap",
         "communication_protocol_id": "protocol.writing.longform_project_bootstrap",
         "topology_template_id": "topology.writing.longform_project_bootstrap",
-        "runtime_limits": {}
+        "agent_group_id": "group.writing.longform_novel_core"
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.longform_novel_project",
       "execution_chain_type": "coordination_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "coord.writing.longform_project_bootstrap",
-      "communication_protocol_id": "protocol.writing.longform_project_bootstrap",
-      "topology_template_id": "topology.writing.longform_project_bootstrap",
-      "agent_group_id": "group.writing.longform_novel_core"
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.writing.novel_bible_build",
@@ -180,22 +165,20 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "group.writing.longform_novel_core",
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_chain",
         "coordination_task_id": "coord.writing.novel_bible_build",
         "communication_protocol_id": "protocol.writing.novel_bible_build",
         "topology_template_id": "topology.writing.novel_bible_build",
-        "runtime_limits": {}
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.novel_bible_build",
       "execution_chain_type": "coordination_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "coord.writing.novel_bible_build",
-      "communication_protocol_id": "protocol.writing.novel_bible_build",
-      "topology_template_id": "topology.writing.novel_bible_build",
-      "agent_group_id": "group.writing.longform_novel_core"
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.writing.volume_planning",
@@ -213,22 +196,20 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "group.writing.longform_novel_core",
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_chain",
         "coordination_task_id": "coord.writing.volume_planning",
         "communication_protocol_id": "protocol.writing.volume_planning",
         "topology_template_id": "topology.writing.volume_planning",
-        "runtime_limits": {}
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.volume_planning",
       "execution_chain_type": "coordination_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "coord.writing.volume_planning",
-      "communication_protocol_id": "protocol.writing.volume_planning",
-      "topology_template_id": "topology.writing.volume_planning",
-      "agent_group_id": "group.writing.longform_novel_core"
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.writing.chapter_planning",
@@ -246,22 +227,20 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "group.writing.longform_novel_core",
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_chain",
         "coordination_task_id": "coord.writing.chapter_pipeline",
         "communication_protocol_id": "protocol.writing.chapter_pipeline",
         "topology_template_id": "topology.writing.chapter_pipeline",
-        "runtime_limits": {}
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.chapter_planning",
       "execution_chain_type": "coordination_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "coord.writing.chapter_pipeline",
-      "communication_protocol_id": "protocol.writing.chapter_pipeline",
-      "topology_template_id": "topology.writing.chapter_pipeline",
-      "agent_group_id": "group.writing.longform_novel_core"
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.writing.chapter_drafting",
@@ -279,22 +258,20 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "group.writing.longform_novel_core",
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_chain",
         "coordination_task_id": "coord.writing.chapter_pipeline",
         "communication_protocol_id": "protocol.writing.chapter_pipeline",
         "topology_template_id": "topology.writing.chapter_pipeline",
-        "runtime_limits": {}
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.chapter_drafting",
       "execution_chain_type": "coordination_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "coord.writing.chapter_pipeline",
-      "communication_protocol_id": "protocol.writing.chapter_pipeline",
-      "topology_template_id": "topology.writing.chapter_pipeline",
-      "agent_group_id": "group.writing.longform_novel_core"
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.writing.chapter_revision",
@@ -312,22 +289,20 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "group.writing.longform_novel_core",
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_chain",
         "coordination_task_id": "coord.writing.chapter_pipeline",
         "communication_protocol_id": "protocol.writing.chapter_pipeline",
         "topology_template_id": "topology.writing.chapter_pipeline",
-        "runtime_limits": {}
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.chapter_revision",
       "execution_chain_type": "coordination_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "coord.writing.chapter_pipeline",
-      "communication_protocol_id": "protocol.writing.chapter_pipeline",
-      "topology_template_id": "topology.writing.chapter_pipeline",
-      "agent_group_id": "group.writing.longform_novel_core"
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.writing.continuity_audit",
@@ -345,22 +320,20 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "group.writing.longform_novel_core",
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_chain",
         "coordination_task_id": "coord.writing.continuity_audit",
         "communication_protocol_id": "protocol.writing.continuity_audit",
         "topology_template_id": "topology.writing.continuity_audit",
-        "runtime_limits": {}
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.continuity_audit",
       "execution_chain_type": "coordination_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "coord.writing.continuity_audit",
-      "communication_protocol_id": "protocol.writing.continuity_audit",
-      "topology_template_id": "topology.writing.continuity_audit",
-      "agent_group_id": "group.writing.longform_novel_core"
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.writing.final_compilation",
@@ -378,22 +351,20 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "group.writing.longform_novel_core",
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_chain",
         "coordination_task_id": "coord.writing.final_compilation",
         "communication_protocol_id": "protocol.writing.final_compilation",
         "topology_template_id": "topology.writing.final_compilation",
-        "runtime_limits": {}
+        "agent_group_id": "group.writing.longform_novel_core",
+        "internal_stage": true
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.final_compilation",
       "execution_chain_type": "coordination_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "coord.writing.final_compilation",
-      "communication_protocol_id": "protocol.writing.final_compilation",
-      "topology_template_id": "topology.writing.final_compilation",
-      "agent_group_id": "group.writing.longform_novel_core"
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.dev.arcade_game_bundle",
@@ -411,22 +382,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "",
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
         "coordination_task_id": "",
         "communication_protocol_id": "",
         "topology_template_id": "",
-        "runtime_limits": {}
+        "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.dev.arcade_game_bundle",
       "execution_chain_type": "single_agent_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "",
-      "communication_protocol_id": "",
-      "topology_template_id": "",
-      "agent_group_id": ""
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.health.issue_triage",
@@ -444,22 +412,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "",
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
         "coordination_task_id": "",
         "communication_protocol_id": "",
         "topology_template_id": "",
-        "runtime_limits": {}
+        "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.health.issue_triage",
       "execution_chain_type": "single_agent_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "",
-      "communication_protocol_id": "",
-      "topology_template_id": "",
-      "agent_group_id": ""
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.health.trace_analysis",
@@ -477,22 +442,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "",
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
         "coordination_task_id": "",
         "communication_protocol_id": "",
         "topology_template_id": "",
-        "runtime_limits": {}
+        "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.health.trace_analysis",
       "execution_chain_type": "single_agent_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "",
-      "communication_protocol_id": "",
-      "topology_template_id": "",
-      "agent_group_id": ""
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.health.case_draft",
@@ -510,22 +472,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "",
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
         "coordination_task_id": "",
         "communication_protocol_id": "",
         "topology_template_id": "",
-        "runtime_limits": {}
+        "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.health.case_draft",
       "execution_chain_type": "single_agent_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "",
-      "communication_protocol_id": "",
-      "topology_template_id": "",
-      "agent_group_id": ""
+      "task_privilege": "bounded"
     },
     {
       "plan_id": "taskadopt:task.health.fix_verification",
@@ -543,22 +502,19 @@
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
-        "agent_group_id": "",
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
         "coordination_task_id": "",
         "communication_protocol_id": "",
         "topology_template_id": "",
-        "runtime_limits": {}
+        "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.health.fix_verification",
       "execution_chain_type": "single_agent_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
-      "task_privilege": "bounded",
-      "coordination_task_id": "",
-      "communication_protocol_id": "",
-      "topology_template_id": "",
-      "agent_group_id": ""
+      "task_privilege": "bounded"
     }
   ]
 }

@@ -36,7 +36,8 @@
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
-      "enabled": false
+      "enabled": false,
+      "metadata": {}
     },
     {
       "template_id": "topology.writing.short_story_pipeline",
@@ -121,59 +122,103 @@
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
-      "enabled": true
+      "enabled": true,
+      "metadata": {}
     },
     {
       "template_id": "topology.writing.longform_project_bootstrap",
-      "title": "长篇小说项目立项拓扑",
+      "title": "长篇小说持续交付拓扑",
       "nodes": [
         {
-          "node_id": "editor_gate",
+          "node_id": "coordinator",
           "agent_id": "agent:20",
           "lane": "novel_project_control",
           "role": "coordinator"
         },
         {
-          "node_id": "world_seed",
+          "node_id": "project_scope",
+          "agent_id": "agent:20",
+          "lane": "novel_project_control",
+          "role": "participant"
+        },
+        {
+          "node_id": "novel_bible",
           "agent_id": "agent:21",
-          "lane": "world_bible_build",
+          "lane": "novel_bible_gate",
           "role": "participant"
         },
         {
-          "node_id": "character_seed",
+          "node_id": "volume_planning",
           "agent_id": "agent:22",
-          "lane": "character_bible_build",
+          "lane": "volume_acceptance",
           "role": "participant"
         },
         {
-          "node_id": "plot_seed",
+          "node_id": "chapter_pipeline",
           "agent_id": "agent:23",
-          "lane": "volume_plot_plan",
+          "lane": "chapter_planning",
           "role": "participant"
+        },
+        {
+          "node_id": "chapter_drafting",
+          "agent_id": "agent:24",
+          "lane": "chapter_drafting",
+          "role": "participant"
+        },
+        {
+          "node_id": "continuity_audit",
+          "agent_id": "agent:26",
+          "lane": "continuity_audit",
+          "role": "participant"
+        },
+        {
+          "node_id": "final_compilation",
+          "agent_id": "agent:20",
+          "lane": "final_compilation",
+          "role": "coordinator"
         }
       ],
       "edges": [
         {
-          "from": "world_seed",
-          "to": "editor_gate",
+          "from": "project_scope",
+          "to": "novel_bible",
           "policy": "project_contract_handoff"
         },
         {
-          "from": "character_seed",
-          "to": "editor_gate",
-          "policy": "project_contract_handoff"
+          "from": "novel_bible",
+          "to": "volume_planning",
+          "policy": "stage_contract_handoff"
         },
         {
-          "from": "plot_seed",
-          "to": "editor_gate",
-          "policy": "project_contract_handoff"
+          "from": "volume_planning",
+          "to": "chapter_pipeline",
+          "policy": "stage_contract_handoff"
+        },
+        {
+          "from": "chapter_pipeline",
+          "to": "chapter_drafting",
+          "policy": "stage_contract_handoff"
+        },
+        {
+          "from": "chapter_drafting",
+          "to": "continuity_audit",
+          "policy": "stage_contract_handoff"
+        },
+        {
+          "from": "continuity_audit",
+          "to": "final_compilation",
+          "policy": "stage_contract_handoff"
         }
       ],
       "handoff_rules": [],
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
-      "enabled": true
+      "enabled": true,
+      "metadata": {
+        "managed_by": "task_system",
+        "task_resource": "longform_project_bootstrap"
+      }
     },
     {
       "template_id": "topology.writing.novel_bible_build",
@@ -225,7 +270,10 @@
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
-      "enabled": true
+      "enabled": true,
+      "metadata": {
+        "internal_stage": true
+      }
     },
     {
       "template_id": "topology.writing.volume_planning",
@@ -277,7 +325,10 @@
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
-      "enabled": true
+      "enabled": true,
+      "metadata": {
+        "internal_stage": true
+      }
     },
     {
       "template_id": "topology.writing.chapter_pipeline",
@@ -356,7 +407,10 @@
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
-      "enabled": true
+      "enabled": true,
+      "metadata": {
+        "internal_stage": true
+      }
     },
     {
       "template_id": "topology.writing.continuity_audit",
@@ -408,7 +462,10 @@
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
-      "enabled": true
+      "enabled": true,
+      "metadata": {
+        "internal_stage": true
+      }
     },
     {
       "template_id": "topology.writing.final_compilation",
@@ -465,7 +522,10 @@
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
-      "enabled": true
+      "enabled": true,
+      "metadata": {
+        "internal_stage": true
+      }
     },
     {
       "template_id": "topology.dev.acceptance_worker_spawn_live",
@@ -495,7 +555,8 @@
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
-      "enabled": true
+      "enabled": true,
+      "metadata": {}
     }
   ]
 }

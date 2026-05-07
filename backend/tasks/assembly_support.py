@@ -156,6 +156,7 @@ def _build_task_spec(
             str(active_skill.get("name") or "").strip(),
         ]
     )
+    default_artifact_path = _default_task_artifact_path(selected_template, current_turn_context)
     return TaskSpec(
         task_id=task_id,
         task_spec_ref=f"taskspec:{task_id}",
@@ -164,6 +165,7 @@ def _build_task_spec(
         user_goal=user_goal,
         inputs={
             **explicit_inputs,
+            **({"explicit_workspace_path": default_artifact_path} if default_artifact_path else {}),
             **({"coordination_request_brief": coordination_request_brief} if coordination_request_brief else {}),
             **({"bundle_spec": bundle_spec.to_dict()} if bundle_spec is not None else {}),
         },
@@ -195,6 +197,32 @@ def _build_task_spec(
         operation_requirement_ref=operation_requirement_ref,
         safety_envelope=dict(dict(operation_requirement.get("metadata") or {}).get("safety_envelope") or {}),
     )
+
+
+def _default_task_artifact_path(selected_template, current_turn_context: dict[str, Any]) -> str:
+    template_metadata = dict(getattr(selected_template, "metadata", {}) or {})
+    default_artifact_name = str(template_metadata.get("default_artifact_name") or "").strip()
+    if not default_artifact_name:
+        return ""
+    artifact_root = str(
+        current_turn_context.get("artifact_root")
+        or current_turn_context.get("workspace_root")
+        or dict(current_turn_context.get("explicit_inputs") or {}).get("artifact_root")
+        or dict(current_turn_context.get("explicit_inputs") or {}).get("workspace_root")
+        or template_metadata.get("default_write_root")
+        or (
+            list(template_metadata.get("default_write_roots") or [""])[0]
+            if isinstance(template_metadata.get("default_write_roots"), list)
+            else ""
+        )
+        or "docs/系统规划/任务系统实测记录/artifacts"
+    ).strip().rstrip("/\\")
+    if not artifact_root:
+        return ""
+    task_mode = str(getattr(selected_template, "task_mode", "") or "").strip()
+    if task_mode:
+        return f"{artifact_root}/{task_mode}/{default_artifact_name}"
+    return f"{artifact_root}/{default_artifact_name}"
 
 
 def _build_coordination_request_brief(

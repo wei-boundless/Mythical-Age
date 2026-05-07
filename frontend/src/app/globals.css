@@ -1269,8 +1269,8 @@ button:hover {
 .coordination-session {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
-  padding: 1rem;
+  gap: 1rem;
+  padding: 1rem 1rem 1.05rem;
 }
 
 .coordination-session-empty {
@@ -1295,14 +1295,19 @@ button:hover {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
-.coordination-session__head span,
-.coordination-session__contract span {
+.coordination-session__head span {
   color: var(--color-soul);
   font-size: 0.7rem;
   font-weight: 900;
+}
+
+.coordination-session__heading {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
 }
 
 .coordination-session__head h2 {
@@ -1312,68 +1317,55 @@ button:hover {
   letter-spacing: 0;
 }
 
-.coordination-session__metrics {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.42rem;
-}
-
-.coordination-session__metrics span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.32rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.12);
-  color: var(--color-text-soft);
-  font-size: 0.68rem;
-  padding: 0.26rem 0.5rem;
-}
-
-.coordination-session__contract {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.62rem;
-}
-
-.coordination-session__contract article {
+.coordination-session__signal {
   display: grid;
   gap: 0.22rem;
-  min-width: 0;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: var(--radius-card);
-  background: rgba(255, 255, 255, 0.032);
-  padding: 0.7rem;
-}
-
-.coordination-session__contract strong {
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: 0.82rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.coordination-status-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.62rem;
-}
-
-.coordination-status-strip article {
-  display: grid;
-  gap: 0.22rem;
-  min-width: 0;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: var(--radius-card);
+  max-width: min(320px, 100%);
+  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, transparent);
+  border-radius: calc(var(--radius-card) - 0.1rem);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.038), transparent 42%),
-    rgba(255, 255, 255, 0.028);
-  padding: 0.72rem;
+    radial-gradient(circle at 100% 0, color-mix(in srgb, var(--color-soul) 16%, transparent), transparent 48%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 42%),
+    rgba(0, 0, 0, 0.16);
+  padding: 0.82rem 0.9rem;
 }
 
-.coordination-status-strip span,
+.coordination-session__signal strong {
+  color: var(--color-text);
+  font-size: 0.95rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.coordination-session__signal em {
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.coordination-topology-shell {
+  display: grid;
+  gap: 0.7rem;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: calc(var(--radius-panel) - 12px);
+  background:
+    radial-gradient(circle at 50% 0, color-mix(in srgb, var(--color-soul) 18%, transparent), transparent 40%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 28%),
+    rgba(0, 0, 0, 0.14);
+  padding: 0.86rem 0.9rem 0.95rem;
+}
+
+.coordination-topology-shell__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.coordination-topology-shell__head span,
 .coordination-output-card__head span {
   display: inline-flex;
   align-items: center;
@@ -1383,168 +1375,177 @@ button:hover {
   font-weight: 900;
 }
 
-.coordination-status-strip strong,
-.coordination-output-card__head strong {
-  color: var(--color-text);
-  font-size: 0.84rem;
-  overflow-wrap: anywhere;
-}
-
-.coordination-status-strip em {
+.coordination-topology-shell__hint {
+  margin: 0;
   color: var(--color-text-soft);
-  font-size: 0.7rem;
-  font-style: normal;
+  font-size: 0.72rem;
   line-height: 1.45;
-  overflow-wrap: anywhere;
+  text-align: right;
 }
 
-.coordination-flow-graph {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.58rem;
-  align-items: stretch;
-}
-
-.coordination-flow-graph__step {
-  display: contents;
-}
-
-.coordination-flow-node {
-  position: relative;
-  display: grid;
-  gap: 0.34rem;
-  width: min(180px, 100%);
-  min-height: 132px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-card);
+.coordination-topology-viewport {
+  min-height: 420px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: calc(var(--radius-panel) - 16px);
   background:
-    radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.075), transparent 48%),
-    rgba(0, 0, 0, 0.1);
-  padding: 0.76rem;
-}
-
-.coordination-flow-node.is-current {
-  border-color: color-mix(in srgb, var(--color-soul) 56%, white 8%);
-  background:
-    radial-gradient(circle at 18% 0, color-mix(in srgb, var(--color-soul) 22%, transparent), transparent 46%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 42%),
-    rgba(255, 255, 255, 0.04);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-soul) 16%, transparent);
-}
-
-.coordination-flow-node::after,
-.coordination-agent-lane::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.coordination-flow-node.is-complete::after,
-.coordination-agent-lane.is-complete::after {
-  background: linear-gradient(90deg, var(--color-soul), rgba(130, 230, 180, 0.72));
-}
-
-.coordination-flow-node.is-running::after,
-.coordination-agent-lane.is-running::after {
-  background: linear-gradient(90deg, #ffd47b, color-mix(in srgb, var(--color-soul) 38%, transparent));
-}
-
-.coordination-flow-node.is-failed::after,
-.coordination-agent-lane.is-failed::after {
-  background: linear-gradient(90deg, #ff745b, rgba(255, 116, 91, 0.32));
-}
-
-.coordination-flow-node__icon {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 26%, transparent);
-  border-radius: 0.72rem;
-  color: var(--color-soul);
-}
-
-.coordination-flow-node strong,
-.coordination-agent-lane strong {
-  color: var(--color-text);
-  font-size: 0.88rem;
-}
-
-.coordination-flow-node span,
-.coordination-agent-lane span,
-.coordination-flow-node em,
-.coordination-agent-lane em,
-.coordination-agent-lane small {
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.028), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 26%),
+    rgba(0, 0, 0, 0.15);
   overflow: hidden;
+}
+
+.coordination-topology-viewport svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+}
+
+.coordination-topology-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.5rem;
+  min-height: 420px;
+  padding: 1.4rem;
+  text-align: center;
+}
+
+.coordination-topology-empty svg {
+  color: var(--color-soul);
+}
+
+.coordination-topology-empty strong {
+  color: var(--color-text);
+  font-size: 0.96rem;
+}
+
+.coordination-topology-empty p {
+  margin: 0;
+  max-width: 30rem;
   color: var(--color-text-soft);
-  font-size: 0.68rem;
-  font-style: normal;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 0.76rem;
+  line-height: 1.55;
 }
 
-.coordination-flow-node em,
-.coordination-agent-lane small {
-  color: var(--color-soul);
-  font-weight: 800;
+.coordination-topology-edge {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0.38;
+  transition: opacity 160ms ease, stroke 160ms ease, stroke-width 160ms ease;
 }
 
-.coordination-flow-graph__arrow {
-  align-self: center;
-  color: color-mix(in srgb, var(--color-soul) 70%, var(--color-text-soft));
-  flex-shrink: 0;
+.coordination-topology-edge.is-idle {
+  stroke: rgba(255, 255, 255, 0.14);
 }
 
-.coordination-event-strip,
-.coordination-agent-lanes,
-.coordination-communication-map {
-  display: grid;
-  gap: 0.58rem;
+.coordination-topology-edge.is-complete {
+  stroke: color-mix(in srgb, var(--color-soul) 72%, #8affc5 28%);
+  opacity: 0.62;
 }
 
-.coordination-event-strip {
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+.coordination-topology-edge.is-running {
+  stroke: #ffd47b;
+  opacity: 0.82;
 }
 
-.coordination-event-strip article,
-.coordination-communication-map article {
-  display: grid;
-  gap: 0.22rem;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: var(--radius-card);
-  background: rgba(255, 255, 255, 0.028);
-  padding: 0.68rem;
+.coordination-topology-edge.is-failed {
+  stroke: #ff745b;
+  opacity: 0.9;
 }
 
-.coordination-event-strip span {
-  color: var(--color-soul);
-  font-size: 0.64rem;
+.coordination-topology-edge.is-current {
+  stroke-width: 4;
+  opacity: 0.95;
+}
+
+.coordination-topology-agent-label,
+.coordination-topology-node-title,
+.coordination-topology-node-glyph {
+  user-select: none;
+}
+
+.coordination-topology-agent-label {
+  fill: var(--color-text-soft);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.coordination-topology-agent-label.is-current {
+  fill: var(--color-text);
+}
+
+.coordination-topology-node-halo {
+  fill: transparent;
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 2;
+}
+
+.coordination-topology-node-halo.is-idle {
+  stroke: rgba(255, 255, 255, 0.08);
+}
+
+.coordination-topology-node-halo.is-complete {
+  stroke: color-mix(in srgb, var(--color-soul) 65%, rgba(130, 230, 180, 0.75));
+}
+
+.coordination-topology-node-halo.is-running {
+  stroke: #ffd47b;
+}
+
+.coordination-topology-node-halo.is-failed {
+  stroke: #ff745b;
+}
+
+.coordination-topology-node-halo.is-current {
+  stroke-width: 4;
+}
+
+.coordination-topology-node-surface {
+  stroke-width: 1.5;
+  transition: transform 160ms ease;
+}
+
+.coordination-topology-node-surface.is-idle {
+  fill: rgba(255, 255, 255, 0.08);
+  stroke: rgba(255, 255, 255, 0.18);
+}
+
+.coordination-topology-node-surface.is-complete {
+  fill: color-mix(in srgb, var(--color-soul) 26%, rgba(130, 230, 180, 0.22));
+  stroke: color-mix(in srgb, var(--color-soul) 62%, rgba(130, 230, 180, 0.78));
+}
+
+.coordination-topology-node-surface.is-running {
+  fill: rgba(255, 212, 123, 0.22);
+  stroke: #ffd47b;
+}
+
+.coordination-topology-node-surface.is-failed {
+  fill: rgba(255, 116, 91, 0.16);
+  stroke: #ff745b;
+}
+
+.coordination-topology-node-surface.is-current {
+  transform: scale(1.08);
+}
+
+.coordination-topology-node-glyph {
+  fill: var(--color-text);
+  font-size: 12px;
   font-weight: 900;
 }
 
-.coordination-event-strip strong {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  color: var(--color-text);
-  font-size: 0.78rem;
-  line-height: 1.45;
+.coordination-topology-node-title {
+  fill: var(--color-text-soft);
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.coordination-event-strip em {
-  color: var(--color-text-soft);
-  font-size: 0.66rem;
-  font-style: normal;
-}
-
-.coordination-event-strip p,
-.coordination-communication-map p {
-  margin: 0;
-  color: var(--color-text-soft);
-  font-size: 0.78rem;
+.coordination-topology-node-title.is-current {
+  fill: var(--color-text);
 }
 
 .coordination-output-board {
@@ -1570,6 +1571,12 @@ button:hover {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.coordination-output-card__head strong {
+  color: var(--color-text);
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
 }
 
 .coordination-output-list {
@@ -1624,63 +1631,8 @@ button:hover {
   line-height: 1.5;
 }
 
-.coordination-agent-lanes {
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-}
-
-.coordination-agent-lane {
-  position: relative;
-  display: grid;
-  gap: 0.32rem;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-card);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 62%),
-    rgba(0, 0, 0, 0.1);
-  padding: 0.72rem;
-}
-
-.coordination-agent-lane div {
-  display: flex;
-  align-items: center;
-  gap: 0.38rem;
-  min-width: 0;
-}
-
-.coordination-agent-lane svg {
-  color: var(--color-soul);
-  flex-shrink: 0;
-}
-
-.coordination-communication-map article {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
-  align-items: center;
-}
-
-.coordination-communication-map span {
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: 0.82rem;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.coordination-communication-map svg {
-  color: var(--color-soul);
-}
-
-.coordination-communication-map em {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, transparent);
-  border-radius: 999px;
-  color: var(--color-text-soft);
-  font-size: 0.66rem;
-  font-style: normal;
-  padding: 0.2rem 0.42rem;
+.coordination-output-item--artifact {
+  align-content: start;
 }
 
 .workspace-view-shell {
@@ -19370,6 +19322,19 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 
 @media (max-width: 980px) {
+  .coordination-session__head,
+  .coordination-topology-shell__head {
+    flex-direction: column;
+  }
+
+  .coordination-topology-shell__hint {
+    text-align: left;
+  }
+
+  .coordination-output-board {
+    grid-template-columns: 1fr;
+  }
+
   .agent-system-hero,
   .agent-mode-switcher,
   .agent-system-grid,
@@ -19486,6 +19451,19 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 @media (max-width: 640px) {
+  .coordination-session {
+    padding: 0.85rem;
+  }
+
+  .coordination-topology-shell {
+    padding: 0.72rem 0.72rem 0.82rem;
+  }
+
+  .coordination-topology-viewport,
+  .coordination-topology-viewport svg {
+    min-height: 340px;
+  }
+
   .agent-system-hero__stats,
   .agent-node-grid,
   .agent-detail__matrix,

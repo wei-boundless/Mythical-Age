@@ -103,12 +103,69 @@ def finalize_coordination_flow_state(
     finalized = {
         **dict(flow_state),
         "current_stage_id": "",
+        "next_stage_id": "",
+        "next_stage_title": "",
+        "next_task_ref": "",
         "stages": stages,
         "completed_revision_cycles": completed_revision_cycles,
         "accepted": bool(accepted),
         "final_result_ref": str(final_result_ref or ""),
     }
     return finalized, tuple(dict.fromkeys(unresolved_issue_refs))
+
+
+def advance_coordination_flow_state(
+    flow_state: dict[str, Any],
+    *,
+    final_result_ref: str,
+    next_task_ref: str = "",
+) -> dict[str, Any]:
+    if not flow_state:
+        return {}
+    stages = [dict(item) for item in list(flow_state.get("stages") or []) if isinstance(item, dict)]
+    if not stages:
+        return {}
+    current_index = next(
+        (index for index, stage in enumerate(stages) if str(stage.get("status") or "").strip() == "running"),
+        -1,
+    )
+    if current_index < 0:
+        current_index = next(
+            (index for index, stage in enumerate(stages) if str(stage.get("status") or "").strip() == "pending"),
+            -1,
+        )
+    next_stage_id = ""
+    next_stage_title = ""
+    advanced_stages: list[dict[str, Any]] = []
+    for index, stage in enumerate(stages):
+        normalized = dict(stage)
+        if index == current_index:
+            normalized["status"] = "completed"
+            normalized["final_result_ref"] = str(final_result_ref or "")
+        elif current_index >= 0 and index == current_index + 1:
+            normalized["status"] = "running"
+            next_stage_id = str(normalized.get("stage_id") or "").strip()
+            next_stage_title = str(normalized.get("title") or next_stage_id).strip()
+        elif current_index >= 0 and index > current_index + 1 and str(normalized.get("status") or "").strip() == "running":
+            normalized["status"] = "pending"
+        advanced_stages.append(normalized)
+    completed_stage_ids = [
+        str(stage.get("stage_id") or "").strip()
+        for stage in advanced_stages
+        if str(stage.get("status") or "").strip() == "completed"
+    ]
+    return {
+        **dict(flow_state),
+        "current_stage_id": next_stage_id,
+        "current_task_completed": current_index >= 0,
+        "completed_stage_ids": [item for item in completed_stage_ids if item],
+        "next_stage_id": next_stage_id,
+        "next_stage_title": next_stage_title,
+        "next_task_ref": str(next_task_ref or ""),
+        "accepted": False,
+        "final_result_ref": str(final_result_ref or ""),
+        "stages": advanced_stages,
+    }
 
 
 def summarize_coordination_flow(flow_state: dict[str, Any]) -> dict[str, Any]:
@@ -171,6 +228,7 @@ def _normalize_stage_sequence(
                     "title": str(item.get("title") or _DEFAULT_STAGE_TITLES.get(message_type, stage_id)).strip(),
                     "node_id": node_id,
                     "role": role,
+                    "task_ref": str(item.get("task_ref") or "").strip(),
                     "message_type": message_type,
                     "status": "pending",
                     "loop_kind": str(item.get("loop_kind") or ("revision_loop" if message_type == "revision_request" else "")).strip(),
@@ -193,6 +251,7 @@ def _normalize_stage_sequence(
                 "title": _DEFAULT_STAGE_TITLES.get(message_type, message_type or stage_id),
                 "node_id": str(node.get("node_id") or "").strip(),
                 "role": str(node.get("role") or "").strip(),
+                "task_ref": str(node.get("task_id") or node.get("task_ref") or "").strip(),
                 "message_type": message_type,
                 "status": "pending",
                 "loop_kind": "revision_loop" if message_type == "revision_request" else "",

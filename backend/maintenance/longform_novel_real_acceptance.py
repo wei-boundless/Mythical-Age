@@ -38,7 +38,16 @@ CHAPTER_BATCH_FILE_LABEL = f"第{CHAPTER_BATCH_START:03d}章-第{CHAPTER_BATCH_E
 REQUIRED_TERM_ALIASES: dict[str, tuple[str, ...]] = {
     "1000000": ("1000000", "1,000,000", "100万", "一百万", "百万字"),
     "5卷": ("5卷", "5 卷", "五卷", "5 个卷", "五个卷"),
+    "章节节拍": ("章节节拍", "场景节拍"),
 }
+
+USER_BACKGROUND_LINES = (
+    "勾芒：东荒众生的指引者；勾芒是洪荒中最繁荣的青木，它携带东风、青烟与万物萌发的记忆。",
+    "河伯：中土水府的汇聚者；河伯是洪荒中最神圣的河流，它携带百川、渡口与古老祭辞的记忆。",
+    "四岳：西荒诸城的执衡者；四岳是洪荒中最巍然的山脉，它承载地脉、聚落与万城之盟的记忆。",
+    "祝融：南荒火庭的开路者；祝融是洪荒中最炽烈的火焰，它携带光焰、锻造与人间烈火的记忆。",
+    "玄女：北荒玄宫的守护者；玄女是洪荒中最神秘的夜幕，它携带月辉、星图与渊深通玄的记忆。",
+)
 
 
 @dataclass(frozen=True)
@@ -64,40 +73,40 @@ PHASES = (
         "task.writing.longform_novel_project",
         "project_spec.md",
         500,
-        ("1000000", "5卷", "验收", "禁止"),
-        "把自己当作用户通过对话框启动正式长篇小说项目：只使用用户给定信息启动《洪荒时代》百万字项目，不要预写主角、完整世界观或章节正文。必须调用 write_file 写入 {output_path}，内容包含项目目标、百万字拆解、5卷结构、持续化产物目录、验收闸门、禁止伪造全本完成声明。",
+        ("1000000", "5卷", "独立主角", "禁止"),
+        "把自己当作用户通过对话框启动正式长篇小说项目：只使用用户给定的五条背景信息启动《洪荒时代》百万字项目，并明确要求存在独立主角。不要预写主角姓名、完整世界规则、卷纲细节或章节正文。必须调用 write_file 写入 {output_path}，内容包含项目目标、百万字拆解、5卷结构、持续化产物目录、验收闸门、输入边界、禁止伪造全本完成声明。",
     ),
     Phase(
         "02-bible",
         "task.writing.novel_bible_build",
         "novel_bible.md",
         700,
-        ("世界观", "主要人物", "五方秩序", "伏笔", "风格规则"),
-        "读取上一阶段目标，按正式长篇小说设定总纲构建任务生成《洪荒时代》设定总纲。必须调用 write_file 写入 {output_path}，内容包含世界观、主要人物待生成策略、五方秩序、主线谜团待生成策略、时间线、伏笔账本、风格规则，并明确勾芒、河伯、四岳、祝融、玄女是世界观秩序层设定，不是主角团。不要编入固定主角姓名或固定第一章事件。",
+        ("世界背景", "独立主角", "输入来源", "主线冲突", "风格规则"),
+        "读取上一阶段目标，按正式长篇小说设定总纲构建任务生成《洪荒时代》设定总纲。必须调用 write_file 写入 {output_path}，内容至少包含世界背景、输入来源、独立主角生成原则、主线冲突生成原则、时间线、伏笔账本、风格规则，并明确这五条背景是世界观种子而非主角团设定。不要编入固定主角姓名、固定第一章事件或替整本书预写完成世界观。",
     ),
     Phase(
         "03-volume",
         "task.writing.volume_planning",
         "volumes/volume_01_plan.md",
         900,
-        ("第一卷", "40章", "1-5章", "6-10章", "人物弧线", "伏笔", "第二卷"),
-        "按正式卷规划任务生成第一卷卷纲。必须调用 write_file 写入 {output_path}，内容包含第一卷目标、40章段落拆解，并明确按1-5章、6-10章等顺序小批次持续推进，包含人物弧线、事件链、伏笔投放回收、第二卷入口。允许 Agent 组生成必要内容，但不得声称这些内容来自启动脚本预设。",
+        ("第一卷", "40章", "1-5章", "6-10章", "人物弧线", "伏笔", "输入引用"),
+        "按正式卷规划任务生成第一卷卷纲。必须调用 write_file 写入 {output_path}，内容包含第一卷目标、40章段落拆解，并明确按1-5章、6-10章等顺序小批次持续推进，包含人物弧线、事件链、伏笔投放回收、后续承接点与输入引用。卷纲必须显式说明其输入来自 project_spec.md 与 novel_bible.md，不得声称这些内容来自启动脚本预设。",
     ),
     Phase(
         "04-batch-plan",
         "task.writing.chapter_planning",
         f"batches/batch_{CHAPTER_BATCH_RANGE_LABEL}_plan.md",
         700,
-        ("第001章", "第005章", "5章", "批次目标", "章节节拍", "冲突推进", "验收条件"),
-        f"按正式章节规划任务生成{CHAPTER_BATCH_PATH_LABEL}的批次规划。必须调用 write_file 写入 {{output_path}}，内容需要覆盖5章，逐章给出章节目标、场景节拍、冲突推进、关键意象与验收条件。",
+        ("第001章", "第005章", "5章", "批次目标", "章节节拍", "冲突推进", "输入引用"),
+        f"按正式章节规划任务生成{CHAPTER_BATCH_PATH_LABEL}的批次规划。必须调用 write_file 写入 {{output_path}}，内容需要覆盖5章，逐章给出章节目标、场景节拍、冲突推进、关键意象、验收条件与输入引用。必须显式写明该批次读取了 volume_01_plan.md 与 novel_bible.md。",
     ),
     Phase(
         "05-batch-draft",
         "task.writing.chapter_drafting",
         f"batches/batch_{CHAPTER_BATCH_RANGE_LABEL}_draft.md",
         CHAPTER_BATCH_MIN_CHARS,
-        ("第001章", "第005章", "勾芒", "河伯", "四岳", "祝融", "玄女", "五方秩序"),
-        f"按正式章节正文任务生成{CHAPTER_BATCH_PATH_LABEL}的短批次正文。必须调用 write_file 写入 {{output_path}}，正文必须按5个章节展开、可直接阅读，总字数不少于{CHAPTER_BATCH_MIN_CHARS}个中文字符，目标约{CHAPTER_BATCH_TARGET_CHARS}字，不得只写摘要、大纲或说明。每章都必须形成完整场景，建议每章平均约2000个中文字符，避免极短章节凑数。",
+        ("第001章", "第005章"),
+        f"按正式章节正文任务生成{CHAPTER_BATCH_PATH_LABEL}的短批次正文。必须调用 write_file 写入 {{output_path}}，正文必须按5个章节展开、可直接阅读，总字数不少于{CHAPTER_BATCH_MIN_CHARS}个中文字符，目标约{CHAPTER_BATCH_TARGET_CHARS}字，不得只写摘要、大纲或说明。每章都必须形成完整场景，建议每章平均约2000个中文字符，避免极短章节凑数。正文应由系统自己生成独立主角与开篇事件，不得把五条背景原文直接当设定说明照抄进正文充数。",
     ),
     Phase(
         "06-batch-review",
@@ -127,17 +136,10 @@ PHASES = (
 
 NOVEL_CANON = {
     "title": "洪荒时代",
-    "world_souls": "勾芒、河伯、四岳、祝融、玄女",
-    "core_order": "五方秩序",
     "volume_target": "5卷",
     "word_target": "1000000字",
-    "soul_seed": (
-        "勾芒：东荒众生的指引者；勾芒是洪荒中最繁荣的青木，它携带东风、青烟与万物萌发的记忆。\n"
-        "河伯：中土水府的汇聚者；河伯是洪荒中最神圣的河流，它携带百川、渡口与古老祭辞的记忆。\n"
-        "四岳：西荒诸城的执衡者；四岳是洪荒中最巍然的山脉，它承载地脉、聚落与万城之盟的记忆。\n"
-        "祝融：南荒火庭的开路者；祝融是洪荒中最炽烈的火焰，它携带光焰、锻造与人间烈火的记忆。\n"
-        "玄女：北荒玄宫的守护者；玄女是洪荒中最神秘的夜幕，它携带月辉、星图与渊深通玄的记忆。"
-    ),
+    "user_background": "\n".join(USER_BACKGROUND_LINES),
+    "protagonist_rule": "必须存在独立主角，且主角不是勾芒、河伯、四岳、祝融、玄女这五条背景本身。",
 }
 
 
@@ -378,24 +380,32 @@ def _missing_batch_chapter_labels(content: str) -> list[str]:
 def _phase_acceptance_constraints(phase: Phase) -> str:
     required_terms = "、".join(phase.required_terms)
     canon_lines = [
-        f"长篇项目固定输入：标题《{NOVEL_CANON['title']}》。主角、首卷起点、第一章事件都由 Agent 组后续生成，启动消息不得预写。",
-        f"用户给定的世界观背景：\n{NOVEL_CANON['soul_seed']}",
-        f"世界观层设定：{NOVEL_CANON['world_souls']}属于{NOVEL_CANON['core_order']}背景，不是主角团，也不替主角解决剧情。",
+        f"长篇项目固定输入：标题《{NOVEL_CANON['title']}》。启动消息只负责把用户原始要求送入协调任务，不得替系统写出完整设定或剧情。",
+        f"用户原始背景只允许使用以下五条：\n{NOVEL_CANON['user_background']}",
+        f"主角规则：{NOVEL_CANON['protagonist_rule']}",
+        "这五条背景只作为世界背景种子，不等于主角团，不预设完整世界规则，不直接替代主线冲突设计。",
+        "边界规则：不得继承项目灵魂设定、默认人格设定、系统协作隐喻、历史样例设定或其他未被用户明确输入的背景。",
         f"固定规模：{NOVEL_CANON['word_target']}，{NOVEL_CANON['volume_target']}；生产方式为顺序持续推进，上一批次验收通过后再进入下一批次。",
         f"本阶段文件必须显式包含这些验收关键词：{required_terms}。",
     ]
+    if phase.phase_id == "01-project":
+        canon_lines.append("项目规格必须把用户原始输入原文记录清楚，并写明后续设定、卷纲、章节都由协调任务继续生成。")
+    if phase.phase_id == "02-bible":
+        canon_lines.append("设定总纲必须显式引用 project_spec.md 作为唯一上游输入，不得假装已经拿到了完整世界观。")
+    if phase.phase_id == "03-volume":
+        canon_lines.append("第一卷卷纲必须显式引用 project_spec.md 与 novel_bible.md，说明卷规划如何承接上游输入。")
+    if phase.phase_id == "04-batch-plan":
+        canon_lines.append(f"批次规划必须显式引用 volumes/volume_01_plan.md 与 novel_bible.md，并逐章列出{CHAPTER_BATCH_PATH_LABEL}。")
     if phase.phase_id == "05-batch-draft":
         canon_lines.append(
-            f"正文批次必须显式覆盖{CHAPTER_BATCH_PATH_LABEL}，并让五个灵魂背景以世界观方式进入可直接阅读的情节，禁止把五魂写成主角团或只在说明段提及。"
+            f"正文批次必须显式覆盖{CHAPTER_BATCH_PATH_LABEL}，并自然引入这五条背景所支撑的世界层信息。禁止把五条背景写成项目灵魂系统说明，也禁止把整段背景原文复制进章节里充当正文。"
         )
         canon_lines.append(
-        f"持续策略：单次正文目标约{CHAPTER_BATCH_TARGET_CHARS}字、{CHAPTER_BATCH_SIZE}章；后续批次按验收顺序继续推进，不并行分卷，不跳过连续性审计。"
-    )
-    if phase.phase_id == "04-batch-plan":
-        canon_lines.append(f"批次规划必须逐章列出{CHAPTER_BATCH_PATH_LABEL}，不允许只给一个总摘要。")
+            f"持续策略：单次正文目标约{CHAPTER_BATCH_TARGET_CHARS}字、{CHAPTER_BATCH_SIZE}章；后续批次按验收顺序继续推进，不并行分卷，不跳过连续性审计。"
+        )
     if phase.phase_id in {"06-batch-review", "07-batch-continuity", "08-compilation"}:
         canon_lines.append(
-            "审查或汇总时必须沿用同一套固定设定，不得切换为其他角色名或新的线索物。"
+            "审查或汇总时必须沿用同一条输入边界：只承认用户原始五条背景和系统后续真实生成的上游产物。"
         )
     return "\n\n验收约束：\n- " + "\n- ".join(canon_lines)
 
@@ -406,12 +416,27 @@ def _effective_loop_limits(trace: dict[str, Any]) -> dict[str, Any]:
     effective = diagnostics.get("effective_loop_limits")
     if isinstance(effective, dict):
         return dict(effective)
+    latest_checkpoint = dict(trace.get("latest_checkpoint") or {})
+    loop_state = dict(latest_checkpoint.get("loop_state") or {})
+    loop_state_diagnostics = dict(loop_state.get("diagnostics") or {})
+    effective = loop_state_diagnostics.get("effective_loop_limits")
+    if isinstance(effective, dict):
+        return dict(effective)
     for event in trace.get("events") or ():
         event_payload = dict(dict(event).get("payload") or {})
         event_diagnostics = dict(event_payload.get("diagnostics") or {})
         effective = event_diagnostics.get("effective_loop_limits")
         if isinstance(effective, dict):
             return dict(effective)
+        control = dict(event_payload.get("control") or {})
+        snapshot = dict(control.get("snapshot") or {})
+        limits = snapshot.get("limits")
+        if isinstance(limits, dict):
+            return dict(limits)
+        current_turn_context = dict(event_payload.get("current_turn_context") or {})
+        requested_limits = current_turn_context.get("runtime_limits")
+        if isinstance(requested_limits, dict):
+            return dict(requested_limits)
     return {}
 
 

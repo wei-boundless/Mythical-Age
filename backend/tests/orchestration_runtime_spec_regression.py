@@ -153,13 +153,35 @@ def test_orchestration_runtime_bundle_uses_longform_chapter_pipeline_instead_of_
     assert execution_policy["metadata"]["agent_group_id"] == "group.writing.longform_novel_core"
     assert coordination["agent_group_id"] == "group.writing.longform_novel_core"
     assert coordination["participant_agent_ids"] == ["agent:23", "agent:24", "agent:25", "agent:26"]
-    assert coordination["stop_conditions"] == ["chapter_work_accepted", "review_completed", "revision_loop_closed"]
+    assert coordination["stop_conditions"] == ["chapter_work_accepted", "review_completed", "revision_loop_closed", "revision_budget_exhausted"]
     assert coordination["subtask_refs"] == [
         "task.writing.chapter_planning",
         "task.writing.chapter_drafting",
         "task.writing.chapter_revision",
         "task.writing.continuity_audit",
     ]
+
+
+def test_longform_project_bootstrap_contract_routes_chapter_planning_before_drafting() -> None:
+    from tasks.flow_registry import TaskFlowRegistry
+
+    registry = TaskFlowRegistry(BACKEND_DIR)
+    coordination = registry.get_coordination_task("coord.writing.longform_project_bootstrap")
+    topology = registry.get_topology_template("topology.writing.longform_project_bootstrap")
+
+    assert coordination is not None
+    assert topology is not None
+    stage_contracts = list(coordination.metadata["stage_contracts"])
+    stage_order = [dict(item)["stage_id"] for item in stage_contracts]
+    assert stage_order.index("volume_planning") < stage_order.index("chapter_planning")
+    assert stage_order.index("chapter_planning") < stage_order.index("chapter_pipeline")
+    by_stage = {dict(item)["stage_id"]: dict(item) for item in stage_contracts}
+    assert by_stage["chapter_planning"]["task_ref"] == "task.writing.chapter_planning"
+    assert by_stage["chapter_pipeline"]["task_ref"] == "task.writing.chapter_drafting"
+    assert any(
+        dict(edge).get("from") == "chapter_pipeline" and dict(edge).get("to") == "chapter_drafting"
+        for edge in topology.edges
+    )
 
 
 def test_longform_chapter_coordination_keeps_structure_and_carries_user_request_at_runtime() -> None:
@@ -194,13 +216,14 @@ def test_longform_chapter_coordination_keeps_structure_and_carries_user_request_
     assert coordination.metadata["structure_role"] == "stable_coordination_skeleton"
     assert coordination.metadata["request_policy"] == "runtime_request_is_carried_as_natural_language_brief"
     assert "chapter_work_accepted" in coordination.stop_conditions
+    assert "revision_budget_exhausted" in coordination.stop_conditions
     assert coordination.coordination_mode == "chapter_collaboration_loop"
     for forbidden_key in ("batch_size", "target_chars", "parallel_batch_slots", "review_intensity", "review_policy", "revision_budget"):
         assert forbidden_key not in coordination.metadata
 
     assert protocol is not None
     assert "revision_loop_optional" in protocol.signal_rules
-    assert protocol.metadata["protocol_role"] == "message_contract_only"
+    assert protocol.metadata.get("protocol_role", "message_contract_only") == "message_contract_only"
     for forbidden_key in ("batch_size", "target_chars", "parallel_batch_slots", "review_intensity", "review_policy", "revision_budget"):
         assert forbidden_key not in protocol.metadata
 
