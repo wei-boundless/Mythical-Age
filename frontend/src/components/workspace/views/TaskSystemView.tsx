@@ -3,29 +3,31 @@
 import {
   AlertTriangle,
   CheckCircle2,
-  CircleDot,
-  GitCommitHorizontal,
-  GitBranch,
   Loader2,
   Network,
   Plus,
   RefreshCw,
   RotateCcw,
   Save,
-  Send,
   Pencil,
-  ShieldCheck,
-  SquarePen,
   Trash2,
-  Workflow,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-
 import {
-  CoordinationTopologyGraph,
-  type CoordinationTopologyEdge,
-  type CoordinationTopologyNode,
-} from "@/components/coordination/CoordinationTopologyGraph";
+  CoordinationEditorWorkbench,
+  coordinationSubtaskRefs,
+  graphEdgeId,
+  graphEdgeSource,
+  graphEdgeTarget,
+  graphNodeTaskId,
+} from "@/components/workspace/views/task-system/CoordinationEditorWorkbench";
+import {
+  TaskSystemDomainTaskSelectField as DomainTaskSelectField,
+  TaskSystemField as Field,
+  TaskSystemMultiSelectField as MultiSelectField,
+  TaskSystemSelectField as SelectField,
+  TaskSystemToolbarButton as ToolbarButton,
+} from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import {
   deleteTaskSystemDomain,
   deleteTaskSystemSpecificRecord,
@@ -44,7 +46,6 @@ import {
   upsertTaskSystemTopologyTemplate,
   upsertTaskWorkflow,
   type ConversationEntryPolicy,
-  type CoordinationGraphSpec,
   type CoordinationTask,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
@@ -618,10 +619,6 @@ const LONGFORM_TEMPLATE_STAGES = [
   },
 ];
 
-function optionLabel(value: string) {
-  return displayId(value);
-}
-
 function contractLabel(value: string, contracts: TaskContractDescriptor[] = []) {
   const contract = contracts.find((item) => item.contract_id === value);
   return contract?.title || displayId(value);
@@ -804,84 +801,6 @@ function protocolForCoordination(
   );
 }
 
-function ToolbarButton({
-  children,
-  onClick,
-  disabled,
-  variant = "ghost",
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  variant?: "ghost" | "primary";
-}) {
-  return (
-    <button className={`boundary-button boundary-button--${variant}`} disabled={disabled} onClick={onClick} type="button">
-      {children}
-    </button>
-  );
-}
-
-function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
-  return (
-    <label className={wide ? "boundary-field boundary-field--wide" : "boundary-field"}>
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  options,
-  onChange,
-  wide = false,
-}: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (value: string) => void;
-  wide?: boolean;
-}) {
-  const resolvedOptions = uniqueStrings([value, ...options]);
-  return (
-    <Field label={label} wide={wide}>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        {resolvedOptions.map((item) => (
-          <option key={item} value={item}>{optionLabel(item)}</option>
-        ))}
-      </select>
-    </Field>
-  );
-}
-
-function DomainTaskSelectField({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  onChange: (value: string) => void;
-}) {
-  const resolvedOptions = value && !options.some((item) => item.value === value)
-    ? [{ value, label: displayId(value) }, ...options]
-    : options;
-  return (
-    <Field label={label}>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">不绑定</option>
-        {resolvedOptions.map((item) => (
-          <option key={item.value} value={item.value}>{item.label}</option>
-        ))}
-      </select>
-    </Field>
-  );
-}
-
 function ContractSelectField({
   label,
   value,
@@ -905,43 +824,6 @@ function ContractSelectField({
           <option key={item} value={item}>{contractLabel(item, contracts)}</option>
         ))}
       </select>
-    </Field>
-  );
-}
-
-function MultiSelectField({
-  label,
-  value,
-  options,
-  onChange,
-  wide = false,
-}: {
-  label: string;
-  value: string[];
-  options: string[];
-  onChange: (value: string[]) => void;
-  wide?: boolean;
-}) {
-  const selected = new Set(value ?? []);
-  return (
-    <Field label={label} wide={wide}>
-      <div className="boundary-choice-grid">
-        {uniqueStrings([...options, ...(value ?? [])]).map((item) => (
-          <button
-            className={selected.has(item) ? "boundary-choice boundary-choice--active" : "boundary-choice"}
-            key={item}
-            onClick={() => {
-              const next = selected.has(item)
-                ? (value ?? []).filter((current) => current !== item)
-                : [...(value ?? []), item];
-              onChange(next);
-            }}
-            type="button"
-          >
-            {optionLabel(item)}
-          </button>
-        ))}
-      </div>
     </Field>
   );
 }
@@ -990,130 +872,42 @@ function ReadinessCard({ label, value, ready }: { label: string; value: string; 
   );
 }
 
-function CoordinationGraph({
-  nodes,
-  edges,
-  messages,
-  tasks = [],
-  selectedNodeId = "",
-  selectedEdgeId = "",
-  linkingFromNodeId = "",
-  renderNodeTools,
-  renderEdgeTools,
-  onSelectNode,
-  onSelectEdge,
-}: {
-  nodes: Array<Record<string, unknown>>;
-  edges: Array<Record<string, unknown>>;
-  messages: string[];
-  tasks?: SpecificTaskRecord[];
-  selectedNodeId?: string;
-  selectedEdgeId?: string;
-  linkingFromNodeId?: string;
-  renderNodeTools?: (node: Record<string, unknown>, nodeId: string) => ReactNode;
-  renderEdgeTools?: (edge: Record<string, unknown>, edgeId: string) => ReactNode;
-  onSelectNode?: (nodeId: string) => void;
-  onSelectEdge?: (edgeId: string) => void;
-}) {
-  const safeNodes = nodes.length
-    ? nodes
-    : [{ node_id: "coordinator", role: "coordinator", agent_id: "agent:0" }];
-  const ids = safeNodes.map((node, index) => text(node.node_id || node.id || node.role || node.agent_id, `node_${index + 1}`));
-  const resolvedEdges = edges.length
-    ? edges
-    : ids.length > 1
-      ? ids.slice(1).map((id) => ({ from: ids[0], to: id, policy: "handoff" }))
-      : [];
-  const graphNodes = safeNodes.map((node, index): CoordinationTopologyNode => {
-    const taskId = graphNodeTaskId(node);
-    const nodeId = text(node.node_id || node.id, ids[index]);
-    return {
-      id: nodeId,
-      title: taskId ? taskTitleById(taskId, tasks) : graphNodeLabel(node, index),
-      agentLabel: text(node.agent_id || node.role || node.node_type, "待分派"),
-      role: text(node.role || node.agent_category || node.node_type, "participant"),
-      status: nodeId === selectedNodeId ? "running" : "idle",
-    };
-  });
-  const graphEdges = resolvedEdges
-    .map((edge, index): CoordinationTopologyEdge | null => {
-      const edgeRecord = edge as Record<string, unknown>;
-      const from = graphEdgeSource(edge);
-      const to = graphEdgeTarget(edge);
-      if (!from || !to) return null;
-      const edgeId = graphEdgeId(edge, index);
-      return {
-        id: edgeId,
-        from,
-        to,
-        label: text(edgeRecord.mode || edgeRecord.policy || edgeRecord.label, "handoff"),
-        status: edgeId === selectedEdgeId ? "running" : "idle",
-      };
-    })
-    .filter((edge): edge is CoordinationTopologyEdge => Boolean(edge));
+type LayerNavItem<T extends string> = {
+  value: T;
+  label: string;
+  meta: string;
+  detail: string;
+};
 
+function LayerNav<T extends string>({
+  ariaLabel,
+  items,
+  value,
+  onChange,
+}: {
+  ariaLabel: string;
+  items: Array<LayerNavItem<T>>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
   return (
-    <div className="boundary-graph boundary-graph--topology">
-      <div className="boundary-graph__legend">
-        {messages.length ? messages.slice(0, 6).map((item) => <span key={item}>{item}</span>) : <span>structured_handoff</span>}
-      </div>
-      <div className="coordination-topology-viewport coordination-topology-viewport--builder">
-        <CoordinationTopologyGraph
-          currentNodeId={selectedNodeId}
-          edges={graphEdges}
-          emptyDescription="添加节点后，这里会同步展示协调任务的运行拓扑。"
-          emptyTitle="还没有拓扑节点"
-          linkingFromNodeId={linkingFromNodeId}
-          nodes={graphNodes}
-          onSelectEdge={onSelectEdge}
-          onSelectNode={onSelectNode}
-          onConnectNode={linkingFromNodeId ? onSelectNode : undefined}
-          renderNodeTools={renderNodeTools ? (node) => {
-            const rawNode = safeNodes.find((item) => String(item.node_id ?? item.id ?? "") === node.id) ?? {};
-            return renderNodeTools(rawNode, node.id);
-          } : undefined}
-          renderEdgeTools={renderEdgeTools ? (edge) => {
-            const rawEdge = resolvedEdges.find((item, index) => graphEdgeId(item as Record<string, unknown>, index) === edge.id) as Record<string, unknown> | undefined;
-            return renderEdgeTools(rawEdge ?? {}, edge.id);
-          } : undefined}
-          selectedEdgeId={selectedEdgeId}
-          selectedNodeId={selectedNodeId}
-        />
-      </div>
-    </div>
+    <nav className="task-system-layer-nav" aria-label={ariaLabel}>
+      {items.map((item) => (
+        <button
+          className={value === item.value ? "task-system-layer-nav__item task-system-layer-nav__item--active" : "task-system-layer-nav__item"}
+          key={item.value}
+          onClick={() => onChange(item.value)}
+          type="button"
+        >
+          <span>{item.label}</span>
+          <strong>{item.meta}</strong>
+          <small>{item.detail}</small>
+        </button>
+      ))}
+    </nav>
   );
 }
 
-function graphNodeLabel(node: Record<string, unknown>, index: number) {
-  return text(node.label || node.task_title || node.role || node.agent_id, `节点 ${index + 1}`);
-}
-
-function graphNodeTaskId(node: Record<string, unknown>) {
-  return String(node.task_id ?? node.subtask_ref ?? "").trim();
-}
-
-function graphEdgeId(edge: Record<string, unknown>, index = 0) {
-  return String(edge.edge_id ?? edge.id ?? `${graphEdgeSource(edge)}-${graphEdgeTarget(edge)}-${index}`).trim();
-}
-
-function graphEdgeSource(edge: Record<string, unknown>) {
-  return String(edge.from ?? edge.source_node_id ?? edge.source ?? "").trim();
-}
-
-function graphEdgeTarget(edge: Record<string, unknown>) {
-  return String(edge.to ?? edge.target_node_id ?? edge.target ?? "").trim();
-}
-
-function taskTitleById(taskId: string, tasks: SpecificTaskRecord[]) {
-  const task = tasks.find((item) => item.task_id === taskId);
-  return task?.task_title || displayId(taskId);
-}
-
-function coordinationSubtaskRefs(draft: CoordinationTask | CoordinationDraft) {
-  return uniqueStrings([
-    ...((draft.graph_nodes ?? []).map((node) => graphNodeTaskId(node))),
-  ]);
-}
 
 export function TaskSystemView() {
   const { setTaskSelection, setWorkspaceView } = useAppStore();
@@ -1126,7 +920,7 @@ export function TaskSystemView() {
   const [selectedDomainId, setSelectedDomainId] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedCoordinationId, setSelectedCoordinationId] = useState("");
-  const [taskLayer, setTaskLayer] = useState<TaskLayer>("domain");
+  const [taskLayer, setTaskLayer] = useState<TaskLayer>("coordination");
   const [domainPanel, setDomainPanel] = useState<DomainPanel>("taskDetail");
   const [editingDomainName, setEditingDomainName] = useState(false);
   const [assemblyPanel, setAssemblyPanel] = useState<AssemblyPanel>("workflow");
@@ -1160,6 +954,10 @@ export function TaskSystemView() {
       setSelectedDomainId(selectedDomain?.domain_id ?? "");
       setSelectedTaskId((current) => current || selectedDomain?.tasks[0]?.task_id || overview.task_management.specific_task_records[0]?.task_id || "");
       setSelectedCoordinationId((current) => current || overview.coordination_management.coordination_tasks[0]?.coordination_task_id || "");
+      setTaskLayer((current) => {
+        if (current !== "coordination") return current;
+        return overview.coordination_management.coordination_tasks.length ? "coordination" : "domain";
+      });
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "任务系统加载失败");
     } finally {
@@ -1306,6 +1104,13 @@ export function TaskSystemView() {
       setSelectedCoordinationId(coordinationTasks[0]?.coordination_task_id || "");
     }
   }, [coordinationTasks, selectedCoordinationId]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (taskLayer !== "coordination") return;
+    if (coordinationTasks.length) return;
+    setTaskLayer("domain");
+  }, [coordinationTasks.length, loading, taskLayer]);
 
   useEffect(() => {
     if (!selectedTask) return;
@@ -2157,6 +1962,84 @@ export function TaskSystemView() {
     { label: "权限口径", value: `${displayId(executionDraft.task_level)} / ${displayId(executionDraft.task_privilege)}` },
     { label: "输出契约", value: contractLabel(taskDraft.output_contract_id || workflowDraft.output_contract_id || "", contractCatalog) },
   ];
+  const taskLayerItems: Array<LayerNavItem<TaskLayer>> = [
+    {
+      value: "domain",
+      label: "任务域",
+      meta: selectedTaskDomain?.title || selectedDomain?.title || "未选择任务域",
+      detail: "管理域定义、入口规则与特定任务清单",
+    },
+    {
+      value: "assembly",
+      label: "任务装配",
+      meta: taskDraft.task_title || selectedTask?.task_title || "未选择任务",
+      detail: "编辑单任务的流程、投影、执行与记忆配置",
+    },
+    {
+      value: "coordination",
+      label: "协调任务",
+      meta: coordinationDraft.title || selectedCoordination?.title || "当前域暂无协调任务",
+      detail: "维护多 Agent 拓扑、通信协议与发布状态",
+    },
+    {
+      value: "contracts",
+      label: "契约目录",
+      meta: `${contractViews.length} 项契约`,
+      detail: "查看任务系统中的输入、输出与载荷契约",
+    },
+  ];
+  const domainPanelItems: Array<LayerNavItem<DomainPanel>> = [
+    {
+      value: "taskDetail",
+      label: "任务定义",
+      meta: taskDraft.task_title || selectedTask?.task_title || "未选择特定任务",
+      detail: "编辑任务描述、模式与默认装配入口",
+    },
+    {
+      value: "entry",
+      label: "入口规则",
+      meta: entryDraft.title || "主会话入口",
+      detail: "定义主会话如何进入当前任务域",
+    },
+    {
+      value: "eligibility",
+      label: "承接要求",
+      meta: displayId(taskDraft.task_mode || selectedTask?.task_mode || ""),
+      detail: "查看任务所需的 Agent、权限与输出口径",
+    },
+  ];
+  const assemblyPanelItems: Array<LayerNavItem<AssemblyPanel>> = [
+    {
+      value: "workflow",
+      label: "执行流程",
+      meta: workflowDraft.title || "未命名流程",
+      detail: "配置任务步骤、停机条件与提示词",
+    },
+    {
+      value: "projection",
+      label: "投影绑定",
+      meta: projectionDraft.default_projection_id ? projectionLabel(projectionDraft.default_projection_id, projectionCards) : "未设置默认投影",
+      detail: "限定任务可用投影与默认人格入口",
+    },
+    {
+      value: "flow",
+      label: "流程契约",
+      meta: flowDraft.flow_contract_id || "未绑定流程契约",
+      detail: "约束任务在编排链路中的流转和回退规则",
+    },
+    {
+      value: "execution",
+      label: "执行策略",
+      meta: displayId(executionDraft.runtime_agent_selection_policy || "orchestration_default"),
+      detail: "定义执行权限、Agent 类别与运行策略",
+    },
+    {
+      value: "memory",
+      label: "记忆请求",
+      meta: displayId(memoryDraft.memory_priority || "normal"),
+      detail: "控制任务请求哪些记忆层与写回策略",
+    },
+  ];
 
   return (
     <div className="workspace-view boundary-console task-system-boundary">
@@ -2225,19 +2108,16 @@ export function TaskSystemView() {
         </aside>
 
         <main className="boundary-main">
-          <nav className="boundary-layer-tabs" aria-label="任务系统层级">
-            {([
-              ["domain", "任务域", selectedTaskDomain?.title || selectedDomain?.title || "-"],
-              ["assembly", "任务装配", taskDraft.task_title || selectedTask?.task_title || "未选任务"],
-              ["coordination", "域内协调任务", coordinationDraft.title || selectedCoordination?.title || "当前域暂无"],
-              ["contracts", "契约", `${contractViews.length} 项`],
-            ] as Array<[TaskLayer, string, string]>).map(([value, label, meta]) => (
-              <button className={taskLayer === value ? "boundary-layer-tabs__item boundary-layer-tabs__item--active" : "boundary-layer-tabs__item"} key={value} onClick={() => setTaskLayer(value)} type="button">
-                <span>{label}</span>
-                <small>{meta}</small>
-              </button>
-            ))}
-          </nav>
+          <section className="task-system-switchboard">
+            <div className="task-system-switchboard__head">
+              <div className="task-system-switchboard__copy">
+                <span>工作台层级</span>
+                <strong>{taskLayerItems.find((item) => item.value === taskLayer)?.label || "任务系统"}</strong>
+                <p>{taskLayerItems.find((item) => item.value === taskLayer)?.detail || "选择当前要编辑的任务系统层级。"}</p>
+              </div>
+            </div>
+            <LayerNav ariaLabel="任务系统层级" items={taskLayerItems} value={taskLayer} onChange={setTaskLayer} />
+          </section>
 
           {taskLayer === "domain" ? (
             <section className="boundary-layer-grid">
@@ -2270,14 +2150,12 @@ export function TaskSystemView() {
                     )}
                   </div>
                 </div>
-                <div className="boundary-subtabs">
-                  {([
-                    ["taskDetail", "任务定义"],
-                    ["entry", "入口规则"],
-                    ["eligibility", "承接要求"],
-                  ] as Array<[DomainPanel, string]>).map(([value, label]) => (
-                    <button className={domainPanel === value ? "active" : ""} key={value} onClick={() => setDomainPanel(value)} type="button">{label}</button>
-                  ))}
+                <div className="task-system-section-switch">
+                  <div className="task-system-section-switch__head">
+                    <span>域内页面</span>
+                    <strong>{domainPanelItems.find((item) => item.value === domainPanel)?.meta || "未选择页面"}</strong>
+                  </div>
+                  <LayerNav ariaLabel="任务域页面" items={domainPanelItems} value={domainPanel} onChange={setDomainPanel} />
                 </div>
                 <div className="boundary-list">
                   {selectedDomain?.tasks.map((task) => (
@@ -2289,6 +2167,13 @@ export function TaskSystemView() {
                 </div>
               </div>
               <div className="boundary-editor">
+                <section className="task-system-context-bar">
+                  <div className="task-system-context-bar__copy">
+                    <span>{selectedDomain?.title || "当前任务域"}</span>
+                    <strong>{domainPanelItems.find((item) => item.value === domainPanel)?.label || "任务定义"}</strong>
+                    <p>{domainPanelItems.find((item) => item.value === domainPanel)?.detail || "在当前任务域内管理相关配置。"}</p>
+                  </div>
+                </section>
                 {domainPanel === "entry" ? (
                   <section className="boundary-card">
                     <header><strong>入口规则</strong><ToolbarButton disabled={saving === "entry"} onClick={() => void saveEntry()} variant="primary"><Save size={15} />保存入口</ToolbarButton></header>
@@ -2397,18 +2282,20 @@ export function TaskSystemView() {
                   </div>
                 </div>
                 <section className="boundary-card boundary-card--editor">
-                <div className="boundary-subtabs boundary-subtabs--wide">
-                  {([
-                    ["workflow", "执行流程"],
-                    ["projection", "投影绑定"],
-                    ["flow", "流程契约"],
-                    ["execution", "执行策略"],
-                    ["memory", "记忆请求"],
-                  ] as Array<[AssemblyPanel, string]>).map(([value, label]) => (
-                    <button className={assemblyPanel === value ? "active" : ""} key={value} onClick={() => setAssemblyPanel(value)} type="button">{label}</button>
-                  ))}
-                </div>
-                  <header className="boundary-editor-title"><strong>{ASSEMBLY_LABELS[assemblyPanel]}</strong></header>
+                  <div className="task-system-section-switch">
+                    <div className="task-system-section-switch__head">
+                      <span>装配页面</span>
+                      <strong>{assemblyPanelItems.find((item) => item.value === assemblyPanel)?.meta || "未选择页面"}</strong>
+                    </div>
+                    <LayerNav ariaLabel="任务装配页面" items={assemblyPanelItems} value={assemblyPanel} onChange={setAssemblyPanel} />
+                  </div>
+                  <header className="boundary-editor-title">
+                    <div className="task-system-context-bar__copy">
+                      <span>{selectedTaskDomain?.title || "当前任务域"} / 单任务装配</span>
+                      <strong>{ASSEMBLY_LABELS[assemblyPanel]}</strong>
+                      <p>{assemblyPanelItems.find((item) => item.value === assemblyPanel)?.detail || "编辑当前任务的装配配置。"}</p>
+                    </div>
+                  </header>
                   {assemblyPanel === "workflow" ? (
                     <div className="boundary-form">
                       <Field label="标题"><input value={workflowDraft.title} onChange={(event) => setWorkflowDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
@@ -2479,356 +2366,57 @@ export function TaskSystemView() {
           ) : null}
 
           {taskLayer === "coordination" ? (
-            <section className="boundary-layer-stack">
-              <div className="boundary-card boundary-card--summary">
-                <header className="coordination-editor-summary-head">
-                  <div className="boundary-identity-stack">
-                    <span>{selectedDomain?.title || "任务域"} / 域内协调任务</span>
-                    <strong>{coordinationDraft.title || "协调任务"}</strong>
-                    <small>{coordinationTasks.length} 个协调对象</small>
-                  </div>
-                  <div className="coordination-editor-command-groups">
-                    <div className="coordination-editor-command-group">
-                      <span>模板与草稿</span>
-                      <div className="boundary-actions">
-                        {selectedDomain?.task_family === "writing" ? (
-                          <ToolbarButton
-                            disabled={saving === "coordination-template-longform"}
-                            onClick={() => {
-                              void applyLongformNovelTemplate();
-                            }}
-                          >
-                            <Workflow size={15} />长篇模板
-                          </ToolbarButton>
-                        ) : null}
-                        <ToolbarButton
-                          disabled={!selectedCoordination || saving === "coordination-duplicate"}
-                          onClick={() => {
-                            void duplicateCoordinationDraft();
-                          }}
-                        >
-                          <Plus size={15} />复制为草稿
-                        </ToolbarButton>
-                      </div>
-                    </div>
-                    <div className="coordination-editor-command-group">
-                      <span>运行与发布</span>
-                      <div className="boundary-actions">
-                        <ToolbarButton onClick={() => sendCoordinationToChat(selectedCoordination, selectedDomain)}>带入主会话</ToolbarButton>
-                        <ToolbarButton
-                          disabled={saving === "coordination"}
-                          onClick={() => {
-                            void saveCoordinationStack(false);
-                          }}
-                        >
-                          <Save size={15} />保存草稿
-                        </ToolbarButton>
-                        <ToolbarButton
-                          disabled={saving === "coordination"}
-                          onClick={() => {
-                            void saveCoordinationStack(true);
-                          }}
-                          variant="primary"
-                        >
-                          <Send size={15} />发布可运行
-                        </ToolbarButton>
-                      </div>
-                    </div>
-                  </div>
-                </header>
-                {coordinationTasks.length ? (
-                  <div className="boundary-selector-strip coordination-editor-selector">
-                    {coordinationTasks.map((task) => (
-                      <button className={task.coordination_task_id === selectedCoordinationId ? "active" : ""} key={task.coordination_task_id} onClick={() => setSelectedCoordinationId(task.coordination_task_id)} type="button">
-                        <strong>{task.title}</strong>
-                      </button>
-                    ))}
-                  </div>
-                ) : <div className="boundary-empty">当前任务域暂无协调任务。</div>}
-              </div>
-              <section className="boundary-card boundary-card--editor">
-                <header className="boundary-editor-title">
-                  <strong>协调任务搭建器</strong>
-                  <div className="boundary-graph-status">
-                    <span className={editorValid ? "boundary-status boundary-status--ok" : "boundary-status boundary-status--danger"}>
-                      {editorValid ? "图校验通过" : `图校验未通过 ${editorIssueCount}`}
-                    </span>
-                    <span className={editorPublished ? "boundary-status boundary-status--ok" : "boundary-status"}>
-                      {editorPublished ? "已发布" : "草稿"}
-                    </span>
-                    <span>{activeGraphNodes.length} 个节点</span>
-                    <span>{activeGraphEdges.length} 条通信边</span>
-                  </div>
-                </header>
-
-                <div className="coordination-editor-layout">
-                  <aside className="coordination-editor-sidebar">
-                    <section className="boundary-inspector-block">
-                      <header><strong>任务池</strong></header>
-                      <div className="boundary-task-table">
-                        {selectedDomainTasks.map((task) => (
-                          <article key={task.task_id}>
-                            <strong>{task.task_title}</strong>
-                            <span>{displayId(task.task_mode)}</span>
-                            <div className="coordination-editor-actions">
-                              <button className="boundary-chip" disabled={boundCoordinationTaskIds.has(task.task_id)} onClick={() => addCoordinationTaskNode(task, "writer")} type="button">
-                                <span>{boundCoordinationTaskIds.has(task.task_id) ? "已加入" : "加入写作"}</span>
-                              </button>
-                              <button className="boundary-chip" disabled={boundCoordinationTaskIds.has(task.task_id)} onClick={() => addCoordinationTaskNode(task, "reviewer")} type="button">
-                                <span>加入审查</span>
-                              </button>
-                              <button className="boundary-chip" disabled={boundCoordinationTaskIds.has(task.task_id)} onClick={() => addCoordinationTaskNode(task, "acceptance")} type="button">
-                                <span>加入验收</span>
-                              </button>
-                            </div>
-                          </article>
-                        ))}
-                        {!selectedDomainTasks.length ? <div className="boundary-empty">当前任务域暂无可装配任务。</div> : null}
-                      </div>
-                    </section>
-
-                    <section className="boundary-inspector-block">
-                      <header><strong>节点模板</strong></header>
-                      <div className="boundary-chip-grid">
-                        <button className="boundary-chip" onClick={() => addCoordinationRoleNode("coordinator")} type="button"><span>协调器节点</span></button>
-                        <button className="boundary-chip" onClick={() => addCoordinationRoleNode("participant")} type="button"><span>协作节点</span></button>
-                        <button className="boundary-chip" onClick={() => addCoordinationRoleNode("reviewer")} type="button"><span>审查节点</span></button>
-                        <button className="boundary-chip" onClick={() => addCoordinationRoleNode("acceptance")} type="button"><span>验收节点</span></button>
-                        <button className="boundary-chip" onClick={addCoordinationNode} type="button"><span>快速添加</span></button>
-                      </div>
-                    </section>
-                  </aside>
-
-                  <div className="coordination-editor-canvas">
-                    <div className="coordination-editor-toolbar">
-                      <button
-                        className="boundary-chip"
-                        disabled={activeGraphNodes.length < 2}
-                        onClick={addCoordinationEdge}
-                        type="button"
-                      >
-                        <GitBranch size={14} />
-                        <span>默认通信</span>
-                      </button>
-                      <button
-                        className={linkingFromNodeId ? "boundary-chip boundary-chip--active" : "boundary-chip"}
-                        disabled={!activeGraphNodes.length}
-                        onClick={() => {
-                          setLinkingFromNodeId(selectedGraphNodeId || String(activeGraphNodes[0]?.node_id ?? ""));
-                          setSelectedGraphEdgeId("");
-                        }}
-                        type="button"
-                      >
-                        <span>{linkingFromNodeId ? "选择目标节点" : "图上连线"}</span>
-                      </button>
-                      {linkingFromNodeId ? (
-                        <button className="boundary-chip" onClick={() => setLinkingFromNodeId("")} type="button">
-                          <span>取消连线</span>
-                        </button>
-                      ) : null}
-                    </div>
-                    <CoordinationGraph
-                      edges={activeGraphEdges}
-                      messages={coordinationDraft.communication_modes ?? []}
-                      linkingFromNodeId={linkingFromNodeId}
-                      nodes={activeGraphNodes}
-                      onSelectEdge={(edgeId) => {
-                        setSelectedGraphEdgeId(edgeId);
-                        setSelectedGraphNodeId("");
-                        setLinkingFromNodeId("");
-                      }}
-                      onSelectNode={handleTopologyNodeClick}
-                      renderEdgeTools={(edge, edgeId) => {
-                        const mode = String(edge.mode ?? edge.policy ?? "structured_handoff");
-                        return (
-                          <>
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                reverseCoordinationEdge(edgeId);
-                              }}
-                              title="反转方向"
-                              type="button"
-                            >
-                              <RotateCcw size={13} />
-                            </button>
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                cycleCoordinationEdgeMode(edgeId, mode);
-                              }}
-                              title="切换通信模式"
-                              type="button"
-                            >
-                              <SquarePen size={13} />
-                            </button>
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                removeCoordinationEdge(edgeId);
-                              }}
-                              title="删除通信"
-                              type="button"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </>
-                        );
-                      }}
-                      renderNodeTools={(node, nodeId) => {
-                        const role = String(node.role ?? "participant");
-                        return (
-                          <>
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                addCoordinationSuccessorNode(nodeId);
-                              }}
-                              title="添加后继节点"
-                              type="button"
-                            >
-                              <GitCommitHorizontal size={13} />
-                            </button>
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                cycleCoordinationNodeRole(nodeId, role);
-                              }}
-                              title="切换节点角色"
-                              type="button"
-                            >
-                              <SquarePen size={13} />
-                            </button>
-                            {role !== "coordinator" ? (
-                              <button
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  removeCoordinationNode(nodeId);
-                                }}
-                                title="删除节点"
-                                type="button"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            ) : null}
-                          </>
-                        );
-                      }}
-                      selectedEdgeId={selectedGraphEdgeId}
-                      selectedNodeId={selectedGraphNodeId}
-                      tasks={selectedDomainTasks}
-                    />
-
-                    <section className="boundary-inspector-block">
-                      <header><strong>快速连线</strong></header>
-                      {linkingFromNodeId ? (
-                        <div className="boundary-empty">正在从 {linkingFromNodeId} 连线，点击图上的目标节点即可创建通信边。</div>
-                      ) : selectedGraphNode ? (
-                        <div className="boundary-chip-grid">
-                          {activeGraphNodes
-                            .filter((node) => String(node.node_id ?? "") !== String(selectedGraphNode.node_id ?? ""))
-                            .map((node) => (
-                              <button className="boundary-chip" key={String(node.node_id ?? "")} onClick={() => connectSelectedNodeTo(String(node.node_id ?? ""))} type="button">
-                                <span>{String(node.label ?? node.title ?? node.node_id ?? "")}</span>
-                              </button>
-                            ))}
-                          {activeGraphNodes.length <= 1 ? <div className="boundary-empty">至少需要两个节点才能建立通信。</div> : null}
-                        </div>
-                      ) : (
-                        <div className="boundary-empty">先在图中选中一个节点，再选择它要连接的目标节点。</div>
-                      )}
-                    </section>
-                  </div>
-
-                  <aside className="coordination-editor-inspector">
-                    {!selectedGraphNode && !selectedGraphEdge ? (
-                      <>
-                        <section className="boundary-inspector-block">
-                          <header><strong>协调任务</strong></header>
-                          <Field label="标题"><input value={coordinationDraft.title} onChange={(event) => setCoordinationDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
-                          <SelectField label="协调模式" onChange={(value) => setCoordinationDraft((current) => ({ ...current, coordination_mode: value }))} options={COORDINATION_MODE_CHOICES} value={coordinationDraft.coordination_mode} />
-                          <SelectField label="Agent 组" onChange={(value) => setCoordinationDraft((current) => ({ ...current, agent_group_id: value }))} options={agentGroupOptions} value={coordinationDraft.agent_group_id || ""} />
-                          <label className="boundary-check">
-                            <input checked={editorPublished} onChange={(event) => setCoordinationPublished(event.target.checked)} type="checkbox" />
-                            发布为可运行协调任务
-                          </label>
-                        </section>
-
-                        <section className="boundary-inspector-block">
-                          <header><strong>拓扑与协议</strong></header>
-                          <Field label="拓扑标题"><input value={topologyDraft.title} onChange={(event) => setTopologyDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
-                          <SelectField label="汇合策略" onChange={(value) => setTopologyDraft((current) => ({ ...current, join_policy: value }))} options={["explicit_join", "coordinator_join", "sequential_join"]} value={topologyDraft.join_policy} />
-                          <SelectField label="失败策略" onChange={(value) => setTopologyDraft((current) => ({ ...current, failure_policy: value }))} options={["fail_closed", "retry_once", "coordinator_decides"]} value={topologyDraft.failure_policy} />
-                          <SelectField label="终止策略" onChange={(value) => setTopologyDraft((current) => ({ ...current, terminal_policy: value }))} options={["coordinator_terminal", "all_nodes_complete", "manual_close"]} value={topologyDraft.terminal_policy} />
-                          <Field label="协议标题"><input value={protocolDraft.title} onChange={(event) => setProtocolDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
-                          <SelectField label="确认策略" onChange={(value) => setProtocolDraft((current) => ({ ...current, ack_policy: value }))} options={["explicit_ack", "implicit_ack"]} value={protocolDraft.ack_policy} />
-                          <SelectField label="超时策略" onChange={(value) => setProtocolDraft((current) => ({ ...current, timeout_policy: value }))} options={["fail_closed", "retry_once", "escalate_to_coordinator"]} value={protocolDraft.timeout_policy} />
-                          <SelectField label="错误信号" onChange={(value) => setProtocolDraft((current) => ({ ...current, error_signal_policy: value }))} options={["raise_to_coordinator", "return_to_sender", "halt_chain"]} value={protocolDraft.error_signal_policy} />
-                        </section>
-
-                        <details className="boundary-system-fields">
-                          <summary>系统字段</summary>
-                          <div className="boundary-form">
-                            <Field label="停止条件" wide><textarea value={coordinationDraft.stop_conditions_text} onChange={(event) => setCoordinationDraft((value) => ({ ...value, stop_conditions_text: event.target.value }))} /></Field>
-                            <MultiSelectField label="通信模式" onChange={(value) => setCoordinationDraft((current) => ({ ...current, communication_modes: value }))} options={GRAPH_EDGE_MODE_CHOICES} value={coordinationDraft.communication_modes ?? []} wide />
-                            <Field label="拓扑 ID"><input value={topologyDraft.template_id} onChange={(event) => setTopologyDraft((value) => ({ ...value, template_id: event.target.value }))} /></Field>
-                            <Field label="协议 ID"><input value={protocolDraft.protocol_id} onChange={(event) => setProtocolDraft((value) => ({ ...value, protocol_id: event.target.value }))} /></Field>
-                          </div>
-                        </details>
-                      </>
-                    ) : null}
-
-                    {selectedGraphNode ? (
-                      <section className="boundary-inspector-block">
-                        <header><strong>节点检查器</strong></header>
-                        <Field label="节点名称"><input value={String(selectedGraphNode.label ?? selectedGraphNode.title ?? graphNodeLabel(selectedGraphNode, 0))} onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { label: event.target.value, title: event.target.value })} /></Field>
-                        <DomainTaskSelectField
-                          label="绑定分任务"
-                          onChange={(value) => {
-                            const task = selectedDomainTasks.find((item) => item.task_id === value);
-                            updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
-                              node_type: value ? "subtask" : "agent_role",
-                              task_id: value,
-                              task_title: task?.task_title ?? "",
-                              task_family: task?.task_family ?? selectedDomain?.task_family ?? "",
-                              label: task?.task_title ?? String(selectedGraphNode.label ?? ""),
-                              title: task?.task_title ?? String(selectedGraphNode.title ?? selectedGraphNode.label ?? ""),
-                            });
-                          }}
-                          options={domainTaskOptions}
-                          value={graphNodeTaskId(selectedGraphNode)}
-                        />
-                        <SelectField label="角色" onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { role: value })} options={["coordinator", "participant", "reviewer", "writer", "acceptance"]} value={String(selectedGraphNode.role ?? "participant")} />
-                        <Field label="Agent"><input value={String(selectedGraphNode.agent_id ?? "")} onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { agent_id: event.target.value })} /></Field>
-                        {String(selectedGraphNode.role ?? "") !== "coordinator" ? (
-                          <ToolbarButton onClick={() => removeCoordinationNode(String(selectedGraphNode.node_id ?? ""))}><Trash2 size={14} />删除节点</ToolbarButton>
-                        ) : null}
-                      </section>
-                    ) : null}
-
-                    {selectedGraphEdge ? (
-                      <section className="boundary-inspector-block">
-                        <header><strong>通信检查器</strong></header>
-                          <SelectField label="起点" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { from: value, source_node_id: value })} options={activeGraphNodes.map((node) => String(node.node_id ?? ""))} value={graphEdgeSource(selectedGraphEdge)} />
-                          <SelectField label="终点" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { to: value, target_node_id: value })} options={activeGraphNodes.map((node) => String(node.node_id ?? ""))} value={graphEdgeTarget(selectedGraphEdge)} />
-                          <SelectField label="通信模式" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { mode: value })} options={GRAPH_EDGE_MODE_CHOICES} value={String(selectedGraphEdge.mode ?? "structured_handoff")} />
-                          <ToolbarButton onClick={() => reverseCoordinationEdge(graphEdgeId(selectedGraphEdge))}><RotateCcw size={14} />反转方向</ToolbarButton>
-                          <ToolbarButton onClick={() => removeCoordinationEdge(graphEdgeId(selectedGraphEdge))}><Trash2 size={14} />删除通信</ToolbarButton>
-                        </section>
-                    ) : null}
-
-                    {selectedCoordinationGraphSpec?.issues?.length ? (
-                      <section className="boundary-inspector-block boundary-inspector-block--warn">
-                        <header><strong>图校验</strong></header>
-                        {selectedCoordinationGraphSpec.issues.map((issue, index) => (
-                          <p key={`${String(issue.code ?? "issue")}-${index}`}>{String(issue.message ?? issue.code ?? "校验问题")}</p>
-                        ))}
-                      </section>
-                    ) : null}
-                  </aside>
-                </div>
-              </section>
-            </section>
+            <CoordinationEditorWorkbench
+              activeGraphEdges={activeGraphEdges}
+              activeGraphNodes={activeGraphNodes}
+              addCoordinationEdge={addCoordinationEdge}
+              addCoordinationNode={addCoordinationNode}
+              addCoordinationRoleNode={addCoordinationRoleNode}
+              addCoordinationSuccessorNode={addCoordinationSuccessorNode}
+              addCoordinationTaskNode={addCoordinationTaskNode}
+              agentGroupOptions={agentGroupOptions}
+              applyLongformNovelTemplate={applyLongformNovelTemplate}
+              boundCoordinationTaskIds={boundCoordinationTaskIds}
+              connectSelectedNodeTo={connectSelectedNodeTo}
+              coordinationDraft={coordinationDraft}
+              coordinationTasks={coordinationTasks}
+              cycleCoordinationEdgeMode={cycleCoordinationEdgeMode}
+              cycleCoordinationNodeRole={cycleCoordinationNodeRole}
+              domainTaskOptions={domainTaskOptions}
+              duplicateCoordinationDraft={duplicateCoordinationDraft}
+              editorIssueCount={editorIssueCount}
+              editorPublished={editorPublished}
+              editorValid={editorValid}
+              handleTopologyNodeClick={handleTopologyNodeClick}
+              linkingFromNodeId={linkingFromNodeId}
+              protocolDraft={protocolDraft}
+              removeCoordinationEdge={removeCoordinationEdge}
+              removeCoordinationNode={removeCoordinationNode}
+              reverseCoordinationEdge={reverseCoordinationEdge}
+              saveCoordinationStack={saveCoordinationStack}
+              saving={saving}
+              selectedCoordination={selectedCoordination}
+              selectedCoordinationGraphSpec={selectedCoordinationGraphSpec}
+              selectedCoordinationId={selectedCoordinationId}
+              selectedDomain={selectedDomain}
+              selectedDomainTasks={selectedDomainTasks}
+              selectedGraphEdge={selectedGraphEdge}
+              selectedGraphEdgeId={selectedGraphEdgeId}
+              selectedGraphNode={selectedGraphNode}
+              selectedGraphNodeId={selectedGraphNodeId}
+              sendCoordinationToChat={sendCoordinationToChat}
+              setCoordinationDraft={setCoordinationDraft}
+              setCoordinationPublished={setCoordinationPublished}
+              setLinkingFromNodeId={setLinkingFromNodeId}
+              setProtocolDraft={setProtocolDraft}
+              setSelectedCoordinationId={setSelectedCoordinationId}
+              setSelectedGraphEdgeId={setSelectedGraphEdgeId}
+              setSelectedGraphNodeId={setSelectedGraphNodeId}
+              setTopologyDraft={setTopologyDraft}
+              topologyDraft={topologyDraft}
+              updateCoordinationEdge={updateCoordinationEdge}
+              updateCoordinationNode={updateCoordinationNode}
+            />
           ) : null}
 
           {taskLayer === "contracts" ? (

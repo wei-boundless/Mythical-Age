@@ -1,19 +1,37 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useEffect } from "react";
 
 import { Navbar } from "@/components/layout/Navbar";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
-import { RightRail } from "@/components/layout/RightRail";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { WorkspacePanel } from "@/components/workspace/WorkspacePanel";
 import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
 import { AppProvider, useAppStore } from "@/lib/store";
+import type { WorkspaceView } from "@/lib/store/types";
+
+const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
+  "chat",
+  "memory",
+  "test-system",
+  "health-system",
+  "capability-system",
+  "mcp-system",
+  "evidence",
+  "task-system",
+  "orchestration",
+  "system-framework",
+  "experiments",
+  "playground",
+  "system-config"
+]);
 
 function Workspace() {
-  const { sidebarWidth, setSidebarWidth, activeSoulKey, activeWorkspaceView, setWorkspaceView } = useAppStore();
+  const { sidebarWidth, setSidebarWidth, activeSoulKey, activeWorkspaceView, setWorkspaceView, soulOptions } = useAppStore();
   const isBoundaryWorkspace = activeWorkspaceView === "task-system" || activeWorkspaceView === "orchestration";
-  const showRightRail = !isBoundaryWorkspace;
+  const activeSoul = soulOptions.find((soul) => soul.key === activeSoulKey) ?? soulOptions[0] ?? null;
+  const soulBackgroundPath = activeSoul?.backgroundPath ?? `/souls/backgrounds/${activeSoulKey ?? "hebo"}-bg.png`;
 
   useEffect(() => {
     if (activeSoulKey) {
@@ -25,8 +43,8 @@ function Workspace() {
 
   useEffect(() => {
     const view = new URLSearchParams(window.location.search).get("view");
-    if (view === "task-system" || view === "orchestration") {
-      setWorkspaceView(view);
+    if (view && WORKSPACE_QUERY_VIEWS.has(view as WorkspaceView)) {
+      setWorkspaceView(view as WorkspaceView);
     }
   }, [setWorkspaceView]);
 
@@ -40,19 +58,22 @@ function Workspace() {
 
   return (
     <main className={`workspace-shell ${isBoundaryWorkspace ? "workspace-shell--task-focus" : ""} min-h-screen px-3 py-4 md:px-6 md:py-6`}>
-      <div className={`workspace-grid mx-auto flex flex-col gap-4 ${isBoundaryWorkspace ? "max-w-[1920px]" : "max-w-[1820px]"}`}>
+      <div
+        aria-hidden="true"
+        className="soul-background-figure"
+        style={{ "--soul-background-image": `url(${soulBackgroundPath})` } as CSSProperties}
+      />
+      <div className={`workspace-grid mx-auto flex flex-col ${isBoundaryWorkspace ? "gap-3 max-w-[1920px]" : "gap-4 max-w-[1820px]"}`}>
         <Navbar />
-        <div className={`workspace-frame flex min-h-[calc(100vh-144px)] flex-col gap-4 xl:flex-row ${isBoundaryWorkspace ? "xl:gap-3" : "xl:gap-0"}`}>
-          <div className="w-full xl:shrink-0" style={{ width: `min(100%, ${isBoundaryWorkspace ? Math.min(sidebarWidth, 248) : sidebarWidth}px)` }}>
-            <Sidebar />
+        <div className={`workspace-frame ${isBoundaryWorkspace ? "workspace-frame--work" : ""} flex min-h-[calc(100vh-112px)] flex-col gap-3 xl:flex-row ${isBoundaryWorkspace ? "xl:gap-2" : "xl:gap-0"}`}>
+          <div
+            className={`w-full xl:shrink-0 ${isBoundaryWorkspace ? "workspace-sidebar-slot--compact" : ""}`}
+            style={isBoundaryWorkspace ? undefined : { width: `min(100%, ${sidebarWidth}px)` }}
+          >
+            <Sidebar compact={isBoundaryWorkspace} />
           </div>
-          <ResizeHandle onResize={(delta) => setSidebarWidth(Math.max(280, sidebarWidth + delta))} />
+          {isBoundaryWorkspace ? null : <ResizeHandle onResize={(delta) => setSidebarWidth(Math.max(280, sidebarWidth + delta))} />}
           <WorkspacePanel />
-          {showRightRail ? (
-            <div className={`w-full xl:shrink-0 ${isBoundaryWorkspace ? "xl:ml-0 xl:w-[308px]" : "xl:ml-4 xl:w-[320px]"}`}>
-              <RightRail />
-            </div>
-          ) : null}
         </div>
       </div>
     </main>

@@ -2,35 +2,38 @@
   "agents": [
     {
       "agent_id": "agent:0",
-      "agent_name": "0号主Agent",
-      "display_name": "0号主Agent",
+      "agent_name": "agent:0",
       "agent_category": "main_agent",
-      "profile_type": "main_agent",
       "interface_target": "main_conversation",
       "description": "系统主会话入口，承接通用任务并负责最终整合输出。",
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "goumang",
-      "default_projection_id": "goumang__primary",
+      "default_soul_id": "siyue",
+      "default_projection_id": "siyue__primary",
       "task_scope": [
         "general_task",
         "final_integration"
       ],
       "created_at": 1777856768.8668854,
-      "updated_at": 1777856768.8668854,
+      "updated_at": 1778174383.757706,
       "metadata": {
         "role": "main_conversation_entry",
         "system_key": "task_system",
         "slot_index": 0
-      }
+      },
+      "display_name": "agent:0",
+      "profile_type": "main_agent",
+      "owner_system": "task_system",
+      "lifecycle_state": "system_builtin",
+      "governance_status": "system_builtin",
+      "deletable": "never",
+      "disable_allowed": false
     },
     {
       "agent_id": "agent:1",
       "agent_name": "1号权限管理Agent",
-      "display_name": "1号权限管理Agent",
       "agent_category": "system_management_agent",
-      "profile_type": "system_management_agent",
       "interface_target": "permission_system_window",
       "description": "对接权限系统会话窗口，负责权限系统相关管理任务。",
       "enabled": true,
@@ -47,14 +50,19 @@
         "role": "system_manager",
         "system_key": "permission_system",
         "slot_index": 1
-      }
+      },
+      "display_name": "1号权限管理Agent",
+      "profile_type": "system_management_agent",
+      "owner_system": "permission_system",
+      "lifecycle_state": "system_builtin",
+      "governance_status": "system_builtin",
+      "deletable": "never",
+      "disable_allowed": false
     },
     {
       "agent_id": "agent:2",
       "agent_name": "2号记忆管理Agent",
-      "display_name": "2号记忆管理Agent",
       "agent_category": "system_management_agent",
-      "profile_type": "system_management_agent",
       "interface_target": "memory_system_window",
       "description": "对接记忆系统会话窗口，负责记忆系统相关管理任务。",
       "enabled": true,
@@ -71,14 +79,19 @@
         "role": "system_manager",
         "system_key": "memory_system",
         "slot_index": 2
-      }
+      },
+      "display_name": "2号记忆管理Agent",
+      "profile_type": "system_management_agent",
+      "owner_system": "memory_system",
+      "lifecycle_state": "system_builtin",
+      "governance_status": "system_builtin",
+      "deletable": "never",
+      "disable_allowed": false
     },
     {
       "agent_id": "agent:3",
       "agent_name": "3号健康管理Agent",
-      "display_name": "3号健康管理Agent",
       "agent_category": "system_management_agent",
-      "profile_type": "system_management_agent",
       "interface_target": "health_system_window",
       "description": "对接健康系统会话窗口，负责健康维护和健康分析类任务。",
       "enabled": true,
@@ -96,14 +109,19 @@
         "role": "system_manager",
         "system_key": "health_system",
         "slot_index": 3
-      }
+      },
+      "display_name": "3号健康管理Agent",
+      "profile_type": "system_management_agent",
+      "owner_system": "health_system",
+      "lifecycle_state": "system_builtin",
+      "governance_status": "system_builtin",
+      "deletable": "never",
+      "disable_allowed": false
     },
     {
       "agent_id": "agent:4",
       "agent_name": "4号能力管理Agent",
-      "display_name": "4号能力管理Agent",
       "agent_category": "system_management_agent",
-      "profile_type": "system_management_agent",
       "interface_target": "capability_system_window",
       "description": "对接能力系统会话窗口，负责工具、skills 与执行能力相关管理任务。",
       "enabled": true,
@@ -121,14 +139,19 @@
         "role": "system_manager",
         "system_key": "capability_system",
         "slot_index": 4
-      }
+      },
+      "display_name": "4号能力管理Agent",
+      "profile_type": "system_management_agent",
+      "owner_system": "capability_system",
+      "lifecycle_state": "system_builtin",
+      "governance_status": "system_builtin",
+      "deletable": "never",
+      "disable_allowed": false
     },
     {
       "agent_id": "agent:5",
       "agent_name": "5号灵魂管理Agent",
-      "display_name": "5号灵魂管理Agent",
       "agent_category": "system_management_agent",
-      "profile_type": "system_management_agent",
       "interface_target": "soul_system_window",
       "description": "对接灵魂系统会话窗口，负责人格设定、上下文组织风格与投影相关任务。",
       "enabled": true,
@@ -146,14 +169,118 @@
         "role": "system_manager",
         "system_key": "soul_system",
         "slot_index": 5
-      }
+      },
+      "display_name": "5号灵魂管理Agent",
+      "profile_type": "system_management_agent",
+      "owner_system": "soul_system",
+      "lifecycle_state": "system_builtin",
+      "governance_status": "system_builtin",
+      "deletable": "never",
+      "disable_allowed": false
+    },
+    {
+      "agent_id": "agent:6",
+      "agent_name": "acceptance-worker-1",
+      "agent_category": "worker_sub_agent",
+      "interface_target": "worker_task_console",
+      "description": "通用开发工作子 Agent，用于领取局部实现、检查和素材整理类任务。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "",
+      "default_projection_id": "",
+      "task_scope": [
+        "light_web_game",
+        "arcade_game_bundle",
+        "bounded_patch",
+        "task_execution"
+      ],
+      "created_at": 1777978960.1069696,
+      "updated_at": 1777978960.1069696,
+      "metadata": {
+        "worker_kind": "development",
+        "spawn_request_id": "spawnreq:taskrun:acceptance-e4-live-allowed:taskinst:turn:acceptance-e4-live-allowed:1:light_web_game:dbecb0e7:1",
+        "provisioned_by": "runtime_loop",
+        "system_key": "worker_pool"
+      },
+      "display_name": "acceptance-worker-1",
+      "profile_type": "worker_sub_agent",
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
+    },
+    {
+      "agent_id": "agent:7",
+      "agent_name": "acceptance-worker-1",
+      "agent_category": "worker_sub_agent",
+      "interface_target": "worker_task_console",
+      "description": "通用开发工作子 Agent，用于领取局部实现、检查和素材整理类任务。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "",
+      "default_projection_id": "",
+      "task_scope": [
+        "light_web_game",
+        "arcade_game_bundle",
+        "bounded_patch",
+        "task_execution"
+      ],
+      "created_at": 1777979209.827028,
+      "updated_at": 1777979209.827028,
+      "metadata": {
+        "worker_kind": "development",
+        "spawn_request_id": "spawnreq:taskrun:acceptance-e4-live-allowed-rerun:taskinst:turn:acceptance-e4-live-allowed-rerun:1:light_web_game:6311bb4b:1",
+        "provisioned_by": "runtime_loop",
+        "system_key": "worker_pool"
+      },
+      "display_name": "acceptance-worker-1",
+      "profile_type": "worker_sub_agent",
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
+    },
+    {
+      "agent_id": "agent:8",
+      "agent_name": "acceptance-worker-1",
+      "agent_category": "worker_sub_agent",
+      "interface_target": "worker_task_console",
+      "description": "通用开发工作子 Agent，用于领取局部实现、检查和素材整理类任务。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "",
+      "default_projection_id": "",
+      "task_scope": [
+        "light_web_game",
+        "arcade_game_bundle",
+        "bounded_patch",
+        "task_execution"
+      ],
+      "created_at": 1777979919.207956,
+      "updated_at": 1777979919.207956,
+      "metadata": {
+        "worker_kind": "development",
+        "spawn_request_id": "spawnreq:taskrun:acceptance-e4-live-allowed-final:taskinst:turn:acceptance-e4-live-allowed-final:1:light_web_game:e1ba1eae:1",
+        "provisioned_by": "runtime_loop",
+        "system_key": "worker_pool"
+      },
+      "display_name": "acceptance-worker-1",
+      "profile_type": "worker_sub_agent",
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
     },
     {
       "agent_id": "agent:20",
       "agent_name": "长篇主编Agent",
-      "display_name": "长篇主编Agent",
       "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
       "interface_target": "writing_domain_editor",
       "description": "长篇小说项目的主编型常态子 Agent，负责项目级目标、验收、合并与质量闸门。",
       "enabled": true,
@@ -177,14 +304,19 @@
         "agent_team": "longform_novel_core",
         "slot_index": 20,
         "system_key": "worker_pool"
-      }
+      },
+      "display_name": "长篇主编Agent",
+      "profile_type": "worker_sub_agent",
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
     },
     {
       "agent_id": "agent:21",
       "agent_name": "长篇设定Agent",
-      "display_name": "长篇设定Agent",
       "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
       "interface_target": "writing_domain_worldbuilding",
       "description": "长篇小说世界观、时间线、设定规则与设定债务维护的常态子 Agent。",
       "enabled": true,
@@ -205,14 +337,19 @@
         "agent_team": "longform_novel_core",
         "slot_index": 21,
         "system_key": "worker_pool"
-      }
+      },
+      "display_name": "长篇设定Agent",
+      "profile_type": "worker_sub_agent",
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
     },
     {
       "agent_id": "agent:22",
       "agent_name": "长篇人物Agent",
-      "display_name": "长篇人物Agent",
       "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
       "interface_target": "writing_domain_character",
       "description": "长篇小说人物档案、人物关系、动机链和成长弧线维护的常态子 Agent。",
       "enabled": true,
@@ -234,14 +371,19 @@
         "agent_team": "longform_novel_core",
         "slot_index": 22,
         "system_key": "worker_pool"
-      }
+      },
+      "display_name": "长篇人物Agent",
+      "profile_type": "worker_sub_agent",
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
     },
     {
       "agent_id": "agent:23",
       "agent_name": "长篇剧情Agent",
-      "display_name": "长篇剧情Agent",
       "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
       "interface_target": "writing_domain_plot",
       "description": "长篇小说主线、卷纲、章节事件链、伏笔投放与回收规划的常态子 Agent。",
       "enabled": true,
@@ -263,14 +405,19 @@
         "agent_team": "longform_novel_core",
         "slot_index": 23,
         "system_key": "worker_pool"
-      }
+      },
+      "display_name": "长篇剧情Agent",
+      "profile_type": "worker_sub_agent",
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
     },
     {
       "agent_id": "agent:24",
       "agent_name": "长篇写作Agent",
-      "display_name": "长篇写作Agent",
       "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
       "interface_target": "writing_domain_drafting",
       "description": "长篇小说章节正文生成、分场景扩写和修订落稿的常态子 Agent。",
       "enabled": true,
@@ -291,14 +438,19 @@
         "agent_team": "longform_novel_core",
         "slot_index": 24,
         "system_key": "worker_pool"
-      }
+      },
+      "display_name": "长篇写作Agent",
+      "profile_type": "worker_sub_agent",
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
     },
     {
       "agent_id": "agent:25",
       "agent_name": "长篇审校Agent",
-      "display_name": "长篇审校Agent",
       "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
       "interface_target": "writing_domain_review",
       "description": "长篇小说章节质量、风格偏移、重复桥段和可读性问题审校的常态子 Agent。",
       "enabled": true,
@@ -320,14 +472,19 @@
         "agent_team": "longform_novel_core",
         "slot_index": 25,
         "system_key": "worker_pool"
-      }
+      },
+      "display_name": "长篇审校Agent",
+      "profile_type": "worker_sub_agent",
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
     },
     {
       "agent_id": "agent:26",
       "agent_name": "长篇连续性Agent",
-      "display_name": "长篇连续性Agent",
       "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
       "interface_target": "writing_domain_continuity",
       "description": "长篇小说跨章连续性、设定冲突、时间线和伏笔债务检查的常态子 Agent。",
       "enabled": true,
@@ -348,91 +505,14 @@
         "agent_team": "longform_novel_core",
         "slot_index": 26,
         "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:6",
-      "agent_name": "acceptance-worker-1",
-      "display_name": "acceptance-worker-1",
-      "agent_category": "worker_sub_agent",
+      },
+      "display_name": "长篇连续性Agent",
       "profile_type": "worker_sub_agent",
-      "interface_target": "worker_task_console",
-      "description": "通用开发工作子 Agent，用于领取局部实现、检查和素材整理类任务。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "",
-      "default_projection_id": "",
-      "task_scope": [
-        "light_web_game",
-        "arcade_game_bundle",
-        "bounded_patch",
-        "task_execution"
-      ],
-      "created_at": 1777978960.1069696,
-      "updated_at": 1777978960.1069696,
-      "metadata": {
-        "worker_kind": "development",
-        "spawn_request_id": "spawnreq:taskrun:acceptance-e4-live-allowed:taskinst:turn:acceptance-e4-live-allowed:1:light_web_game:dbecb0e7:1",
-        "provisioned_by": "runtime_loop",
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:7",
-      "agent_name": "acceptance-worker-1",
-      "display_name": "acceptance-worker-1",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "worker_task_console",
-      "description": "通用开发工作子 Agent，用于领取局部实现、检查和素材整理类任务。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "",
-      "default_projection_id": "",
-      "task_scope": [
-        "light_web_game",
-        "arcade_game_bundle",
-        "bounded_patch",
-        "task_execution"
-      ],
-      "created_at": 1777979209.827028,
-      "updated_at": 1777979209.827028,
-      "metadata": {
-        "worker_kind": "development",
-        "spawn_request_id": "spawnreq:taskrun:acceptance-e4-live-allowed-rerun:taskinst:turn:acceptance-e4-live-allowed-rerun:1:light_web_game:6311bb4b:1",
-        "provisioned_by": "runtime_loop",
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:8",
-      "agent_name": "acceptance-worker-1",
-      "display_name": "acceptance-worker-1",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "worker_task_console",
-      "description": "通用开发工作子 Agent，用于领取局部实现、检查和素材整理类任务。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "",
-      "default_projection_id": "",
-      "task_scope": [
-        "light_web_game",
-        "arcade_game_bundle",
-        "bounded_patch",
-        "task_execution"
-      ],
-      "created_at": 1777979919.207956,
-      "updated_at": 1777979919.207956,
-      "metadata": {
-        "worker_kind": "development",
-        "spawn_request_id": "spawnreq:taskrun:acceptance-e4-live-allowed-final:taskinst:turn:acceptance-e4-live-allowed-final:1:light_web_game:e1ba1eae:1",
-        "provisioned_by": "runtime_loop",
-        "system_key": "worker_pool"
-      }
+      "owner_system": "worker_pool",
+      "lifecycle_state": "enabled",
+      "governance_status": "task_managed",
+      "deletable": "archive_only",
+      "disable_allowed": true
     }
   ]
 }

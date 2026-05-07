@@ -41,6 +41,13 @@
     radial-gradient(circle at top, color-mix(in srgb, var(--color-soul) 10%, transparent), transparent 42%);
   --portrait-aura:
     radial-gradient(circle at top, color-mix(in srgb, var(--color-soul) 18%, transparent), transparent 48%);
+  --soul-background-position-x: 88%;
+  --soul-background-position-y: 54%;
+  --soul-background-size: min(46vw, 760px);
+  --soul-background-opacity: 0.22;
+  --soul-background-blend:
+    radial-gradient(ellipse at 76% 44%, color-mix(in srgb, var(--color-soul) 20%, transparent), transparent 34%),
+    linear-gradient(90deg, rgba(5, 12, 16, 0.82) 0%, rgba(5, 12, 16, 0.28) 48%, rgba(5, 12, 16, 0.74) 100%);
   --message-user-bg:
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 24%),
     linear-gradient(135deg, rgba(14, 27, 36, 0.96), rgba(12, 20, 27, 0.92));
@@ -96,6 +103,13 @@ html[data-soul="hebo"] {
   --portrait-aura:
     radial-gradient(ellipse at 50% 0%, rgba(105, 218, 255, 0.32), transparent 48%),
     repeating-linear-gradient(178deg, rgba(125, 220, 255, 0.08) 0 1px, transparent 1px 16px);
+  --soul-background-position-x: 86%;
+  --soul-background-position-y: 55%;
+  --soul-background-size: min(45vw, 740px);
+  --soul-background-opacity: 0.2;
+  --soul-background-blend:
+    radial-gradient(ellipse at 80% 48%, rgba(68, 185, 244, 0.2), transparent 34%),
+    linear-gradient(90deg, rgba(2, 18, 30, 0.86) 0%, rgba(2, 18, 30, 0.25) 50%, rgba(2, 18, 30, 0.72) 100%);
   --message-user-bg:
     linear-gradient(180deg, rgba(128, 222, 255, 0.1), transparent 38%),
     linear-gradient(135deg, rgba(8, 42, 61, 0.96), rgba(5, 22, 32, 0.94));
@@ -150,6 +164,13 @@ html[data-soul="goumang"] {
   --portrait-aura:
     radial-gradient(ellipse at 50% 0%, rgba(111, 214, 201, 0.34), transparent 48%),
     linear-gradient(180deg, rgba(255, 227, 154, 0.08), transparent 62%);
+  --soul-background-position-x: 87%;
+  --soul-background-position-y: 54%;
+  --soul-background-size: min(48vw, 780px);
+  --soul-background-opacity: 0.22;
+  --soul-background-blend:
+    radial-gradient(ellipse at 78% 46%, rgba(111, 214, 201, 0.2), transparent 34%),
+    linear-gradient(90deg, rgba(5, 25, 28, 0.86) 0%, rgba(5, 25, 28, 0.24) 50%, rgba(5, 25, 28, 0.72) 100%);
   --message-user-bg:
     linear-gradient(180deg, rgba(111, 214, 201, 0.1), transparent 36%),
     linear-gradient(135deg, rgba(11, 45, 49, 0.96), rgba(5, 24, 27, 0.94));
@@ -210,6 +231,13 @@ html[data-soul="siyue"] {
     linear-gradient(160deg, rgba(255, 213, 110, 0.38), transparent 44%),
     radial-gradient(ellipse at 50% 8%, rgba(255, 241, 190, 0.26), transparent 46%),
     linear-gradient(90deg, rgba(255, 231, 166, 0.09) 1px, transparent 1px);
+  --soul-background-position-x: 88%;
+  --soul-background-position-y: 58%;
+  --soul-background-size: min(50vw, 820px);
+  --soul-background-opacity: 0.19;
+  --soul-background-blend:
+    radial-gradient(ellipse at 78% 50%, rgba(216, 183, 101, 0.2), transparent 34%),
+    linear-gradient(90deg, rgba(33, 26, 16, 0.88) 0%, rgba(33, 26, 16, 0.28) 52%, rgba(33, 26, 16, 0.76) 100%);
   --message-user-bg:
     linear-gradient(180deg, rgba(255, 231, 166, 0.16), transparent 36%),
     linear-gradient(135deg, rgba(123, 81, 23, 0.66), rgba(62, 39, 10, 0.68));
@@ -265,6 +293,13 @@ html[data-soul="zhurong"] {
   --portrait-aura:
     radial-gradient(ellipse at 50% 6%, rgba(232, 177, 122, 0.18), transparent 38%),
     repeating-linear-gradient(121deg, rgba(229, 138, 98, 0.06) 0 2px, transparent 2px 17px);
+  --soul-background-position-x: 86%;
+  --soul-background-position-y: 56%;
+  --soul-background-size: min(47vw, 760px);
+  --soul-background-opacity: 0.2;
+  --soul-background-blend:
+    radial-gradient(ellipse at 78% 50%, rgba(229, 138, 98, 0.2), transparent 34%),
+    linear-gradient(90deg, rgba(22, 13, 11, 0.88) 0%, rgba(22, 13, 11, 0.28) 52%, rgba(22, 13, 11, 0.74) 100%);
   --message-user-bg:
     linear-gradient(135deg, rgba(229, 138, 98, 0.09), transparent 38%),
     linear-gradient(135deg, rgba(58, 29, 20, 0.98), rgba(28, 10, 7, 0.96));
@@ -321,6 +356,13 @@ html[data-soul="xuannv"] {
     radial-gradient(ellipse at 50% 0%, rgba(237, 244, 255, 0.36), transparent 48%),
     radial-gradient(ellipse at 50% 28%, rgba(215, 241, 255, 0.14), transparent 58%),
     linear-gradient(120deg, rgba(215, 241, 255, 0.085) 1px, transparent 1px);
+  --soul-background-position-x: 88%;
+  --soul-background-position-y: 52%;
+  --soul-background-size: min(46vw, 750px);
+  --soul-background-opacity: 0.18;
+  --soul-background-blend:
+    radial-gradient(ellipse at 78% 44%, rgba(237, 244, 255, 0.16), transparent 34%),
+    linear-gradient(90deg, rgba(17, 26, 34, 0.88) 0%, rgba(17, 26, 34, 0.3) 52%, rgba(17, 26, 34, 0.78) 100%);
   --message-user-bg:
     linear-gradient(180deg, rgba(237, 244, 255, 0.12), transparent 36%),
     linear-gradient(135deg, rgba(48, 58, 64, 0.94), rgba(20, 26, 31, 0.92));
@@ -418,6 +460,7 @@ button:hover {
 
 .workspace-shell {
   position: relative;
+  overflow: hidden;
 }
 
 .workspace-shell--task-focus {
@@ -451,6 +494,53 @@ button:hover {
 .workspace-frame {
   position: relative;
   z-index: 1;
+}
+
+.workspace-frame--work {
+  align-items: stretch;
+}
+
+.workspace-sidebar-slot--compact {
+  width: min(100%, 72px);
+}
+
+.soul-background-figure {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    var(--soul-background-blend),
+    var(--soul-background-image);
+  background-repeat: no-repeat;
+  background-position:
+    center,
+    var(--soul-background-position-x) var(--soul-background-position-y);
+  background-size:
+    cover,
+    var(--soul-background-size) auto;
+  opacity: var(--soul-background-opacity);
+  filter: var(--soul-filter);
+  transition:
+    opacity 360ms ease,
+    filter 360ms ease,
+    background-position 360ms ease;
+}
+
+.workspace-shell--task-focus .soul-background-figure {
+  --soul-background-size: min(38vw, 650px);
+  opacity: calc(var(--soul-background-opacity) * 0.62);
+}
+
+.navbar-shell {
+  padding: 1rem 1.1rem;
+}
+
+.navbar-shell--work {
+  border-radius: 18px;
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.018);
 }
 
 .brand-mark,
@@ -861,121 +951,117 @@ button:hover {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
 }
 
-.right-rail {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 32%),
-    var(--color-panel);
-}
-
-.right-rail__head {
-  align-items: center;
-  justify-content: space-between;
-}
-
-.right-rail__tag {
-  color: var(--color-ink);
-  font-weight: 600;
-}
-
-.right-rail__intro {
-  padding: 0 0.1rem;
-  font-size: 0.9rem;
-  line-height: 1.78;
-  color: rgba(246, 245, 240, 0.58);
-}
-
-.right-rail__groups {
+.workspace-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 0.82rem;
+  height: 100%;
+  min-height: 0;
+  border-radius: 18px;
+  padding: 0.72rem;
 }
 
-.right-rail__group-title {
-  margin: 0 0 0.85rem;
-  font-family: var(--font-brand-latin), "Times New Roman", serif;
-  font-size: 0.8rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(246, 245, 240, 0.62);
+.workspace-sidebar--compact {
+  gap: 0.58rem;
+  padding: 0.55rem;
+  border-radius: 14px;
 }
 
-.right-rail__items {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
+.workspace-sidebar__nav,
+.workspace-sidebar__soul,
+.workspace-sidebar__sessions {
+  padding: 0.78rem;
 }
 
-.right-rail__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.85rem;
-  width: 100%;
-  padding: 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: var(--radius-card);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 42%),
-    var(--color-panel-strong);
-  color: inherit;
-  text-align: left;
+.workspace-sidebar__nav-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.42rem;
 }
 
-.right-rail__item[aria-disabled="true"] {
-  cursor: default;
+.workspace-sidebar--compact .workspace-sidebar__nav-list {
+  grid-template-columns: 1fr;
 }
 
-.right-rail__item--active {
-  border-color: color-mix(in srgb, var(--color-soul) 42%, transparent);
-  background:
-    linear-gradient(180deg, var(--color-soul-soft), transparent 60%),
-    var(--color-panel-strong);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.025),
-    0 10px 26px color-mix(in srgb, var(--color-soul) 16%, transparent);
-}
-
-.right-rail__item--active .right-rail__item-icon {
-  background: var(--color-soul-soft);
-  color: var(--color-text);
-}
-
-.right-rail__item-icon {
-  display: flex;
+.workspace-sidebar__nav-item {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.2rem;
-  height: 2.2rem;
-  border-radius: var(--radius-control);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
+  gap: 0.38rem;
+  min-height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.028);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 0.45rem 0.5rem;
+  text-align: center;
+}
+
+.workspace-sidebar__nav-item svg {
   color: var(--color-soul);
   flex-shrink: 0;
 }
 
-.right-rail__item-copy {
-  min-width: 0;
-}
-
-.right-rail__item-label {
-  font-size: 0.98rem;
-  font-weight: 600;
+.workspace-sidebar__nav-item:hover,
+.workspace-sidebar__nav-item--active {
+  border-color: color-mix(in srgb, var(--color-soul) 44%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 68%),
+    rgba(255, 255, 255, 0.045);
   color: var(--color-text);
 }
 
-.right-rail__item-description {
-  margin-top: 0.22rem;
-  font-size: 0.85rem;
-  line-height: 1.6;
-  color: rgba(246, 245, 240, 0.58);
+.workspace-sidebar__soul {
+  flex-shrink: 0;
 }
 
-.right-rail__item-state {
-  margin-top: 0.45rem;
-  font-family: var(--font-brand-latin), "Times New Roman", serif;
-  font-size: 0.7rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(246, 245, 240, 0.46);
+.workspace-sidebar__sessions {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.workspace-sidebar__session-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.workspace-sidebar__session-dot {
+  display: grid;
+  place-items: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-soul) 9%, rgba(255, 255, 255, 0.035));
+  color: var(--color-soul);
+}
+
+.workspace-sidebar--compact .workspace-sidebar__sessions {
+  padding: 0.52rem;
+}
+
+.workspace-sidebar--compact .archive-section-head__copy,
+.workspace-sidebar--compact .workspace-sidebar__soul,
+.workspace-sidebar--compact .session-card button + button {
+  display: none;
+}
+
+.workspace-sidebar--compact .session-card {
+  display: grid;
+  place-items: center;
+  padding: 0.45rem;
+}
+
+.workspace-sidebar--compact .archive-session-card::before {
+  display: none;
 }
 
 .chat-panel-head {
@@ -984,6 +1070,13 @@ button:hover {
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
+}
+
+.chat-panel--workbench {
+  border-radius: 18px;
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.018);
 }
 
 .mcp-system-console {
@@ -9265,10 +9358,35 @@ button:hover {
   line-height: 1.8;
 }
 
+.chat-empty-state--full {
+  min-height: 176px;
+}
+
+.chat-empty-state--full .chat-empty-state__title {
+  font-size: clamp(1.28rem, 2.2vw, 1.8rem);
+  letter-spacing: 0;
+}
+
+.chat-empty-state--full .chat-empty-state__text {
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.chat-empty-state--full .chat-empty-state__portrait .soul-portrait {
+  transform: scale(0.82);
+}
+
 .chat-input-panel {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 34%),
     var(--color-panel);
+}
+
+.chat-input-panel--workbench {
+  border-radius: 18px;
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.018);
 }
 
 .chat-input-panel__note,
@@ -9693,22 +9811,6 @@ html[data-soul="siyue"] .chat-input-panel__textarea {
     linear-gradient(180deg, rgba(255, 246, 214, 0.1), transparent 42%),
     linear-gradient(125deg, rgba(216, 183, 101, 0.065), transparent 58%),
     rgba(47, 36, 18, 0.66);
-}
-
-html[data-soul="siyue"] .right-rail__item--active {
-  border-color: rgba(255, 231, 166, 0.5);
-  background:
-    linear-gradient(180deg, rgba(216, 183, 101, 0.14), transparent 62%),
-    rgba(65, 50, 24, 0.68);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 246, 214, 0.08),
-    0 12px 28px rgba(58, 36, 8, 0.28);
-}
-
-html[data-soul="siyue"] .right-rail__item--active .right-rail__item-icon {
-  border-color: rgba(255, 241, 190, 0.28);
-  background: rgba(216, 183, 101, 0.16);
-  box-shadow: 0 0 18px rgba(216, 183, 101, 0.1);
 }
 
 html[data-soul="siyue"] .archive-block--ornate::before,
@@ -14463,6 +14565,117 @@ html[data-soul="xuannv"] .soul-portrait__label {
   gap: 0.95rem;
 }
 
+.task-system-switchboard,
+.task-system-context-bar,
+.task-system-section-switch {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.task-system-switchboard {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 46%),
+    rgba(255, 255, 255, 0.018);
+  padding: 0.8rem;
+}
+
+.task-system-switchboard__head,
+.task-system-section-switch__head,
+.task-system-context-bar__copy {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.task-system-switchboard__copy span,
+.task-system-section-switch__head span,
+.task-system-context-bar__copy span {
+  color: var(--color-text-soft);
+  font-size: 0.69rem;
+  line-height: 1.4;
+}
+
+.task-system-switchboard__copy strong,
+.task-system-section-switch__head strong,
+.task-system-context-bar__copy strong {
+  color: var(--color-text);
+  font-size: 0.96rem;
+  overflow-wrap: anywhere;
+}
+
+.task-system-switchboard__copy p,
+.task-system-context-bar__copy p {
+  color: var(--color-text-soft);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.task-system-layer-nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(188px, 1fr));
+  gap: 0.58rem;
+}
+
+.task-system-layer-nav__item {
+  display: grid;
+  gap: 0.16rem;
+  min-height: 100px;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.022);
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0.72rem 0.78rem;
+  text-align: left;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.task-system-layer-nav__item:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--color-soul) 34%, var(--color-border));
+}
+
+.task-system-layer-nav__item--active {
+  border-color: color-mix(in srgb, var(--color-soul) 58%, var(--color-border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 70%),
+    rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-soul) 10%, transparent);
+}
+
+.task-system-layer-nav__item span {
+  color: var(--color-soul);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.task-system-layer-nav__item strong {
+  color: var(--color-text);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.task-system-layer-nav__item small {
+  color: var(--color-text-soft);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.task-system-context-bar {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 14% 18%, color-mix(in srgb, var(--color-soul) 12%, transparent), transparent 34%),
+    rgba(255, 255, 255, 0.018);
+  padding: 0.76rem 0.82rem;
+}
+
 .boundary-assembly-layout {
   display: grid;
   grid-template-columns: minmax(260px, 0.28fr) minmax(0, 1fr);
@@ -14571,6 +14784,16 @@ html[data-soul="xuannv"] .soul-portrait__label {
   color: var(--color-text-soft);
   font-size: 0.72rem;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .task-system-layer-nav {
+    grid-template-columns: repeat(auto-fit, minmax(156px, 1fr));
+  }
+
+  .task-system-layer-nav__item {
+    min-height: 88px;
+  }
 }
 
 .task-layer-canvas {

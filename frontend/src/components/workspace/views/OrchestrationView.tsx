@@ -7,12 +7,10 @@ import {
   Gauge,
   KeyRound,
   Layers3,
-  Loader2,
   Network,
   Plus,
   RefreshCw,
   Save,
-  Search,
   ShieldCheck,
   Trash2,
   UserCog,
@@ -34,6 +32,17 @@ import {
   type SoulProjectionCard,
   type SoulProjectionCatalog,
 } from "@/lib/api";
+import { OrchestrationDirectoryRail } from "@/components/workspace/views/orchestration/OrchestrationDirectoryRail";
+import {
+  OrchestrationContextWorkbench,
+  OrchestrationEligibilityWorkbench,
+  OrchestrationPermissionsWorkbench,
+  OrchestrationRuntimeWorkbench,
+  OrchestrationScopeWorkbench,
+} from "@/components/workspace/views/orchestration/OrchestrationAgentConfigWorkbenches";
+import { OrchestrationGroupWorkbench } from "@/components/workspace/views/orchestration/OrchestrationGroupWorkbench";
+import { OrchestrationRegistryWorkbench } from "@/components/workspace/views/orchestration/OrchestrationRegistryWorkbench";
+import { OrchestrationToolbarButton } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 
 type AgentCategory = "main_agent" | "system_management_agent" | "worker_sub_agent";
 type OrchestrationLayer = "registry" | "groups" | "scope" | "runtime" | "permissions" | "context" | "eligibility";
@@ -342,99 +351,13 @@ function searchText(agent: Record<string, unknown>) {
     .toLowerCase();
 }
 
-function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "ok" | "warn" | "danger" }) {
-  return <span className={`boundary-badge boundary-badge--${tone}`}>{children}</span>;
-}
-
-function ToolbarButton({
-  children,
-  disabled,
-  onClick,
-  variant = "ghost",
-}: {
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick?: () => void;
-  variant?: "ghost" | "primary" | "danger";
-}) {
-  return (
-    <button className={`boundary-button boundary-button--${variant}`} disabled={disabled} onClick={onClick} type="button">
-      {children}
-    </button>
-  );
-}
-
-function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
-  return (
-    <label className={wide ? "boundary-field boundary-field--wide" : "boundary-field"}>
-      <span>{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function ProjectionSelectField({
-  cards,
-  label,
-  onChange,
-  value,
-}: {
-  cards: SoulProjectionCard[];
-  label: string;
-  onChange: (value: string) => void;
-  value: string;
-}) {
-  const options = Array.from(new Set(["", value, ...cards.map((item) => item.projection_id).filter(Boolean)]));
-  return (
-    <Field label={label}>
-      <select value={value || ""} onChange={(event) => onChange(event.target.value)}>
-        {options.map((item) => (
-          <option key={item || "none"} value={item}>
-            {projectionLabel(item, cards)}
-          </option>
-        ))}
-      </select>
-    </Field>
-  );
-}
-
-function ReadinessCard({ label, value, ready }: { label: string; value: string; ready: boolean }) {
-  return (
-    <article className={ready ? "boundary-readiness boundary-readiness--ready" : "boundary-readiness"}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{ready ? "已配置" : "待配置"}</small>
-    </article>
-  );
-}
-
-function SuggestionGrid({
-  items,
-  onAdd,
-}: {
-  items: string[];
-  onAdd: (item: string) => void;
-}) {
-  if (!items.length) return null;
-  return (
-    <div className="boundary-chip-grid">
-      {items.slice(0, 18).map((item) => (
-        <button className="boundary-chip" key={item} onClick={() => onAdd(item)} type="button">
-          <CheckCircle2 size={13} />
-          <span>{displayId(item)}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export function OrchestrationView() {
   const [catalog, setCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("");
-  const [activeCategory, setActiveCategory] = useState<AgentCategory>("main_agent");
-  const [activeLayer, setActiveLayer] = useState<OrchestrationLayer>("registry");
+  const [activeCategory, setActiveCategory] = useState<AgentCategory>("worker_sub_agent");
+  const [activeLayer, setActiveLayer] = useState<OrchestrationLayer>("groups");
   const [workerDirectoryMode, setWorkerDirectoryMode] = useState<WorkerDirectoryMode>("grouped");
   const [query, setQuery] = useState("");
   const [agentMode, setAgentMode] = useState<"existing" | "new">("existing");
@@ -454,8 +377,14 @@ export function OrchestrationView() {
       const [payload, projections] = await Promise.all([getOrchestrationAgents(), getSoulProjectionCards()]);
       setCatalog(payload);
       setProjectionCatalog(projections);
-      setSelectedAgentId((current) => current || String(payload.agents[0]?.agent_id || ""));
-      setSelectedGroupId((current) => current || String(payload.agent_groups?.[0]?.group_id || ""));
+      const firstGroupId = String(payload.agent_groups?.[0]?.group_id || "");
+      setSelectedGroupId((current) => current || firstGroupId);
+      setSelectedAgentId((current) => {
+        if (current) return current;
+        if (firstGroupId) return "";
+        const preferredWorker = payload.agents.find((agent) => agentCategory(agent) === "worker_sub_agent");
+        return String(preferredWorker?.agent_id || payload.agents[0]?.agent_id || "");
+      });
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "编排系统加载失败");
     } finally {
@@ -486,10 +415,6 @@ export function OrchestrationView() {
     () => visibleAgents.filter((agent) => agentCategory(agent) === "worker_sub_agent"),
     [visibleAgents],
   );
-  const selectedGroupMemberAgents = useMemo(() => {
-    const memberIds = new Set((selectedGroup?.member_agent_ids ?? []).map((item) => String(item)));
-    return visibleWorkerAgents.filter((agent) => memberIds.has(String(agent.agent_id)));
-  }, [selectedGroup, visibleWorkerAgents]);
   const ungroupedWorkerAgents = useMemo(() => {
     const groupedIds = new Set(agentGroups.flatMap((group) => group.member_agent_ids.map((item) => String(item))));
     return visibleWorkerAgents.filter((agent) => !groupedIds.has(String(agent.agent_id)));
@@ -530,6 +455,31 @@ export function OrchestrationView() {
     if (groupMode === "new") return;
     setGroupDraft(groupDraftFrom(selectedGroup));
   }, [selectedGroup, groupMode]);
+
+  useEffect(() => {
+    if (loading || groupMode === "new") return;
+    if (activeCategory !== "worker_sub_agent" || workerDirectoryMode !== "grouped") return;
+    if (selectedGroupId && agentGroups.some((group) => group.group_id === selectedGroupId)) return;
+    const firstGroupId = agentGroups[0]?.group_id || "";
+    if (firstGroupId !== selectedGroupId) {
+      setSelectedGroupId(firstGroupId);
+    }
+    if (activeLayer !== "groups") {
+      setActiveLayer("groups");
+    }
+    if (selectedAgentId) {
+      setSelectedAgentId("");
+    }
+  }, [
+    activeCategory,
+    activeLayer,
+    agentGroups,
+    groupMode,
+    loading,
+    selectedAgentId,
+    selectedGroupId,
+    workerDirectoryMode,
+  ]);
 
   const activeGroup = groupedAgents.find((group) => group.category === activeCategory);
   const agentDeleteBlocked = Boolean(selectedAgent?.builtin);
@@ -843,10 +793,10 @@ export function OrchestrationView() {
           <p>Agent 名册、职责覆盖、运行档案、权限与上下文输出</p>
         </div>
         <div className="boundary-actions">
-          <ToolbarButton onClick={() => void load()}><RefreshCw size={15} />刷新</ToolbarButton>
-          <ToolbarButton onClick={startBlankAgentDraft}><Plus size={15} />新建 Agent</ToolbarButton>
-          <ToolbarButton onClick={startBlankGroupDraft}><Network size={15} />新建 Agent 组</ToolbarButton>
-          <ToolbarButton disabled={saving === "create"} onClick={() => void createWorkerDraft()}><CopyPlus size={15} />生成工作子 Agent</ToolbarButton>
+          <OrchestrationToolbarButton onClick={() => void load()}><RefreshCw size={15} />刷新</OrchestrationToolbarButton>
+          <OrchestrationToolbarButton onClick={startBlankAgentDraft}><Plus size={15} />新建 Agent</OrchestrationToolbarButton>
+          <OrchestrationToolbarButton onClick={startBlankGroupDraft}><Network size={15} />新建 Agent 组</OrchestrationToolbarButton>
+          <OrchestrationToolbarButton disabled={saving === "create"} onClick={() => void createWorkerDraft()}><CopyPlus size={15} />生成工作子 Agent</OrchestrationToolbarButton>
         </div>
       </header>
 
@@ -854,76 +804,24 @@ export function OrchestrationView() {
       {notice ? <div className="boundary-notice"><CheckCircle2 size={16} />{notice}</div> : null}
 
       <section className="boundary-workbench orchestration-workbench">
-        <aside className="boundary-rail orchestration-subagent-rail">
-          <div className="boundary-rail__head">
-            <strong>Agent 分类</strong>
-            <span>{agents.length}</span>
-          </div>
-          <div className="boundary-search">
-            <Search size={15} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Agent / 职责 / 能力" />
-          </div>
-          <div className="orchestration-agent-type-strip" aria-label="Agent 类型快速入口">
-            {CATEGORY_ORDER.map((category) => (
-              <button className={activeCategory === category ? "active" : ""} key={category} onClick={() => selectCategory(category)} type="button">
-                <span>{CATEGORY_LABELS[category]}</span>
-                <b>{categoryCounts[category] ?? 0}</b>
-              </button>
-            ))}
-          </div>
-          {activeCategory === "worker_sub_agent" ? (
-            <div className="orchestration-subagent-mode-strip" aria-label="子 Agent 目录切换">
-              <button className={workerDirectoryMode === "grouped" ? "active" : ""} onClick={() => selectWorkerDirectoryMode("grouped")} type="button">有组</button>
-              <button className={workerDirectoryMode === "ungrouped" ? "active" : ""} onClick={() => selectWorkerDirectoryMode("ungrouped")} type="button">无组</button>
-            </div>
-          ) : null}
-          <div className="boundary-list boundary-list--scroll">
-            {loading ? <div className="boundary-empty"><Loader2 className="spin" size={16} />加载中</div> : null}
-            {activeCategory === "worker_sub_agent" && workerDirectoryMode === "grouped" ? (
-              <>
-                <div className="orchestration-list-label">有组子 Agent</div>
-                {agentGroups.map((group) => (
-                  <div className={group.group_id === selectedGroupId ? "orchestration-group-tree orchestration-group-tree--active" : "orchestration-group-tree"} key={group.group_id}>
-                    <button
-                      className="boundary-list-row"
-                      onClick={() => selectSubAgentGroup(group.group_id)}
-                      type="button"
-                    >
-                      <strong>{group.title}</strong>
-                      <span>{group.member_agent_ids.length} 个成员</span>
-                    </button>
-                  </div>
-                ))}
-                {!loading && !agentGroups.length ? <div className="boundary-empty">暂无子 Agent 组。</div> : null}
-              </>
-            ) : null}
-            {activeCategory === "worker_sub_agent" && workerDirectoryMode === "ungrouped" ? (
-              <>
-                <div className="orchestration-list-label">无组子 Agent</div>
-                {ungroupedWorkerAgents.map((agent) => (
-                  <button className={String(agent.agent_id) === selectedAgentId ? "boundary-list-row boundary-list-row--active" : "boundary-list-row"} key={String(agent.agent_id)} onClick={() => selectAgent(String(agent.agent_id))} type="button">
-                    <strong>{displayName(agent)}</strong>
-                  </button>
-                ))}
-                {!loading && !ungroupedWorkerAgents.length ? <div className="boundary-empty">暂无无组子 Agent。</div> : null}
-              </>
-            ) : null}
-            {(activeCategory === "worker_sub_agent" ? [] : activeGroup?.items ?? []).map((agent) => {
-              return (
-                <button className={String(agent.agent_id) === selectedAgentId ? "boundary-list-row boundary-list-row--active" : "boundary-list-row"} key={String(agent.agent_id)} onClick={() => selectAgent(String(agent.agent_id))} type="button">
-                  <strong>{displayName(agent)}</strong>
-                </button>
-              );
-            })}
-            {!loading && (
-              activeCategory === "worker_sub_agent"
-                ? workerDirectoryMode === "grouped"
-                  ? !agentGroups.length
-                  : !ungroupedWorkerAgents.length
-                : !(activeGroup?.items ?? []).length
-            ) ? <div className="boundary-empty">当前层级暂无 Agent。</div> : null}
-          </div>
-        </aside>
+        <OrchestrationDirectoryRail
+          activeCategory={activeCategory}
+          activeGroupItems={activeGroup?.items ?? []}
+          agentGroups={agentGroups}
+          agents={agents}
+          categoryCounts={categoryCounts}
+          loading={loading}
+          query={query}
+          selectAgent={selectAgent}
+          selectCategory={selectCategory}
+          selectedAgentId={selectedAgentId}
+          selectedGroupId={selectedGroupId}
+          selectSubAgentGroup={selectSubAgentGroup}
+          selectWorkerDirectoryMode={selectWorkerDirectoryMode}
+          setQuery={setQuery}
+          ungroupedWorkerAgents={ungroupedWorkerAgents}
+          workerDirectoryMode={workerDirectoryMode}
+        />
 
         <main className="boundary-main">
           <nav className="boundary-layer-tabs" aria-label="编排系统层级">
@@ -938,234 +836,102 @@ export function OrchestrationView() {
           {!selectedAgent && agentMode !== "new" && !(activeCategory === "worker_sub_agent" && activeLayer === "groups") ? <div className="boundary-empty boundary-empty--large">请选择一个 Agent，或新建 Agent 草稿。</div> : null}
 
           {activeCategory === "worker_sub_agent" && activeLayer === "groups" ? (
-            <section className="boundary-card orchestration-group-main">
-                <header>
-                  <strong>{groupDraft.title || "子 Agent 组草稿"}</strong>
-                  <div className="boundary-inline-actions">
-                    {groupMembersChanged ? <Badge tone="warn">未保存</Badge> : <Badge tone="ok">已同步</Badge>}
-                    <ToolbarButton disabled={saving === "group"} onClick={() => void saveAgentGroup()} variant="primary"><Save size={15} />保存组</ToolbarButton>
-                  </div>
-                </header>
-                <div className="boundary-form">
-                  <Field label="组名"><input value={groupDraft.title} onChange={(event) => setGroupDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
-                  <Field label="说明" wide><textarea value={groupDraft.description} onChange={(event) => setGroupDraft((value) => ({ ...value, description: event.target.value }))} /></Field>
-                </div>
-                <div className="orchestration-member-toolbar">
-                  <button disabled={!groupDraftAvailableAgents.length} onClick={includeAllVisibleWorkers} type="button">全部加入</button>
-                  <button disabled={!groupDraftMemberAgents.length} onClick={clearGroupMembers} type="button">清空成员</button>
-                </div>
-                <div className="orchestration-member-workbench">
-                  <section className="orchestration-member-column">
-                    <header className="boundary-panel-head">
-                      <strong>已进组</strong>
-                      <span>{groupDraftMemberAgents.length}</span>
-                    </header>
-                    <div className="orchestration-member-picker">
-                      {groupDraftMemberAgents.map((agent) => (
-                        <button
-                          className="orchestration-member-card orchestration-member-card--selected"
-                          key={String(agent.agent_id)}
-                          onClick={() => toggleGroupMember(String(agent.agent_id))}
-                          type="button"
-                        >
-                          <strong>{displayName(agent)}</strong>
-                          <span>点击移出</span>
-                        </button>
-                      ))}
-                      {!groupDraftMemberAgents.length ? <div className="boundary-empty">当前还没有子 Agent 进入这个组。</div> : null}
-                    </div>
-                  </section>
-                  <section className="orchestration-member-column">
-                    <header className="boundary-panel-head">
-                      <strong>未进组</strong>
-                      <span>{groupDraftAvailableAgents.length}</span>
-                    </header>
-                    <div className="orchestration-member-picker">
-                      {groupDraftAvailableAgents.map((agent) => (
-                        <button
-                          className="orchestration-member-card"
-                          key={String(agent.agent_id)}
-                          onClick={() => toggleGroupMember(String(agent.agent_id))}
-                          type="button"
-                        >
-                          <strong>{displayName(agent)}</strong>
-                          <span>点击加入</span>
-                        </button>
-                      ))}
-                      {!groupDraftAvailableAgents.length ? <div className="boundary-empty">当前没有可加入的子 Agent。</div> : null}
-                    </div>
-                  </section>
-                </div>
-            </section>
+            <OrchestrationGroupWorkbench
+              clearGroupMembers={clearGroupMembers}
+              groupDraft={groupDraft}
+              groupDraftAvailableAgents={groupDraftAvailableAgents}
+              groupDraftMemberAgents={groupDraftMemberAgents}
+              groupMembersChanged={groupMembersChanged}
+              includeAllVisibleWorkers={includeAllVisibleWorkers}
+              saveAgentGroup={saveAgentGroup}
+              saving={saving}
+              setGroupDraft={setGroupDraft}
+              toggleGroupMember={toggleGroupMember}
+            />
           ) : null}
 
           {activeLayer !== "groups" && (selectedAgent || agentMode === "new") ? (
             <>
-              <section className="boundary-layer-grid boundary-layer-grid--wide">
-                <div className="boundary-card boundary-card--summary">
-                  <header>
-                    <strong>{agentDraft.agent_name || agentDraft.agent_id || "新 Agent 草稿"}</strong>
-                    <Badge tone={agentDraft.enabled ? "ok" : "warn"}>{agentDraft.enabled ? "启用" : "停用"}</Badge>
-                  </header>
-                  <div className="boundary-metric-grid">
-                    <ReadinessCard label="类别" ready={Boolean(agentDraft.agent_category)} value={CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? "未配置"} />
-                    <ReadinessCard label="职责范围" ready={Boolean(taskScope.length)} value={String(taskScope.length)} />
-                    <ReadinessCard label="运行" ready={!profileMissing && Boolean(runtimeDraft.agent_profile_id)} value={runtimeDraft.agent_profile_id || "未配置"} />
-                    <ReadinessCard label="权限冲突" ready={!overlapOps.length} value={overlapOps.length ? String(overlapOps.length) : "0"} />
-                  </div>
-                </div>
-                <aside className="boundary-card">
-                  <header><strong>保存</strong></header>
-                  <div className="boundary-actions boundary-actions--stack">
-                    <ToolbarButton disabled={saving === "agent"} onClick={() => void saveAgent()} variant="primary"><Save size={15} />保存 Agent 名册</ToolbarButton>
-                    <ToolbarButton disabled={saving === "runtime" || runtimeSaveBlocked} onClick={() => void saveRuntimeProfile()} variant="primary"><Gauge size={15} />保存运行档案</ToolbarButton>
-                    <ToolbarButton disabled={saving === "delete" || agentDeleteBlocked || agentMode === "new"} onClick={() => void removeAgent()} variant="danger"><Trash2 size={15} />删除 Agent</ToolbarButton>
-                  </div>
-                </aside>
-              </section>
-
               {activeLayer === "registry" ? (
-                <section className="boundary-card">
-                  <header><strong>Agent 名册</strong><Badge>{agentMode === "new" ? "草稿" : text(selectedAgent?.builtin ? "内置" : "自定义")}</Badge></header>
-                  <div className="boundary-form">
-                    <Field label="Agent 标识"><input value={agentDraft.agent_id} onChange={(event) => setAgentDraft((value) => ({ ...value, agent_id: event.target.value }))} /></Field>
-                    <Field label="名称"><input value={agentDraft.agent_name} onChange={(event) => setAgentDraft((value) => ({ ...value, agent_name: event.target.value }))} /></Field>
-                    <Field label="类别">
-                      <select value={agentDraft.agent_category} onChange={(event) => setAgentDraft((value) => ({ ...value, agent_category: event.target.value as AgentCategory }))}>
-                        <option value="main_agent">主 Agent</option>
-                        <option value="system_management_agent">系统管理 Agent</option>
-                        <option value="worker_sub_agent">子 Agent</option>
-                      </select>
-                    </Field>
-                    <Field label="入口位置"><input value={agentDraft.interface_target || ""} onChange={(event) => setAgentDraft((value) => ({ ...value, interface_target: event.target.value }))} /></Field>
-                    <Field label="默认灵魂"><input value={agentDraft.default_soul_id || ""} onChange={(event) => setAgentDraft((value) => ({ ...value, default_soul_id: event.target.value }))} /></Field>
-                    <ProjectionSelectField cards={projectionCards} label="默认投影" onChange={(value) => setAgentDraft((current) => ({ ...current, default_projection_id: value }))} value={agentDraft.default_projection_id || ""} />
-                    <Field label="职责说明" wide><textarea value={agentDraft.description || ""} onChange={(event) => setAgentDraft((value) => ({ ...value, description: event.target.value }))} /></Field>
-                    <label className="boundary-check"><input checked={Boolean(agentDraft.enabled)} onChange={(event) => setAgentDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用 Agent</label>
-                    <label className="boundary-check"><input checked={Boolean(agentDraft.editable)} onChange={(event) => setAgentDraft((value) => ({ ...value, editable: event.target.checked }))} type="checkbox" />允许编辑</label>
-                  </div>
-                  {legacySystemKey ? <div className="boundary-legacy">legacy system_key：{legacySystemKey}</div> : null}
-                </section>
+                <OrchestrationRegistryWorkbench
+                  agentDeleteBlocked={agentDeleteBlocked}
+                  agentDraft={agentDraft}
+                  agentMode={agentMode}
+                  categoryLabels={CATEGORY_LABELS}
+                  legacySystemKey={legacySystemKey}
+                  overlapOps={overlapOps}
+                  patchAgentDraft={(patch) => setAgentDraft((current) => ({ ...current, ...patch }))}
+                  profileMissing={profileMissing}
+                  projectionCards={projectionCards}
+                  removeAgent={removeAgent}
+                  runtimeDraft={runtimeDraft}
+                  runtimeSaveBlocked={runtimeSaveBlocked}
+                  saveAgent={saveAgent}
+                  saveRuntimeProfile={saveRuntimeProfile}
+                  saving={saving}
+                  selectedAgentBuiltin={Boolean(selectedAgent?.builtin)}
+                  taskScopeCount={taskScope.length}
+                />
               ) : null}
 
               {activeLayer === "scope" ? (
-                <section className="boundary-layer-grid boundary-layer-grid--wide">
-                  <div className="boundary-card">
-                    <header><strong>固定职责与任务覆盖范围</strong><Badge>{taskScope.length} 项</Badge></header>
-                    <div className="boundary-form">
-                      <Field label="任务覆盖范围" wide><textarea value={agentDraft.task_scope_text} onChange={(event) => setAgentDraft((value) => ({ ...value, task_scope_text: event.target.value }))} /></Field>
-                      <Field label="可管理对象类型" wide><textarea value={agentDraft.managed_object_types_text} onChange={(event) => setAgentDraft((value) => ({ ...value, managed_object_types_text: event.target.value }))} /></Field>
-                      <Field label="能力引用" wide><textarea value={agentDraft.capability_refs_text} onChange={(event) => setAgentDraft((value) => ({ ...value, capability_refs_text: event.target.value }))} /></Field>
-                    </div>
-                    <SuggestionGrid items={scopeSuggestions} onAdd={(item) => addAgentLine("task_scope_text", item)} />
-                  </div>
-                  <aside className="boundary-card">
-                    <header><strong>覆盖摘要</strong></header>
-                    <div className="boundary-kv">
-                      <p><span>任务范围</span><strong>{displayList(taskScope)}</strong></p>
-                      <p><span>管理对象</span><strong>{displayList(managedObjects)}</strong></p>
-                      <p><span>能力</span><strong>{displayList(capabilityRefs)}</strong></p>
-                    </div>
-                  </aside>
-                </section>
+                <OrchestrationScopeWorkbench
+                  addAgentLine={addAgentLine}
+                  agentDraft={agentDraft}
+                  capabilityRefsSummary={displayList(capabilityRefs)}
+                  managedObjectsSummary={displayList(managedObjects)}
+                  patchAgentDraft={(patch) => setAgentDraft((current) => ({ ...current, ...patch }))}
+                  scopeSuggestions={scopeSuggestions}
+                  taskScopeCount={taskScope.length}
+                  taskScopeSummary={displayList(taskScope)}
+                />
               ) : null}
 
               {activeLayer === "runtime" ? (
-                <section className="boundary-layer-grid boundary-layer-grid--wide">
-                  <div className="boundary-card">
-                    <header><strong>运行档案</strong><Badge>{runtimeDraft.agent_profile_id || "草稿"}</Badge></header>
-                    <div className="boundary-form">
-                      <Field label="运行档案标识"><input value={runtimeDraft.agent_profile_id} onChange={(event) => setRuntimeDraft((value) => ({ ...value, agent_profile_id: event.target.value }))} /></Field>
-                      <Field label="审批策略">
-                        <select value={runtimeDraft.approval_policy} onChange={(event) => setRuntimeDraft((value) => ({ ...value, approval_policy: event.target.value }))}>
-                          {(catalog?.options.approval_policies ?? ["default"]).map((item) => <option key={item} value={item}>{displayId(item)}</option>)}
-                        </select>
-                      </Field>
-                      <Field label="追踪策略">
-                        <select value={runtimeDraft.trace_policy} onChange={(event) => setRuntimeDraft((value) => ({ ...value, trace_policy: event.target.value }))}>
-                          {(catalog?.options.trace_policies ?? ["runtime_event_log"]).map((item) => <option key={item} value={item}>{displayId(item)}</option>)}
-                        </select>
-                      </Field>
-                      <Field label="生命周期"><input value={runtimeDraft.lifecycle_policy} onChange={(event) => setRuntimeDraft((value) => ({ ...value, lifecycle_policy: event.target.value }))} /></Field>
-                      <Field label="允许任务模式" wide><textarea value={runtimeDraft.allowed_task_modes_text} onChange={(event) => setRuntimeDraft((value) => ({ ...value, allowed_task_modes_text: event.target.value }))} /></Field>
-                      <Field label="允许运行通道" wide><textarea value={runtimeDraft.allowed_runtime_lanes_text} onChange={(event) => setRuntimeDraft((value) => ({ ...value, allowed_runtime_lanes_text: event.target.value }))} /></Field>
-                    </div>
-                    <SuggestionGrid items={catalog?.options.task_modes ?? []} onAdd={(item) => addRuntimeLine("allowed_task_modes_text", item)} />
-                    <SuggestionGrid items={catalog?.options.runtime_lanes ?? []} onAdd={(item) => addRuntimeLine("allowed_runtime_lanes_text", item)} />
-                  </div>
-                  <aside className="boundary-card">
-                    <header><strong>运行摘要</strong></header>
-                    <div className="boundary-kv">
-                      <p><span>任务模式</span><strong>{displayList(splitList(runtimeDraft.allowed_task_modes_text))}</strong></p>
-                      <p><span>运行通道</span><strong>{displayList(splitList(runtimeDraft.allowed_runtime_lanes_text))}</strong></p>
-                    </div>
-                  </aside>
-                </section>
+                <OrchestrationRuntimeWorkbench
+                  addRuntimeLine={addRuntimeLine}
+                  approvalPolicies={catalog?.options.approval_policies ?? ["default"]}
+                  displayId={displayId}
+                  patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
+                  runtimeDraft={runtimeDraft}
+                  runtimeLaneOptions={catalog?.options.runtime_lanes ?? []}
+                  runtimeLanesSummary={displayList(splitList(runtimeDraft.allowed_runtime_lanes_text))}
+                  taskModeOptions={catalog?.options.task_modes ?? []}
+                  taskModesSummary={displayList(splitList(runtimeDraft.allowed_task_modes_text))}
+                  tracePolicies={catalog?.options.trace_policies ?? ["runtime_event_log"]}
+                />
               ) : null}
 
               {activeLayer === "permissions" ? (
-                <section className="boundary-layer-grid boundary-layer-grid--wide">
-                  <div className="boundary-card">
-                    <header><strong>权限与能力边界</strong><Badge tone={overlapOps.length ? "danger" : "ok"}>{overlapOps.length ? "冲突" : "清晰"}</Badge></header>
-                    {overlapOps.length ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{overlapOps.join(" / ")} 同时出现在允许和阻断列表。</div> : null}
-                    <div className="boundary-form">
-                      <Field label="允许操作" wide><textarea value={runtimeDraft.allowed_operations_text} onChange={(event) => setRuntimeDraft((value) => ({ ...value, allowed_operations_text: event.target.value }))} /></Field>
-                      <Field label="阻断操作" wide><textarea value={runtimeDraft.blocked_operations_text} onChange={(event) => setRuntimeDraft((value) => ({ ...value, blocked_operations_text: event.target.value }))} /></Field>
-                    </div>
-                    <SuggestionGrid items={operationOptions} onAdd={(item) => addRuntimeLine("allowed_operations_text", item)} />
-                  </div>
-                  <aside className="boundary-card">
-                    <header><strong>权限摘要</strong></header>
-                    <div className="boundary-kv">
-                      <p><span>允许</span><strong>{allowedOps.length}</strong></p>
-                      <p><span>阻断</span><strong>{blockedOps.length}</strong></p>
-                      <p><span>冲突</span><strong>{displayList(overlapOps, "无")}</strong></p>
-                    </div>
-                  </aside>
-                </section>
+                <OrchestrationPermissionsWorkbench
+                  addRuntimeLine={addRuntimeLine}
+                  allowedOpsCount={allowedOps.length}
+                  blockedOpsCount={blockedOps.length}
+                  operationOptions={operationOptions}
+                  overlapOps={overlapOps}
+                  overlapSummary={displayList(overlapOps, "无")}
+                  patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
+                  runtimeDraft={runtimeDraft}
+                />
               ) : null}
 
               {activeLayer === "context" ? (
-                <section className="boundary-layer-grid boundary-layer-grid--wide">
-                  <div className="boundary-card">
-                    <header><strong>记忆、上下文、输出边界</strong><Badge>{splitList(runtimeDraft.output_contracts_text).length} 项输出</Badge></header>
-                    <div className="boundary-form">
-                      <Field label="允许记忆范围" wide><textarea value={runtimeDraft.allowed_memory_scopes_text} onChange={(event) => setRuntimeDraft((value) => ({ ...value, allowed_memory_scopes_text: event.target.value }))} /></Field>
-                      <Field label="允许上下文段" wide><textarea value={runtimeDraft.allowed_context_sections_text} onChange={(event) => setRuntimeDraft((value) => ({ ...value, allowed_context_sections_text: event.target.value }))} /></Field>
-                      <Field label="输出契约" wide><textarea value={runtimeDraft.output_contracts_text} onChange={(event) => setRuntimeDraft((value) => ({ ...value, output_contracts_text: event.target.value }))} /></Field>
-                    </div>
-                    <SuggestionGrid items={catalog?.options.memory_scopes ?? []} onAdd={(item) => addRuntimeLine("allowed_memory_scopes_text", item)} />
-                    <SuggestionGrid items={catalog?.options.context_sections ?? []} onAdd={(item) => addRuntimeLine("allowed_context_sections_text", item)} />
-                    <SuggestionGrid items={catalog?.options.output_contracts ?? []} onAdd={(item) => addRuntimeLine("output_contracts_text", item)} />
-                  </div>
-                  <aside className="boundary-card">
-                    <header><strong>边界摘要</strong></header>
-                    <div className="boundary-kv">
-                      <p><span>记忆</span><strong>{displayList(splitList(runtimeDraft.allowed_memory_scopes_text))}</strong></p>
-                      <p><span>上下文</span><strong>{displayList(splitList(runtimeDraft.allowed_context_sections_text))}</strong></p>
-                      <p><span>输出</span><strong>{displayList(splitList(runtimeDraft.output_contracts_text))}</strong></p>
-                    </div>
-                  </aside>
-                </section>
+                <OrchestrationContextWorkbench
+                  addRuntimeLine={addRuntimeLine}
+                  contextSectionOptions={catalog?.options.context_sections ?? []}
+                  contextSummary={displayList(splitList(runtimeDraft.allowed_context_sections_text))}
+                  memoryScopeOptions={catalog?.options.memory_scopes ?? []}
+                  memorySummary={displayList(splitList(runtimeDraft.allowed_memory_scopes_text))}
+                  outputContractOptions={catalog?.options.output_contracts ?? []}
+                  outputCount={splitList(runtimeDraft.output_contracts_text).length}
+                  outputSummary={displayList(splitList(runtimeDraft.output_contracts_text))}
+                  patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
+                  runtimeDraft={runtimeDraft}
+                />
               ) : null}
 
               {activeLayer === "eligibility" ? (
-                <section className="boundary-layer-grid boundary-layer-grid--wide">
-                  <div className="boundary-card">
-                    <header><strong>承接资格预览</strong><Badge tone={eligibilityChecks.every((item) => item.ready) ? "ok" : "warn"}>{eligibilityChecks.every((item) => item.ready) ? "可承接" : "未完整"}</Badge></header>
-                    <div className="boundary-readiness-list boundary-readiness-list--grid">
-                      {eligibilityChecks.map((item) => <ReadinessCard key={item.label} {...item} />)}
-                    </div>
-                  </div>
-                  <aside className="boundary-card">
-                    <header><strong>桥接出口</strong></header>
-                    <div className="boundary-kv">
-                      <p><span>候选依据</span><strong>类别 / 职责 / 权限 / 上下文 / 输出</strong></p>
-                      <p><span>运行证据</span><strong>任务运行 / Agent 运行 / 追踪</strong></p>
-                      <p><span>实测记录</span><strong>docs/系统规划/任务系统实测记录/</strong></p>
-                    </div>
-                  </aside>
-                </section>
+                <OrchestrationEligibilityWorkbench eligibilityChecks={eligibilityChecks} />
               ) : null}
             </>
           ) : null}

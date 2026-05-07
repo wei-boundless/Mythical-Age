@@ -6,9 +6,11 @@ import { useAppStore } from "@/lib/store";
 
 export function Navbar() {
   const {
+    activeWorkspaceView,
     createNewSession,
     tokenStats
   } = useAppStore();
+  const isWorkbench = activeWorkspaceView === "task-system" || activeWorkspaceView === "orchestration";
   const remainingPercent = tokenStats
     ? Math.max(0, Math.min(100, Math.round(tokenStats.history_remaining_ratio * 100)))
     : null;
@@ -19,7 +21,7 @@ export function Navbar() {
     : "";
 
   return (
-    <header className="panel flex flex-col gap-5 rounded-[34px] px-5 py-5">
+    <header className={`panel navbar-shell ${isWorkbench ? "navbar-shell--work" : ""}`}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="navbar-brand flex min-w-0 items-start gap-4">
           <div className="brand-mark navbar-brand-mark">
@@ -30,7 +32,9 @@ export function Navbar() {
             <h1 className="mythic-brand-title mt-2">
               <span className="mythic-brand-title__cn">洪荒时代</span>
               <span className="mythic-brand-title__divider">—</span>
-              <span className="mythic-brand-title__cn mythic-brand-title__cn--accent">智能体</span>
+              <span className="mythic-brand-title__cn mythic-brand-title__cn--accent">
+                {isWorkbench ? "工作台" : "智能体"}
+              </span>
             </h1>
           </div>
         </div>

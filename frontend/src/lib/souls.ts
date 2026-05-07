@@ -5,6 +5,7 @@ export type SoulSummary = {
   name: string;
   path: string;
   portraitPath: string;
+  backgroundPath: string;
   color: string;
   glow: string;
   intro: string;
@@ -64,6 +65,7 @@ export function parseSoulSeed(path: string, content: string): SoulSummary {
     name,
     path,
     portraitPath: `/souls/${key}.png`,
+    backgroundPath: `/souls/backgrounds/${key}-bg.png`,
     color: SOUL_COLORS[key].color,
     glow: SOUL_COLORS[key].glow,
     intro: SOUL_COLORS[key].intro

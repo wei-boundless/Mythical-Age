@@ -688,6 +688,9 @@ export function CoordinationRunPanel({
   const currentAgent = model.agents.find((agent) => agent.key === model.currentAgentKey) ?? null;
   const activeLabel = currentAgent ? currentAgent.label : currentNode ? (currentNode.agentLabel || currentNode.title) : "等待分派";
   const activeStatus = currentNode ? statusLabel(currentNode.status) : "待启动";
+  const runStateLabel = currentNode?.status === "failed" ? "协调异常" : currentNode ? "协调运行中" : "等待启动";
+  const outputCountLabel = model.outputs.length ? `${model.outputs.length} 条输出` : "暂无输出";
+  const artifactCountLabel = model.artifacts.length ? `${model.artifacts.length} 个产物` : "暂无产物";
 
   if (!model.hasSignal) {
     return (
@@ -708,7 +711,7 @@ export function CoordinationRunPanel({
         <div className="coordination-session__statusbar" aria-label="当前协调状态">
           <article className="coordination-session__statuspill">
             <span>状态</span>
-            <strong>协调运行中</strong>
+            <strong>{runStateLabel}</strong>
           </article>
           <article className="coordination-session__statuspill coordination-session__statuspill--active">
             <span>当前 Agent</span>
@@ -743,7 +746,7 @@ export function CoordinationRunPanel({
         <article className="coordination-output-card coordination-output-card--stream">
           <div className="coordination-output-card__head">
             <span><Sparkles size={14} /> 输出内容</span>
-            <strong>{model.outputs.length ? `${model.outputs.length} 条` : "暂无"}</strong>
+            <strong>{outputCountLabel}</strong>
           </div>
           <div className="coordination-output-list">
             {model.outputs.length ? model.outputs.map((output) => (
@@ -760,7 +763,7 @@ export function CoordinationRunPanel({
         <article className="coordination-output-card coordination-output-card--artifacts">
           <div className="coordination-output-card__head">
             <span><FileText size={14} /> 输出产物</span>
-            <strong>{model.artifacts.length ? `${model.artifacts.length} 项` : "暂无"}</strong>
+            <strong>{artifactCountLabel}</strong>
           </div>
           <div className="coordination-output-list">
             {model.artifacts.length ? model.artifacts.slice(0, 10).map((artifact) => (

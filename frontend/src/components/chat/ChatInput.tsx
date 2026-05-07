@@ -38,11 +38,11 @@ export function ChatInput({
   const selectionModeLabel = taskSelection?.mode === "coordination" ? "协调任务" : "特定任务";
 
   return (
-    <div className="panel chat-input-panel rounded-[30px] p-4">
-      <div className="archive-section-head mb-3 flex flex-wrap items-center justify-between gap-3">
+    <div className="panel chat-input-panel chat-input-panel--workbench rounded-[16px] p-3">
+      <div className="archive-section-head mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="archive-section-head__eyebrow">Compose</p>
-          <p className="chat-input-panel__note text-sm">输入问题并开始当前会话。</p>
+          <p className="archive-section-head__eyebrow">Prompt</p>
+          <p className="chat-input-panel__note text-sm">输入问题、任务目标或协调指令。</p>
         </div>
         <div className="chat-search-policy chat-search-policy--corner" aria-label="对话级搜索权限">
           {SEARCH_POLICY_OPTIONS.map((option) => {
@@ -73,7 +73,7 @@ export function ChatInput({
         </div>
       ) : null}
       <textarea
-        className="chat-input-panel__textarea min-h-28 w-full resize-none rounded-[24px] px-4 py-4 text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-soft)] focus:border-[var(--color-soul)] focus:ring-2 focus:ring-[var(--color-soul-soft)]"
+        className="chat-input-panel__textarea min-h-24 w-full resize-none rounded-[16px] px-3 py-3 text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-soft)] focus:border-[var(--color-soul)] focus:ring-2 focus:ring-[var(--color-soul-soft)]"
         disabled={disabled}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
@@ -93,9 +93,9 @@ export function ChatInput({
         placeholder="输入你的问题，Cmd/Ctrl + Enter 发送"
         value={value}
       />
-      <div className="chat-input-panel__footer mt-3 flex items-center justify-between gap-3">
+      <div className="chat-input-panel__footer mt-2 flex items-center justify-between gap-3">
         <p className="chat-input-panel__hint text-sm">
-          直接提问即可，本轮权限会约束可用来源。
+          当前开关会约束本轮可用来源与权限范围。
         </p>
         <button
           className="action-button action-button--primary navbar-action-button disabled:cursor-not-allowed disabled:opacity-50"
