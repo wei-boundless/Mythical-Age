@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from structured_memory.text_utils import normalize_storage_text
+from token_accounting import count_text_tokens
 
 from .contracts import ConversationMemorySnapshot, MemoryContextCandidate, MemoryWriteCandidate
 from .legacy_types import SessionMemoryManager
@@ -78,7 +79,7 @@ class ConversationMemoryStoreAdapter:
                 relevance=0.72,
                 confidence=0.66,
                 staleness="session_scoped",
-                token_estimate=max(1, len(rendered_preview) // 4),
+                token_estimate=max(1, count_text_tokens(rendered_preview)),
                 budget_class="preferred",
                 requires_verification_before_use=False,
                 metadata={

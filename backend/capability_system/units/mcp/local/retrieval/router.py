@@ -135,7 +135,7 @@ class RAGQueryRouter:
                     "rewritten_query": plan.rewritten_query,
                     "rewrite_keywords": plan.rewrite.keywords,
                     "rewrite_rules": plan.rewrite.applied_rules,
-                    "retrieval_backend": getattr(self.registry, "backend_name", "llamaindex_v2"),
+                    "retrieval_backend": getattr(self.registry, "backend_name", "llamaindex"),
                     "metadata": {
                         **dict(hit.metadata),
                         "doc_id": hit.doc_id,

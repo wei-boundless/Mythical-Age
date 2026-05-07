@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from agents.a2a_cards import A2A_COMPATIBLE_PROTOCOL_VERSION, build_default_agent_cards
-from capability_system.local_mcp_registry import build_local_mcp_catalog
+from agents.a2a_official_adapter import OFFICIAL_A2A_PROTOCOL_VERSION
+from capability_system.local_mcp_registry import build_local_mcp_catalog, default_local_mcp_units
 from capability_system.mcp_registry import build_mcp_catalog
 from capability_system.operation_registry import build_default_operation_registry
 from .endpoints import build_capability_endpoints
@@ -123,24 +123,15 @@ def tool_runtime_policy(tool: dict[str, Any]) -> str:
 
 def agent_tool_bindings(tools: list[dict[str, Any]]) -> dict[str, list[str]]:
     bindings: dict[str, list[str]] = {MAIN_AGENT_ID: []}
-    known_tool_names = {str(tool.get("name") or "") for tool in tools}
     for tool in tools:
         if str(tool.get("runtime_visibility") or "") == "main_runtime":
             bindings[MAIN_AGENT_ID].append(str(tool.get("name") or ""))
-    for agent in build_default_agent_cards().values():
-        tool_names = []
-        for item in list(agent.mcp_profile.get("tools") or []):
-            if not isinstance(item, dict):
-                continue
-            tool_name = str(item.get("tool_name") or item.get("name") or "").strip()
-            if tool_name in known_tool_names:
-                tool_names.append(tool_name)
-        bindings[agent.agent_id] = sorted(set(tool_names))
+    for unit in default_local_mcp_units():
+        bindings.setdefault(str(unit.agent_id or ""), [])
     return {agent_id: sorted(set(names)) for agent_id, names in bindings.items()}
 
 
 def agent_binding_nodes(agent_bindings: dict[str, list[str]]) -> list[AgentCapability]:
-    cards = build_default_agent_cards()
     nodes = [
         AgentCapability(
             agent_id=MAIN_AGENT_ID,
@@ -148,18 +139,18 @@ def agent_binding_nodes(agent_bindings: dict[str, list[str]]) -> list[AgentCapab
             kind="main",
             description="负责理解用户意图、选择路由、收束结果；只保留主运行时可见工具。",
             bound_tools=list(agent_bindings.get(MAIN_AGENT_ID, [])),
-            protocol_version=A2A_COMPATIBLE_PROTOCOL_VERSION,
+            protocol_version=OFFICIAL_A2A_PROTOCOL_VERSION,
         )
     ]
-    for card in cards.values():
+    for unit in default_local_mcp_units():
         nodes.append(
             AgentCapability(
-                agent_id=card.agent_id,
-                name=card.name,
-                kind=str(card.extensions.get("x-langchain-agent.mcp_route") or "sub_agent"),
-                description=card.description,
-                bound_tools=list(agent_bindings.get(card.agent_id, [])),
-                protocol_version=card.protocol_version,
+                agent_id=str(unit.agent_id or ""),
+                name=str(unit.a2a_name or unit.name),
+                kind=str(unit.route or "sub_agent"),
+                description=str(unit.a2a_description or unit.summary),
+                bound_tools=list(agent_bindings.get(str(unit.agent_id or ""), [])),
+                protocol_version=OFFICIAL_A2A_PROTOCOL_VERSION,
             )
         )
     return nodes

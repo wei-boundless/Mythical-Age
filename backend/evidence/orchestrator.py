@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.a2a_runtime import task_envelope_from_request, task_envelope_from_result
+from agents.a2a_official_adapter import (
+    OFFICIAL_A2A_PROTOCOL_VERSION,
+    build_official_task_from_request,
+    build_official_task_from_result,
+)
 from capability_system.local_mcp_registry import get_local_mcp_unit
 from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
 from output_boundary import build_rag_evidence_pack
@@ -11,7 +15,6 @@ from .projection import MCPProjectionAdapter
 from .retrieval_worker import RetrievalWorker
 from .structured_data_worker import StructuredDataWorker
 from .mcp_models import (
-    A2A_COMPATIBLE_PROTOCOL_VERSION,
     CanonicalResult,
     MCPExecutionPlan,
     MCPResult,
@@ -60,7 +63,7 @@ class EvidenceOrchestrator:
         agent_id = request_agent_id(request, fallback_mcp_route=mcp_route)
         protocol_version = (
             str(getattr(request, "protocol_version", "") or "").strip()
-            or A2A_COMPATIBLE_PROTOCOL_VERSION
+            or OFFICIAL_A2A_PROTOCOL_VERSION
         )
         message_id = str(getattr(request, "message_id", "") or getattr(request, "request_id", "") or "").strip()
         extensions = dict(getattr(request, "extensions", {}) or {})
@@ -92,7 +95,7 @@ class EvidenceOrchestrator:
             "stream_event_type": "task.started",
             "extensions": extensions,
             "request": request.to_dict(),
-            "a2a_task": task_envelope_from_request(request).to_dict(),
+            "a2a_task": build_official_task_from_request(request),
         }
         mcp_result = await self._run_registered_mcp_worker(mcp_route, request)
 
@@ -179,11 +182,11 @@ class EvidenceOrchestrator:
             "binding_owner_task_id": str(getattr(mcp_result, "binding_owner_task_id", "") or ""),
             "degraded_reason_typed": str(canonical.degraded_reason_typed or canonical.degraded_reason or ""),
             "presentation_hints": dict(canonical.presentation_hints or {}),
-            "a2a_task": task_envelope_from_result(
+            "a2a_task": build_official_task_from_result(
                 request=request,
                 result=mcp_result,
                 canonical=canonical,
-            ).to_dict(),
+            ),
         }
         yield self._done_event(
             canonical=canonical,
@@ -251,20 +254,60 @@ class EvidenceOrchestrator:
             max_items=3,
         )
         if self.output_policy.rag_evidence_pack_can_finalize(evidence_pack):
-            finalized = await self.output_policy.rewrite_rag_answer_with_model(evidence_pack=evidence_pack)
-            if finalized:
+            finalization = await self.output_policy.rewrite_rag_answer_with_model(evidence_pack=evidence_pack)
+            if finalization.status == "finalized" and finalization.answer:
                 return CanonicalResult(
                     result_kind="rag_answer",
                     ok=True,
-                    answer=finalized,
+                    answer=finalization.answer,
                     evidence_refs=_evidence_refs(mcp_result),
                     artifact_refs=_artifact_refs(mcp_result),
                     projection_policy="persist_canonical",
-                    diagnostics={"answer_source": "rag_answer_finalization"},
+                    diagnostics={
+                        "answer_source": "rag_answer_finalization",
+                        "finalization": dict(finalization.diagnostics),
+                    },
                     object_handle_ids=_source_object_ids(mcp_result),
                     result_handle_ids=[f"result:rag_answer:{_slug(query)}:primary"],
                     primary_result_handle_id=f"result:rag_answer:{_slug(query)}:primary",
                 )
+            if finalization.status == "error":
+                return CanonicalResult(
+                    result_kind="rag_answer",
+                    ok=False,
+                    answer="已检索到相关资料，但当前答案整合阶段失败，请稍后重试。",
+                    evidence_refs=_evidence_refs(mcp_result),
+                    artifact_refs=_artifact_refs(mcp_result),
+                    projection_policy="do_not_persist",
+                    degraded_reason="rag_answer_finalization_failed",
+                    diagnostics={
+                        "answer_source": "rag_answer_finalization_failed",
+                        "finalization": dict(finalization.diagnostics),
+                    },
+                    object_handle_ids=_source_object_ids(mcp_result),
+                    degraded_reason_typed=finalization.degraded_reason_typed,
+                )
+
+        retrieval_diagnostics = dict(mcp_result.diagnostics.get("retrieval", {}) or {})
+        retrieval_failure = dict(retrieval_diagnostics.get("retrieval_failure", {}) or {})
+        if not raw_results and retrieval_failure:
+            return CanonicalResult(
+                result_kind="rag_answer",
+                ok=False,
+                answer="检索链路当前未能返回证据结果，请稍后重试。",
+                evidence_refs=_evidence_refs(mcp_result),
+                artifact_refs=_artifact_refs(mcp_result),
+                projection_policy="do_not_persist",
+                degraded_reason="retrieval_execution_failed",
+                diagnostics={
+                    "answer_source": "retrieval_failure",
+                    "retrieval_failure": retrieval_failure,
+                },
+                object_handle_ids=_source_object_ids(mcp_result),
+                degraded_reason_typed=str(
+                    mcp_result.diagnostics.get("degraded_reason_typed") or "retrieval_execution_failed"
+                ),
+            )
 
         candidate_answer = _candidate_clarification_answer(mcp_result)
         if candidate_answer:
@@ -302,7 +345,7 @@ class EvidenceOrchestrator:
         mcp_result: MCPResult | None,
         query: str = "",
         agent_id: str = "",
-        protocol_version: str = A2A_COMPATIBLE_PROTOCOL_VERSION,
+        protocol_version: str = OFFICIAL_A2A_PROTOCOL_VERSION,
         message_id: str = "",
         extensions: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -330,7 +373,7 @@ class EvidenceOrchestrator:
             "type": "done",
             "content": canonical.answer,
             "agent_id": resolved_agent_id,
-            "protocol_version": protocol_version or A2A_COMPATIBLE_PROTOCOL_VERSION,
+            "protocol_version": protocol_version or OFFICIAL_A2A_PROTOCOL_VERSION,
             "message_id": message_id,
             "task_status": task_status,
             "stream_event_type": stream_event_type,

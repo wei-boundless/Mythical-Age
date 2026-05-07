@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from agents.a2a_cards import A2A_COMPATIBLE_PROTOCOL_VERSION, build_default_agent_cards
+from agents.a2a_official_adapter import OFFICIAL_A2A_PROTOCOL_VERSION, build_official_agent_card_index
 from capability_system.mcp_adapter import MCP_COMPATIBLE_PROTOCOL_VERSION
 from .local_mcp_registry import default_local_mcp_units
 from .operation_registry import OperationRegistry
@@ -22,7 +22,7 @@ class MCPRegistryEntry:
     agent_id: str
     implementation_module: str
     endpoint_protocol: str = MCP_COMPATIBLE_PROTOCOL_VERSION
-    a2a_protocol_version: str = A2A_COMPATIBLE_PROTOCOL_VERSION
+    a2a_protocol_version: str = OFFICIAL_A2A_PROTOCOL_VERSION
     transport: str = "in_process"
     server_name: str = LOCAL_MCP_SERVER_NAME
     runtime_lane: str = "mcp"
@@ -40,7 +40,7 @@ class MCPRegistryEntry:
 
 def default_mcp_entries(operation_registry: OperationRegistry | None = None) -> list[MCPRegistryEntry]:
     registry = operation_registry
-    cards = build_default_agent_cards()
+    cards = build_official_agent_card_index()
     entries: list[MCPRegistryEntry] = []
     for unit in default_local_mcp_units():
         route = unit.route
@@ -51,15 +51,25 @@ def default_mcp_entries(operation_registry: OperationRegistry | None = None) -> 
             MCPRegistryEntry(
                 mcp_id=unit.mcp_id,
                 route=route,
-                name=card.name if card is not None else route,
-                description=card.description if card is not None else unit.summary,
+                name=str((card or {}).get("name") or unit.a2a_name or route),
+                description=str((card or {}).get("description") or unit.a2a_description or unit.summary),
                 operation_id=unit.operation_id,
                 agent_id=agent_id,
                 implementation_module=unit.implementation_module,
-                input_modes=list(card.default_input_modes if card is not None else []),
-                output_modes=list(card.default_output_modes if card is not None else []),
+                input_modes=list(
+                    (card or {}).get("defaultInputModes")
+                    or (card or {}).get("default_input_modes")
+                    or unit.default_input_modes
+                    or []
+                ),
+                output_modes=list(
+                    (card or {}).get("defaultOutputModes")
+                    or (card or {}).get("default_output_modes")
+                    or unit.default_output_modes
+                    or []
+                ),
                 tags=list(unit.tags),
-                mcp_profile=dict(card.mcp_profile if card is not None else {}),
+                mcp_profile={"agent_card": dict(card or {})},
                 operation=operation.to_dict() if operation is not None else {},
                 diagnostics={
                     "operation_registered": operation is not None,

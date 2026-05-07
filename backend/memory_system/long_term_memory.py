@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from token_accounting import count_text_tokens
+
 from .manifest_scan import MemoryHeader, scan_memory_headers
 
 from .contracts import LongTermMemoryRecord, MemoryContextCandidate, MemoryWriteCandidate
@@ -56,7 +58,7 @@ class LongTermMemoryStoreAdapter:
                     relevance=0.7,
                     confidence=_confidence_score(str(payload.get("confidence", "") or "")),
                     staleness="durable_memory_may_drift",
-                    token_estimate=max(1, len(preview) // 4),
+                    token_estimate=max(1, count_text_tokens(preview)),
                     budget_class="optional",
                     requires_verification_before_use=True,
                     metadata={

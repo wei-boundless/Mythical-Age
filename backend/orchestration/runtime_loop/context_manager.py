@@ -138,6 +138,7 @@ class RuntimeContextManager:
             *normalized_history,
             {"role": "user", "content": pending},
         )
+        history_message_count = len(normalized_history)
         snapshot_id = _snapshot_id(
             session_id=session_id,
             task_id=task_id,
@@ -154,7 +155,7 @@ class RuntimeContextManager:
             session_id=session_id,
             task_id=task_id,
             model_messages=model_messages,
-            history_message_count=len(normalized_history),
+            history_message_count=history_message_count,
             pending_user_message_chars=len(pending),
             system_prompt_chars=len(runtime_prompt),
             token_pressure=_token_pressure(context_policy_result),

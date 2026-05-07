@@ -2,23 +2,20 @@ from __future__ import annotations
 
 from typing import Any
 
-import tiktoken
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from token_accounting import count_text_tokens
 
 router = APIRouter()
-
-ENCODER = tiktoken.get_encoding("cl100k_base")
-
 
 class FileTokensRequest(BaseModel):
     paths: list[str] = Field(default_factory=list)
 
 
 def _count_tokens(text: str) -> int:
-    return len(ENCODER.encode(text or ""))
+    return count_text_tokens(text)
 
 
 @router.get("/tokens/session/{session_id}")

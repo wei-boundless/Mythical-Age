@@ -104,8 +104,8 @@
 - `storage/sessions`
 - `storage/runtime_state`
 - `storage/health_system`
-- `storage/indexes_v2`
-- `storage/document_cache_v2`
+- `storage/indexes`
+- `storage/document_cache`
 - `storage/modality_artifacts`
 - `storage/capability_system`
 - `storage/tasks`

@@ -1,16 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 from typing import Literal
-
-try:
-    import tiktoken
-except ImportError:  # pragma: no cover - optional dependency at runtime
-    tiktoken = None
 
 from structured_memory.models import Message
 from structured_memory.session_memory import SessionMemoryManager
+from token_accounting import count_text_tokens
 
 
 @dataclass(slots=True)
@@ -58,7 +53,6 @@ class ContextCompactor:
         self.microcompact_tokens = max(self.warning_tokens + 1, int(effective_history_token_budget * microcompact_ratio))
         self.full_compact_tokens = max(self.microcompact_tokens + 1, int(effective_history_token_budget * full_compact_ratio))
         self.bulky_message_token_threshold = bulky_message_token_threshold
-        self._encoder = tiktoken.get_encoding("cl100k_base") if tiktoken is not None else None
 
     def count_tokens(self, text: str) -> int:
         return self._count_tokens(text)
@@ -77,10 +71,7 @@ class ContextCompactor:
         return self._pressure_level(tokens, message_count)
 
     def _count_tokens(self, text: str) -> int:
-        if self._encoder is not None:
-            return len(self._encoder.encode(text or ""))
-        compact = re.sub(r"\s+", " ", text or "").strip()
-        return max(1, len(compact) // 4) if compact else 0
+        return count_text_tokens(text)
 
     def _message_tokens(self, message: Message) -> int:
         return self._count_tokens(message.content)
@@ -330,4 +321,3 @@ class ContextCompactor:
         tokens_before = self._conversation_tokens(working)
         level = self._pressure_level(tokens_before, len(working))
         return self.apply_strategy(working, pressure_level=level)
-

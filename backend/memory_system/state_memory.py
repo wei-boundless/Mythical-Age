@@ -4,6 +4,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from token_accounting import count_text_tokens
+
 from .contracts import (
     MemoryContextCandidate,
     StateMemoryRestoreCandidate,
@@ -215,7 +217,7 @@ class StateMemoryStoreAdapter:
                 relevance=0.8,
                 confidence=0.68,
                 staleness="session_scoped",
-                token_estimate=max(1, len(preview) // 4),
+                token_estimate=max(1, count_text_tokens(preview)),
                 budget_class="preferred",
                 requires_verification_before_use=False,
                 metadata={

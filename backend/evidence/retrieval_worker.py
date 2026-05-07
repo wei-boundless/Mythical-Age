@@ -4,6 +4,7 @@ from typing import Any
 
 from evidence.adapter import build_evidence_envelope_from_retrieval
 from evidence.models import BindingCandidate, EvidenceEnvelope
+from retrieval.service import RetrievalExecutionResult
 from .mcp_models import MCPRequest, MCPResult
 
 
@@ -13,19 +14,52 @@ class RetrievalWorker:
 
     def run(self, request: MCPRequest, *, top_k: int = 5) -> MCPResult:
         query = str(request.query or "").strip()
-        raw_results = self.retrieval_service.retrieve(query, top_k=max(int(top_k or 1), 1))
+        execution = self._retrieve_execution(query, top_k=max(int(top_k or 1), 1))
+        raw_results = list(execution.results or [])
         envelope = build_evidence_envelope_from_retrieval(
             query=query,
-            retrieval_results=list(raw_results or []),
+            retrieval_results=raw_results,
             source_mcp="retrieval",
         )
+        status = "ok"
+        if execution.status == "error":
+            status = "degraded"
         return MCPResult(
             mcp_name="retrieval",
-            status="ok",
+            status=status,
             evidence_envelope=envelope,
             artifact_updates=list(envelope.derived_artifacts),
             binding_candidates=_binding_candidates_from_envelope(envelope),
-            diagnostics={"raw_result_count": len(list(raw_results or []))},
+            diagnostics={
+                "raw_result_count": len(raw_results),
+                "retrieval": dict(execution.diagnostics),
+                "degraded_reason_typed": execution.degraded_reason_typed,
+            },
+        )
+
+    def _retrieve_execution(self, query: str, *, top_k: int) -> RetrievalExecutionResult:
+        retrieve_execution = getattr(self.retrieval_service, "retrieve_execution", None)
+        if callable(retrieve_execution):
+            return retrieve_execution(query, top_k=top_k)
+        retrieve = getattr(self.retrieval_service, "retrieve", None)
+        if callable(retrieve):
+            results = list(retrieve(query, top_k=top_k) or [])
+            return RetrievalExecutionResult(
+                status="ok" if results else "empty",
+                results=tuple(dict(item) for item in results),
+                diagnostics={"result_count": len(results), "compat_mode": "legacy_retrieve_only"},
+            )
+        return RetrievalExecutionResult(
+            status="error",
+            diagnostics={
+                "result_count": 0,
+                "retrieval_failure": {
+                    "failure_stage": "service_contract",
+                    "error_type": "MissingMethod",
+                    "error_message": "retrieval service must implement retrieve_execution() or retrieve()",
+                },
+            },
+            degraded_reason_typed="retrieval_service_contract_error",
         )
 
 

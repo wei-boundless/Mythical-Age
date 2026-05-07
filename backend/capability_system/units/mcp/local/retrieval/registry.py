@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from config import get_settings
-from retrieval_core.index_store import RetrievalV2Layout
+from retrieval_core.index_store import RetrievalLayout
 
 from .collections import CollectionConfig, build_default_collections
 from .models import RetrievalHit
 
 if TYPE_CHECKING:
-    from retrieval_core import RetrievalRequest, RetrievalV2Bootstrapper
+    from retrieval_core import RetrievalBootstrapper, RetrievalRequest
 
 
 class CollectionHandle:
@@ -40,21 +40,21 @@ class RAGIndexRegistry:
         self.base_dir = base_dir
         self.ocr_language = ocr_language
         self.settings = get_settings()
-        self.layout = RetrievalV2Layout(base_dir)
+        self.layout = RetrievalLayout(base_dir)
         self.collections = build_default_collections(base_dir)
         self._handles: dict[str, CollectionHandle] = {}
-        self._bootstrapper: RetrievalV2Bootstrapper | None = None
+        self._bootstrapper: RetrievalBootstrapper | None = None
 
     @property
     def backend_name(self) -> str:
-        return "llamaindex_v2"
+        return "llamaindex"
 
     @property
     def bootstrapper(self):
         if self._bootstrapper is None:
-            from retrieval_core import RetrievalV2Bootstrapper
+            from retrieval_core import RetrievalBootstrapper
 
-            self._bootstrapper = RetrievalV2Bootstrapper(self.base_dir)
+            self._bootstrapper = RetrievalBootstrapper(self.base_dir)
         return self._bootstrapper
 
     @property

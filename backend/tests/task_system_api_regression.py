@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 from api import orchestration as orchestration_api
 from api import tasks as tasks_api
-from orchestration import AgentGroupRegistry
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
 
@@ -15,7 +13,7 @@ class _RuntimeStub:
         self.base_dir = Path(base_dir)
 
 
-def test_orchestration_agents_payload_exposes_agent_groups(tmp_path: Path) -> None:
+def test_orchestration_agents_payload_keeps_legacy_task_groups_cleared(tmp_path: Path) -> None:
     original = orchestration_api.require_runtime
     orchestration_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
     try:
@@ -24,12 +22,9 @@ def test_orchestration_agents_payload_exposes_agent_groups(tmp_path: Path) -> No
         orchestration_api.require_runtime = original  # type: ignore[assignment]
 
     groups = payload["agent_groups"]
-    longform_group = next(item for item in groups if item["group_id"] == "group.writing.longform_novel_core")
 
     assert payload["authority"] == "orchestration.agent_runtime_registry"
-    assert longform_group["authority"] == "orchestration.agent_group"
-    assert longform_group["coordinator_agent_id"] == "agent:20"
-    assert "agent:24" in longform_group["member_agent_ids"]
+    assert all(item["group_id"] != "group.writing.longform_novel_core" for item in groups)
 
 
 def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Path) -> None:
@@ -46,22 +41,24 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     diagnostics = payload["diagnostics"]
 
     assert payload["authority"] == "task_system.management_console"
-    assert summary["specific_task_record_count"] >= 1
-    assert summary["projection_binding_count"] >= 1
-    assert summary["flow_contract_binding_count"] >= 1
-    assert summary["execution_policy_count"] >= 1
-    assert summary["memory_request_profile_count"] >= 1
-    assert summary["communication_protocol_count"] >= 1
+    assert summary["specific_task_record_count"] == 0
+    assert summary["projection_binding_count"] == 0
+    assert summary["flow_contract_binding_count"] == 0
+    assert summary["execution_policy_count"] == 0
+    assert summary["memory_request_profile_count"] == 0
+    assert summary["communication_protocol_count"] == 0
+    assert summary["contract_spec_count"] >= 5
     assert "agent_management" not in payload
-    assert task_management["entry_policies"]
-    assert task_management["task_domains"]
-    assert task_management["specific_task_records"]
-    assert task_management["task_flow_definitions"]
-    assert task_management["projection_bindings"]
-    assert task_management["flow_contract_bindings"]
-    assert task_management["execution_policies"]
-    assert task_management["memory_request_profiles"]
-    assert coordination_management["communication_protocols"]
+    assert task_management["entry_policies"] == []
+    assert task_management["task_domains"] == []
+    assert task_management["specific_task_records"] == []
+    assert task_management["task_flow_definitions"] == []
+    assert task_management["projection_bindings"] == []
+    assert task_management["flow_contract_bindings"] == []
+    assert task_management["execution_policies"] == []
+    assert task_management["memory_request_profiles"] == []
+    assert coordination_management["communication_protocols"] == []
+    assert payload["contract_management"]["contract_specs"]
     assert diagnostics["template_validation_matrix"]["authority"] == "task_system.template_validation_matrix"
     assert diagnostics["link_permission_matrix"]["authority"] == "task_system.link_permission_matrix"
     assert diagnostics["agent_task_connections"]["authority"] == "task_system.agent_task_connections"
@@ -92,7 +89,7 @@ def test_task_domain_upsert_persists_and_returns_formal_domain_catalog(tmp_path:
     domains = payload["task_management"]["task_domains"]
     research = next(item for item in domains if item["domain_id"] == "domain.research")
 
-    assert payload["summary"]["task_domain_count"] >= 4
+    assert payload["summary"]["task_domain_count"] >= 1
     assert research["task_family"] == "research"
     assert research["title"] == "研究任务域"
     assert research["description"] == "用于实验性研究任务。"
@@ -376,6 +373,30 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
     original = tasks_api.require_runtime
     tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
     try:
+        asyncio.run(
+            tasks_api.upsert_task_system_specific_record(
+                "task.writing.chapter_planning",
+                tasks_api.SpecificTaskRecordUpsertRequest(
+                    task_id="task.writing.chapter_planning",
+                    task_title="章节规划",
+                    task_family="writing",
+                    task_mode="chapter_planning",
+                    description="测试用章节规划子任务。",
+                ),
+            )
+        )
+        asyncio.run(
+            tasks_api.upsert_task_system_specific_record(
+                "task.writing.chapter_drafting",
+                tasks_api.SpecificTaskRecordUpsertRequest(
+                    task_id="task.writing.chapter_drafting",
+                    task_title="章节起草",
+                    task_family="writing",
+                    task_mode="chapter_drafting",
+                    description="测试用章节起草子任务。",
+                ),
+            )
+        )
         payload = asyncio.run(
             tasks_api.upsert_task_system_coordination_task(
                 "coord.writing.test_parent",
@@ -418,9 +439,6 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
         for item in payload["coordination_management"]["coordination_graph_specs"]
         if item["coordination_task_id"] == "coord.writing.test_parent"
     )
-    execution_policies = payload["task_management"]["execution_policies"]
-    chapter_policy = next(item for item in execution_policies if item["task_id"] == "task.writing.chapter_drafting")
-
     assert coordination["domain_id"] == "domain.writing"
     assert coordination["task_family"] == "writing"
     assert coordination["subtask_refs"] == ["task.writing.chapter_planning", "task.writing.chapter_drafting"]
@@ -429,8 +447,6 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
     assert graph_spec["domain_id"] == "domain.writing"
     assert graph_spec["start_node_ids"]
     assert graph_spec["terminal_node_ids"]
-    assert chapter_policy["execution_chain_type"] == "coordination_chain"
-    assert chapter_policy["metadata"]["coordination_task_id"] == "coord.writing.chapter_pipeline"
 
 
 def test_task_system_specific_record_is_canonical_and_assignment_becomes_compat_view(tmp_path: Path) -> None:
@@ -481,141 +497,17 @@ def test_task_system_specific_record_is_canonical_and_assignment_becomes_compat_
     assert compat_assignment.input_contract_id == specific_record.input_contract_id
 
 
-def test_task_system_includes_formal_short_story_task_objects(tmp_path: Path) -> None:
+def test_task_system_no_longer_seeds_concrete_writing_task_objects(tmp_path: Path) -> None:
     registry = TaskFlowRegistry(tmp_path)
 
-    flow = registry.get_flow("flow.writing.short_story")
-    record = registry.get_specific_task_record("task.writing.short_story")
-    assignment = registry.get_task_assignment("task.writing.short_story")
-    memory_profile = registry.get_task_memory_request_profile("task.writing.short_story")
-    protocol = registry.get_task_communication_protocol("protocol.writing.short_story_pipeline")
-    coordination = registry.get_coordination_task("coord.writing.short_story_pipeline")
+    assert registry.get_flow("flow.writing.short_story") is None
+    assert registry.get_specific_task_record("task.writing.short_story") is None
+    assert registry.get_task_assignment("task.writing.short_story") is None
+    assert registry.get_task_communication_protocol("protocol.writing.short_story_pipeline") is None
+    assert registry.get_coordination_task("coord.writing.short_story_pipeline") is None
 
-    assert flow is not None
-    assert flow.task_family == "writing"
-    assert flow.default_workflow_id == "workflow.writing.short_story"
-    assert flow.metadata.get("template_id") == "template.writing.short_story"
-
-    assert record is not None
-    assert record.task_mode == "short_story"
-    assert record.default_flow_contract_id == "flow.writing.short_story"
-
-    assert assignment is not None
-    assert assignment.task_family == "writing"
-    assert assignment.workflow_id == "workflow.writing.short_story"
-
-    assert memory_profile is not None
-    assert "long_term" in memory_profile.requested_memory_layers
-    assert memory_profile.allow_long_term_memory is True
-
-    assert protocol is not None
-    assert protocol.enabled is True
-
-    assert coordination is not None
-    assert coordination.enabled is True
-
-
-def test_task_system_includes_longform_novel_continuous_delivery_stack_and_agent_group(tmp_path: Path) -> None:
-    registry = TaskFlowRegistry(tmp_path)
-    group_registry = AgentGroupRegistry(tmp_path)
-
-    flow = registry.get_flow("flow.writing.longform_novel_project")
-    record = registry.get_specific_task_record("task.writing.longform_novel_project")
-    protocol = registry.get_task_communication_protocol("protocol.writing.longform_project_bootstrap")
-    coordination = registry.get_coordination_task("coord.writing.longform_project_bootstrap")
-    memory_profile = registry.get_task_memory_request_profile("task.writing.longform_novel_project")
-    adoption_plan = registry.get_task_agent_adoption_plan("task.writing.longform_novel_project")
-    agent_group = group_registry.get_group("group.writing.longform_novel_core")
-
-    assert flow is not None
-    assert flow.title == "长篇小说持续交付"
-    assert flow.default_runtime_lane == "novel_continuous_delivery"
-    assert flow.metadata.get("coordination_task_id") == "coord.writing.longform_project_bootstrap"
-
-    assert record is not None
-    assert record.task_mode == "longform_novel_project"
-
-    assert protocol is not None
-    assert protocol.enabled is True
-    assert "chapter_batch" in protocol.message_types
-
-    assert coordination is not None
-    assert coordination.enabled is True
-    assert coordination.agent_group_id == "group.writing.longform_novel_core"
-    assert "task.writing.novel_bible_build" in coordination.subtask_refs
-    assert "task.writing.chapter_drafting" in coordination.subtask_refs
-    assert "task.writing.final_compilation" in coordination.subtask_refs
-    assert "agent:21" in coordination.participant_agent_ids
-    assert "agent:24" in coordination.participant_agent_ids
-    assert "agent:26" in coordination.participant_agent_ids
-
-    assert memory_profile is not None
-    assert "novel_project_spec" in memory_profile.requested_topics
-
-    assert adoption_plan is not None
-    assert adoption_plan.to_dict()["execution_chain_type"] == "coordination_chain"
-
-    assert agent_group is not None
-    assert agent_group.coordinator_agent_id == "agent:20"
-    assert "agent:24" in agent_group.member_agent_ids
-
-
-def test_system_managed_longform_coordination_overrides_stale_storage_payload(tmp_path: Path) -> None:
-    tasks_dir = tmp_path / "storage" / "tasks"
-    tasks_dir.mkdir(parents=True, exist_ok=True)
-    (tasks_dir / "coordination_tasks.json").write_text(
-        json.dumps(
-            {
-                "coordination_tasks": [
-                    {
-                        "coordination_task_id": "coord.writing.longform_project_bootstrap",
-                        "title": "旧长篇立项协调",
-                        "coordination_mode": "project_bootstrap",
-                        "coordinator_agent_id": "agent:20",
-                        "task_family": "writing",
-                        "domain_id": "domain.writing",
-                        "participant_agent_ids": ["agent:21", "agent:22", "agent:23"],
-                        "topology_template_id": "topology.writing.longform_project_bootstrap",
-                        "subtask_refs": ["task.writing.longform_novel_project"],
-                        "metadata": {"task_id": "task.writing.longform_novel_project"},
-                    }
-                ]
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    (tasks_dir / "task_communication_protocols.json").write_text(
-        json.dumps(
-            {
-                "communication_protocols": [
-                    {
-                        "protocol_id": "protocol.writing.longform_project_bootstrap",
-                        "title": "旧长篇立项协议",
-                        "message_types": ["project_goal", "world_seed", "character_seed", "plot_seed", "editor_project_spec"],
-                        "payload_contracts": ["LongformNovelProjectInput", "WorldSeed", "CharacterSeed", "PlotSeed", "NovelProjectSpec"],
-                        "signal_rules": ["participants_report_to_editor", "editor_locks_project_scope"],
-                        "handoff_rules": ["project_refs_only", "structured_spec_only"],
-                        "enabled": True,
-                        "metadata": {"task_id": "task.writing.longform_novel_project"},
-                    }
-                ]
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    registry = TaskFlowRegistry(tmp_path)
-    coordination = registry.get_coordination_task("coord.writing.longform_project_bootstrap")
-    protocol = registry.get_task_communication_protocol("protocol.writing.longform_project_bootstrap")
-
-    assert coordination is not None
-    assert coordination.coordination_mode == "continuous_delivery"
-    assert "task.writing.novel_bible_build" in coordination.subtask_refs
-    assert coordination.metadata.get("managed_by") == "task_system"
-    assert protocol is not None
-    assert "chapter_batch" in protocol.message_types
-    assert protocol.metadata.get("managed_by") == "task_system"
+    assert registry.get_flow("flow.writing.longform_novel_project") is None
+    assert registry.get_specific_task_record("task.writing.longform_novel_project") is None
+    assert registry.get_task_communication_protocol("protocol.writing.longform_project_bootstrap") is None
+    assert registry.get_coordination_task("coord.writing.longform_project_bootstrap") is None
+    assert registry.get_task_agent_adoption_plan("task.writing.longform_novel_project") is None

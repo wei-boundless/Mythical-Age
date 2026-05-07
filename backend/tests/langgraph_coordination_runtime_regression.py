@@ -7,7 +7,7 @@ from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphC
 from orchestration.runtime_loop.models import CoordinationRun, TaskRun
 from orchestration.runtime_loop.stage_execution_request import TaskResultReadyEvent
 from orchestration.runtime_loop.state_index import RuntimeStateIndex
-from tasks.flow_registry import TaskFlowRegistry
+from tasks.flow_models import CoordinationTaskDefinition, TaskCommunicationProtocol, TopologyTemplate
 
 
 class _Trace:
@@ -18,8 +18,82 @@ class _Trace:
         return self.traces.get(task_run_id)
 
 
+class _Registry:
+    def __init__(self) -> None:
+        self.coordination = CoordinationTaskDefinition(
+            coordination_task_id="coord.test.bootstrap",
+            title="测试协调任务",
+            coordination_mode="pipeline",
+            coordinator_agent_id="agent:0",
+            task_family="test",
+            topology_template_id="topology.test.bootstrap",
+            subtask_refs=("task.test.project", "task.test.novel_bible"),
+            graph_nodes=(
+                {"node_id": "project_scope", "agent_id": "agent:0", "task_id": "task.test.project", "role": "coordinator"},
+                {"node_id": "novel_bible", "agent_id": "agent:1", "task_id": "task.test.novel_bible", "role": "writer"},
+            ),
+            graph_edges=({"from": "project_scope", "to": "novel_bible", "mode": "structured_handoff"},),
+            metadata={
+                "stage_sequence": [
+                    {"stage_id": "project_scope", "task_ref": "task.test.project"},
+                    {"stage_id": "novel_bible", "task_ref": "task.test.novel_bible"},
+                ],
+                "stage_contracts": [
+                    {
+                        "stage_id": "project_scope",
+                        "task_ref": "task.test.project",
+                        "node_id": "project_scope",
+                        "output_mappings": [{"output_key": "project_spec_ref", "required": True}],
+                    },
+                    {
+                        "stage_id": "novel_bible",
+                        "task_ref": "task.test.novel_bible",
+                        "node_id": "novel_bible",
+                        "required_inputs": ["project_spec_ref"],
+                        "input_bindings": [
+                            {
+                                "source": "stage_output",
+                                "source_stage_id": "project_scope",
+                                "output_key": "project_spec_ref",
+                                "input_key": "project_spec_ref",
+                                "required": True,
+                            }
+                        ],
+                    },
+                ],
+            },
+        )
+        self.topology = TopologyTemplate(
+            template_id="topology.test.bootstrap",
+            title="测试拓扑",
+            nodes=self.coordination.graph_nodes,
+            edges=self.coordination.graph_edges,
+            enabled=True,
+        )
+        self.protocol = TaskCommunicationProtocol(
+            protocol_id="protocol.test.a2a",
+            title="官方 A2A 测试协议",
+            message_types=("message/send", "message/stream", "task/status", "task/artifact"),
+            payload_contracts=("contract.payload.project_spec",),
+            enabled=True,
+            metadata={"a2a_protocol": "official", "protocol_locked": True},
+        )
+
+    def get_coordination_task(self, coordination_task_id: str):
+        return self.coordination if coordination_task_id == self.coordination.coordination_task_id else None
+
+    def get_topology_template(self, template_id: str):
+        return self.topology if template_id == self.topology.template_id else None
+
+    def get_task_communication_protocol(self, protocol_id: str):
+        return self.protocol if protocol_id == self.protocol.protocol_id else None
+
+    def list_specific_task_records(self):
+        return []
+
+
 def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> None:
-    registry = TaskFlowRegistry(tmp_path / "backend")
+    registry = _Registry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
     state_index.upsert_task_run(
@@ -43,17 +117,17 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
     coordination_run = CoordinationRun(
         coordination_run_id="coordrun:test",
         task_run_id="taskrun:project",
-        coordination_task_ref="coord.writing.longform_project_bootstrap",
+        coordination_task_ref="coord.test.bootstrap",
         coordinator_agent_id="agent:20",
-        topology_template_id="topology.writing.longform_project_bootstrap",
-        communication_protocol_id="protocol.writing.longform_project_bootstrap",
+        topology_template_id="topology.test.bootstrap",
+        communication_protocol_id="protocol.test.a2a",
         status="running",
         diagnostics={
             "coordination_flow": {
                 "current_stage_id": "project_scope",
                 "stages": [
-                    {"stage_id": "project_scope", "status": "running", "task_ref": "task.writing.longform_novel_project"},
-                    {"stage_id": "novel_bible", "status": "pending", "task_ref": "task.writing.novel_bible_build"},
+                    {"stage_id": "project_scope", "status": "running", "task_ref": "task.test.project"},
+                    {"stage_id": "novel_bible", "status": "pending", "task_ref": "task.test.novel_bible"},
                 ],
             }
         },
@@ -67,7 +141,7 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
             coordination_run_id="coordrun:test",
             task_run_id="taskrun:project",
             stage_id="project_scope",
-            task_ref="task.writing.longform_novel_project",
+            task_ref="task.test.project",
             task_result_ref="taskresult:project",
             artifact_refs=("ref:project_spec",),
             accepted=True,
@@ -77,8 +151,15 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
 
     assert result.stage_execution_request is not None
     assert result.stage_execution_request.stage_id == "novel_bible"
-    assert result.stage_execution_request.task_ref == "task.writing.novel_bible_build"
+    assert result.stage_execution_request.task_ref == "task.test.novel_bible"
     assert result.stage_execution_request.explicit_inputs["project_spec_ref"] == "ref:project_spec"
+    assert result.stage_execution_request.a2a_payload["protocol_version"] == "0.3.0"
+    assert result.stage_execution_request.a2a_payload["transport"] == "JSONRPC"
+    assert result.stage_execution_request.a2a_payload["message"]["kind"] == "message"
+    assert result.stage_execution_request.a2a_payload["message"]["metadata"]["target_stage_id"] == "novel_bible"
+    continuation = result.continuation_payload(session_id="session")
+    assert continuation["a2a_payload"]["message"]["metadata"]["target_task_ref"] == "task.test.novel_bible"
+    assert continuation["current_turn_context"]["a2a_payload"]["message"]["metadata"]["target_stage_id"] == "novel_bible"
     updated = state_index.get_coordination_run("coordrun:test")
     assert updated is not None
     flow = dict(updated.diagnostics.get("coordination_flow") or {})

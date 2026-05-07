@@ -7,9 +7,9 @@ __all__ = [
     "LlamaIndexRetrievalBackend",
     "BM25Index",
     "RebuildResult",
-    "RetrievalV2Bootstrapper",
+    "RetrievalBootstrapper",
     "RetrievalRequest",
-    "RetrievalV2Layout",
+    "RetrievalLayout",
     "build_lexical_index_payload",
     "build_searchable_text",
     "lexical_tokens",
@@ -22,9 +22,9 @@ _EXPORTS = {
     "BM25Index": ("retrieval_core.lexical", "BM25Index"),
     "LlamaIndexRetrievalBackend": ("retrieval_core.llamaindex_backend", "LlamaIndexRetrievalBackend"),
     "RebuildResult": ("retrieval_core.bootstrap", "RebuildResult"),
-    "RetrievalV2Bootstrapper": ("retrieval_core.bootstrap", "RetrievalV2Bootstrapper"),
+    "RetrievalBootstrapper": ("retrieval_core.bootstrap", "RetrievalBootstrapper"),
     "RetrievalRequest": ("retrieval_core.retrievers", "RetrievalRequest"),
-    "RetrievalV2Layout": ("retrieval_core.index_store", "RetrievalV2Layout"),
+    "RetrievalLayout": ("retrieval_core.index_store", "RetrievalLayout"),
     "build_lexical_index_payload": ("retrieval_core.lexical", "build_lexical_index_payload"),
     "build_searchable_text": ("retrieval_core.lexical", "build_searchable_text"),
     "lexical_tokens": ("retrieval_core.lexical", "lexical_tokens"),
@@ -35,8 +35,8 @@ _EXPORTS = {
 
 if TYPE_CHECKING:
     from retrieval_core.adapters import to_retrieval_hit
-    from retrieval_core.bootstrap import RebuildResult, RetrievalV2Bootstrapper
-    from retrieval_core.index_store import RetrievalV2Layout
+    from retrieval_core.bootstrap import RebuildResult, RetrievalBootstrapper
+    from retrieval_core.index_store import RetrievalLayout
     from retrieval_core.lexical import (
         BM25Index,
         build_lexical_index_payload,

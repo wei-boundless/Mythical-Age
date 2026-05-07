@@ -11,7 +11,7 @@ MCPRoute = Literal["none", "retrieval", "pdf", "structured_data", "evidence_orch
 MCPStatus = Literal["ok", "degraded", "clarify", "error"]
 MCPTaskStatus = Literal["submitted", "working", "completed", "failed", "requires_input"]
 
-A2A_COMPATIBLE_PROTOCOL_VERSION = "a2a-compatible.v1"
+OFFICIAL_A2A_PROTOCOL_VERSION = "0.3.0"
 
 AGENT_ID_BY_MCP_ROUTE: dict[str, str] = build_local_mcp_agent_map()
 
@@ -35,14 +35,14 @@ class MCPRequest:
     arbitration_reason: str = ""
     agent_id: str = ""
     message_id: str = ""
-    protocol_version: str = A2A_COMPATIBLE_PROTOCOL_VERSION
+    protocol_version: str = OFFICIAL_A2A_PROTOCOL_VERSION
     extensions: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["agent_id"] = request_agent_id(self)
         payload["message_id"] = self.message_id or self.request_id
-        payload["protocol_version"] = self.protocol_version or A2A_COMPATIBLE_PROTOCOL_VERSION
+        payload["protocol_version"] = self.protocol_version or OFFICIAL_A2A_PROTOCOL_VERSION
         payload["extensions"] = dict(self.extensions or {})
         return payload
 

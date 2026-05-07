@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from document_conversion import DocumentCacheV2Layout, DoclingConverter, discover_source_files
+from document_conversion import DocumentCacheLayout, DoclingConverter, discover_source_files
 from document_conversion.models import build_conversion_doc_id
 from normalized_ingestion import NormalizedDocumentBuilder, build_cleaning_manifest, build_indexable_units
 from capability_system.units.mcp.local.retrieval.collections import CollectionConfig
@@ -26,7 +26,7 @@ class RebuildResult:
     index_payload: dict[str, Any] = field(default_factory=dict)
 
 
-class RetrievalV2Bootstrapper:
+class RetrievalBootstrapper:
     def __init__(
         self,
         base_dir: Path,
@@ -40,7 +40,7 @@ class RetrievalV2Bootstrapper:
             repo_root=base_dir.parent,
         )
         self.backend = backend or LlamaIndexRetrievalBackend(base_dir)
-        self.cache = DocumentCacheV2Layout(base_dir)
+        self.cache = DocumentCacheLayout(base_dir)
         self.builder = NormalizedDocumentBuilder()
 
     def rebuild_collection(

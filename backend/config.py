@@ -87,8 +87,8 @@ class Settings:
     qdrant_url: str | None
     qdrant_api_key: str | None
     qdrant_collection_prefix: str
-    indexes_v2_root: Path
-    document_cache_v2_root: Path
+    indexes_root: Path
+    document_cache_root: Path
     docling_enabled: bool
     docling_prefer_ocr: bool
     rerank_enabled: bool
@@ -392,12 +392,12 @@ def _resolve_document_conversion_backend() -> str:
 
 def _resolve_retrieval_core_backend() -> str:
     override = str(_runtime_system_value("retrieval", "retrieval_core_backend") or "").strip().lower()
-    if override in {"legacy", "llamaindex_v2"}:
+    if override in {"legacy", "llamaindex"}:
         return override
-    value = (_first_env("RETRIEVAL_CORE_BACKEND") or "llamaindex_v2").strip().lower()
-    if value in {"legacy", "llamaindex_v2"}:
+    value = (_first_env("RETRIEVAL_CORE_BACKEND") or "llamaindex").strip().lower()
+    if value in {"legacy", "llamaindex"}:
         return value
-    return "llamaindex_v2"
+    return "llamaindex"
 
 
 def _resolve_faiss_metric() -> str:
@@ -706,8 +706,8 @@ def get_settings() -> Settings:
         qdrant_url=_resolve_qdrant_url(),
         qdrant_api_key=_resolve_qdrant_api_key(),
         qdrant_collection_prefix=_resolve_qdrant_collection_prefix(),
-        indexes_v2_root=layout.indexes_v2_dir,
-        document_cache_v2_root=layout.document_cache_v2_dir,
+        indexes_root=layout.indexes_dir,
+        document_cache_root=layout.document_cache_dir,
         docling_enabled=_resolve_docling_enabled(),
         docling_prefer_ocr=_resolve_docling_prefer_ocr(),
         rerank_enabled=(
@@ -742,8 +742,6 @@ class RuntimeConfigManager:
         self._default_config = {
             "rag_mode": False,
             "permission_mode": "default",
-            "retrieval_shadow_compare": False,
-            "retrieval_cutover_mode": "v2_primary",
             "orchestration_plan_mode": "primary",
             "context_budget_preset": "deepseek_1m",
         }
@@ -787,24 +785,6 @@ class RuntimeConfigManager:
     def set_permission_mode(self, mode: str) -> dict[str, Any]:
         normalized = (mode or "default").strip() or "default"
         return self.save({"permission_mode": normalized})
-
-    def get_retrieval_shadow_compare(self) -> bool:
-        return bool(self.load().get("retrieval_shadow_compare", False))
-
-    def set_retrieval_shadow_compare(self, enabled: bool) -> dict[str, Any]:
-        return self.save({"retrieval_shadow_compare": bool(enabled)})
-
-    def get_retrieval_cutover_mode(self) -> str:
-        value = str(self.load().get("retrieval_cutover_mode", "v2_primary") or "v2_primary").strip().lower()
-        if value in {"legacy_only", "shadow_read", "v2_primary"}:
-            return value
-        return "v2_primary"
-
-    def set_retrieval_cutover_mode(self, mode: str) -> dict[str, Any]:
-        normalized = str(mode or "v2_primary").strip().lower() or "v2_primary"
-        if normalized not in {"legacy_only", "shadow_read", "v2_primary"}:
-            normalized = "v2_primary"
-        return self.save({"retrieval_cutover_mode": normalized})
 
     def get_orchestration_plan_mode(self) -> str:
         return "primary"

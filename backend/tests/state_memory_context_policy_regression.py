@@ -5,6 +5,7 @@ from memory_system.contracts import MemoryContextCandidate
 from context_policy import build_context_package_result
 from structured_memory import MemoryNote
 from structured_memory.process_state import ContextSlots, ProcessState
+from token_accounting import count_text_tokens
 
 
 def test_context_policy_builds_package_from_memory_runtime_view(tmp_path) -> None:
@@ -96,3 +97,57 @@ def test_context_policy_drops_long_term_before_state_when_budget_is_tight() -> N
     assert result.package.model_visible_sections["active_process_context"]
     assert not result.package.model_visible_sections["relevant_durable_context"]
     assert any("long_term_budget_cap_exceeded" in item for item in result.package.dropped_items)
+
+
+def test_context_policy_accounts_retrieval_evidence_in_budget() -> None:
+    state_candidate = MemoryContextCandidate(
+        candidate_id="state-candidate",
+        memory_layer="state",
+        source="test",
+        rendered_preview="active_result_handle_id: result-1",
+        token_estimate=20,
+        budget_class="preferred",
+        requires_verification_before_use=False,
+    )
+    view = MemoryRuntimeView(
+        view_id="memory-runtime:retrieval-budget",
+        session_id="test",
+        context_candidates=(state_candidate,),
+    )
+
+    result = build_context_package_result(
+        view,
+        retrieval_results=[
+            {"source": "knowledge/a.md", "text": "A" * 120},
+            {"source": "knowledge/b.md", "text": "B" * 2000},
+        ],
+        available_context_tokens=120,
+        reserved_output_tokens=20,
+        long_term_token_cap=40,
+    )
+
+    retrieval_items = result.package.model_visible_sections["retrieval_evidence"]
+    assert retrieval_items
+    assert result.package.token_accounting["retrieval_tokens"] > 0
+    assert result.diagnostics["retrieval_evidence_dropped_count"] >= 1
+    assert any("retrieval_budget_exceeded" in item for item in result.package.dropped_items)
+
+
+def test_context_policy_uses_shared_token_counter_for_retrieval_accounting() -> None:
+    text = "这是一个用于验证统一 token 计数路径的检索证据片段。"
+    view = MemoryRuntimeView(
+        view_id="memory-runtime:token-counter",
+        session_id="test",
+        context_candidates=(),
+    )
+
+    result = build_context_package_result(
+        view,
+        retrieval_results=[{"source": "knowledge/a.md", "text": text}],
+        available_context_tokens=1000,
+        reserved_output_tokens=100,
+        long_term_token_cap=40,
+    )
+
+    rendered = result.package.model_visible_sections["retrieval_evidence"][0]
+    assert result.package.token_accounting["retrieval_tokens"] == count_text_tokens(rendered)

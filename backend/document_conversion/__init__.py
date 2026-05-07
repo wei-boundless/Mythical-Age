@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 __all__ = [
     "ConversionBlock",
     "ConversionResult",
-    "DocumentCacheV2Layout",
+    "DocumentCacheLayout",
     "DoclingConverter",
     "SourceFileRecord",
     "build_markdown_blocks",
@@ -18,7 +18,7 @@ __all__ = [
 _EXPORTS = {
     "ConversionBlock": ("document_conversion.models", "ConversionBlock"),
     "ConversionResult": ("document_conversion.models", "ConversionResult"),
-    "DocumentCacheV2Layout": ("document_conversion.cache", "DocumentCacheV2Layout"),
+    "DocumentCacheLayout": ("document_conversion.cache", "DocumentCacheLayout"),
     "DoclingConverter": ("document_conversion.docling_converter", "DoclingConverter"),
     "SourceFileRecord": ("document_conversion.models", "SourceFileRecord"),
     "build_markdown_blocks": ("document_conversion.structured_text", "build_markdown_blocks"),
@@ -28,7 +28,7 @@ _EXPORTS = {
 }
 
 if TYPE_CHECKING:
-    from document_conversion.cache import DocumentCacheV2Layout
+    from document_conversion.cache import DocumentCacheLayout
     from document_conversion.discovery import discover_source_files
     from document_conversion.docling_converter import DoclingConverter
     from document_conversion.models import ConversionBlock, ConversionResult, SourceFileRecord

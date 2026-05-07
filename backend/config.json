@@ -1,8 +1,6 @@
 {
   "rag_mode": true,
   "permission_mode": "default",
-  "retrieval_shadow_compare": false,
-  "retrieval_cutover_mode": "v2_primary",
   "orchestration_plan_mode": "primary",
   "context_budget_preset": "deepseek_1m",
   "primary_entry_selection_enabled": false,

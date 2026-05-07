@@ -23,10 +23,10 @@ def _json_ready(value: Any) -> Any:
     return value
 
 
-class DocumentCacheV2Layout:
+class DocumentCacheLayout:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        self.root = ProjectLayout.from_backend_dir(base_dir).document_cache_v2_dir
+        self.root = ProjectLayout.from_backend_dir(base_dir).document_cache_dir
         self.conversion_dir = self.root / "conversion"
         self.normalized_dir = self.root / "normalized"
         self.manifests_dir = self.root / "manifests"

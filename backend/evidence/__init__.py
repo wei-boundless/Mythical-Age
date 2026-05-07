@@ -1,7 +1,6 @@
 from evidence.adapter import build_evidence_envelope_from_retrieval
 from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
 from evidence.mcp_models import (
-    A2A_COMPATIBLE_PROTOCOL_VERSION,
     AGENT_ID_BY_MCP_ROUTE,
     CanonicalResult,
     MCPExecutionPlan,
@@ -10,6 +9,7 @@ from evidence.mcp_models import (
     MCPRoute,
     MCPStatus,
     MCPTaskStatus,
+    OFFICIAL_A2A_PROTOCOL_VERSION,
     agent_id_for_mcp_route,
     request_agent_id,
     result_agent_id,
@@ -37,7 +37,6 @@ from evidence.structured_data_worker import StructuredDataWorker
 from evidence.table_materializer import MaterializedTable, TableMaterializer
 
 __all__ = [
-    "A2A_COMPATIBLE_PROTOCOL_VERSION",
     "AGENT_ID_BY_MCP_ROUTE",
     "BindingCandidate",
     "BindingCandidateStore",
@@ -67,6 +66,7 @@ __all__ = [
     "MCPRoute",
     "MCPStatus",
     "MCPTaskStatus",
+    "OFFICIAL_A2A_PROTOCOL_VERSION",
     "agent_id_for_mcp_route",
     "build_evidence_envelope_from_retrieval",
     "request_agent_id",

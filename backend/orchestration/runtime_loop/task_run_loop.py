@@ -3694,7 +3694,20 @@ class TaskRunLoop:
             **{
                 key: value
                 for key, value in next_turn_context.items()
-                if key in {"turn_id", "selected_task_id", "task_id", "runtime_limits", "agent_group_id", "artifact_root", "workspace_root", "explicit_inputs"}
+                if key in {
+                    "turn_id",
+                    "selected_task_id",
+                    "task_id",
+                    "runtime_limits",
+                    "agent_group_id",
+                    "artifact_root",
+                    "workspace_root",
+                    "explicit_inputs",
+                    "a2a_payload",
+                    "stage_execution_request",
+                    "coordination_run_id",
+                    "continuation_stage_id",
+                }
             },
         }
         async for event in self.run_single_agent_stream(

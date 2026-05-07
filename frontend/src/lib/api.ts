@@ -488,6 +488,142 @@ export type TaskContractDescriptor = {
   metadata?: Record<string, unknown>;
 };
 
+export type ContractField = {
+  field_id: string;
+  title_zh: string;
+  field_type: string;
+  required: boolean;
+  description: string;
+  default_value?: unknown;
+  schema: Record<string, unknown>;
+  source_hint: string;
+  visibility: string;
+};
+
+export type ArtifactRequirement = {
+  requirement_id: string;
+  title_zh: string;
+  artifact_type: string;
+  required: boolean;
+  description: string;
+  naming_rule: string;
+  storage_policy: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type AcceptanceRule = {
+  rule_id: string;
+  title_zh: string;
+  rule_type: string;
+  severity: string;
+  target_field: string;
+  criteria: string;
+  config: Record<string, unknown>;
+};
+
+export type RuntimeRequirement = {
+  requirement_id: string;
+  title_zh: string;
+  requirement_type: string;
+  required: boolean;
+  value: string;
+  config: Record<string, unknown>;
+};
+
+export type ContextVisibilityPolicy = {
+  main_session_history: string;
+  upstream_outputs: string;
+  sibling_nodes: string;
+  artifact_access: string;
+  notes: string;
+};
+
+export type HandoffPolicy = {
+  handoff_mode: string;
+  include_artifact_refs: boolean;
+  include_raw_messages: boolean;
+  ack_required: boolean;
+  timeout_policy: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type FailurePolicy = {
+  failure_mode: string;
+  retry_allowed: boolean;
+  retry_limit: number;
+  escalate_to: string;
+  fallback_contract_id: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type HumanGatePolicy = {
+  required: boolean;
+  gate_type: string;
+  reviewer_role: string;
+  decision_contract_id: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ContractSpec = {
+  contract_id: string;
+  title_zh: string;
+  title_en: string;
+  contract_kind: string;
+  description: string;
+  input_fields: ContractField[];
+  output_fields: ContractField[];
+  artifact_requirements: ArtifactRequirement[];
+  acceptance_rules: AcceptanceRule[];
+  runtime_requirements: RuntimeRequirement[];
+  context_visibility_policy: ContextVisibilityPolicy;
+  handoff_policy: HandoffPolicy;
+  failure_policy: FailurePolicy;
+  human_gate_policy: HumanGatePolicy;
+  allowed_agent_kinds: string[];
+  allowed_runtime_lanes: string[];
+  version: string;
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type ContractValidationIssue = {
+  contract_id: string;
+  field: string;
+  reason: string;
+  severity: string;
+  message: string;
+};
+
+export type ContractCompileIssue = {
+  code: string;
+  message: string;
+  severity: string;
+  source_ref: string;
+  contract_id: string;
+  node_id: string;
+  edge_id: string;
+  agent_id: string;
+};
+
+export type ContractManifest = {
+  authority: string;
+  manifest_id: string;
+  manifest_kind: string;
+  task_ref: string;
+  workflow_id: string;
+  coordination_task_id: string;
+  graph_id: string;
+  global_contracts: Array<Record<string, unknown>>;
+  workflow_contracts: Array<Record<string, unknown>>;
+  node_contracts: Array<Record<string, unknown>>;
+  edge_handoff_contracts: Array<Record<string, unknown>>;
+  runtime_contracts: Array<Record<string, unknown>>;
+  acceptance_contracts: Array<Record<string, unknown>>;
+  issues: ContractCompileIssue[];
+  metadata: Record<string, unknown>;
+  valid: boolean;
+};
+
 export type CoordinationTask = {
   coordination_task_id: string;
   title: string;
@@ -587,6 +723,7 @@ export type TaskProjectionBindingUpsertPayload = TaskProjectionBinding;
 export type TaskFlowContractBindingUpsertPayload = TaskFlowContractBinding;
 export type TaskExecutionPolicyUpsertPayload = TaskExecutionPolicy;
 export type TaskMemoryRequestProfileUpsertPayload = TaskMemoryRequestProfile;
+export type ContractSpecUpsertPayload = ContractSpec;
 
 export type CoordinationTaskUpsertPayload = CoordinationTask;
 
@@ -624,11 +761,31 @@ export type TaskSystemOverview = {
       specific_tasks?: Array<Record<string, unknown>>;
     };
   };
+  contract_management?: {
+    authority: string;
+    contract_specs: ContractSpec[];
+    contract_kind_options: string[];
+    field_type_options: string[];
+    source_hint_options: string[];
+    visibility_options: string[];
+    acceptance_rule_type_options: string[];
+    validation_issues: ContractValidationIssue[];
+    summary: Record<string, number>;
+  };
   coordination_management: {
     coordination_tasks: CoordinationTask[];
     coordination_graph_specs?: CoordinationGraphSpec[];
     topology_templates: TopologyTemplate[];
     communication_protocols: TaskCommunicationProtocol[];
+    a2a?: {
+      protocol_version: string;
+      transport: string;
+      protocol_locked: boolean;
+      agent_cards: Array<Record<string, unknown>>;
+      message_types: string[];
+      part_types: string[];
+      task_states: string[];
+    };
   };
   diagnostics?: Record<string, unknown>;
 };
@@ -2389,6 +2546,32 @@ export async function upsertTaskWorkflow(workflowId: string, payload: TaskWorkfl
 
 export async function getTaskSystemOverview() {
   return request<TaskSystemOverview>("/tasks/overview");
+}
+
+export async function upsertTaskSystemContract(contractId: string, payload: ContractSpecUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/contracts/${encodeURIComponent(contractId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteTaskSystemContract(contractId: string) {
+  return request<TaskSystemOverview>(`/tasks/contracts/${encodeURIComponent(contractId)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function compileTaskSystemWorkflowContractManifest(workflowId: string, taskId: string) {
+  const params = new URLSearchParams({ task_id: taskId });
+  return request<ContractManifest>(
+    `/tasks/contract-manifests/workflows/${encodeURIComponent(workflowId)}?${params.toString()}`
+  );
+}
+
+export async function compileTaskSystemCoordinationContractManifest(coordinationTaskId: string) {
+  return request<ContractManifest>(
+    `/tasks/contract-manifests/coordination/${encodeURIComponent(coordinationTaskId)}`
+  );
 }
 
 export async function getTaskSystemNextIds() {

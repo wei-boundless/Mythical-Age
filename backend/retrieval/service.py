@@ -2,27 +2,68 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from config import get_settings
-from config import runtime_config
 
 if TYPE_CHECKING:
     from capability_system.units.mcp.local.retrieval.router import RAGQueryRouter
-    from retrieval_core import RetrievalRequest, RetrievalV2Bootstrapper
+    from retrieval_core import RetrievalBootstrapper, RetrievalRequest
 
 logger = logging.getLogger(__name__)
+
+
+RetrievalExecutionStatus = Literal["ok", "empty", "error"]
+
+
+@dataclass(slots=True, frozen=True)
+class RetrievalFailureDiagnostics:
+    query: str
+    selected_collections: tuple[str, ...] = ()
+    query_mode: str = ""
+    failure_stage: str = ""
+    error_type: str = ""
+    error_message: str = ""
+    candidate_top_k: int = 0
+    requested_top_k: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query": self.query,
+            "selected_collections": list(self.selected_collections),
+            "query_mode": self.query_mode,
+            "failure_stage": self.failure_stage,
+            "error_type": self.error_type,
+            "error_message": self.error_message,
+            "candidate_top_k": self.candidate_top_k,
+            "requested_top_k": self.requested_top_k,
+        }
+
+
+@dataclass(slots=True, frozen=True)
+class RetrievalExecutionResult:
+    status: RetrievalExecutionStatus
+    results: tuple[dict[str, Any], ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    degraded_reason_typed: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "results": [dict(item) for item in self.results],
+            "diagnostics": dict(self.diagnostics),
+            "degraded_reason_typed": self.degraded_reason_typed,
+        }
 
 
 class RetrievalService:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        self._last_shadow_compare: dict[str, Any] | None = None
         self._settings = get_settings()
         self._router: RAGQueryRouter | Any | None = None
-        self._v2_bootstrapper: RetrievalV2Bootstrapper | Any | None = None
+        self._bootstrapper: RetrievalBootstrapper | Any | None = None
         self._collection_rebuild_locks: dict[str, threading.Lock] = {}
         self._collection_rebuild_locks_guard = threading.Lock()
         self._collection_rebuild_pending: dict[str, bool] = {}
@@ -40,59 +81,46 @@ class RetrievalService:
         self._router = value
 
     @property
-    def v2_bootstrapper(self) -> Any:
-        if self._v2_bootstrapper is None:
-            from retrieval_core import RetrievalV2Bootstrapper
+    def bootstrapper(self) -> Any:
+        if self._bootstrapper is None:
+            from retrieval_core import RetrievalBootstrapper
 
-            self._v2_bootstrapper = RetrievalV2Bootstrapper(self.base_dir)
-        return self._v2_bootstrapper
+            self._bootstrapper = RetrievalBootstrapper(self.base_dir)
+        return self._bootstrapper
 
-    @v2_bootstrapper.setter
-    def v2_bootstrapper(self, value: Any) -> None:
-        self._v2_bootstrapper = value
+    @bootstrapper.setter
+    def bootstrapper(self, value: Any) -> None:
+        self._bootstrapper = value
 
     def retrieve(self, query: str, *, top_k: int = 5) -> list[dict[str, Any]]:
-        mode = runtime_config.get_retrieval_cutover_mode()
-        if mode == "legacy_only":
-            return self.router.retrieve(query, top_k=top_k)
+        return list(self.retrieve_execution(query, top_k=top_k).results)
 
-        plan = self.router.plan(query)
-        v2_started = time.perf_counter()
-        v2_payload = self._retrieve_v2_from_plan(plan, top_k=top_k)
-        v2_latency_ms = (time.perf_counter() - v2_started) * 1000.0
-        if mode == "shadow_read":
-            legacy_started = time.perf_counter()
-            legacy_payload = self.router.retrieve(query, top_k=top_k)
-            legacy_latency_ms = (time.perf_counter() - legacy_started) * 1000.0
-            self._record_shadow_compare(
-                query,
-                legacy_payload,
-                v2_payload,
-                plan=plan,
-                legacy_latency_ms=legacy_latency_ms,
-                v2_latency_ms=v2_latency_ms,
+    def retrieve_execution(self, query: str, *, top_k: int = 5) -> RetrievalExecutionResult:
+        try:
+            plan = self.router.plan(query)
+        except Exception as exc:
+            logger.exception("Failed to build retrieval plan")
+            diagnostics = RetrievalFailureDiagnostics(
+                query=str(query or ""),
+                failure_stage="plan",
+                error_type=exc.__class__.__name__,
+                error_message=str(exc),
+                requested_top_k=max(int(top_k or 1), 1),
             )
-            return legacy_payload
-        if mode == "v2_primary":
-            if runtime_config.get_retrieval_shadow_compare():
-                legacy_started = time.perf_counter()
-                legacy_payload = self.router.retrieve(query, top_k=top_k)
-                legacy_latency_ms = (time.perf_counter() - legacy_started) * 1000.0
-                self._record_shadow_compare(
-                    query,
-                    legacy_payload,
-                    v2_payload,
-                    plan=plan,
-                    legacy_latency_ms=legacy_latency_ms,
-                    v2_latency_ms=v2_latency_ms,
-                )
-            return v2_payload
-        return self.router.retrieve(query, top_k=top_k)
+            return RetrievalExecutionResult(
+                status="error",
+                diagnostics={
+                    "result_count": 0,
+                    "retrieval_failure": diagnostics.to_dict(),
+                },
+                degraded_reason_typed="retrieval_plan_failed",
+            )
+        return self._retrieve_execution_from_plan(plan, top_k=top_k)
 
     def retrieve_memory(self, query: str, *, top_k: int = 3) -> list[dict[str, Any]]:
         from retrieval_core import RetrievalRequest
 
-        hits = self.v2_bootstrapper.backend.retrieve(
+        hits = self.bootstrapper.backend.retrieve(
             RetrievalRequest(
                 query=query,
                 top_k=max(int(top_k or 1), 1),
@@ -108,7 +136,7 @@ class RetrievalService:
                     "score": float(hit.score or 0.0),
                     "source": hit.source,
                     "collection": str(getattr(hit, "metadata", {}).get("collection", "") or "durable_memory"),
-                    "retrieval_backend": "llamaindex_v2",
+                    "retrieval_backend": "llamaindex",
                     "metadata": {
                         **dict(getattr(hit, "metadata", {}) or {}),
                         "doc_id": getattr(hit, "doc_id", None),
@@ -119,22 +147,22 @@ class RetrievalService:
             )
         return payload
 
-    def rebuild_collection(self, name: str) -> None:
+    def rebuild_registry_collection(self, name: str) -> None:
         try:
             self.router.registry.rebuild(name)
         except Exception:
             pass
 
     def rebuild_durable_memory(self) -> None:
-        self.rebuild_collection_v2("durable_memory")
+        self.rebuild_collection("durable_memory")
 
     def rebuild_session_memory(self) -> None:
-        self.rebuild_collection_v2("session_memory")
+        self.rebuild_collection("session_memory")
 
     def rebuild_knowledge(self) -> None:
-        self.rebuild_collection_v2("knowledge")
+        self.rebuild_collection("knowledge")
 
-    def rebuild_collection_v2(self, name: str) -> dict[str, Any]:
+    def rebuild_collection(self, name: str) -> dict[str, Any]:
         from capability_system.units.mcp.local.retrieval.collections import build_default_collections
 
         config = build_default_collections(self.base_dir).get(name)
@@ -147,18 +175,15 @@ class RetrievalService:
             return {"collection": name, "status": "rebuild_already_running"}
         try:
             self._collection_rebuild_pending.pop(name, None)
-            return self._rebuild_collection_v2_once(name, config)
+            return self._rebuild_collection_once(name, config)
         except Exception as exc:
-            logger.exception("Failed to rebuild v2 collection %s", name)
+            logger.exception("Failed to rebuild retrieval collection %s", name)
             return {"collection": name, "status": "error", "error": str(exc)}
         finally:
             lock.release()
 
-    def rebuild_knowledge_v2(self) -> dict[str, Any]:
-        return self.rebuild_collection_v2("knowledge")
-
-    def _rebuild_collection_v2_once(self, name: str, config) -> dict[str, Any]:
-        result = self.v2_bootstrapper.rebuild_collection(config)
+    def _rebuild_collection_once(self, name: str, config) -> dict[str, Any]:
+        result = self.bootstrapper.rebuild_collection(config)
         return {
             "collection": result.collection,
             "status": str(result.index_payload.get("status", "unknown")),
@@ -180,10 +205,10 @@ class RetrievalService:
                 self._collection_rebuild_locks[normalized] = lock
             return lock
 
-    def rebuild_all_v2(self) -> dict[str, dict[str, Any]]:
+    def rebuild_all_collections(self) -> dict[str, dict[str, Any]]:
         payload: dict[str, dict[str, Any]] = {}
         for name in ("durable_memory", "session_memory", "knowledge"):
-            payload[name] = self.rebuild_collection_v2(name)
+            payload[name] = self.rebuild_collection(name)
         return payload
 
     def rebuild_all(self) -> None:
@@ -208,15 +233,12 @@ class RetrievalService:
             }
         return payload
 
-    def last_shadow_compare(self) -> dict[str, Any] | None:
-        return dict(self._last_shadow_compare) if self._last_shadow_compare is not None else None
-
-    def _retrieve_v2_from_plan(self, plan: Any, *, top_k: int) -> list[dict[str, Any]]:
+    def _retrieve_from_plan(self, plan: Any, *, top_k: int) -> list[dict[str, Any]]:
         from retrieval_core import RetrievalRequest
 
-        candidate_top_k = self._v2_candidate_top_k(top_k)
-        runtime_descriptor = self._v2_runtime_descriptor()
-        hits = self.v2_bootstrapper.backend.retrieve(
+        candidate_top_k = self._candidate_top_k(top_k)
+        runtime_descriptor = self._runtime_descriptor()
+        hits = self.bootstrapper.backend.retrieve(
             RetrievalRequest(
                 query=str(plan.rewritten_query or plan.query),
                 top_k=candidate_top_k,
@@ -242,7 +264,7 @@ class RetrievalService:
                     "rewritten_query": str(plan.rewritten_query or plan.query),
                     "rewrite_keywords": list(getattr(plan.rewrite, "keywords", []) or []),
                     "rewrite_rules": list(getattr(plan.rewrite, "applied_rules", []) or []),
-                    "retrieval_backend": "llamaindex_v2",
+                    "retrieval_backend": "llamaindex",
                     "result_granularity": str(dict(hit.metadata).get("result_granularity", "") or "block"),
                     "score_breakdown": score_breakdown,
                     "chain_version": str(runtime_descriptor.get("chain_version", "") or ""),
@@ -259,7 +281,7 @@ class RetrievalService:
                     },
                 }
             )
-        reranked = self._rerank_v2_payload(query=str(plan.query or plan.rewrite.original_query), payload=payload)
+        reranked = self._rerank_payload(query=str(plan.query or plan.rewrite.original_query), payload=payload)
         finalized: list[dict[str, Any]] = []
         for rerank_rank, item in enumerate(reranked, start=1):
             updated = dict(item)
@@ -267,7 +289,47 @@ class RetrievalService:
             finalized.append(updated)
         return finalized[:top_k]
 
-    def _rerank_v2_payload(self, *, query: str, payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _retrieve_execution_from_plan(self, plan: Any, *, top_k: int) -> RetrievalExecutionResult:
+        candidate_top_k = self._candidate_top_k(top_k)
+        query = str(getattr(plan, "query", "") or "")
+        query_mode = self._query_mode_from_plan(plan)
+        selected_collections = tuple(str(item) for item in list(getattr(plan, "selected_collections", []) or []))
+        try:
+            results = self._retrieve_from_plan(plan, top_k=top_k)
+        except Exception as exc:
+            logger.exception("Failed to execute retrieval plan")
+            diagnostics = RetrievalFailureDiagnostics(
+                query=query,
+                selected_collections=selected_collections,
+                query_mode=query_mode,
+                failure_stage=self._failure_stage_from_exception(exc),
+                error_type=exc.__class__.__name__,
+                error_message=str(exc),
+                candidate_top_k=candidate_top_k,
+                requested_top_k=max(int(top_k or 1), 1),
+            )
+            return RetrievalExecutionResult(
+                status="error",
+                diagnostics={
+                    "result_count": 0,
+                    "retrieval_failure": diagnostics.to_dict(),
+                    "plan_reason": str(getattr(plan, "reason", "") or ""),
+                },
+                degraded_reason_typed="retrieval_execution_failed",
+            )
+        status: RetrievalExecutionStatus = "ok" if results else "empty"
+        return RetrievalExecutionResult(
+            status=status,
+            results=tuple(dict(item) for item in results),
+            diagnostics={
+                "result_count": len(results),
+                "query_mode": query_mode,
+                "selected_collections": list(selected_collections),
+                "plan_reason": str(getattr(plan, "reason", "") or ""),
+            },
+        )
+
+    def _rerank_payload(self, *, query: str, payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not payload:
             return payload
         reranker = getattr(self.router, "reranker", None)
@@ -277,50 +339,17 @@ class RetrievalService:
         try:
             ranked = rerank(query=query, results=payload)
         except Exception:
-            logger.exception("Failed to rerank v2 payload")
+            logger.exception("Failed to rerank retrieval payload")
             return payload
         return [dict(item) for item in ranked]
 
-    def _v2_candidate_top_k(self, top_k: int) -> int:
+    def _candidate_top_k(self, top_k: int) -> int:
         requested = max(int(top_k or 1), 1)
         if not bool(getattr(self._settings, "rerank_enabled", False)):
             return max(requested, 8)
         rerank_top_n = max(int(getattr(self._settings, "rerank_top_n", requested) or requested), 1)
         rerank_candidate_pool = max(int(getattr(self._settings, "rerank_candidate_pool", 20) or 20), 1)
         return max(requested, rerank_top_n, rerank_candidate_pool)
-
-    def _record_shadow_compare(
-        self,
-        query: str,
-        legacy_payload: list[dict[str, Any]],
-        v2_payload: list[dict[str, Any]],
-        *,
-        plan: Any,
-        legacy_latency_ms: float | None = None,
-        v2_latency_ms: float | None = None,
-    ) -> None:
-        mode_counts = self._payload_mode_counts(v2_payload)
-        compare = {
-            "compare_schema_version": "retrieval_compare_v2",
-            "query": query,
-            "query_mode": self._query_mode_from_plan(plan),
-            "collections": list(plan.selected_collections),
-            "legacy_hit_count": len(legacy_payload),
-            "v2_hit_count": len(v2_payload),
-            "legacy_top_sources": [str(item.get("source", "")) for item in legacy_payload[:3]],
-            "v2_top_sources": [str(item.get("source", "")) for item in v2_payload[:3]],
-            "legacy_latency_ms": round(float(legacy_latency_ms or 0.0), 3) if legacy_latency_ms is not None else None,
-            "v2_latency_ms": round(float(v2_latency_ms or 0.0), 3) if v2_latency_ms is not None else None,
-            "retrieval_backend": "llamaindex_v2",
-            "dense_hit_count": mode_counts["dense"],
-            "lexical_hit_count": mode_counts["lexical"],
-            "fusion_hit_count": mode_counts["fusion"],
-            "rerank_hit_count": sum(1 for item in v2_payload if bool(item.get("rerank_applied"))),
-            "result_granularity_counts": self._payload_granularity_counts(v2_payload),
-            "chain_version": str(self._v2_runtime_descriptor().get("chain_version", "") or ""),
-        }
-        self._last_shadow_compare = compare
-        logger.info("retrieval shadow compare: %s", compare)
 
     def _query_mode_from_plan(self, plan: Any) -> str:
         query_type = str(getattr(plan.rewrite, "query_type", "") or "")
@@ -362,8 +391,16 @@ class RetrievalService:
             counts[granularity] += 1
         return counts
 
-    def _v2_runtime_descriptor(self) -> dict[str, Any]:
-        descriptor = getattr(self.v2_bootstrapper.backend, "runtime_descriptor", None)
+    def _runtime_descriptor(self) -> dict[str, Any]:
+        descriptor = getattr(self.bootstrapper.backend, "runtime_descriptor", None)
         if callable(descriptor):
             return dict(descriptor())
         return {"chain_version": "", "strategy_name": ""}
+
+    def _failure_stage_from_exception(self, exc: Exception) -> str:
+        message = str(exc or "").lower()
+        if "rerank" in message:
+            return "rerank"
+        if "retrieve" in message or "index" in message or "faiss" in message:
+            return "backend"
+        return "execution"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,12 +45,12 @@ class ProjectLayout:
         return self.storage_root / "health_system"
 
     @property
-    def indexes_v2_dir(self) -> Path:
-        return self.storage_root / "indexes_v2"
+    def indexes_dir(self) -> Path:
+        return self.storage_root / "indexes"
 
     @property
-    def document_cache_v2_dir(self) -> Path:
-        return self.storage_root / "document_cache_v2"
+    def document_cache_dir(self) -> Path:
+        return self.storage_root / "document_cache"
 
     @property
     def modality_artifacts_dir(self) -> Path:
@@ -76,6 +77,8 @@ class ProjectLayout:
         return self.storage_root / "knowledge"
 
     def ensure_storage_dirs(self) -> None:
+        self._migrate_storage_dir(self.storage_root / "indexes_v2", self.indexes_dir)
+        self._migrate_storage_dir(self.storage_root / "document_cache_v2", self.document_cache_dir)
         for path in (
             self.storage_root,
             self.durable_memory_dir,
@@ -83,8 +86,8 @@ class ProjectLayout:
             self.sessions_dir,
             self.runtime_state_dir,
             self.health_system_dir,
-            self.indexes_v2_dir,
-            self.document_cache_v2_dir,
+            self.indexes_dir,
+            self.document_cache_dir,
             self.modality_artifacts_dir,
             self.capability_system_dir,
             self.tasks_dir,
@@ -93,6 +96,13 @@ class ProjectLayout:
             self.knowledge_storage_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _migrate_storage_dir(legacy_path: Path, target_path: Path) -> None:
+        if target_path.exists() or not legacy_path.exists():
+            return
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(legacy_path), str(target_path))
 
 
 def ensure_project_storage(backend_dir: str | Path) -> ProjectLayout:

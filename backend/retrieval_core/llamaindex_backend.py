@@ -13,7 +13,7 @@ from config import get_settings
 from capability_system.units.mcp.local.retrieval.models import RetrievalHit
 from normalized_ingestion.models import IndexableUnit
 from retrieval_core.adapters import to_retrieval_hit
-from retrieval_core.index_store import RetrievalV2Layout
+from retrieval_core.index_store import RetrievalLayout
 from retrieval_core.lexical import build_lexical_index_payload, build_searchable_text, lexical_tokens, score_lexical_query
 from retrieval_core.retrievers import RetrievalRequest
 
@@ -26,7 +26,7 @@ class LlamaIndexRetrievalBackend:
 
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        self.layout = RetrievalV2Layout(base_dir)
+        self.layout = RetrievalLayout(base_dir)
         self.settings = get_settings()
         self._lexical_cache: dict[str, dict[str, Any]] = {}
         self._units_cache: dict[str, dict[str, dict[str, Any]]] = {}
@@ -533,7 +533,7 @@ class LlamaIndexRetrievalBackend:
 
     def runtime_descriptor(self) -> dict[str, Any]:
         return {
-            "retrieval_backend": "llamaindex_v2",
+            "retrieval_backend": "llamaindex",
             "dense_backend": self._dense_backend(),
             "sparse_backend": "none",
             "lexical_backend": "application_bm25",

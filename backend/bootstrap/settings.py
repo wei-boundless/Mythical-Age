@@ -14,8 +14,6 @@ from context_management.budget_presets import (
 @dataclass(frozen=True, slots=True)
 class RuntimeSettingsSnapshot:
     rag_mode: bool
-    retrieval_shadow_compare: bool
-    retrieval_cutover_mode: str
     orchestration_plan_mode: str
 
 
@@ -76,8 +74,6 @@ class AppSettingsService:
         payload = runtime_config.load()
         return RuntimeSettingsSnapshot(
             rag_mode=bool(payload.get("rag_mode", False)),
-            retrieval_shadow_compare=bool(payload.get("retrieval_shadow_compare", False)),
-            retrieval_cutover_mode=str(payload.get("retrieval_cutover_mode", "v2_primary") or "v2_primary"),
             orchestration_plan_mode="primary",
         )
 
@@ -105,34 +101,6 @@ class AppSettingsService:
             return setter(mode)
         current = runtime_config.load()
         current["permission_mode"] = mode
-        return runtime_config.save(current)
-
-    def get_retrieval_shadow_compare(self) -> bool:
-        getter = getattr(runtime_config, "get_retrieval_shadow_compare", None)
-        if callable(getter):
-            return bool(getter())
-        return bool(self.runtime_snapshot().retrieval_shadow_compare)
-
-    def set_retrieval_shadow_compare(self, enabled: bool) -> dict[str, Any]:
-        setter = getattr(runtime_config, "set_retrieval_shadow_compare", None)
-        if callable(setter):
-            return setter(enabled)
-        current = runtime_config.load()
-        current["retrieval_shadow_compare"] = bool(enabled)
-        return runtime_config.save(current)
-
-    def get_retrieval_cutover_mode(self) -> str:
-        getter = getattr(runtime_config, "get_retrieval_cutover_mode", None)
-        if callable(getter):
-            return str(getter() or "v2_primary")
-        return str(self.runtime_snapshot().retrieval_cutover_mode or "v2_primary")
-
-    def set_retrieval_cutover_mode(self, mode: str) -> dict[str, Any]:
-        setter = getattr(runtime_config, "set_retrieval_cutover_mode", None)
-        if callable(setter):
-            return setter(mode)
-        current = runtime_config.load()
-        current["retrieval_cutover_mode"] = str(mode or "v2_primary")
         return runtime_config.save(current)
 
     def get_orchestration_plan_mode(self) -> str:
@@ -435,7 +403,7 @@ class AppSettingsService:
                     "description": "控制 RAG 后端、向量库、Qdrant 和 rerank 参数。",
                     "status": f"{settings.retrieval_core_backend} / {settings.vector_store_backend}",
                     "fields": [
-                        self._field(section="retrieval", key="retrieval_core_backend", label="Retrieval Core", field_type="select", value=settings.retrieval_core_backend, options=["legacy", "llamaindex_v2"], description="检索核心实现。"),
+                        self._field(section="retrieval", key="retrieval_core_backend", label="Retrieval Core", field_type="select", value=settings.retrieval_core_backend, options=["legacy", "llamaindex"], description="检索核心实现。"),
                         self._field(section="retrieval", key="vector_store_backend", label="Vector Store", field_type="select", value=settings.vector_store_backend, options=["qdrant", "faiss", "llamaindex"], description="向量存储后端。"),
                         self._field(section="retrieval", key="qdrant_url", label="Qdrant URL", field_type="text", value=settings.qdrant_url or "", description="Qdrant 服务地址。"),
                         self._field(section="retrieval", key="qdrant_collection_prefix", label="Collection Prefix", field_type="text", value=settings.qdrant_collection_prefix, description="Qdrant collection 前缀。"),

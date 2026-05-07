@@ -14,6 +14,17 @@ __all__ = [
     "TaskWorkflowBinding",
     "TaskProjectionBinding",
     "TaskFlowContractBinding",
+    "ContractSpec",
+    "ContractField",
+    "ArtifactRequirement",
+    "AcceptanceRule",
+    "RuntimeRequirement",
+    "ContextVisibilityPolicy",
+    "HandoffPolicy",
+    "FailurePolicy",
+    "HumanGatePolicy",
+    "ContractValidationIssue",
+    "TaskContractRegistry",
     "TaskAgentAdoptionPlan",
     "TaskMemoryRequestProfile",
     "TaskCommunicationProtocol",
@@ -115,6 +126,47 @@ def __getattr__(name: str) -> Any:
         from tasks.flow_registry import TaskFlowRegistry
 
         return TaskFlowRegistry
+    if name in {
+        "ContractSpec",
+        "ContractField",
+        "ArtifactRequirement",
+        "AcceptanceRule",
+        "RuntimeRequirement",
+        "ContextVisibilityPolicy",
+        "HandoffPolicy",
+        "FailurePolicy",
+        "HumanGatePolicy",
+        "ContractValidationIssue",
+    }:
+        from tasks.contract_definition_models import (
+            AcceptanceRule,
+            ArtifactRequirement,
+            ContextVisibilityPolicy,
+            ContractField,
+            ContractSpec,
+            ContractValidationIssue,
+            FailurePolicy,
+            HandoffPolicy,
+            HumanGatePolicy,
+            RuntimeRequirement,
+        )
+
+        return {
+            "ContractSpec": ContractSpec,
+            "ContractField": ContractField,
+            "ArtifactRequirement": ArtifactRequirement,
+            "AcceptanceRule": AcceptanceRule,
+            "RuntimeRequirement": RuntimeRequirement,
+            "ContextVisibilityPolicy": ContextVisibilityPolicy,
+            "HandoffPolicy": HandoffPolicy,
+            "FailurePolicy": FailurePolicy,
+            "HumanGatePolicy": HumanGatePolicy,
+            "ContractValidationIssue": ContractValidationIssue,
+        }[name]
+    if name == "TaskContractRegistry":
+        from tasks.contract_registry import TaskContractRegistry
+
+        return TaskContractRegistry
     if name in {
         "CoordinationGraphSpec",
         "CoordinationGraphNode",

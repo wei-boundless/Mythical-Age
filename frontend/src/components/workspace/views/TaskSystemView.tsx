@@ -935,6 +935,7 @@ export function TaskSystemView() {
   const allCoordinationGraphSpecs = useMemo(() => consolePayload?.coordination_management.coordination_graph_specs ?? [], [consolePayload]);
   const allTopologyTemplates = useMemo(() => consolePayload?.coordination_management.topology_templates ?? [], [consolePayload]);
   const allCommunicationProtocols = useMemo(() => consolePayload?.coordination_management.communication_protocols ?? [], [consolePayload]);
+  const a2aCatalog = consolePayload?.coordination_management.a2a ?? null;
   const activeFamily = selectedDomain?.task_family || "";
   const coordinationTasks = useMemo(
     () => allCoordinationTasks.filter((item) => !isInternalLongformItem(item) && coordinationFamily(item, tasks) === activeFamily),
@@ -1855,7 +1856,7 @@ export function TaskSystemView() {
       const subtaskRefs = coordinationSubtaskRefs(effectiveCoordinationDraft);
       const protocolPayload: TaskCommunicationProtocol = {
         ...effectiveProtocolDraft,
-        message_types: effectiveCoordinationDraft.communication_modes?.length ? effectiveCoordinationDraft.communication_modes : splitList(effectiveProtocolDraft.message_types_text),
+        message_types: a2aCatalog?.message_types?.length ? a2aCatalog.message_types : ["message/send", "message/stream", "task/status", "task/artifact"],
         payload_contracts: splitList(effectiveProtocolDraft.payload_contracts_text),
         signal_rules: splitList(effectiveProtocolDraft.signal_rules_text),
         handoff_rules: splitList(effectiveProtocolDraft.handoff_rules_text),
@@ -1863,6 +1864,11 @@ export function TaskSystemView() {
           ...(effectiveProtocolDraft.metadata ?? {}),
           task_family: selectedDomain?.task_family || "",
           domain_id: selectedDomain?.domain_id || "",
+          a2a_protocol: "official",
+          a2a_protocol_version: a2aCatalog?.protocol_version || "0.3.0",
+          a2a_transport: a2aCatalog?.transport || "JSONRPC",
+          protocol_locked: true,
+          business_communication_modes: effectiveCoordinationDraft.communication_modes ?? [],
         },
       };
       await upsertTaskSystemCommunicationProtocol(protocolPayload.protocol_id, protocolPayload);
@@ -2345,6 +2351,7 @@ export function TaskSystemView() {
               addCoordinationRoleNode={addCoordinationRoleNode}
               addCoordinationSuccessorNode={addCoordinationSuccessorNode}
               addCoordinationTaskNode={addCoordinationTaskNode}
+              a2aCatalog={a2aCatalog}
               agentGroupOptions={agentGroupOptions}
               applyLongformNovelTemplate={applyLongformNovelTemplate}
               boundCoordinationTaskIds={boundCoordinationTaskIds}

@@ -19,6 +19,7 @@ class StageExecutionRequest:
     agent_profile_id: str = ""
     runtime_lane: str = ""
     explicit_inputs: dict[str, Any] = field(default_factory=dict)
+    a2a_payload: dict[str, Any] = field(default_factory=dict)
     message: str = ""
     artifact_root: str = ""
     expected_outputs: tuple[dict[str, Any], ...] = ()
@@ -58,6 +59,7 @@ class StageExecutionRequest:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["expected_outputs"] = [dict(item) for item in self.expected_outputs]
+        payload["a2a_payload"] = dict(self.a2a_payload)
         return payload
 
     @classmethod
@@ -74,6 +76,7 @@ class StageExecutionRequest:
             agent_profile_id=str(payload.get("agent_profile_id") or ""),
             runtime_lane=str(payload.get("runtime_lane") or ""),
             explicit_inputs=dict(payload.get("explicit_inputs") or {}),
+            a2a_payload=dict(payload.get("a2a_payload") or {}),
             message=str(payload.get("message") or ""),
             artifact_root=str(payload.get("artifact_root") or ""),
             expected_outputs=tuple(dict(item) for item in list(payload.get("expected_outputs") or []) if isinstance(item, dict)),

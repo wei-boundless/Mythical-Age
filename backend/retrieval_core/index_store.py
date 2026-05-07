@@ -5,10 +5,10 @@ from pathlib import Path
 from project_layout import ProjectLayout
 
 
-class RetrievalV2Layout:
+class RetrievalLayout:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        self.root = ProjectLayout.from_backend_dir(base_dir).indexes_v2_dir
+        self.root = ProjectLayout.from_backend_dir(base_dir).indexes_dir
 
     def ensure(self, *, collections: tuple[str, ...] = ()) -> None:
         self.root.mkdir(parents=True, exist_ok=True)

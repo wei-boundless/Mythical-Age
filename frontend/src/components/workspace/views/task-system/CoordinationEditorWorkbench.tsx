@@ -31,6 +31,7 @@ import type {
   CoordinationGraphSpec,
   CoordinationTask,
   SpecificTaskRecord,
+  TaskSystemOverview,
   TaskDomainRecord,
   TaskCommunicationProtocol,
   TopologyTemplate,
@@ -59,8 +60,77 @@ type ProtocolDraftLike = TaskCommunicationProtocol & {
   handoff_rules_text: string;
 };
 
+type A2ACatalogLike = NonNullable<TaskSystemOverview["coordination_management"]["a2a"]>;
+
 const COORDINATION_MODE_CHOICES = ["review_merge", "pipeline", "parallel_review"];
 const GRAPH_EDGE_MODE_CHOICES = ["structured_handoff", "review_feedback", "draft_request", "audit_request", "merge_signal"];
+const EDGE_MODE_TO_A2A_MESSAGE_TYPE: Record<string, string> = {
+  structured_handoff: "message/send",
+  review_feedback: "message/send",
+  draft_request: "message/send",
+  audit_request: "message/stream",
+  merge_signal: "task/status",
+};
+const DEFAULT_A2A_PART_TYPES = ["text", "data", "file"];
+
+function toPrettyJson(value: unknown) {
+  return JSON.stringify(value, null, 2);
+}
+
+function a2aMessageTypeForEdge(edge: Record<string, unknown> | null, catalog: A2ACatalogLike | null) {
+  const edgeMode = String(edge?.mode ?? "structured_handoff");
+  const mapped = EDGE_MODE_TO_A2A_MESSAGE_TYPE[edgeMode] || "message/send";
+  if (catalog?.message_types?.includes(mapped)) return mapped;
+  return catalog?.message_types?.[0] || mapped;
+}
+
+function agentCardForNode(node: Record<string, unknown> | null, catalog: A2ACatalogLike | null) {
+  const agentId = String(node?.agent_id ?? "").trim();
+  if (!agentId || !catalog?.agent_cards?.length) return null;
+  return catalog.agent_cards.find((card) => String(card.agent_id ?? "").trim() === agentId) ?? null;
+}
+
+function edgeA2APreview({
+  edge,
+  sourceNode,
+  targetNode,
+  protocolDraft,
+  coordinationDraft,
+  catalog,
+}: {
+  edge: Record<string, unknown> | null;
+  sourceNode: Record<string, unknown> | null;
+  targetNode: Record<string, unknown> | null;
+  protocolDraft: ProtocolDraftLike;
+  coordinationDraft: CoordinationDraftLike;
+  catalog: A2ACatalogLike | null;
+}) {
+  if (!edge) return null;
+  const messageType = a2aMessageTypeForEdge(edge, catalog);
+  const payloadContracts = protocolDraft.payload_contracts_text
+    .split(/[\n,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return {
+    protocol_version: catalog?.protocol_version || "0.3.0",
+    transport: catalog?.transport || "JSONRPC",
+    source_agent_id: String(sourceNode?.agent_id ?? ""),
+    target_agent_id: String(targetNode?.agent_id ?? ""),
+    source_node_id: String(sourceNode?.node_id ?? ""),
+    target_node_id: String(targetNode?.node_id ?? ""),
+    source_task_id: graphNodeTaskId(sourceNode ?? {}),
+    target_task_id: graphNodeTaskId(targetNode ?? {}),
+    edge_mode: String(edge.mode ?? "structured_handoff"),
+    message_type: messageType,
+    part_types: catalog?.part_types?.length ? catalog.part_types : DEFAULT_A2A_PART_TYPES,
+    payload_contracts: payloadContracts,
+    ack_policy: protocolDraft.ack_policy,
+    timeout_policy: protocolDraft.timeout_policy,
+    error_signal_policy: protocolDraft.error_signal_policy,
+    shared_context_policy: coordinationDraft.shared_context_policy,
+    handoff_policy: coordinationDraft.handoff_policy,
+  };
+}
 
 function text(value: unknown, fallback = "-") {
   if (value === null || value === undefined || value === "") return fallback;
@@ -470,6 +540,7 @@ function CoordinationInspectorPanel({
   reverseCoordinationEdge,
   removeCoordinationEdge,
   selectedCoordinationGraphSpec,
+  a2aCatalog,
 }: {
   selectedGraphNode: Record<string, unknown> | null;
   selectedGraphEdge: Record<string, unknown> | null;
@@ -492,7 +563,22 @@ function CoordinationInspectorPanel({
   reverseCoordinationEdge: (edgeId: string) => void;
   removeCoordinationEdge: (edgeId: string) => void;
   selectedCoordinationGraphSpec: CoordinationGraphSpec | null;
+  a2aCatalog: A2ACatalogLike | null;
 }) {
+  const selectedEdgeSourceId = graphEdgeSource(selectedGraphEdge ?? {});
+  const selectedEdgeTargetId = graphEdgeTarget(selectedGraphEdge ?? {});
+  const selectedEdgeSourceNode = activeGraphNodes.find((node) => String(node.node_id ?? "") === selectedEdgeSourceId) ?? null;
+  const selectedEdgeTargetNode = activeGraphNodes.find((node) => String(node.node_id ?? "") === selectedEdgeTargetId) ?? null;
+  const selectedEdgePreview = edgeA2APreview({
+    catalog: a2aCatalog,
+    coordinationDraft,
+    edge: selectedGraphEdge,
+    protocolDraft,
+    sourceNode: selectedEdgeSourceNode,
+    targetNode: selectedEdgeTargetNode,
+  });
+  const selectedNodeCard = agentCardForNode(selectedGraphNode, a2aCatalog);
+
   return (
     <>
       {!selectedGraphNode && !selectedGraphEdge ? (
@@ -509,12 +595,26 @@ function CoordinationInspectorPanel({
           </section>
 
           <section className="boundary-inspector-block">
-            <header><strong>拓扑与协议</strong></header>
+            <header><strong>拓扑策略</strong></header>
             <TaskSystemField label="拓扑标题"><input value={topologyDraft.title} onChange={(event) => setTopologyDraft((value) => ({ ...value, title: event.target.value }))} /></TaskSystemField>
             <TaskSystemSelectField label="汇合策略" onChange={(value) => setTopologyDraft((current) => ({ ...current, join_policy: value }))} options={["explicit_join", "coordinator_join", "sequential_join"]} value={topologyDraft.join_policy} formatOption={taskSystemOptionLabel} />
             <TaskSystemSelectField label="失败策略" onChange={(value) => setTopologyDraft((current) => ({ ...current, failure_policy: value }))} options={["fail_closed", "retry_once", "coordinator_decides"]} value={topologyDraft.failure_policy} formatOption={taskSystemOptionLabel} />
             <TaskSystemSelectField label="终止策略" onChange={(value) => setTopologyDraft((current) => ({ ...current, terminal_policy: value }))} options={["coordinator_terminal", "all_nodes_complete", "manual_close"]} value={topologyDraft.terminal_policy} formatOption={taskSystemOptionLabel} />
-            <TaskSystemField label="协议标题"><input value={protocolDraft.title} onChange={(event) => setProtocolDraft((value) => ({ ...value, title: event.target.value }))} /></TaskSystemField>
+          </section>
+
+          <section className="boundary-inspector-block">
+            <header>
+              <strong>官方 A2A 通信层</strong>
+              <span>{a2aCatalog?.protocol_locked ? "已锁定" : "未加载"}</span>
+            </header>
+            <div className="boundary-kv">
+              <p><span>协议版本</span><strong>{a2aCatalog?.protocol_version || "0.3.0"}</strong></p>
+              <p><span>传输</span><strong>{a2aCatalog?.transport || "JSONRPC"}</strong></p>
+              <p><span>Agent Card</span><strong>{a2aCatalog?.agent_cards?.length ?? 0}</strong></p>
+              <p><span>消息类型</span><strong>{(a2aCatalog?.message_types ?? ["message/send"]).join(" / ")}</strong></p>
+              <p><span>Part 类型</span><strong>{(a2aCatalog?.part_types ?? DEFAULT_A2A_PART_TYPES).join(" / ")}</strong></p>
+            </div>
+            <TaskSystemField label="映射标题"><input value={protocolDraft.title} onChange={(event) => setProtocolDraft((value) => ({ ...value, title: event.target.value }))} /></TaskSystemField>
             <TaskSystemSelectField label="确认策略" onChange={(value) => setProtocolDraft((current) => ({ ...current, ack_policy: value }))} options={["explicit_ack", "implicit_ack"]} value={protocolDraft.ack_policy} formatOption={taskSystemOptionLabel} />
             <TaskSystemSelectField label="超时策略" onChange={(value) => setProtocolDraft((current) => ({ ...current, timeout_policy: value }))} options={["fail_closed", "retry_once", "escalate_to_coordinator"]} value={protocolDraft.timeout_policy} formatOption={taskSystemOptionLabel} />
             <TaskSystemSelectField label="错误信号" onChange={(value) => setProtocolDraft((current) => ({ ...current, error_signal_policy: value }))} options={["raise_to_coordinator", "return_to_sender", "halt_chain"]} value={protocolDraft.error_signal_policy} formatOption={taskSystemOptionLabel} />
@@ -554,6 +654,10 @@ function CoordinationInspectorPanel({
           />
           <TaskSystemSelectField label="角色" onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { role: value })} options={["coordinator", "participant", "reviewer", "writer", "acceptance"]} value={String(selectedGraphNode.role ?? "participant")} formatOption={taskSystemOptionLabel} />
           <TaskSystemField label="Agent"><input value={String(selectedGraphNode.agent_id ?? "")} onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { agent_id: event.target.value })} /></TaskSystemField>
+          <div className="boundary-kv">
+            <p><span>A2A Card</span><strong>{String(selectedNodeCard?.name ?? "未匹配")}</strong></p>
+            <p><span>能力数</span><strong>{Array.isArray(selectedNodeCard?.skills) ? selectedNodeCard.skills.length : 0}</strong></p>
+          </div>
           {String(selectedGraphNode.role ?? "") !== "coordinator" ? (
             <TaskSystemToolbarButton onClick={() => removeCoordinationNode(String(selectedGraphNode.node_id ?? ""))}><Trash2 size={14} />删除节点</TaskSystemToolbarButton>
           ) : null}
@@ -566,6 +670,21 @@ function CoordinationInspectorPanel({
           <TaskSystemSelectField label="起点" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { from: value, source_node_id: value })} options={activeGraphNodes.map((node) => String(node.node_id ?? ""))} value={graphEdgeSource(selectedGraphEdge)} formatOption={(value) => value} />
           <TaskSystemSelectField label="终点" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { to: value, target_node_id: value })} options={activeGraphNodes.map((node) => String(node.node_id ?? ""))} value={graphEdgeTarget(selectedGraphEdge)} formatOption={(value) => value} />
           <TaskSystemSelectField label="通信模式" onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { mode: value })} options={GRAPH_EDGE_MODE_CHOICES} value={String(selectedGraphEdge.mode ?? "structured_handoff")} formatOption={taskSystemOptionLabel} />
+          {selectedEdgePreview ? (
+            <>
+              <div className="boundary-kv">
+                <p><span>A2A 类型</span><strong>{selectedEdgePreview.message_type}</strong></p>
+                <p><span>传输</span><strong>{selectedEdgePreview.transport}</strong></p>
+                <p><span>源 Agent</span><strong>{selectedEdgePreview.source_agent_id || "未绑定"}</strong></p>
+                <p><span>目标 Agent</span><strong>{selectedEdgePreview.target_agent_id || "未绑定"}</strong></p>
+                <p><span>Part</span><strong>{selectedEdgePreview.part_types.join(" / ")}</strong></p>
+                <p><span>契约</span><strong>{selectedEdgePreview.payload_contracts.length ? selectedEdgePreview.payload_contracts.join(" / ") : "未配置"}</strong></p>
+              </div>
+              <TaskSystemField label="A2A Message 预览" wide>
+                <textarea readOnly value={toPrettyJson(selectedEdgePreview)} />
+              </TaskSystemField>
+            </>
+          ) : null}
           <TaskSystemToolbarButton onClick={() => reverseCoordinationEdge(graphEdgeId(selectedGraphEdge))}><RotateCcw size={14} />反转方向</TaskSystemToolbarButton>
           <TaskSystemToolbarButton onClick={() => removeCoordinationEdge(graphEdgeId(selectedGraphEdge))}><Trash2 size={14} />删除通信</TaskSystemToolbarButton>
         </section>
@@ -635,6 +754,7 @@ export function CoordinationEditorWorkbench({
   updateCoordinationNode,
   updateCoordinationEdge,
   selectedCoordinationGraphSpec,
+  a2aCatalog,
 }: {
   selectedDomain: DomainRecordLike | null;
   coordinationTasks: CoordinationTask[];
@@ -687,6 +807,7 @@ export function CoordinationEditorWorkbench({
   updateCoordinationNode: (nodeId: string, patch: Record<string, unknown>) => void;
   updateCoordinationEdge: (edgeId: string, patch: Record<string, unknown>) => void;
   selectedCoordinationGraphSpec: CoordinationGraphSpec | null;
+  a2aCatalog: A2ACatalogLike | null;
 }) {
   const communicationLabel = (coordinationDraft.communication_modes ?? []).length
     ? (coordinationDraft.communication_modes ?? []).slice(0, 3).join(" / ")
@@ -760,9 +881,9 @@ export function CoordinationEditorWorkbench({
             <small>运行时从该组分派执行主体。</small>
           </article>
           <article className="coordination-editor-meta-card">
-            <span>通信模式</span>
-            <strong>{communicationLabel}</strong>
-            <small>图上边的默认语义来源于这里。</small>
+            <span>官方 A2A</span>
+            <strong>{a2aCatalog?.transport || "JSONRPC"} · {a2aCatalog?.protocol_version || "0.3.0"}</strong>
+            <small>{a2aCatalog?.protocol_locked ? "通信协议固定，图上边只配置业务语义。" : "等待后端 A2A catalog。"}</small>
           </article>
           <article className="coordination-editor-meta-card">
             <span>图规模</span>
@@ -848,6 +969,7 @@ export function CoordinationEditorWorkbench({
               topologyDraft={topologyDraft}
               updateCoordinationEdge={updateCoordinationEdge}
               updateCoordinationNode={updateCoordinationNode}
+              a2aCatalog={a2aCatalog}
             />
           </aside>
         </div>

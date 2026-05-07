@@ -9,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 
 from tasks.coordination_graph_compiler import compile_coordination_graph_spec
 
+from .a2a_stage_payload import build_stage_execution_a2a_payload
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs
 from .continuation_inputs import ContinuationInputBinder
 from .continuation_policy import (
@@ -45,6 +46,7 @@ class CoordinationRuntimeState(TypedDict, total=False):
     final_result_ref: str
     current_event: dict[str, Any]
     stage_execution_request: dict[str, Any]
+    a2a_payload: dict[str, Any]
     diagnostics: dict[str, Any]
 
 
@@ -67,6 +69,7 @@ class LangGraphCoordinationRuntimeResult:
             "coordination_run_id": request.coordination_run_id,
             "continuation_stage_id": request.stage_id,
             "stage_execution_request": request.to_dict(),
+            "a2a_payload": dict(request.a2a_payload),
             "explicit_inputs": dict(request.explicit_inputs),
         }
         return {
@@ -80,6 +83,7 @@ class LangGraphCoordinationRuntimeResult:
             "current_turn_context": turn_context,
             "message": request.message,
             "stage_execution_request": request.to_dict(),
+            "a2a_payload": dict(request.a2a_payload),
             "suppress_done": True,
         }
 
@@ -296,6 +300,7 @@ class LangGraphCoordinationRuntime:
             "artifact_refs": artifact_payloads,
             "final_result_ref": str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
             "stage_execution_request": {},
+            "a2a_payload": {},
             "diagnostics": {**dict(state.get("diagnostics") or {}), "last_accepted_stage_id": stage_id},
         }
 
@@ -374,6 +379,34 @@ class LangGraphCoordinationRuntime:
     def _stage_execute(state: CoordinationRuntimeState) -> dict[str, Any]:
         stage_id = str(state.get("active_stage_id") or "").strip()
         contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
+        explicit_inputs = dict(state.get("pending_inputs") or {})
+        current_event = dict(state.get("current_event") or {})
+        source_stage_id = str(current_event.get("stage_id") or "").strip()
+        diagnostics = dict(state.get("diagnostics") or {})
+        a2a_runtime = dict(diagnostics.get("a2a_runtime") or {})
+        protocol_id = str(a2a_runtime.get("protocol_id") or diagnostics.get("communication_protocol_id") or "")
+        message_type = str(contract.get("a2a_message_type") or a2a_runtime.get("default_message_type") or "message/send")
+        payload_contracts = [
+            str(item)
+            for item in list(contract.get("payload_contracts") or a2a_runtime.get("payload_contracts") or [])
+            if str(item)
+        ]
+        a2a_payload = build_stage_execution_a2a_payload(
+            coordination_run_id=str(state.get("coordination_run_id") or ""),
+            root_task_run_id=str(state.get("root_task_run_id") or ""),
+            stage_id=stage_id,
+            node_id=str(contract.get("node_id") or stage_id),
+            task_ref=str(contract.get("task_ref") or state.get("active_task_ref") or ""),
+            agent_id=str(contract.get("agent_id") or ""),
+            source_stage_id=source_stage_id,
+            source_agent_id=str(dict(dict(state.get("stage_contracts") or {}).get(source_stage_id) or {}).get("agent_id") or ""),
+            protocol_id=protocol_id,
+            message_type=message_type,
+            explicit_inputs=explicit_inputs,
+            payload_contracts=payload_contracts,
+            ack_policy=str(a2a_runtime.get("ack_policy") or "explicit_ack"),
+            handoff_policy=str(a2a_runtime.get("handoff_policy") or ""),
+        )
         request = StageExecutionRequest(
             request_id="",
             coordination_run_id=str(state.get("coordination_run_id") or ""),
@@ -384,22 +417,24 @@ class LangGraphCoordinationRuntime:
             task_ref=str(contract.get("task_ref") or state.get("active_task_ref") or ""),
             agent_id=str(contract.get("agent_id") or ""),
             runtime_lane=str(contract.get("runtime_lane") or ""),
-            explicit_inputs=dict(state.get("pending_inputs") or {}),
-            artifact_root=str(dict(state.get("pending_inputs") or {}).get("artifact_root") or ""),
+            explicit_inputs=explicit_inputs,
+            a2a_payload=a2a_payload,
+            artifact_root=str(explicit_inputs.get("artifact_root") or ""),
             expected_outputs=tuple(dict(item) for item in list(contract.get("output_mappings") or []) if isinstance(item, dict)),
         )
         return {
             "stage_execution_request": request.to_dict(),
+            "a2a_payload": a2a_payload,
             "terminal_status": "",
         }
 
     @staticmethod
     def _blocked(state: CoordinationRuntimeState) -> dict[str, Any]:
-        return {"terminal_status": "blocked", "stage_execution_request": {}}
+        return {"terminal_status": "blocked", "stage_execution_request": {}, "a2a_payload": {}}
 
     @staticmethod
     def _complete(state: CoordinationRuntimeState) -> dict[str, Any]:
-        return {"terminal_status": "completed", "stage_execution_request": {}}
+        return {"terminal_status": "completed", "stage_execution_request": {}, "a2a_payload": {}}
 
     @staticmethod
     def _route_after_next(state: CoordinationRuntimeState) -> str:
@@ -468,8 +503,20 @@ class LangGraphCoordinationRuntime:
             "final_result_ref": "",
             "current_event": {},
             "stage_execution_request": {},
+            "a2a_payload": {},
             "diagnostics": {
                 "coordination_engine": "langgraph_runtime",
+                "communication_protocol_id": coordination_run.communication_protocol_id,
+                "a2a_runtime": {
+                    "protocol": "official",
+                    "protocol_version": "0.3.0",
+                    "transport": "JSONRPC",
+                    "protocol_id": coordination_run.communication_protocol_id,
+                    "default_message_type": "message/send",
+                    "payload_contracts": list(getattr(communication_protocol, "payload_contracts", ()) or []),
+                    "ack_policy": str(getattr(communication_protocol, "ack_policy", "") or "explicit_ack"),
+                    "handoff_policy": str(coordination_run.handoff_policy or ""),
+                },
                 "coordination_graph_spec": graph_spec.to_dict(),
                 "stage_contract_issues": issues,
                 "continuation_policy": CoordinationContinuationPolicy.from_metadata(

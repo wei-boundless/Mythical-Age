@@ -21,6 +21,17 @@ from .coordination_flow import (
     finalize_coordination_flow_state,
     summarize_coordination_flow,
 )
+from .contract_compiler import compile_coordination_contract_manifest, compile_workflow_contract_manifest
+from .contract_compiler_models import (
+    CompiledAcceptanceContract,
+    CompiledEdgeHandoffContract,
+    CompiledGlobalContract,
+    CompiledNodeContract,
+    CompiledRuntimeContract,
+    CompiledWorkflowContract,
+    ContractCompileIssue,
+    ContractManifest,
+)
 from .event_log import RuntimeEventLog
 from .events import RuntimeEvent, RuntimeEventType
 from .execution_record import (
@@ -73,6 +84,14 @@ __all__ = [
     "RuntimeContextObservationRecord",
     "RuntimeContextSnapshot",
     "RuntimeEvent",
+    "ContractCompileIssue",
+    "ContractManifest",
+    "CompiledGlobalContract",
+    "CompiledWorkflowContract",
+    "CompiledNodeContract",
+    "CompiledEdgeHandoffContract",
+    "CompiledRuntimeContract",
+    "CompiledAcceptanceContract",
     "RuntimeEventLog",
     "RuntimeEventType",
     "RuntimeLoopState",
@@ -98,6 +117,8 @@ __all__ = [
     "WorkerAgentSpawnRequest",
     "WorkerAgentSpawnResult",
     "build_executor_error_observation",
+    "compile_workflow_contract_manifest",
+    "compile_coordination_contract_manifest",
     "build_coordination_flow_state",
     "build_execution_receipt",
     "build_idempotency_token",
