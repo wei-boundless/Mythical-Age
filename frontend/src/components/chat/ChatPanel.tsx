@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, MessagesSquare, Network, Workflow } from "lucide-react";
+import { MessageSquare, Network } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
@@ -10,7 +10,6 @@ import { SoulPortrait } from "@/components/soul/SoulPortrait";
 import { useAppStore } from "@/lib/store";
 
 type ChatPage = "conversation" | "monitor";
-type MonitorMode = "flow" | "communication";
 
 function tokenMetricLabel(tokenStats: {
   total_tokens: number;
@@ -38,7 +37,6 @@ export function ChatPanel() {
   const endRef = useRef<HTMLDivElement | null>(null);
   const coordinationWasActiveRef = useRef(false);
   const [activePage, setActivePage] = useState<ChatPage>("conversation");
-  const [monitorMode, setMonitorMode] = useState<MonitorMode>("flow");
   const activeSoul =
     soulOptions.find((soul) => soul.key === activeSoulKey) ?? soulOptions[0] ?? null;
   const coordinationActive = hasCoordinationSignal(orchestrationSnapshot);
@@ -52,7 +50,6 @@ export function ChatPanel() {
   useEffect(() => {
     if (isStreaming && coordinationActive) {
       setActivePage("monitor");
-      setMonitorMode("flow");
     }
   }, [isStreaming, coordinationActive]);
 
@@ -60,7 +57,6 @@ export function ChatPanel() {
     const justActivated = coordinationActive && !coordinationWasActiveRef.current;
     if (justActivated) {
       setActivePage("monitor");
-      setMonitorMode("flow");
     }
     coordinationWasActiveRef.current = coordinationActive;
   }, [coordinationActive]);
@@ -128,25 +124,7 @@ export function ChatPanel() {
         ) : (
           <div className="chat-run-page">
             <div className="chat-monitor-stage">
-              <div className="chat-monitor-stage__switch" aria-label="协调监控视图">
-                <button
-                  className={monitorMode === "flow" ? "chat-monitor-stage__switch-item chat-monitor-stage__switch-item--active" : "chat-monitor-stage__switch-item"}
-                  onClick={() => setMonitorMode("flow")}
-                  type="button"
-                >
-                  <Workflow size={16} />
-                  流程
-                </button>
-                <button
-                  className={monitorMode === "communication" ? "chat-monitor-stage__switch-item chat-monitor-stage__switch-item--active" : "chat-monitor-stage__switch-item"}
-                  onClick={() => setMonitorMode("communication")}
-                  type="button"
-                >
-                  <MessagesSquare size={16} />
-                  通信
-                </button>
-              </div>
-              <CoordinationRunPanel mode={monitorMode} snapshot={orchestrationSnapshot} />
+              <CoordinationRunPanel snapshot={orchestrationSnapshot} />
             </div>
           </div>
         )}

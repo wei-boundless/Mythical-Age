@@ -7,20 +7,20 @@ import {
 } from "lucide-react";
 import { useMemo } from "react";
 
+import {
+  CoordinationTopologyGraph,
+  type CoordinationTopologyEdge,
+  type CoordinationTopologyNode,
+} from "@/components/coordination/CoordinationTopologyGraph";
 import type { OrchestrationEvent, OrchestrationSnapshot } from "@/lib/api";
 
-type CoordinationNode = {
-  id: string;
-  title: string;
+type CoordinationNode = CoordinationTopologyNode & {
   role: string;
   agentLabel: string;
   status: string;
 };
 
-type CoordinationEdge = {
-  id: string;
-  from: string;
-  to: string;
+type CoordinationEdge = CoordinationTopologyEdge & {
   label: string;
   status: string;
 };
@@ -64,24 +64,6 @@ type CoordinationModel = {
   agents: CoordinationAgent[];
   artifacts: CoordinationArtifact[];
   outputs: CoordinationOutput[];
-};
-
-type TopologyNodeLayout = CoordinationNode & {
-  x: number;
-  y: number;
-  shortLabel: string;
-};
-
-type TopologyEdgeLayout = CoordinationEdge & {
-  path: string;
-  current: boolean;
-};
-
-type TopologyLayout = {
-  width: number;
-  height: number;
-  nodes: TopologyNodeLayout[];
-  edges: TopologyEdgeLayout[];
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -337,19 +319,6 @@ function statusLabel(status: string) {
   return status || "待执行";
 }
 
-function statusClass(status: string) {
-  if (status === "completed" || status === "success") {
-    return "is-complete";
-  }
-  if (status === "running") {
-    return "is-running";
-  }
-  if (status === "failed") {
-    return "is-failed";
-  }
-  return "is-idle";
-}
-
 function compactTaskLabel(value: string) {
   const labels: Record<string, string> = {
     "coord.writing.chapter_pipeline": "写作域：长篇章节协调任务",
@@ -365,81 +334,6 @@ function compactTaskLabel(value: string) {
     langgraph: "LangGraph"
   };
   return labels[value] ?? value;
-}
-
-function shortNodeGlyph(label: string) {
-  const compact = label.replace(/\s+/g, "");
-  return compact.slice(0, Math.min(2, compact.length)) || "A";
-}
-
-function buildTopologyLayout(model: CoordinationModel): TopologyLayout {
-  const nodes = model.nodes;
-  if (!nodes.length) {
-    return {
-      width: 760,
-      height: 320,
-      nodes: [],
-      edges: [],
-    };
-  }
-
-  const nodeCount = nodes.length;
-  const columns = nodeCount <= 4 ? nodeCount : Math.min(4, Math.ceil(nodeCount / 2));
-  const rows = Math.ceil(nodeCount / columns);
-  const xGap = 220;
-  const yGap = 210;
-  const sidePadding = 120;
-  const topPadding = 120;
-  const bottomPadding = 120;
-  const width = Math.max(760, sidePadding * 2 + Math.max(columns - 1, 0) * xGap);
-  const height = Math.max(300, topPadding + bottomPadding + Math.max(rows - 1, 0) * yGap);
-  const positioned = new Map<string, TopologyNodeLayout>();
-
-  for (let row = 0; row < rows; row += 1) {
-    const rowStart = row * columns;
-    const remaining = nodeCount - rowStart;
-    const rowCount = Math.min(columns, remaining);
-    for (let offset = 0; offset < rowCount; offset += 1) {
-      const index = rowStart + offset;
-      const visualColumn = row % 2 === 0 ? offset : rowCount - 1 - offset;
-      const centeringOffset = (columns - rowCount) / 2;
-      const x = sidePadding + (visualColumn + centeringOffset) * xGap;
-      const y = topPadding + row * yGap;
-      const node = nodes[index];
-      positioned.set(node.id, {
-        ...node,
-        x,
-        y,
-        shortLabel: shortNodeGlyph(node.agentLabel || node.title),
-      });
-    }
-  }
-
-  const edgeLayouts = model.edges
-    .map((edge): TopologyEdgeLayout | null => {
-      const from = positioned.get(edge.from);
-      const to = positioned.get(edge.to);
-      if (!from || !to) {
-        return null;
-      }
-      const middleX = (from.x + to.x) / 2;
-      return {
-        ...edge,
-        current:
-          `${edge.from}->${edge.to}` === model.currentHandoffKey
-          || edge.from === model.currentNodeId
-          || edge.to === model.currentNodeId,
-        path: `M ${from.x} ${from.y} C ${middleX} ${from.y}, ${middleX} ${to.y}, ${to.x} ${to.y}`,
-      };
-    })
-    .filter((edge): edge is TopologyEdgeLayout => Boolean(edge));
-
-  return {
-    width,
-    height,
-    nodes: Array.from(positioned.values()),
-    edges: edgeLayouts,
-  };
 }
 
 function pushArtifact(bucket: CoordinationArtifact[], seen: Set<string>, path: string, kind: string, label = "") {
@@ -785,16 +679,15 @@ export function hasCoordinationSignal(snapshot: OrchestrationSnapshot | null) {
 }
 
 export function CoordinationRunPanel({
-  mode,
   snapshot
 }: {
-  mode: "flow" | "communication";
   snapshot: OrchestrationSnapshot | null;
 }) {
   const model = useMemo(() => buildModel(snapshot), [snapshot]);
-  const topology = useMemo(() => buildTopologyLayout(model), [model]);
   const currentNode = model.nodes.find((node) => node.id === model.currentNodeId) ?? null;
   const currentAgent = model.agents.find((agent) => agent.key === model.currentAgentKey) ?? null;
+  const activeLabel = currentAgent ? currentAgent.label : currentNode ? (currentNode.agentLabel || currentNode.title) : "等待分派";
+  const activeStatus = currentNode ? statusLabel(currentNode.status) : "待启动";
 
   if (!model.hasSignal) {
     return (
@@ -812,73 +705,37 @@ export function CoordinationRunPanel({
           <span>协调监控</span>
           <h2>{model.title}</h2>
         </div>
-        <div className="coordination-session__signal">
-          <span>{mode === "communication" ? "当前通信" : "当前工作"}</span>
-          <strong>{currentAgent ? currentAgent.label : currentNode ? (currentNode.agentLabel || currentNode.title) : "等待分派"}</strong>
-          <em>{currentNode ? `${currentNode.title} · ${statusLabel(currentNode.status)}` : "尚未进入执行节点"}</em>
+        <div className="coordination-session__statusbar" aria-label="当前协调状态">
+          <article className="coordination-session__statuspill">
+            <span>状态</span>
+            <strong>协调运行中</strong>
+          </article>
+          <article className="coordination-session__statuspill coordination-session__statuspill--active">
+            <span>当前 Agent</span>
+            <strong>{activeLabel}</strong>
+          </article>
+          <article className="coordination-session__statuspill">
+            <span>当前节点</span>
+            <strong>{currentNode ? currentNode.title : "等待节点"}</strong>
+            <em>{activeStatus}</em>
+          </article>
         </div>
       </header>
 
       <section className="coordination-topology-shell" aria-label="协调任务拓扑">
         <div className="coordination-topology-shell__head">
-          <span>{mode === "communication" ? "通信拓扑" : "执行拓扑"}</span>
-          <p className="coordination-topology-shell__hint">球点表示 Agent，发光高亮表示当前正在工作</p>
+          <span>执行拓扑</span>
+          <p className="coordination-topology-shell__hint">球点代表 Agent，发光节点表示当前正在工作</p>
         </div>
         <div className="coordination-topology-viewport">
-          {topology.nodes.length ? (
-            <svg viewBox={`0 0 ${topology.width} ${topology.height}`} aria-label="协调任务拓扑图" role="img">
-              <defs>
-                <filter id="coordination-node-glow" x="-120%" y="-120%" width="340%" height="340%">
-                  <feGaussianBlur stdDeviation="10" result="blur" />
-                  <feMerge>
-                    <feMergeNode in="blur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-              <g>
-                {topology.edges.map((edge) => (
-                  <path
-                    key={edge.id}
-                    className={`coordination-topology-edge ${statusClass(edge.status)} ${edge.current ? "is-current" : ""}`}
-                    d={edge.path}
-                  />
-                ))}
-              </g>
-              <g>
-                {topology.nodes.map((node) => {
-                  const current = node.id === model.currentNodeId;
-                  return (
-                    <g key={node.id} transform={`translate(${node.x}, ${node.y})`}>
-                      <text className={`coordination-topology-agent-label ${current ? "is-current" : ""}`} textAnchor="middle" x="0" y="-56">
-                        {node.agentLabel || node.title}
-                      </text>
-                      <circle
-                        className={`coordination-topology-node-halo ${statusClass(node.status)} ${current ? "is-current" : ""}`}
-                        cx="0"
-                        cy="0"
-                        filter={current ? "url(#coordination-node-glow)" : undefined}
-                        r="30"
-                      />
-                      <circle className={`coordination-topology-node-surface ${statusClass(node.status)} ${current ? "is-current" : ""}`} cx="0" cy="0" r="20" />
-                      <text className="coordination-topology-node-glyph" textAnchor="middle" x="0" y="5">
-                        {node.shortLabel}
-                      </text>
-                      <text className={`coordination-topology-node-title ${current ? "is-current" : ""}`} textAnchor="middle" x="0" y="52">
-                        {node.title}
-                      </text>
-                    </g>
-                  );
-                })}
-              </g>
-            </svg>
-          ) : (
-            <div className="coordination-topology-empty">
-              <Network size={18} />
-              <strong>协调任务已启动，正在等待拓扑数据</strong>
-              <p>当前会话已经进入协调态，节点与交接关系会在后续运行事件到达后显示。</p>
-            </div>
-          )}
+          <CoordinationTopologyGraph
+            currentHandoffKey={model.currentHandoffKey}
+            currentNodeId={model.currentNodeId}
+            edges={model.edges}
+            emptyDescription="当前会话已经进入协调态，节点与交接关系会在后续运行事件到达后显示。"
+            emptyTitle="协调任务已启动，正在等待拓扑数据"
+            nodes={model.nodes}
+          />
         </div>
       </section>
 
@@ -891,7 +748,9 @@ export function CoordinationRunPanel({
           <div className="coordination-output-list">
             {model.outputs.length ? model.outputs.map((output) => (
               <article className="coordination-output-item" key={output.key}>
-                <strong>{output.label}</strong>
+                <div className="coordination-output-item__meta">
+                  <strong>{output.label}</strong>
+                </div>
                 <pre>{output.content}</pre>
               </article>
             )) : <p>当前还没有检测到可展示的流式内容或最终输出。</p>}
@@ -906,8 +765,10 @@ export function CoordinationRunPanel({
           <div className="coordination-output-list">
             {model.artifacts.length ? model.artifacts.slice(0, 10).map((artifact) => (
               <article className="coordination-output-item coordination-output-item--artifact" key={artifact.key}>
-                <strong>{artifact.label}</strong>
-                <span>{artifact.kind}</span>
+                <div className="coordination-output-item__meta">
+                  <strong>{artifact.label}</strong>
+                  <span>{artifact.kind}</span>
+                </div>
                 <em>{artifact.path}</em>
               </article>
             )) : <p>当前还没有检测到文件产物或路径引用。</p>}
