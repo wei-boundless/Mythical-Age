@@ -39,6 +39,15 @@ __all__ = [
     "MemoryWritebackBuilderService",
     "MemoryWriteCandidate",
     "MemoryWritebackService",
+    "WorkingMemoryHandoffTransaction",
+    "WorkingMemoryItem",
+    "WorkingMemoryPolicyProfile",
+    "WorkingMemoryQuery",
+    "WorkingMemoryReadLog",
+    "WorkingMemoryPolicyDenied",
+    "WorkingMemoryService",
+    "WorkingMemoryStore",
+    "WorkingMemoryTemporalEdge",
     "DurableMemoryGovernanceService",
     "SessionMemoryLayer",
     "StateMemoryFileRef",
@@ -53,6 +62,11 @@ __all__ = [
     "ProcessState",
     "SessionMemoryManager",
     "TaskState",
+    "TaskDurableMemoryItem",
+    "TaskDurableMemoryNamespace",
+    "TaskDurableMemoryQuery",
+    "TaskDurableMemoryService",
+    "TaskDurableMemoryStore",
     "TurnUnderstanding",
     "build_blocked_memory_gate",
     "build_memory_compaction_result",
@@ -270,6 +284,66 @@ def __getattr__(name: str):
         from .state_memory import StateMemoryStoreAdapter
 
         return StateMemoryStoreAdapter
+    if name in {"TaskDurableMemoryItem", "TaskDurableMemoryNamespace", "TaskDurableMemoryQuery"}:
+        from .task_durable_memory_models import (
+            TaskDurableMemoryItem,
+            TaskDurableMemoryNamespace,
+            TaskDurableMemoryQuery,
+        )
+
+        return {
+            "TaskDurableMemoryItem": TaskDurableMemoryItem,
+            "TaskDurableMemoryNamespace": TaskDurableMemoryNamespace,
+            "TaskDurableMemoryQuery": TaskDurableMemoryQuery,
+        }[name]
+    if name in {"TaskDurableMemoryService"}:
+        from .task_durable_memory_service import TaskDurableMemoryService
+
+        return TaskDurableMemoryService
+    if name in {"TaskDurableMemoryStore"}:
+        from .task_durable_memory_store import TaskDurableMemoryStore
+
+        return TaskDurableMemoryStore
+    if name in {
+        "WorkingMemoryHandoffTransaction",
+        "WorkingMemoryItem",
+        "WorkingMemoryPolicyProfile",
+        "WorkingMemoryQuery",
+        "WorkingMemoryReadLog",
+        "WorkingMemoryTemporalEdge",
+    }:
+        from .working_memory_models import (
+            WorkingMemoryHandoffTransaction,
+            WorkingMemoryItem,
+            WorkingMemoryPolicyProfile,
+            WorkingMemoryQuery,
+            WorkingMemoryReadLog,
+            WorkingMemoryTemporalEdge,
+        )
+
+        return {
+            "WorkingMemoryHandoffTransaction": WorkingMemoryHandoffTransaction,
+            "WorkingMemoryItem": WorkingMemoryItem,
+            "WorkingMemoryPolicyProfile": WorkingMemoryPolicyProfile,
+            "WorkingMemoryQuery": WorkingMemoryQuery,
+            "WorkingMemoryReadLog": WorkingMemoryReadLog,
+            "WorkingMemoryTemporalEdge": WorkingMemoryTemporalEdge,
+        }[name]
+    if name in {"WorkingMemoryPolicyDenied", "WorkingMemoryService"}:
+        from .working_memory_service import WorkingMemoryPolicyDenied, WorkingMemoryService
+
+        return {"WorkingMemoryPolicyDenied": WorkingMemoryPolicyDenied, "WorkingMemoryService": WorkingMemoryService}[name]
+    if name in {"WorkingMemoryFinalizer", "WorkingMemoryFinalizationResult"}:
+        from .working_memory_finalizer import WorkingMemoryFinalizationResult, WorkingMemoryFinalizer
+
+        return {
+            "WorkingMemoryFinalizer": WorkingMemoryFinalizer,
+            "WorkingMemoryFinalizationResult": WorkingMemoryFinalizationResult,
+        }[name]
+    if name in {"WorkingMemoryStore"}:
+        from .working_memory_store import WorkingMemoryStore
+
+        return WorkingMemoryStore
     if name in {"load_static_context"}:
         from .static_loader import load_static_context
 

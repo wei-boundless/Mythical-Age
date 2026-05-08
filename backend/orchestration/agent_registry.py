@@ -47,7 +47,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=False,
             default_soul_id="",
             default_projection_id="",
-            task_scope=("general_task", "final_integration"),
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "main_conversation_entry", "system_key": "task_system", "slot_index": 0},
@@ -63,7 +62,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=False,
             default_soul_id="siyue",
             default_projection_id="siyue__primary",
-            task_scope=("permission_management",),
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "system_key": "permission_system", "slot_index": 1},
@@ -79,7 +77,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=False,
             default_soul_id="hebo",
             default_projection_id="hebo__primary",
-            task_scope=("memory_management",),
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "system_key": "memory_system", "slot_index": 2},
@@ -95,7 +92,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=False,
             default_soul_id="xuannv",
             default_projection_id="xuannv__primary",
-            task_scope=("health_management", "health_issue_triage"),
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "system_key": "health_system", "slot_index": 3},
@@ -111,7 +107,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=False,
             default_soul_id="zhurong",
             default_projection_id="zhurong__primary",
-            task_scope=("capability_management", "execution_management"),
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "system_key": "capability_system", "slot_index": 4},
@@ -127,7 +122,6 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             editable=False,
             default_soul_id="goumang",
             default_projection_id="goumang__primary",
-            task_scope=("soul_management", "projection_management"),
             created_at=timestamp,
             updated_at=timestamp,
             metadata={"role": "system_manager", "system_key": "soul_system", "slot_index": 5},
@@ -206,7 +200,6 @@ class AgentRegistry:
         editable: bool | None = None,
         default_soul_id: str = "",
         default_projection_id: str = "",
-        task_scope: tuple[str, ...] | list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         owner_system: str | None = None,
         governance_status: str | None = None,
@@ -233,7 +226,6 @@ class AgentRegistry:
                 enabled=enabled,
                 lifecycle_state=lifecycle_state,
                 editable=editable,
-                task_scope=task_scope,
                 metadata=metadata,
             ):
                 raise PermissionError("system builtin agent is locked")
@@ -243,7 +235,6 @@ class AgentRegistry:
         current_description = current.description if current is not None else ""
         current_editable = current.editable if current is not None else True
         current_metadata = dict(current.metadata) if current is not None else {}
-        resolved_task_scope = task_scope if task_scope is not None else (current.task_scope if current is not None else ())
         if current is not None and current.builtin:
             normalized_category = current.agent_category
         normalized_enabled = bool(enabled if enabled is not None else lifecycle_state != "disabled")
@@ -269,7 +260,6 @@ class AgentRegistry:
             editable=bool(editable if editable is not None else current_editable),
             default_soul_id=normalized_soul_id,
             default_projection_id=normalized_projection_id,
-            task_scope=tuple(str(item).strip() for item in resolved_task_scope if str(item).strip()),
             created_at=current.created_at if current is not None else timestamp,
             updated_at=timestamp,
             metadata=dict(metadata or current_metadata),
@@ -406,7 +396,6 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "editable": bool(payload.get("editable", not bool(payload.get("builtin", str(payload.get("lifecycle_state") or "") == "system_builtin")))),
         "default_soul_id": normalized_soul_id,
         "default_projection_id": normalized_projection_id,
-        "task_scope": list(payload.get("task_scope") or []),
         "created_at": float(payload.get("created_at") or 0.0),
         "updated_at": float(payload.get("updated_at") or 0.0),
         "metadata": {
@@ -442,7 +431,6 @@ def _agent_from_dict(payload: dict[str, Any]) -> AgentDescriptor:
         editable=bool(payload.get("editable", True)),
         default_soul_id=str(payload.get("default_soul_id") or ""),
         default_projection_id=str(payload.get("default_projection_id") or ""),
-        task_scope=tuple(str(item) for item in list(payload.get("task_scope") or []) if str(item)),
         created_at=float(payload.get("created_at") or 0.0),
         updated_at=float(payload.get("updated_at") or 0.0),
         metadata=dict(payload.get("metadata") or {}),
@@ -484,7 +472,6 @@ def _builtin_mutation_attempted(
     enabled: bool | None,
     lifecycle_state: str | None,
     editable: bool | None,
-    task_scope: tuple[str, ...] | list[str] | None,
     metadata: dict[str, Any] | None,
 ) -> bool:
     requested_name = str(agent_name or display_name or current.agent_name).strip()
@@ -493,11 +480,6 @@ def _builtin_mutation_attempted(
     requested_description = str(description or current.description).strip()
     requested_enabled = bool(enabled if enabled is not None else lifecycle_state != "disabled")
     requested_editable = bool(editable if editable is not None else current.editable)
-    requested_scope = (
-        tuple(str(item).strip() for item in task_scope if str(item).strip())
-        if task_scope is not None
-        else current.task_scope
-    )
     protected_metadata = dict(metadata or current.metadata)
     protected_keys = ("role", "system_key", "slot_index")
     metadata_changed = any(
@@ -512,7 +494,6 @@ def _builtin_mutation_attempted(
             requested_description != current.description,
             requested_enabled is not True,
             requested_editable is not False,
-            requested_scope != current.task_scope,
             metadata_changed,
         )
     )

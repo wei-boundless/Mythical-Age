@@ -15,7 +15,7 @@ class SoulAssemblyService:
         self.base_dir = Path(base_dir)
         self.registry = SoulRegistry(self.base_dir)
         self.projection_builder = SoulProjectionBuilder(self.registry)
-        self.runtime_builder = SoulRuntimeAssemblyBuilder()
+        self.runtime_builder = SoulRuntimeAssemblyBuilder(self.base_dir)
 
     def build_projection_bundle(self, request: Any) -> dict[str, Any]:
         return self.projection_builder.build(request)
@@ -29,6 +29,7 @@ class SoulAssemblyService:
         resource_views: list[Any],
         soul_id: str = "runtime",
         agent_profile_id: str = "runtime_agent",
+        use_shared_contract: bool = True,
     ) -> dict[str, Any]:
         return self.runtime_builder.build_runtime_view(
             task_prompt_contract=task_prompt_contract,
@@ -37,4 +38,5 @@ class SoulAssemblyService:
             resource_views=resource_views,
             soul_id=soul_id,
             agent_profile_id=agent_profile_id,
+            use_shared_contract=use_shared_contract,
         )

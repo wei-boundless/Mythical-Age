@@ -19,6 +19,20 @@ from tasks import TaskContractRegistry, TaskFlowRegistry, TaskWorkflowRegistry, 
 router = APIRouter()
 
 
+def _derived_count(effective_items: list[object], explicit_items: list[object], *, key_attr: str) -> int:
+    explicit_keys = {
+        str(getattr(item, key_attr, "") or "").strip()
+        for item in explicit_items
+        if str(getattr(item, key_attr, "") or "").strip()
+    }
+    return sum(
+        1
+        for item in effective_items
+        if str(getattr(item, key_attr, "") or "").strip()
+        and str(getattr(item, key_attr, "") or "").strip() not in explicit_keys
+    )
+
+
 class ConversationEntryPolicyUpsertRequest(BaseModel):
     profile_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
@@ -81,6 +95,7 @@ class TaskExecutionPolicyUpsertRequest(BaseModel):
     task_id: str = Field(..., min_length=3, max_length=160)
     execution_chain_type: str = Field(default="single_agent_chain", max_length=120)
     runtime_agent_selection_policy: str = Field(default="orchestration_default", max_length=120)
+    default_agent_id: str = Field(default="agent:0", max_length=160)
     task_level: str = Field(default="standard", max_length=80)
     task_privilege: str = Field(default="bounded", max_length=80)
     allowed_agent_categories: list[str] = Field(default_factory=list)
@@ -155,6 +170,8 @@ class TaskGraphUpsertRequest(BaseModel):
     edges: list[dict[str, object]] = Field(default_factory=list)
     graph_contract_id: str = Field(default="", max_length=160)
     default_protocol_id: str = Field(default="", max_length=160)
+    working_memory_policy_profile_id: str = Field(default="", max_length=160)
+    working_memory_policy: dict[str, object] = Field(default_factory=dict)
     runtime_policy: dict[str, object] = Field(default_factory=dict)
     context_policy: dict[str, object] = Field(default_factory=dict)
     publish_state: str = Field(default="draft", max_length=80)
@@ -230,10 +247,18 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     entry_policies = [item.to_dict() for item in registry.list_general_task_profiles()]
     compat_specific_tasks = [item.to_dict() for item in registry.list_task_assignments()]
     specific_task_records = [item.to_dict() for item in registry.list_specific_task_records()]
-    projection_bindings = [item.to_dict() for item in registry.list_projection_bindings()]
-    flow_contract_bindings = [item.to_dict() for item in registry.list_flow_contract_bindings()]
-    execution_policies = [item.to_dict() for item in registry.list_task_agent_adoption_plans()]
-    memory_request_profiles = [item.to_dict() for item in registry.list_task_memory_request_profiles()]
+    projection_binding_models = registry.list_projection_bindings()
+    explicit_projection_binding_models = registry.list_explicit_projection_bindings()
+    flow_contract_binding_models = registry.list_flow_contract_bindings()
+    explicit_flow_contract_binding_models = registry.list_explicit_flow_contract_bindings()
+    execution_policy_models = registry.list_task_agent_adoption_plans()
+    explicit_execution_policy_models = registry.list_explicit_task_agent_adoption_plans()
+    memory_request_profile_models = registry.list_task_memory_request_profiles()
+    explicit_memory_request_profile_models = registry.list_explicit_task_memory_request_profiles()
+    projection_bindings = [item.to_dict() for item in projection_binding_models]
+    flow_contract_bindings = [item.to_dict() for item in flow_contract_binding_models]
+    execution_policies = [item.to_dict() for item in execution_policy_models]
+    memory_request_profiles = [item.to_dict() for item in memory_request_profile_models]
     task_domains = [item.to_dict() for item in registry.list_task_domains()]
     coordination_tasks = [item.to_dict() for item in registry.list_coordination_tasks()]
     task_graphs = [item.to_dict() for item in registry.list_task_graphs()]
@@ -269,10 +294,34 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "specific_task_compat_view_count": len(compat_specific_tasks),
             "task_flow_count": len(task_flows),
             "workflow_count": workflows["summary"]["workflow_count"],
-            "projection_binding_count": len(projection_bindings),
-            "flow_contract_binding_count": len(flow_contract_bindings),
-            "execution_policy_count": len(execution_policies),
-            "memory_request_profile_count": len(memory_request_profiles),
+            "projection_binding_count": len(explicit_projection_binding_models),
+            "derived_projection_binding_count": _derived_count(
+                projection_binding_models,
+                explicit_projection_binding_models,
+                key_attr="binding_id",
+            ),
+            "effective_projection_binding_count": len(projection_binding_models),
+            "flow_contract_binding_count": len(explicit_flow_contract_binding_models),
+            "derived_flow_contract_binding_count": _derived_count(
+                flow_contract_binding_models,
+                explicit_flow_contract_binding_models,
+                key_attr="binding_id",
+            ),
+            "effective_flow_contract_binding_count": len(flow_contract_binding_models),
+            "execution_policy_count": len(explicit_execution_policy_models),
+            "derived_execution_policy_count": _derived_count(
+                execution_policy_models,
+                explicit_execution_policy_models,
+                key_attr="plan_id",
+            ),
+            "effective_execution_policy_count": len(execution_policy_models),
+            "memory_request_profile_count": len(explicit_memory_request_profile_models),
+            "derived_memory_request_profile_count": _derived_count(
+                memory_request_profile_models,
+                explicit_memory_request_profile_models,
+                key_attr="profile_id",
+            ),
+            "effective_memory_request_profile_count": len(memory_request_profile_models),
             "task_domain_count": len(task_domains),
             "coordination_task_count": len(coordination_tasks),
             "task_graph_count": len(task_graphs),
@@ -768,7 +817,7 @@ async def upsert_task_system_execution_policy(
                 if payload.allow_worker_agent_spawn
                 else "adopt_existing"
             ),
-            default_agent_id="agent:0",
+            default_agent_id=payload.default_agent_id,
             allowed_agent_categories=tuple(payload.allowed_agent_categories),
             allow_worker_agent_spawn=payload.allow_worker_agent_spawn,
             worker_agent_blueprint_id=payload.worker_agent_blueprint_id,
@@ -875,6 +924,8 @@ async def upsert_task_system_task_graph(
             edges=tuple(dict(item) for item in payload.edges),
             graph_contract_id=payload.graph_contract_id,
             default_protocol_id=payload.default_protocol_id,
+            working_memory_policy_profile_id=payload.working_memory_policy_profile_id,
+            working_memory_policy=payload.working_memory_policy,
             runtime_policy=payload.runtime_policy,
             context_policy=payload.context_policy,
             publish_state=payload.publish_state,

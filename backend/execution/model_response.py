@@ -153,7 +153,6 @@ class ModelResponseRuntimeExecutor:
             "answer_leak_flags": list(output_response.leak_flags),
             "persist_policy": "commit_gate_blocked",
             "commit_gate": runtime_commit_gate.to_dict(),
-            "legacy_query_chain_removed": True,
         }
 
     def _operation_id_for_tool(self, tool_name: str) -> str:

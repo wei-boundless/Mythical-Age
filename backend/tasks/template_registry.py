@@ -269,6 +269,57 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             ),
             metadata={"workflow_id": "workflow.health.issue_triage"},
         ),
+        TaskTemplate(
+            template_id="template.health.trace_analysis",
+            title="健康链路分析",
+            description="读取健康问题与运行链路证据，定位问题节点并给出修复范围建议。",
+            task_family="health",
+            task_mode="trace_analysis",
+            default_agent_id="agent:3",
+            allowed_agent_ids=("agent:3",),
+            output_schema={"trace_analysis": {"type": "object", "required": True}},
+            required_operations=("op.model_response", "op.read_file", "op.search_text"),
+            step_blueprints=(
+                _step("read_health_trace", "读取健康链路", "analyze", required_operations=("op.read_file",)),
+                _step("locate_problem_node", "定位问题节点", "analyze"),
+                _step("finalize_trace_analysis", "输出链路分析", "finalize"),
+            ),
+            metadata={"workflow_id": "workflow.health.trace_analysis"},
+        ),
+        TaskTemplate(
+            template_id="template.health.case_draft",
+            title="健康用例草案",
+            description="围绕健康问题提取复现触发条件并生成验证用例草案。",
+            task_family="health",
+            task_mode="case_draft",
+            default_agent_id="agent:3",
+            allowed_agent_ids=("agent:3",),
+            output_schema={"case_draft": {"type": "object", "required": True}},
+            required_operations=("op.model_response", "op.read_file", "op.search_text"),
+            step_blueprints=(
+                _step("extract_health_trigger", "提取复现触发条件", "analyze", required_operations=("op.read_file",)),
+                _step("draft_health_assertions", "生成断言草案", "analyze"),
+                _step("finalize_case_draft", "输出用例草案", "finalize"),
+            ),
+            metadata={"workflow_id": "workflow.health.case_draft"},
+        ),
+        TaskTemplate(
+            template_id="template.health.fix_verification",
+            title="健康修复验证",
+            description="比较修复前后证据，判断问题是否消失并输出验证建议。",
+            task_family="health",
+            task_mode="fix_verification",
+            default_agent_id="agent:3",
+            allowed_agent_ids=("agent:3",),
+            output_schema={"fix_verification": {"type": "object", "required": True}},
+            required_operations=("op.model_response", "op.read_file", "op.search_text"),
+            step_blueprints=(
+                _step("compare_before_after_trace", "比较修复前后链路", "analyze", required_operations=("op.read_file",)),
+                _step("verify_health_fix", "验证问题是否消失", "analyze"),
+                _step("finalize_fix_verification", "输出验证结论", "finalize"),
+            ),
+            metadata={"workflow_id": "workflow.health.fix_verification"},
+        ),
     )
 
 
@@ -453,6 +504,30 @@ class TaskTemplateRegistry:
                     match_source = "binding_contract"
                     match_reasons.append(f"candidate_template:{candidate_template_id}")
                     break
+        elif (
+            "flow.health.fix_verification" in lowered_goal
+            or "task.health.fix_verification" in lowered_goal
+            or "workflow.health.fix_verification" in lowered_goal
+        ):
+            template_id = "template.health.fix_verification"
+            match_source = "capability_contract"
+            match_reasons.append("health_fix_verification_goal")
+        elif (
+            "flow.health.case_draft" in lowered_goal
+            or "task.health.case_draft" in lowered_goal
+            or "workflow.health.case_draft" in lowered_goal
+        ):
+            template_id = "template.health.case_draft"
+            match_source = "capability_contract"
+            match_reasons.append("health_case_draft_goal")
+        elif (
+            "flow.health.trace_analysis" in lowered_goal
+            or "task.health.trace_analysis" in lowered_goal
+            or "workflow.health.trace_analysis" in lowered_goal
+        ):
+            template_id = "template.health.trace_analysis"
+            match_source = "capability_contract"
+            match_reasons.append("health_trace_analysis_goal")
         elif "flow.health.issue_triage" in lowered_goal or "health_issue" in capability_requests:
             template_id = "template.health.issue_triage"
             match_source = "capability_contract"

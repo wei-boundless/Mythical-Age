@@ -79,6 +79,32 @@
         "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.longform_novel.create_full_novel",
+      "task_id": "task.longform_novel.create_full_novel",
+      "requested_memory_layers": [
+        "working",
+        "task_durable"
+      ],
+      "requested_topics": [
+        "story_bible",
+        "character_state",
+        "chapter_draft",
+        "continuity"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_durable_reviewed_promotion",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "任务工作记忆与任务长期记忆隔离，不写入 Global Durable。",
+      "metadata": {
+        "managed_by": "task_package_wizard",
+        "package_template": "longform_novel_writing",
+        "allow_working_memory": true,
+        "allow_dynamic_working_memory_read": true,
+        "working_memory_policy_profile_id": "wmprofile.longform_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
     }
   ]
 }

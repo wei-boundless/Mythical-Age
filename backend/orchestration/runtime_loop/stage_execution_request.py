@@ -24,6 +24,7 @@ class StageExecutionRequest:
     message: str = ""
     artifact_root: str = ""
     expected_outputs: tuple[dict[str, Any], ...] = ()
+    working_memory_refs: tuple[str, ...] = ()
     idempotency_key: str = ""
     authority: str = "orchestration.stage_execution_request"
 
@@ -62,6 +63,7 @@ class StageExecutionRequest:
         payload["expected_outputs"] = [dict(item) for item in self.expected_outputs]
         payload["a2a_payload"] = dict(self.a2a_payload)
         payload["runtime_assembly"] = dict(self.runtime_assembly)
+        payload["working_memory_refs"] = list(self.working_memory_refs)
         return payload
 
     @classmethod
@@ -83,6 +85,7 @@ class StageExecutionRequest:
             message=str(payload.get("message") or ""),
             artifact_root=str(payload.get("artifact_root") or ""),
             expected_outputs=tuple(dict(item) for item in list(payload.get("expected_outputs") or []) if isinstance(item, dict)),
+            working_memory_refs=tuple(str(item).strip() for item in list(payload.get("working_memory_refs") or []) if str(item).strip()),
             idempotency_key=str(payload.get("idempotency_key") or ""),
         )
 

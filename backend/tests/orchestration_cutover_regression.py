@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from orchestration.agent_registry import AgentRegistry
+from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration import AgentRuntimeChainAssembler, StageProjectionCycle
 from query import QueryRuntime
 from tasks import TaskFlowRegistry
@@ -269,10 +270,10 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
     assert any(item["status"] == "spawned" for item in trace["worker_spawn_results"])
     spawned_agent_id = str(trace["worker_spawn_results"][0]["spawned_agent_id"] or "")
     spawned_agent = AgentRegistry(base_dir).get_agent(spawned_agent_id)
+    spawned_profile = AgentRuntimeRegistry(base_dir).get_profile(spawned_agent_id)
     assert spawned_agent is not None
-    assert "main_agent" not in spawned_agent.task_scope
-    assert "worker_sub_agent" not in spawned_agent.task_scope
-    assert "light_web_game" in spawned_agent.task_scope
+    assert spawned_profile is not None
+    assert "light_web_game" in spawned_profile.allowed_task_modes
     assert len(trace["agent_runs"]) >= 2
     assert trace["coordination_runs"]
     assert trace["coordination_runs"][0]["diagnostics"]["coordination_engine"] == "langgraph"
@@ -338,7 +339,7 @@ def test_runtime_does_not_register_removed_story_pipeline() -> None:
     assert trace["coordination_runs"] == []
 
 
-def test_agent_registry_upsert_preserves_explicit_task_scope_for_new_agent() -> None:
+def test_agent_registry_upsert_preserves_agent_metadata_without_task_scope() -> None:
     base_dir = _isolated_backend_root()
     registry = AgentRegistry(base_dir)
 
@@ -346,11 +347,10 @@ def test_agent_registry_upsert_preserves_explicit_task_scope_for_new_agent() -> 
         agent_id="agent:6",
         agent_name="测试工作Agent",
         agent_category="worker_sub_agent",
-        task_scope=("light_web_game", "bounded_patch"),
         metadata={"created_by": "regression"},
     )
 
-    assert created.task_scope == ("light_web_game", "bounded_patch")
+    assert created.metadata["created_by"] == "regression"
     loaded = registry.get_agent("agent:6")
     assert loaded is not None
-    assert loaded.task_scope == ("light_web_game", "bounded_patch")
+    assert loaded.metadata["created_by"] == "regression"

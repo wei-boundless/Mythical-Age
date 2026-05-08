@@ -152,7 +152,6 @@ class WorkerAgentFactory:
         *,
         request: WorkerAgentSpawnRequest,
         requested_agent_name: str,
-        task_scope: tuple[str, ...] = (),
     ) -> ProvisionedWorkerAgent:
         blueprint = self.get_blueprint(request.blueprint_id)
         if blueprint is None:
@@ -166,7 +165,6 @@ class WorkerAgentFactory:
             description=blueprint.description,
             enabled=True,
             editable=True,
-            task_scope=task_scope or blueprint.allowed_task_modes,
             metadata={
                 **dict(blueprint.metadata),
                 "spawn_request_id": request.spawn_request_id,

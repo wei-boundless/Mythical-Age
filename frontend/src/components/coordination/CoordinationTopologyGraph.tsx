@@ -2,8 +2,6 @@
 
 import type { ReactNode } from "react";
 
-import { Network } from "lucide-react";
-
 export type CoordinationTopologyNode = {
   id: string;
   title: string;
@@ -204,9 +202,10 @@ export function CoordinationTopologyGraph({
   if (!topology.nodes.length) {
     return (
       <div className="coordination-topology-empty">
-        <Network size={18} />
-        <strong>{emptyTitle}</strong>
-        <p>{emptyDescription}</p>
+        <div className="coordination-topology-empty__copy">
+          <strong>{emptyTitle}</strong>
+          <p>{emptyDescription}</p>
+        </div>
       </div>
     );
   }
@@ -214,6 +213,11 @@ export function CoordinationTopologyGraph({
   return (
     <svg viewBox={`0 0 ${topology.width} ${topology.height}`} aria-label="协调任务拓扑图" role="img">
       <defs>
+        <radialGradient id="coordination-node-core" cx="35%" cy="30%" r="70%">
+          <stop offset="0%" stopColor="rgba(255,255,255,0.82)" />
+          <stop offset="38%" stopColor="rgba(255,255,255,0.26)" />
+          <stop offset="100%" stopColor="rgba(255,255,255,0.04)" />
+        </radialGradient>
         <filter id="coordination-node-glow" x="-120%" y="-120%" width="340%" height="340%">
           <feGaussianBlur stdDeviation="10" result="blur" />
           <feMerge>
@@ -291,6 +295,7 @@ export function CoordinationTopologyGraph({
                 r={haloRadius}
               />
               <circle className={`coordination-topology-node-surface ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`} cx="0" cy="0" r={surfaceRadius} />
+              <circle className="coordination-topology-node-core" cx="0" cy="0" r={Math.max(7, surfaceRadius * 0.48)} />
               <text className={`coordination-topology-node-glyph ${topology.compact ? "is-compact" : ""}`} textAnchor="middle" x="0" y={glyphY}>
                 {node.shortLabel}
               </text>

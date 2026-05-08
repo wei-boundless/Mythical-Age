@@ -81,6 +81,26 @@ def build_memory_runtime_view(
         for item in list(profile.get("requested_topics") or [])
         if str(item).strip()
     ]
+    requested_kinds = [
+        str(item).strip()
+        for item in list(profile.get("working_memory_kinds") or [])
+        if str(item).strip()
+    ]
+    requested_semantics = [
+        str(item).strip()
+        for item in list(profile.get("working_memory_semantics") or [])
+        if str(item).strip()
+    ]
+    task_durable_kinds = [
+        str(item).strip()
+        for item in list(profile.get("task_durable_memory_kinds") or profile.get("task_durable_kinds") or [])
+        if str(item).strip()
+    ]
+    task_durable_semantics = [
+        str(item).strip()
+        for item in list(profile.get("task_durable_memory_semantics") or profile.get("task_durable_semantics") or [])
+        if str(item).strip()
+    ]
     effective_note_limit = int(note_limit or 5)
     if requested_topics:
         effective_note_limit = max(effective_note_limit, min(len(requested_topics) + 2, 8))
@@ -88,6 +108,39 @@ def build_memory_runtime_view(
     state_snapshot = _call(memory_facade, "build_state_memory_snapshot", session_id)
     conversation_candidates = tuple(_call(memory_facade, "build_conversation_memory_context_candidates", session_id) or ()) if not requested_layers or "conversation" in requested_layers else ()
     state_candidates = tuple(_call(memory_facade, "build_state_memory_context_candidates", session_id) or ()) if not requested_layers or "state" in requested_layers else ()
+    working_candidates = tuple(
+        _call_kwargs(
+            memory_facade,
+            "build_working_memory_context_candidates",
+            task_run_id=str(profile.get("task_run_id") or ""),
+            task_id=str(profile.get("task_id") or ""),
+            graph_id=str(profile.get("graph_id") or ""),
+            owner_node_id=str(profile.get("owner_node_id") or ""),
+            node_run_id=str(profile.get("node_run_id") or ""),
+            run_attempt_id=str(profile.get("run_attempt_id") or ""),
+            requested_kinds=requested_kinds,
+            requested_semantics=requested_semantics,
+            limit=int(profile.get("working_memory_limit") or 20),
+        )
+        or ()
+    ) if ("working" in requested_layers or not requested_layers) else ()
+    task_durable_candidates = tuple(
+        _call_kwargs(
+            memory_facade,
+            "build_task_durable_memory_context_candidates",
+            namespace_id=str(profile.get("task_durable_namespace_id") or profile.get("namespace_id") or ""),
+            task_family=str(profile.get("task_family") or ""),
+            domain_id=str(profile.get("domain_id") or ""),
+            task_id=str(profile.get("task_id") or ""),
+            graph_id=str(profile.get("graph_id") or ""),
+            project_id=str(profile.get("project_id") or ""),
+            artifact_namespace=str(profile.get("artifact_namespace") or ""),
+            requested_kinds=task_durable_kinds,
+            requested_semantics=task_durable_semantics,
+            limit=int(profile.get("task_durable_memory_limit") or profile.get("task_durable_limit") or 20),
+        )
+        or ()
+    ) if ("task_durable" in requested_layers or "task_durable_memory" in requested_layers) else ()
     restore_candidates = tuple(_call(memory_facade, "build_state_memory_restore_candidates", session_id) or ()) if not requested_layers or "state" in requested_layers else ()
     long_term_records = tuple(
         _call_kwargs(memory_facade, "build_long_term_memory_records", limit=effective_note_limit) or ()
@@ -104,7 +157,7 @@ def build_memory_runtime_view(
         )
         or ()
     ) if allow_long_term and ("long_term" in requested_layers or not requested_layers) else ()
-    context_candidates = (*conversation_candidates, *state_candidates, *long_term_candidates)
+    context_candidates = (*conversation_candidates, *state_candidates, *working_candidates, *task_durable_candidates, *long_term_candidates)
     return MemoryRuntimeView(
         view_id=f"memory-runtime:{session_id or 'default'}",
         session_id=session_id,
@@ -119,12 +172,30 @@ def build_memory_runtime_view(
         diagnostics={
             "conversation_candidate_count": len(conversation_candidates),
             "state_candidate_count": len(state_candidates),
+            "working_candidate_count": len(working_candidates),
+            "task_durable_candidate_count": len(task_durable_candidates),
             "long_term_candidate_count": len(long_term_candidates),
             "restore_candidate_count": len(restore_candidates),
             "long_term_record_count": len(long_term_records),
             "memory_write_allowed": False,
             "requested_memory_layers": list(requested_layers),
             "requested_topics": requested_topics,
+            "working_memory_task_run_id": str(profile.get("task_run_id") or ""),
+            "working_memory_scope": {
+                "graph_id": str(profile.get("graph_id") or ""),
+                "owner_node_id": str(profile.get("owner_node_id") or ""),
+                "node_run_id": str(profile.get("node_run_id") or ""),
+                "run_attempt_id": str(profile.get("run_attempt_id") or ""),
+            },
+            "task_durable_memory_scope": {
+                "namespace_id": str(profile.get("task_durable_namespace_id") or profile.get("namespace_id") or ""),
+                "task_family": str(profile.get("task_family") or ""),
+                "domain_id": str(profile.get("domain_id") or ""),
+                "task_id": str(profile.get("task_id") or ""),
+                "graph_id": str(profile.get("graph_id") or ""),
+                "project_id": str(profile.get("project_id") or ""),
+                "artifact_namespace": str(profile.get("artifact_namespace") or ""),
+            },
         },
     )
 

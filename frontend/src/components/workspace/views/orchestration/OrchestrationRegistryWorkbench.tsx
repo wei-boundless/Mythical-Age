@@ -2,7 +2,7 @@
 
 import { Gauge, Save, Trash2 } from "lucide-react";
 
-import type { SoulProjectionCard } from "@/lib/api";
+import type { SoulProjectionCard, SoulSystemSeed } from "@/lib/api";
 import {
   OrchestrationBadge,
   OrchestrationField,
@@ -43,6 +43,19 @@ function projectionLabel(value: string, cards: SoulProjectionCard[] = []) {
   return `${card.title || card.projection_id} · ${owner}`;
 }
 
+function soulLabel(value: string, seeds: SoulSystemSeed[] = []) {
+  const raw = String(value || "").trim();
+  if (!raw) return "未选择灵魂";
+  const seed = seeds.find((item) => item.key === raw || item.soul_id === raw);
+  return seed?.name || seed?.profile?.display_name || raw;
+}
+
+function projectionBelongsToSoul(card: SoulProjectionCard, soulId: string) {
+  const raw = String(soulId || "").trim();
+  if (!raw) return true;
+  return card.soul_id === raw || card.soul_name === raw;
+}
+
 function ProjectionSelectField({
   cards,
   disabled = false,
@@ -70,12 +83,36 @@ function ProjectionSelectField({
   );
 }
 
+function SoulSelectField({
+  disabled = false,
+  onChange,
+  seeds,
+  value,
+}: {
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  seeds: SoulSystemSeed[];
+  value: string;
+}) {
+  const options = Array.from(new Set(["", value, ...seeds.map((item) => item.soul_id || item.key).filter(Boolean)]));
+  return (
+    <OrchestrationField label="选择灵魂">
+      <select disabled={disabled} value={value || ""} onChange={(event) => onChange(event.target.value)}>
+        {options.map((item) => (
+          <option key={item || "none"} value={item}>
+            {soulLabel(item, seeds)}
+          </option>
+        ))}
+      </select>
+    </OrchestrationField>
+  );
+}
+
 export function OrchestrationRegistryWorkbench({
   agentDraft,
   patchAgentDraft,
   agentMode,
   selectedAgentBuiltin,
-  taskScopeCount,
   runtimeDraft,
   profileMissing,
   overlapOps,
@@ -87,13 +124,13 @@ export function OrchestrationRegistryWorkbench({
   runtimeSaveBlocked,
   agentDeleteBlocked,
   projectionCards,
+  soulSeeds,
   legacySystemKey,
 }: {
   agentDraft: AgentDraftLike;
   patchAgentDraft: (patch: Partial<AgentDraftLike>) => void;
   agentMode: "existing" | "new";
   selectedAgentBuiltin: boolean;
-  taskScopeCount: number;
   runtimeDraft: RuntimeDraftLike;
   profileMissing: boolean;
   overlapOps: string[];
@@ -105,10 +142,12 @@ export function OrchestrationRegistryWorkbench({
   runtimeSaveBlocked: boolean;
   agentDeleteBlocked: boolean;
   projectionCards: SoulProjectionCard[];
+  soulSeeds: SoulSystemSeed[];
   legacySystemKey: string;
 }) {
   const fixedIdentityAgent =
     agentDraft.agent_category === "main_agent" || agentDraft.agent_category === "system_management_agent";
+  const selectedSoulProjectionCards = projectionCards.filter((card) => projectionBelongsToSoul(card, agentDraft.default_soul_id || ""));
 
   return (
     <>
@@ -124,7 +163,6 @@ export function OrchestrationRegistryWorkbench({
               ready={Boolean(agentDraft.agent_category)}
               value={categoryLabels[agentDraft.agent_category as AgentCategory] ?? "未配置"}
             />
-            <OrchestrationReadinessCard label="职责范围" ready={Boolean(taskScopeCount)} value={String(taskScopeCount)} />
             <OrchestrationReadinessCard label="运行" ready={!profileMissing && Boolean(runtimeDraft.agent_profile_id)} value={runtimeDraft.agent_profile_id || "未配置"} />
             <OrchestrationReadinessCard label="权限冲突" ready={!overlapOps.length} value={overlapOps.length ? String(overlapOps.length) : "0"} />
           </div>
@@ -164,7 +202,7 @@ export function OrchestrationRegistryWorkbench({
         </header>
         <div className="orchestration-identity-note">
           <span>这里定义 Agent 身份本体。</span>
-          <strong>{fixedIdentityAgent ? "主 Agent / 系统管理 Agent 身份锁定，只允许查看。子 Agent 才支持自由定义。" : "子 Agent 可自由定义名称、入口、默认灵魂/投影和职责说明。"}</strong>
+          <strong>{fixedIdentityAgent ? "主 Agent / 系统管理 Agent 身份锁定，只允许查看。子 Agent 才支持自由定义。" : "子 Agent 可自由定义名称、入口、选择灵魂/投影和职责说明。"}</strong>
         </div>
         <div className="boundary-form">
           <OrchestrationField label="Agent 标识">
@@ -183,17 +221,23 @@ export function OrchestrationRegistryWorkbench({
               onChange={(event) => patchAgentDraft({ interface_target: event.target.value })}
             />
           </OrchestrationField>
-          <OrchestrationField label="默认灵魂">
-            <input
-              readOnly={fixedIdentityAgent}
-              value={agentDraft.default_soul_id || ""}
-              onChange={(event) => patchAgentDraft({ default_soul_id: event.target.value })}
-            />
-          </OrchestrationField>
-          <ProjectionSelectField
-            cards={projectionCards}
+          <SoulSelectField
             disabled={fixedIdentityAgent}
-            label="默认投影"
+            onChange={(value) => {
+              if (fixedIdentityAgent) return;
+              const currentProjection = projectionCards.find((card) => card.projection_id === agentDraft.default_projection_id);
+              patchAgentDraft({
+                default_soul_id: value,
+                default_projection_id: currentProjection && projectionBelongsToSoul(currentProjection, value) ? agentDraft.default_projection_id : "",
+              });
+            }}
+            seeds={soulSeeds}
+            value={agentDraft.default_soul_id || ""}
+          />
+          <ProjectionSelectField
+            cards={selectedSoulProjectionCards}
+            disabled={fixedIdentityAgent || !agentDraft.default_soul_id}
+            label="选择投影"
             onChange={(value) => {
               if (fixedIdentityAgent) return;
               patchAgentDraft({ default_projection_id: value });

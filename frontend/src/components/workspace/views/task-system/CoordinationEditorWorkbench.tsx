@@ -9,7 +9,7 @@ import {
   SquarePen,
   Trash2,
 } from "lucide-react";
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 
 import {
   CoordinationTopologyGraph,
@@ -64,6 +64,30 @@ type A2ACatalogLike = NonNullable<TaskSystemOverview["coordination_management"][
 
 const COORDINATION_MODE_CHOICES = ["review_merge", "pipeline", "parallel_review"];
 const GRAPH_EDGE_MODE_CHOICES = ["structured_handoff", "review_feedback", "draft_request", "audit_request", "merge_signal"];
+const NODE_EXECUTION_MODE_OPTIONS = ["sync", "async", "parallel", "background", "barrier", "manual_gate"];
+const NODE_WAIT_POLICY_OPTIONS = ["wait_all_upstream_completed", "wait_any_upstream_completed", "wait_required_contracts", "wait_handoff_ack", "fire_and_continue", "manual_release"];
+const NODE_JOIN_POLICY_OPTIONS = ["all_success", "any_success", "quorum", "coordinator_decides", "allow_partial_with_issues", "fail_on_any_error"];
+const EDGE_FAILURE_PROPAGATION_OPTIONS = ["fail_downstream", "isolate_failure", "coordinator_decides", "allow_partial"];
+const EDGE_RESULT_DELIVERY_OPTIONS = ["contract_payload_and_refs", "refs_only", "summary_and_refs", "notification_only"];
+const NOTIFICATION_POLICY_OPTIONS = ["event_only", "queued_summary", "queued_alert", "none"];
+const WORKING_MEMORY_KIND_OPTIONS = [
+  "task_goal",
+  "plan_fragment",
+  "decision_record",
+  "intermediate_result",
+  "review_note",
+  "conflict_flag",
+  "handoff_context",
+  "artifact_ref",
+  "promotion_candidate",
+  "chapter_draft",
+  "character_state_delta",
+  "world_state_delta",
+  "continuity_conflict",
+];
+const WORKING_MEMORY_SCOPE_OPTIONS = ["node_scope", "graph_scope", "task_scope", "edge_scope", "artifact_scope"];
+const WORKING_MEMORY_VISIBILITY_OPTIONS = ["private_to_node", "shared_in_graph", "handoff_only", "coordinator_only", "human_review_only"];
+const WORKING_MEMORY_SEMANTIC_OPTIONS = ["working_fact", "draft_artifact", "reflection", "instruction", "temporal_event", "conflict", "decision", "handoff_note", "evaluation"];
 const EDGE_MODE_TO_A2A_MESSAGE_TYPE: Record<string, string> = {
   structured_handoff: "message/send",
   review_feedback: "message/send",
@@ -150,6 +174,31 @@ function displayId(value: unknown, fallback = "未配置") {
     review_merge: "审查汇总",
     pipeline: "流水推进",
     parallel_review: "并行审查",
+    sync: "同步阻塞",
+    async: "异步派发",
+    parallel: "并行批次",
+    background: "后台节点",
+    barrier: "汇合节点",
+    manual_gate: "人工门控",
+    wait_all_upstream_completed: "等待全部上游完成",
+    wait_any_upstream_completed: "等待任一上游完成",
+    wait_required_contracts: "等待必需契约",
+    wait_handoff_ack: "等待交接确认",
+    fire_and_continue: "发出后继续",
+    manual_release: "人工释放",
+    all_success: "全部成功",
+    any_success: "任一成功",
+    quorum: "法定数量",
+    coordinator_decides: "协调者裁决",
+    allow_partial_with_issues: "允许带问题部分通过",
+    fail_on_any_error: "任一失败即失败",
+    fail_downstream: "失败传递到下游",
+    isolate_failure: "隔离失败",
+    allow_partial: "允许部分结果",
+    contract_payload_and_refs: "契约载荷与引用",
+    refs_only: "仅引用",
+    summary_and_refs: "摘要与引用",
+    notification_only: "仅通知",
   };
   return labels[raw] ? `${labels[raw]} · ${raw}` : raw;
 }
@@ -164,6 +213,31 @@ function contractOptionLabel(specs: ContractSpec[]) {
     if (!contractId) return "不覆盖";
     const spec = specs.find((item) => item.contract_id === contractId);
     return spec ? `${contractSpecTitle(spec)} · ${contractId}` : contractId;
+  };
+}
+
+function asStringList(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
+}
+
+function asRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function booleanValue(value: unknown, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null || value === "") return fallback;
+  return String(value).toLowerCase() === "true";
+}
+
+function updatePolicyList(
+  base: Record<string, unknown>,
+  key: string,
+  value: string[],
+) {
+  return {
+    ...base,
+    [key]: value,
   };
 }
 
@@ -313,58 +387,72 @@ function CoordinationTaskPoolPanel({
   addCoordinationNode: () => void;
   applyCoordinationGraphTemplate: (template: "single_agent" | "multi_sequence" | "multi_parallel_merge") => void;
 }) {
+  const [activePanel, setActivePanel] = useState<"nodes" | "templates" | "reuse">("nodes");
   return (
     <>
-      <section className="boundary-inspector-block">
+      <section className="boundary-inspector-block coordination-editor-toolbox">
         <header>
-          <strong>任务池</strong>
-          <span>{selectedDomainTasks.length}</span>
+          <strong>构造面板</strong>
+          <span>{activePanel === "nodes" ? "节点" : activePanel === "templates" ? "模板" : "复用"}</span>
         </header>
-        <div className="boundary-task-table">
-          {selectedDomainTasks.map((task) => (
-            <article key={task.task_id}>
-              <strong>{task.task_title}</strong>
-              <span>{displayId(task.task_mode)}</span>
-              <div className="coordination-editor-actions">
-                <button className="boundary-chip" disabled={boundCoordinationTaskIds.has(task.task_id)} onClick={() => addCoordinationTaskNode(task, "executor")} type="button">
-                  <span>{boundCoordinationTaskIds.has(task.task_id) ? "已加入" : "加入为任务节点"}</span>
-                </button>
-                <button className="boundary-chip" disabled={boundCoordinationTaskIds.has(task.task_id)} onClick={() => addCoordinationTaskNode(task, "reviewer")} type="button">
-                  <span>加入为审查节点</span>
-                </button>
-              </div>
-            </article>
+        <div className="coordination-editor-panel-tabs" role="tablist" aria-label="任务图构造面板">
+          {[
+            { value: "nodes", label: "节点" },
+            { value: "templates", label: "模板" },
+            { value: "reuse", label: "复用" },
+          ].map((item) => (
+            <button
+              aria-selected={activePanel === item.value}
+              className={activePanel === item.value ? "active" : ""}
+              key={item.value}
+              onClick={() => setActivePanel(item.value as "nodes" | "templates" | "reuse")}
+              role="tab"
+              type="button"
+            >
+              {item.label}
+            </button>
           ))}
-          {!selectedDomainTasks.length ? <div className="boundary-empty">当前任务域暂无可装配任务。</div> : null}
         </div>
-      </section>
 
-      <section className="boundary-inspector-block">
-        <header>
-          <strong>图模板</strong>
-          <span>一键起图</span>
-        </header>
-        <div className="boundary-chip-grid">
-          <button className="boundary-chip" onClick={() => applyCoordinationGraphTemplate("single_agent")} type="button"><span>单 Agent 执行图</span></button>
-          <button className="boundary-chip" onClick={() => applyCoordinationGraphTemplate("multi_sequence")} type="button"><span>A -&gt; B 顺序协作</span></button>
-          <button className="boundary-chip" onClick={() => applyCoordinationGraphTemplate("multi_parallel_merge")} type="button"><span>A || B -&gt; 汇总</span></button>
-        </div>
-      </section>
+        {activePanel === "nodes" ? (
+          <div className="boundary-chip-grid">
+            <button className="boundary-chip" onClick={() => addCoordinationRoleNode("coordinator")} type="button"><span>协调节点</span></button>
+            <button className="boundary-chip" onClick={() => addCoordinationRoleNode("planner")} type="button"><span>规划节点</span></button>
+            <button className="boundary-chip" onClick={() => addCoordinationRoleNode("executor")} type="button"><span>执行节点</span></button>
+            <button className="boundary-chip" onClick={() => addCoordinationRoleNode("reviewer")} type="button"><span>审查节点</span></button>
+            <button className="boundary-chip" onClick={() => addCoordinationRoleNode("verifier")} type="button"><span>验证节点</span></button>
+            <button className="boundary-chip" onClick={() => addCoordinationRoleNode("merge")} type="button"><span>汇总节点</span></button>
+            <button className="boundary-chip" onClick={addCoordinationNode} type="button"><span>空白 Agent 节点</span></button>
+          </div>
+        ) : null}
 
-      <section className="boundary-inspector-block">
-        <header>
-          <strong>节点模板</strong>
-          <span>快捷</span>
-        </header>
-        <div className="boundary-chip-grid">
-          <button className="boundary-chip" onClick={() => addCoordinationRoleNode("coordinator")} type="button"><span>入口协调节点</span></button>
-          <button className="boundary-chip" onClick={() => addCoordinationRoleNode("planner")} type="button"><span>规划节点</span></button>
-          <button className="boundary-chip" onClick={() => addCoordinationRoleNode("executor")} type="button"><span>执行节点</span></button>
-          <button className="boundary-chip" onClick={() => addCoordinationRoleNode("reviewer")} type="button"><span>审查节点</span></button>
-          <button className="boundary-chip" onClick={() => addCoordinationRoleNode("verifier")} type="button"><span>验证节点</span></button>
-          <button className="boundary-chip" onClick={() => addCoordinationRoleNode("merge")} type="button"><span>汇总节点</span></button>
-          <button className="boundary-chip" onClick={addCoordinationNode} type="button"><span>空白 Agent 节点</span></button>
-        </div>
+        {activePanel === "templates" ? (
+          <div className="boundary-chip-grid">
+            <button className="boundary-chip" onClick={() => applyCoordinationGraphTemplate("single_agent")} type="button"><span>单 Agent 执行图</span></button>
+            <button className="boundary-chip" onClick={() => applyCoordinationGraphTemplate("multi_sequence")} type="button"><span>顺序协作图</span></button>
+            <button className="boundary-chip" onClick={() => applyCoordinationGraphTemplate("multi_parallel_merge")} type="button"><span>并行汇总图</span></button>
+          </div>
+        ) : null}
+
+        {activePanel === "reuse" ? (
+          <div className="boundary-task-table coordination-reuse-list">
+            {selectedDomainTasks.map((task) => (
+              <article key={task.task_id}>
+                <strong>{task.task_title}</strong>
+                <span>{displayId(task.task_mode)}</span>
+                <div className="coordination-editor-actions">
+                  <button className="boundary-chip" disabled={boundCoordinationTaskIds.has(task.task_id)} onClick={() => addCoordinationTaskNode(task, "executor")} type="button">
+                    <span>{boundCoordinationTaskIds.has(task.task_id) ? "已在图中" : "作为执行节点"}</span>
+                  </button>
+                  <button className="boundary-chip" disabled={boundCoordinationTaskIds.has(task.task_id)} onClick={() => addCoordinationTaskNode(task, "reviewer")} type="button">
+                    <span>作为审查节点</span>
+                  </button>
+                </div>
+              </article>
+            ))}
+            {!selectedDomainTasks.length ? <div className="boundary-empty">当前任务域暂无可复用任务。</div> : null}
+          </div>
+        ) : null}
       </section>
     </>
   );
@@ -390,7 +478,6 @@ function CoordinationCanvasPanel({
   removeCoordinationNode,
   selectedDomainTasks,
   selectedGraphNode,
-  connectSelectedNodeTo,
 }: {
   activeGraphNodes: Array<Record<string, unknown>>;
   activeGraphEdges: Array<Record<string, unknown>>;
@@ -411,18 +498,14 @@ function CoordinationCanvasPanel({
   removeCoordinationNode: (nodeId: string) => void;
   selectedDomainTasks: SpecificTaskRecord[];
   selectedGraphNode: Record<string, unknown> | null;
-  connectSelectedNodeTo: (targetNodeId: string) => void;
 }) {
-  const selectedNodeTitle = selectedGraphNode ? graphNodeLabel(selectedGraphNode, 0) : "";
-
   return (
     <>
       <section className="coordination-editor-canvas-shell">
         <header className="coordination-editor-canvas-head">
           <div className="boundary-identity-stack">
             <span>拓扑画布</span>
-            <strong>节点与通信关系</strong>
-            <small>优先在图上装配节点，再进入右侧检查器细化属性。</small>
+            <strong>{selectedGraphNode ? graphNodeLabel(selectedGraphNode, 0) : "节点与通信关系"}</strong>
           </div>
           <div className="coordination-editor-toolbar">
             <button className="boundary-chip" disabled={activeGraphNodes.length < 2} onClick={addCoordinationEdge} type="button">
@@ -522,32 +605,6 @@ function CoordinationCanvasPanel({
               tasks={selectedDomainTasks}
             />
           </div>
-
-          <section className="coordination-editor-assist">
-            <header className="coordination-editor-assist__head">
-              <div className="boundary-identity-stack">
-                <span>快速操作</span>
-                <strong>{linkingFromNodeId ? "等待选择目标节点" : selectedNodeTitle || "选择一个节点开始连线"}</strong>
-                <small>{linkingFromNodeId ? `当前起点：${linkingFromNodeId}` : "画布下方只保留当前动作，不再堆积无关信息。"}</small>
-              </div>
-            </header>
-            {linkingFromNodeId ? (
-              <div className="boundary-empty">正在从 {linkingFromNodeId} 连线，点击图上的目标节点即可创建通信边。</div>
-            ) : selectedGraphNode ? (
-              <div className="boundary-chip-grid">
-                {activeGraphNodes
-                  .filter((node) => String(node.node_id ?? "") !== String(selectedGraphNode.node_id ?? ""))
-                  .map((node) => (
-                    <button className="boundary-chip" key={String(node.node_id ?? "")} onClick={() => connectSelectedNodeTo(String(node.node_id ?? ""))} type="button">
-                      <span>{String(node.label ?? node.title ?? node.node_id ?? "")}</span>
-                    </button>
-                  ))}
-                {activeGraphNodes.length <= 1 ? <div className="boundary-empty">至少需要两个节点才能建立通信。</div> : null}
-              </div>
-            ) : (
-              <div className="boundary-empty">先在图中选中一个节点，再选择它要连接的目标节点。</div>
-            )}
-          </section>
         </div>
       </section>
     </>
@@ -626,6 +683,13 @@ function CoordinationInspectorPanel({
     return card?.name ? `${String(card.name)} · ${agentId}` : agentId;
   };
   const formatContract = contractOptionLabel(contractSpecs);
+  const selectedNodeReadPolicy = asRecord(selectedGraphNode?.memory_read_policy);
+  const selectedNodeWritePolicy = asRecord(selectedGraphNode?.memory_writeback_policy);
+  const selectedNodeDynamicReadPolicy = asRecord(selectedGraphNode?.dynamic_memory_read_policy);
+  const selectedNodeBackgroundPolicy = asRecord(selectedGraphNode?.background_policy);
+  const selectedNodeNotificationPolicy = asRecord(selectedGraphNode?.notification_policy);
+  const selectedNodeLifecyclePolicy = asRecord(selectedGraphNode?.resource_lifecycle_policy);
+  const selectedEdgeWorkingMemoryPolicy = asRecord(selectedGraphEdge?.working_memory_handoff_policy);
 
   return (
     <>
@@ -710,11 +774,255 @@ function CoordinationInspectorPanel({
             formatOption={formatContract}
           />
           <TaskSystemField label="Runtime Lane"><input value={String(selectedGraphNode.runtime_lane ?? selectedGraphNode.lane ?? "")} onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { runtime_lane: event.target.value, lane: event.target.value })} /></TaskSystemField>
+          <section className="boundary-inspector-subblock">
+            <header><strong>Agent 调度</strong><span>Sync / Async</span></header>
+            <TaskSystemSelectField
+              label="执行模式"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { execution_mode: value })}
+              options={NODE_EXECUTION_MODE_OPTIONS}
+              value={String(selectedGraphNode.execution_mode ?? "sync")}
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemField label="并行分组">
+              <input
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { dispatch_group: event.target.value })}
+                placeholder="例如 planning / review"
+                value={String(selectedGraphNode.dispatch_group ?? "")}
+              />
+            </TaskSystemField>
+            <TaskSystemSelectField
+              label="等待策略"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { wait_policy: value })}
+              options={NODE_WAIT_POLICY_OPTIONS}
+              value={String(selectedGraphNode.wait_policy ?? "wait_all_upstream_completed")}
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemSelectField
+              label="汇合策略"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), { join_policy: value })}
+              options={NODE_JOIN_POLICY_OPTIONS}
+              value={String(selectedGraphNode.join_policy ?? "all_success")}
+              formatOption={taskSystemOptionLabel}
+            />
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedNodeBackgroundPolicy.enabled)}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  background_policy: {
+                    ...selectedNodeBackgroundPolicy,
+                    enabled: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              允许作为后台节点运行
+            </label>
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedNodeBackgroundPolicy.blocks_downstream)}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  background_policy: {
+                    ...selectedNodeBackgroundPolicy,
+                    blocks_downstream: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              后台完成前阻塞下游
+            </label>
+            <TaskSystemField label="后台超时秒数">
+              <input
+                min={0}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  background_policy: {
+                    ...selectedNodeBackgroundPolicy,
+                    max_runtime_seconds: Number(event.target.value || 0),
+                  },
+                })}
+                type="number"
+                value={Number(selectedNodeBackgroundPolicy.max_runtime_seconds ?? 0)}
+              />
+            </TaskSystemField>
+            <TaskSystemSelectField
+              label="完成通知"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                notification_policy: {
+                  ...selectedNodeNotificationPolicy,
+                  on_completed: value,
+                },
+              })}
+              options={NOTIFICATION_POLICY_OPTIONS}
+              value={String(selectedNodeNotificationPolicy.on_completed ?? "queued_summary")}
+              formatOption={taskSystemOptionLabel}
+            />
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedNodeLifecyclePolicy.kill_on_parent_abort, true)}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  resource_lifecycle_policy: {
+                    ...selectedNodeLifecyclePolicy,
+                    kill_on_parent_abort: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              父任务中止时终止该节点
+            </label>
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedNodeLifecyclePolicy.cleanup_on_terminal, true)}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  resource_lifecycle_policy: {
+                    ...selectedNodeLifecyclePolicy,
+                    cleanup_on_terminal: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              终态后清理运行资源
+            </label>
+          </section>
           <div className="boundary-kv">
             <p><span>A2A Card</span><strong>{String(selectedNodeCard?.name ?? "未匹配")}</strong></p>
             <p><span>能力数</span><strong>{Array.isArray(selectedNodeCard?.skills) ? selectedNodeCard.skills.length : 0}</strong></p>
             <p><span>投影来源</span><strong>Agent 默认投影优先</strong></p>
           </div>
+          <section className="boundary-inspector-subblock">
+            <header><strong>节点工作记忆读取</strong><span>RunLoop 选择切片</span></header>
+            <TaskSystemMultiSelectField
+              label="可读 Kind"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                memory_read_policy: updatePolicyList(selectedNodeReadPolicy, "readable_kinds", value),
+              })}
+              options={WORKING_MEMORY_KIND_OPTIONS}
+              value={asStringList(selectedNodeReadPolicy.readable_kinds)}
+              wide
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemMultiSelectField
+              label="可读 Scope"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                memory_read_policy: updatePolicyList(selectedNodeReadPolicy, "readable_scopes", value),
+              })}
+              options={WORKING_MEMORY_SCOPE_OPTIONS}
+              value={asStringList(selectedNodeReadPolicy.readable_scopes)}
+              wide
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemMultiSelectField
+              label="语义过滤"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                memory_read_policy: updatePolicyList(selectedNodeReadPolicy, "readable_semantics", value),
+              })}
+              options={WORKING_MEMORY_SEMANTIC_OPTIONS}
+              value={asStringList(selectedNodeReadPolicy.readable_semantics)}
+              wide
+              formatOption={taskSystemOptionLabel}
+            />
+          </section>
+          <section className="boundary-inspector-subblock">
+            <header><strong>节点工作记忆写入</strong><span>候选写回</span></header>
+            <TaskSystemMultiSelectField
+              label="可写 Kind"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                memory_writeback_policy: updatePolicyList(selectedNodeWritePolicy, "writable_kinds", value),
+              })}
+              options={WORKING_MEMORY_KIND_OPTIONS}
+              value={asStringList(selectedNodeWritePolicy.writable_kinds)}
+              wide
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemMultiSelectField
+              label="可写 Scope"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                memory_writeback_policy: updatePolicyList(selectedNodeWritePolicy, "writable_scopes", value),
+              })}
+              options={WORKING_MEMORY_SCOPE_OPTIONS}
+              value={asStringList(selectedNodeWritePolicy.writable_scopes)}
+              wide
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemSelectField
+              label="默认可见性"
+              onChange={(value) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                memory_writeback_policy: {
+                  ...selectedNodeWritePolicy,
+                  default_visibility: value,
+                },
+              })}
+              options={WORKING_MEMORY_VISIBILITY_OPTIONS}
+              value={String(selectedNodeWritePolicy.default_visibility ?? "private_to_node")}
+              formatOption={taskSystemOptionLabel}
+            />
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedNodeWritePolicy.requires_coordinator_review, true)}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  memory_writeback_policy: {
+                    ...selectedNodeWritePolicy,
+                    requires_coordinator_review: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              写入候选需要协调者采纳
+            </label>
+          </section>
+          <section className="boundary-inspector-subblock">
+            <header><strong>动态读取</strong><span>子 Agent 申请</span></header>
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedNodeDynamicReadPolicy.allow_dynamic_read)}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  dynamic_memory_read_policy: {
+                    ...selectedNodeDynamicReadPolicy,
+                    allow_dynamic_read: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              允许该节点动态读取工作记忆
+            </label>
+            <TaskSystemField label="读取次数上限">
+              <input
+                min={0}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  dynamic_memory_read_policy: {
+                    ...selectedNodeDynamicReadPolicy,
+                    max_dynamic_reads_per_node_run: Number(event.target.value || 0),
+                  },
+                })}
+                type="number"
+                value={Number(selectedNodeDynamicReadPolicy.max_dynamic_reads_per_node_run ?? 0)}
+              />
+            </TaskSystemField>
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedNodeDynamicReadPolicy.allow_temporal_expansion)}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  dynamic_memory_read_policy: {
+                    ...selectedNodeDynamicReadPolicy,
+                    allow_temporal_expansion: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              允许读取 temporal 邻接工作记忆
+            </label>
+            <TaskSystemField label="Temporal 扩展深度">
+              <input
+                min={0}
+                onChange={(event) => updateCoordinationNode(String(selectedGraphNode.node_id ?? ""), {
+                  dynamic_memory_read_policy: {
+                    ...selectedNodeDynamicReadPolicy,
+                    max_temporal_expansion_depth: Number(event.target.value || 0),
+                  },
+                })}
+                type="number"
+                value={Number(selectedNodeDynamicReadPolicy.max_temporal_expansion_depth ?? 0)}
+              />
+            </TaskSystemField>
+          </section>
           {String(selectedGraphNode.role ?? "") !== "coordinator" ? (
             <TaskSystemToolbarButton onClick={() => {
               if (window.confirm("确认删除这个节点吗？")) {
@@ -738,6 +1046,105 @@ function CoordinationInspectorPanel({
             value={edgeContractId(selectedGraphEdge)}
             formatOption={formatContract}
           />
+          <section className="boundary-inspector-subblock">
+            <header><strong>调度边策略</strong><span>Wait / Ack</span></header>
+            <TaskSystemSelectField
+              label="等待策略"
+              onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { wait_policy: value })}
+              options={["", ...NODE_WAIT_POLICY_OPTIONS]}
+              value={String(selectedGraphEdge.wait_policy ?? "")}
+              formatOption={(value) => value ? taskSystemOptionLabel(value) : "继承目标节点"}
+            />
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedGraphEdge.ack_required, true)}
+                onChange={(event) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { ack_required: event.target.checked })}
+                type="checkbox"
+              />
+              需要目标节点确认接收
+            </label>
+            <TaskSystemSelectField
+              label="确认策略"
+              onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { ack_policy: value })}
+              options={["explicit_ack", "implicit_ack"]}
+              value={String(selectedGraphEdge.ack_policy ?? "explicit_ack")}
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemSelectField
+              label="失败传播"
+              onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { failure_propagation_policy: value })}
+              options={EDGE_FAILURE_PROPAGATION_OPTIONS}
+              value={String(selectedGraphEdge.failure_propagation_policy ?? "fail_downstream")}
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemSelectField
+              label="结果投递"
+              onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), { result_delivery_policy: value })}
+              options={EDGE_RESULT_DELIVERY_OPTIONS}
+              value={String(selectedGraphEdge.result_delivery_policy ?? "contract_payload_and_refs")}
+              formatOption={taskSystemOptionLabel}
+            />
+          </section>
+          <section className="boundary-inspector-subblock">
+            <header><strong>工作记忆交接</strong><span>Edge Handoff</span></header>
+            <TaskSystemMultiSelectField
+              label="携带 Kind"
+              onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), {
+                working_memory_handoff_policy: updatePolicyList(selectedEdgeWorkingMemoryPolicy, "carry_kinds", value),
+              })}
+              options={WORKING_MEMORY_KIND_OPTIONS}
+              value={asStringList(selectedEdgeWorkingMemoryPolicy.carry_kinds)}
+              wide
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemMultiSelectField
+              label="携带 Scope"
+              onChange={(value) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), {
+                working_memory_handoff_policy: updatePolicyList(selectedEdgeWorkingMemoryPolicy, "carry_scopes", value),
+              })}
+              options={WORKING_MEMORY_SCOPE_OPTIONS}
+              value={asStringList(selectedEdgeWorkingMemoryPolicy.carry_scopes)}
+              wide
+              formatOption={taskSystemOptionLabel}
+            />
+            <TaskSystemField label="显式 refs" wide>
+              <textarea
+                onChange={(event) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), {
+                  working_memory_handoff_policy: {
+                    ...selectedEdgeWorkingMemoryPolicy,
+                    working_memory_refs: event.target.value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean),
+                  },
+                })}
+                value={asStringList(selectedEdgeWorkingMemoryPolicy.working_memory_refs).join("\n")}
+              />
+            </TaskSystemField>
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedEdgeWorkingMemoryPolicy.summary_only)}
+                onChange={(event) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), {
+                  working_memory_handoff_policy: {
+                    ...selectedEdgeWorkingMemoryPolicy,
+                    summary_only: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              只传摘要，不复制正文
+            </label>
+            <label className="boundary-check">
+              <input
+                checked={booleanValue(selectedEdgeWorkingMemoryPolicy.allow_artifact_refs, true)}
+                onChange={(event) => updateCoordinationEdge(graphEdgeId(selectedGraphEdge), {
+                  working_memory_handoff_policy: {
+                    ...selectedEdgeWorkingMemoryPolicy,
+                    allow_artifact_refs: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              允许携带 artifact refs
+            </label>
+          </section>
           {selectedEdgePreview ? (
             <>
               <div className="boundary-kv">
@@ -883,84 +1290,14 @@ export function CoordinationEditorWorkbench({
   a2aCatalog: A2ACatalogLike | null;
   contractSpecs: ContractSpec[];
 }) {
-  const communicationLabel = (coordinationDraft.communication_modes ?? []).length
-    ? (coordinationDraft.communication_modes ?? []).slice(0, 3).join(" / ")
-    : "未设置";
-
   return (
     <section className="boundary-layer-stack coordination-editor-workbench">
-      <div className="boundary-card boundary-card--summary">
-        <header className="coordination-editor-summary-head">
-          <div className="boundary-identity-stack">
-            <span>{selectedDomain?.title || "任务域"} / 任务图草稿</span>
-            <strong>{coordinationDraft.title || "任务图"}</strong>
-            <small>{coordinationTasks.length} 个图草稿</small>
-          </div>
-          <div className="coordination-editor-command-groups">
-            <div className="coordination-editor-command-group">
-              <span>图模板与草稿</span>
-              <div className="boundary-actions">
-                <TaskSystemToolbarButton disabled={!selectedCoordination || saving === "coordination-duplicate"} onClick={() => { void duplicateCoordinationDraft(); }}>
-                  <Plus size={15} />复制为草稿
-                </TaskSystemToolbarButton>
-              </div>
-            </div>
-            <div className="coordination-editor-command-group">
-              <span>拓扑草稿</span>
-              <div className="boundary-actions">
-                <TaskSystemToolbarButton onClick={saveTopologyDraftIntoCoordination}>
-                  <Save size={15} />保存拓扑
-                </TaskSystemToolbarButton>
-                <TaskSystemToolbarButton onClick={() => sendCoordinationToChat(selectedCoordination, selectedDomain)}>带入主会话</TaskSystemToolbarButton>
-                <TaskSystemToolbarButton disabled={saving === "coordination"} onClick={() => { void saveCoordinationStack(false); }}>
-                  <Save size={15} />保存草稿
-                </TaskSystemToolbarButton>
-              </div>
-            </div>
-          </div>
-        </header>
-        {coordinationTasks.length ? (
-          <div className="task-system-section-switch coordination-editor-selector">
-            <div className="task-system-section-switch__head">
-              <span>任务图草稿</span>
-              <strong>{selectedCoordination?.title || coordinationDraft.title || "未选择任务图"}</strong>
-            </div>
-            <div className="boundary-selector-strip boundary-selector-strip--compact">
-            {coordinationTasks.map((task) => (
-              <button className={task.coordination_task_id === selectedCoordinationId ? "active" : ""} key={task.coordination_task_id} onClick={() => setSelectedCoordinationId(task.coordination_task_id)} type="button">
-                <strong>{task.title}</strong>
-                <span>{displayId(task.coordination_mode)}</span>
-              </button>
-            ))}
-            </div>
-          </div>
-        ) : <div className="boundary-empty">当前任务域暂无任务图草稿。</div>}
-        <div className="coordination-editor-meta-strip">
-          <article className="coordination-editor-meta-card">
-            <span>协调模式</span>
-            <strong>{displayId(coordinationDraft.coordination_mode)}</strong>
-            <small>决定拓扑推进和汇合方式。</small>
-          </article>
-          <article className="coordination-editor-meta-card">
-            <span>Agent 组</span>
-            <strong>{coordinationDraft.agent_group_id || "未绑定"}</strong>
-            <small>运行时从该组分派执行主体。</small>
-          </article>
-          <article className="coordination-editor-meta-card">
-            <span>官方 A2A</span>
-            <strong>{a2aCatalog?.transport || "JSONRPC"} · {a2aCatalog?.protocol_version || "0.3.0"}</strong>
-            <small>{a2aCatalog?.protocol_locked ? "通信协议固定，图上边只配置业务语义。" : "等待后端 A2A catalog。"}</small>
-          </article>
-          <article className="coordination-editor-meta-card">
-            <span>图规模</span>
-            <strong>{activeGraphNodes.length} 节点 / {activeGraphEdges.length} 边</strong>
-            <small>{editorValid ? "当前拓扑可发布运行。" : activeGraphNodes.length ? `仍有 ${editorIssueCount} 个问题待处理。` : "空图不能发布，先创建任务节点。"}</small>
-          </article>
-        </div>
-      </div>
       <section className="boundary-card boundary-card--editor">
         <header className="boundary-editor-title">
-          <strong>任务图编辑器</strong>
+          <div className="boundary-identity-stack">
+            <span>{selectedDomain?.title || "任务域"}</span>
+            <strong>{coordinationDraft.title || "任务图"}</strong>
+          </div>
           <div className="boundary-graph-status">
             <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>
               {topologyDirty ? "拓扑未保存" : "拓扑已同步"}
@@ -973,6 +1310,16 @@ export function CoordinationEditorWorkbench({
             </span>
             <span>{activeGraphNodes.length} 个节点</span>
             <span>{activeGraphEdges.length} 条通信边</span>
+            <TaskSystemToolbarButton disabled={!selectedCoordination || saving === "coordination-duplicate"} onClick={() => { void duplicateCoordinationDraft(); }}>
+              <Plus size={15} />复制
+            </TaskSystemToolbarButton>
+            <TaskSystemToolbarButton onClick={saveTopologyDraftIntoCoordination}>
+              <Save size={15} />同步拓扑
+            </TaskSystemToolbarButton>
+            <TaskSystemToolbarButton disabled={saving === "coordination"} onClick={() => { void saveCoordinationStack(false); }}>
+              <Save size={15} />保存
+            </TaskSystemToolbarButton>
+            <TaskSystemToolbarButton onClick={() => sendCoordinationToChat(selectedCoordination, selectedDomain)}>带入会话</TaskSystemToolbarButton>
           </div>
         </header>
 

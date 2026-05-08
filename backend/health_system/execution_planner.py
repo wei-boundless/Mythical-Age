@@ -75,6 +75,7 @@ def build_health_agent_execution_plan(
             }
         ],
         "explicit_inputs": {
+            "explicit_template_id": _health_template_id_for_task_mode(task_mode),
             "capability_requests": ["health_issue"],
         },
     }
@@ -200,3 +201,12 @@ def _context_policy_result(binding: dict[str, Any]) -> dict[str, Any]:
         "memory_scope": str(binding.get("memory_scope") or "issue_local_readonly"),
         "allowed_context_sections": ["health_issue", "runtime_trace", "prompt_manifest", "assertions"],
     }
+
+
+def _health_template_id_for_task_mode(task_mode: str) -> str:
+    return {
+        "issue_triage": "template.health.issue_triage",
+        "trace_analysis": "template.health.trace_analysis",
+        "case_draft": "template.health.case_draft",
+        "fix_verification": "template.health.fix_verification",
+    }.get(str(task_mode or "").strip(), "template.health.issue_triage")

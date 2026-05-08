@@ -42,22 +42,30 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     diagnostics = payload["diagnostics"]
 
     assert payload["authority"] == "task_system.management_console"
-    assert summary["specific_task_record_count"] == 0
+    assert summary["specific_task_record_count"] == len(task_management["specific_task_records"])
     assert summary["projection_binding_count"] == 0
+    assert summary["derived_projection_binding_count"] == len(task_management["projection_bindings"])
+    assert summary["effective_projection_binding_count"] == len(task_management["projection_bindings"])
     assert summary["flow_contract_binding_count"] == 0
+    assert summary["derived_flow_contract_binding_count"] == len(task_management["flow_contract_bindings"])
+    assert summary["effective_flow_contract_binding_count"] == len(task_management["flow_contract_bindings"])
     assert summary["execution_policy_count"] == 0
+    assert summary["derived_execution_policy_count"] == len(task_management["execution_policies"])
+    assert summary["effective_execution_policy_count"] == len(task_management["execution_policies"])
     assert summary["memory_request_profile_count"] == 0
+    assert summary["derived_memory_request_profile_count"] == len(task_management["memory_request_profiles"])
+    assert summary["effective_memory_request_profile_count"] == len(task_management["memory_request_profiles"])
     assert summary["communication_protocol_count"] == 0
     assert summary["contract_spec_count"] >= 5
     assert "agent_management" not in payload
     assert task_management["entry_policies"] == []
-    assert task_management["task_domains"] == []
-    assert task_management["specific_task_records"] == []
-    assert task_management["task_flow_definitions"] == []
-    assert task_management["projection_bindings"] == []
-    assert task_management["flow_contract_bindings"] == []
-    assert task_management["execution_policies"] == []
-    assert task_management["memory_request_profiles"] == []
+    assert all("writing" not in str(item.get("domain_id") or "") for item in task_management["task_domains"])
+    assert all("writing" not in str(item.get("task_id") or "") for item in task_management["specific_task_records"])
+    assert all("writing" not in str(item.get("flow_id") or "") for item in task_management["task_flow_definitions"])
+    assert all("writing" not in str(item.get("task_id") or "") for item in task_management["projection_bindings"])
+    assert all("writing" not in str(item.get("task_id") or "") for item in task_management["flow_contract_bindings"])
+    assert all("writing" not in str(item.get("task_id") or "") for item in task_management["execution_policies"])
+    assert all("writing" not in str(item.get("task_id") or "") for item in task_management["memory_request_profiles"])
     assert coordination_management["communication_protocols"] == []
     assert payload["contract_management"]["contract_specs"]
     assert diagnostics["template_validation_matrix"]["authority"] == "task_system.template_validation_matrix"
@@ -269,6 +277,7 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
                     task_id="task.dev.light_web_game",
                     execution_chain_type="single_agent_chain",
                     runtime_agent_selection_policy="orchestration_default",
+                    default_agent_id="agent:3",
                     task_level="standard",
                     task_privilege="bounded",
                     allowed_agent_categories=["main_agent", "worker_sub_agent"],
@@ -338,6 +347,8 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     assert execution_policy is not None
     assert execution_policy.to_dict()["authority"] == "task_system.task_execution_policy"
     assert execution_policy.to_dict()["execution_chain_type"] == "single_agent_chain"
+    assert execution_policy.to_dict()["default_agent_id"] == "agent:3"
+    assert execution_payload["task_management"]["execution_policies"][0]["default_agent_id"] == "agent:3"
     assert execution_policy.adoption_mode == "adopt_with_projection"
     assert execution_policy.allow_worker_agent_spawn is True
     assert execution_policy.worker_agent_blueprint_id == "worker.dev.prototype"
@@ -534,3 +545,81 @@ def test_task_system_no_longer_seeds_concrete_writing_task_objects(tmp_path: Pat
         assert registry.get_coordination_task(coordination_task_id) is None
     for task_id in removed_refs["adoption_plans"]:
         assert registry.get_task_agent_adoption_plan(task_id) is None
+
+
+def test_task_graph_api_persists_working_memory_strategy_fields(tmp_path: Path) -> None:
+    original = tasks_api.require_runtime
+    tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            tasks_api.upsert_task_system_task_graph(
+                "graph.test.working_memory",
+                tasks_api.TaskGraphUpsertRequest(
+                    graph_id="graph.test.working_memory",
+                    title="工作记忆策略图",
+                    graph_kind="multi_agent",
+                    nodes=[
+                        {
+                            "node_id": "planner",
+                            "node_type": "agent",
+                            "title": "规划节点",
+                            "agent_id": "agent:planner",
+                            "memory_read_policy": {
+                                "readable_kinds": ["task_goal", "decision_record"],
+                                "readable_scopes": ["graph_scope"],
+                            },
+                            "memory_writeback_policy": {
+                                "writable_kinds": ["plan_fragment"],
+                                "writable_scopes": ["node_scope"],
+                            },
+                            "dynamic_memory_read_policy": {
+                                "allow_dynamic_read": True,
+                                "max_dynamic_reads_per_node_run": 2,
+                            },
+                        },
+                        {
+                            "node_id": "writer",
+                            "node_type": "agent",
+                            "title": "写作节点",
+                            "agent_id": "agent:writer",
+                        },
+                    ],
+                    edges=[
+                        {
+                            "edge_id": "planner_to_writer",
+                            "source_node_id": "planner",
+                            "target_node_id": "writer",
+                            "working_memory_handoff_policy": {
+                                "carry_kinds": ["plan_fragment"],
+                                "carry_scopes": ["handoff_only"],
+                            },
+                        }
+                    ],
+                    working_memory_policy_profile_id="wmprofile.test",
+                    working_memory_policy={
+                        "enabled": True,
+                        "default_scope": "graph_scope",
+                    },
+                    runtime_policy={
+                        "working_memory_profile_id": "wmprofile.test",
+                    },
+                ),
+            )
+        )
+    finally:
+        tasks_api.require_runtime = original  # type: ignore[assignment]
+
+    graph = next(
+        item
+        for item in payload["task_graph_management"]["task_graphs"]
+        if item["graph_id"] == "graph.test.working_memory"
+    )
+    planner = next(item for item in graph["nodes"] if item["node_id"] == "planner")
+    edge = graph["edges"][0]
+
+    assert graph["working_memory_policy_profile_id"] == "wmprofile.test"
+    assert graph["working_memory_policy"]["default_scope"] == "graph_scope"
+    assert graph["runtime_policy"]["working_memory_profile_id"] == "wmprofile.test"
+    assert planner["memory_read_policy"]["readable_kinds"] == ["task_goal", "decision_record"]
+    assert planner["dynamic_memory_read_policy"]["max_dynamic_reads_per_node_run"] == 2
+    assert edge["working_memory_handoff_policy"]["carry_kinds"] == ["plan_fragment"]

@@ -12,7 +12,7 @@ import {
 import { createStore, getDefaultState, type Store } from "@/lib/store/core";
 import { useStoreValue } from "@/lib/store/hooks";
 import { WorkspaceRuntime } from "@/lib/store/runtime";
-import type { AppStore, StoreState, WorkspaceView } from "@/lib/store/types";
+import type { AppStore, StoreState } from "@/lib/store/types";
 import { buildEditableFiles } from "@/lib/store/utils";
 
 type StoreContextValue = {
@@ -22,39 +22,10 @@ type StoreContextValue = {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
-const INITIAL_WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
-  "chat",
-  "memory",
-  "test-system",
-  "health-system",
-  "capability-system",
-  "mcp-system",
-  "evidence",
-  "task-system",
-  "orchestration",
-  "system-framework",
-  "experiments",
-  "playground",
-  "system-config"
-]);
-
-function initialWorkspaceView() {
-  if (typeof window === "undefined") {
-    return getDefaultState().activeWorkspaceView;
-  }
-  const view = new URLSearchParams(window.location.search).get("view");
-  return view && INITIAL_WORKSPACE_QUERY_VIEWS.has(view as WorkspaceView)
-    ? view as WorkspaceView
-    : getDefaultState().activeWorkspaceView;
-}
-
 export function AppProvider({ children }: { children: ReactNode }) {
   const [store] = useState(() => {
     const state = getDefaultState();
-    return createStore({
-      ...state,
-      activeWorkspaceView: initialWorkspaceView(),
-    });
+    return createStore(state);
   });
   const [runtime] = useState(() => new WorkspaceRuntime(store));
 

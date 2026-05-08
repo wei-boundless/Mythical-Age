@@ -23,7 +23,6 @@ class AgentDescriptor:
     editable: bool = True
     default_soul_id: str = ""
     default_projection_id: str = ""
-    task_scope: tuple[str, ...] = ()
     created_at: float = 0.0
     updated_at: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -70,7 +69,6 @@ class AgentDescriptor:
             "enabled",
             "default_soul_id",
             "default_projection_id",
-            "task_scope",
             "metadata",
         )
 
@@ -98,7 +96,6 @@ class AgentDescriptor:
         payload["governance_status"] = self.governance_status
         payload["deletable"] = self.deletable
         payload["disable_allowed"] = self.disable_allowed
-        payload["task_scope"] = list(self.task_scope)
         return payload
 
 

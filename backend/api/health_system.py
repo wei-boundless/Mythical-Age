@@ -460,14 +460,22 @@ async def health_system_append_conversation_message(
     runtime = require_runtime()
     registry = HealthRegistry(runtime.base_dir)
     try:
-        message = registry.append_conversation_message(session_id, payload.model_dump())
+        response = await registry.respond_in_conversation(
+            session_id,
+            payload.model_dump(),
+            task_run_loop=runtime.query_runtime.task_run_loop,
+            model_response_executor=runtime.query_runtime.model_response_executor,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown health conversation session") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "authority": "health_system.agent_conversation_message",
-        "message": message.to_dict(),
+        "message": response["message"].to_dict(),
+        "assistant_message": (
+            response["assistant_message"].to_dict() if response.get("assistant_message") is not None else None
+        ),
     }
 
 

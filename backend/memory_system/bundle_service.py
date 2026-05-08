@@ -12,7 +12,9 @@ from .request_service import MemoryRequestService
 from .runtime_view import build_memory_runtime_view as build_runtime_view
 from .session import SessionMemoryLayer
 from .state_memory import StateMemoryStoreAdapter
+from .task_durable_memory_service import TaskDurableMemoryService
 from .supply import build_memory_bundle
+from .working_memory_service import WorkingMemoryService
 
 
 class MemoryBundleService:
@@ -24,7 +26,9 @@ class MemoryBundleService:
         session_memory: SessionMemoryLayer,
         conversation_memory: ConversationMemoryStoreAdapter,
         state_memory: StateMemoryStoreAdapter,
+        working_memory: WorkingMemoryService,
         long_term_memory: LongTermMemoryStoreAdapter,
+        task_durable_memory: TaskDurableMemoryService | None = None,
         durable_memory: Any,
         request_service: MemoryRequestService,
         context_budget_provider: Callable[[], dict[str, Any]] | None = None,
@@ -32,6 +36,8 @@ class MemoryBundleService:
         self.session_memory = session_memory
         self.conversation_memory = conversation_memory
         self.state_memory = state_memory
+        self.working_memory = working_memory
+        self.task_durable_memory = task_durable_memory
         self.long_term_memory = long_term_memory
         self.durable_memory = durable_memory
         self.request_service = request_service
@@ -51,6 +57,60 @@ class MemoryBundleService:
 
     def build_conversation_memory_context_candidates(self, session_id: str):
         return self.conversation_memory.context_candidates(session_id)
+
+    def build_working_memory_context_candidates(
+        self,
+        *,
+        task_run_id: str = "",
+        task_id: str = "",
+        graph_id: str = "",
+        owner_node_id: str = "",
+        node_run_id: str = "",
+        run_attempt_id: str = "",
+        requested_kinds: list[str] | tuple[str, ...] = (),
+        requested_semantics: list[str] | tuple[str, ...] = (),
+        limit: int = 20,
+    ):
+        return self.working_memory.context_candidates(
+            task_run_id=task_run_id,
+            task_id=task_id,
+            graph_id=graph_id,
+            owner_node_id=owner_node_id,
+            node_run_id=node_run_id,
+            run_attempt_id=run_attempt_id,
+            requested_kinds=requested_kinds,
+            requested_semantics=requested_semantics,
+            limit=limit,
+        )
+
+    def build_task_durable_memory_context_candidates(
+        self,
+        *,
+        namespace_id: str = "",
+        task_family: str = "",
+        domain_id: str = "",
+        task_id: str = "",
+        graph_id: str = "",
+        project_id: str = "",
+        artifact_namespace: str = "",
+        requested_kinds: list[str] | tuple[str, ...] = (),
+        requested_semantics: list[str] | tuple[str, ...] = (),
+        limit: int = 20,
+    ):
+        if self.task_durable_memory is None:
+            return ()
+        return self.task_durable_memory.context_candidates(
+            namespace_id=namespace_id,
+            task_family=task_family,
+            domain_id=domain_id,
+            task_id=task_id,
+            graph_id=graph_id,
+            project_id=project_id,
+            artifact_namespace=artifact_namespace,
+            requested_kinds=requested_kinds,
+            requested_semantics=requested_semantics,
+            limit=limit,
+        )
 
     def build_long_term_memory_records(self, *, limit: int = 200, runtime_visible_only: bool = True):
         return self.long_term_memory.load_records(limit=limit, runtime_visible_only=runtime_visible_only)

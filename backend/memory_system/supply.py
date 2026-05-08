@@ -15,6 +15,11 @@ class MemoryRequest:
     agent_id: str
     requested_memory_layers: tuple[str, ...] = ()
     requested_topics: tuple[str, ...] = ()
+    task_run_id: str = ""
+    graph_id: str = ""
+    owner_node_id: str = ""
+    node_run_id: str = ""
+    run_attempt_id: str = ""
     memory_priority: str = "normal"
     allow_long_term_memory: bool = False
     reason: str = ""
@@ -35,6 +40,8 @@ class MemoryScopePolicy:
     allow_long_term_read: bool = False
     allow_long_term_write: bool = False
     allow_state_restore: bool = True
+    allow_working_memory_read: bool = True
+    allow_task_durable_memory_read: bool = False
     allow_cross_task_memory: bool = False
     writeback_policy: str = "task_default"
     authority: str = "orchestration.memory_scope_policy"
@@ -110,6 +117,11 @@ def build_memory_request(
         agent_id=agent_id,
         requested_memory_layers=tuple(requested_layers),
         requested_topics=tuple(requested_topics),
+        task_run_id=str(profile.get("task_run_id") or ""),
+        graph_id=str(profile.get("graph_id") or ""),
+        owner_node_id=str(profile.get("owner_node_id") or ""),
+        node_run_id=str(profile.get("node_run_id") or ""),
+        run_attempt_id=str(profile.get("run_attempt_id") or ""),
         memory_priority=str(profile.get("memory_priority") or "normal"),
         allow_long_term_memory=bool(profile.get("allow_long_term_memory", False)),
         reason=reason or str(profile.get("memory_scope_hint") or ""),
@@ -124,6 +136,7 @@ def build_memory_scope_policy(
     profile = dict(memory_request_profile or {})
     allowed_layers = _normalize_strings(profile.get("requested_memory_layers")) or ["conversation", "state"]
     allow_long_term = bool(profile.get("allow_long_term_memory", False)) or "long_term" in allowed_layers
+    allow_task_durable = "task_durable" in allowed_layers or "task_durable_memory" in allowed_layers
     return MemoryScopePolicy(
         policy_id=f"memscope:{agent_id}",
         agent_id=agent_id,
@@ -131,6 +144,8 @@ def build_memory_scope_policy(
         allow_long_term_read=allow_long_term,
         allow_long_term_write=False,
         allow_state_restore="state" in allowed_layers or not allowed_layers,
+        allow_working_memory_read="working" in allowed_layers or not allowed_layers,
+        allow_task_durable_memory_read=allow_task_durable,
         allow_cross_task_memory=False,
         writeback_policy=str(profile.get("writeback_policy") or "task_default"),
     )
@@ -142,6 +157,10 @@ def apply_memory_scope_policy(request: MemoryRequest, scope_policy: MemoryScopeP
     allow_long_term = request.allow_long_term_memory and scope_policy.allow_long_term_read
     if not allow_long_term:
         requested_layers = [layer for layer in requested_layers if layer != "long_term"]
+    if not scope_policy.allow_working_memory_read:
+        requested_layers = [layer for layer in requested_layers if layer != "working"]
+    if not scope_policy.allow_task_durable_memory_read:
+        requested_layers = [layer for layer in requested_layers if layer not in {"task_durable", "task_durable_memory"}]
     return MemoryRequest(
         request_id=request.request_id,
         task_id=request.task_id,
@@ -149,6 +168,11 @@ def apply_memory_scope_policy(request: MemoryRequest, scope_policy: MemoryScopeP
         agent_id=request.agent_id,
         requested_memory_layers=tuple(requested_layers),
         requested_topics=request.requested_topics,
+        task_run_id=request.task_run_id,
+        graph_id=request.graph_id,
+        owner_node_id=request.owner_node_id,
+        node_run_id=request.node_run_id,
+        run_attempt_id=request.run_attempt_id,
         memory_priority=request.memory_priority,
         allow_long_term_memory=allow_long_term,
         reason=request.reason,

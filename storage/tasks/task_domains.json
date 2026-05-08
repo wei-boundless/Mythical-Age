@@ -21,6 +21,18 @@
       "metadata": {
         "derived": true
       }
+    },
+    {
+      "domain_id": "domain.longform_novel",
+      "task_family": "longform_novel_writing",
+      "title": "长篇小说创作",
+      "description": "面向多章节、多角色、多设定连续性的长篇小说生产任务域。",
+      "enabled": true,
+      "sort_order": 260,
+      "metadata": {
+        "managed_by": "task_package_wizard",
+        "package_template": "longform_novel_writing"
+      }
     }
   ],
   "deleted_domain_ids": [

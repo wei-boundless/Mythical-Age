@@ -347,7 +347,6 @@ export type TaskSystemAgentUpsertPayload = {
   editable?: boolean;
   default_soul_id?: string;
   default_projection_id?: string;
-  task_scope?: string[];
   metadata?: Record<string, unknown>;
 };
 
@@ -453,6 +452,7 @@ export type TaskExecutionPolicy = {
   task_id: string;
   execution_chain_type: string;
   runtime_agent_selection_policy?: string;
+  default_agent_id: string;
   task_level?: string;
   task_privilege?: string;
   allowed_agent_categories: string[];
@@ -472,6 +472,12 @@ export type TaskMemoryRequestProfile = {
   memory_priority: string;
   writeback_policy: string;
   allow_long_term_memory: boolean;
+  working_memory_policy_profile_id?: string;
+  working_memory_policy?: Record<string, unknown>;
+  allow_working_memory?: boolean;
+  allow_dynamic_working_memory_read?: boolean;
+  working_memory_default_scope?: string;
+  working_memory_default_visibility?: string;
   memory_scope_hint: string;
   metadata?: Record<string, unknown>;
 };
@@ -718,7 +724,16 @@ export type TaskGraphNodeRecord = {
   projection_overlay_id?: string;
   failure_policy?: Record<string, unknown>;
   human_gate_policy?: Record<string, unknown>;
+  memory_read_policy?: Record<string, unknown>;
   memory_writeback_policy?: Record<string, unknown>;
+  dynamic_memory_read_policy?: Record<string, unknown>;
+  execution_mode?: "sync" | "async" | "parallel" | "background" | "barrier" | "manual_gate" | string;
+  dispatch_group?: string;
+  wait_policy?: string;
+  join_policy?: string;
+  background_policy?: Record<string, unknown>;
+  notification_policy?: Record<string, unknown>;
+  resource_lifecycle_policy?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
 
@@ -731,8 +746,13 @@ export type TaskGraphEdgeRecord = {
   payload_contract_id?: string;
   context_filter_policy?: Record<string, unknown>;
   artifact_ref_policy?: Record<string, unknown>;
+  working_memory_handoff_policy?: Record<string, unknown>;
   ack_policy?: string;
   timeout_policy?: string;
+  wait_policy?: string;
+  ack_required?: boolean;
+  failure_propagation_policy?: string;
+  result_delivery_policy?: string;
   failure_policy?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
@@ -902,6 +922,7 @@ export type OrchestrationAgentRuntimeProfile = {
   blocked_operations: string[];
   allowed_memory_scopes: string[];
   allowed_context_sections: string[];
+  use_shared_contract: boolean;
   output_contracts: string[];
   approval_policy: string;
   trace_policy: string;
@@ -2045,6 +2066,242 @@ export type MemorySessionFilesResponse = {
   files: MemorySessionFile[];
 };
 
+export type WorkingMemoryItem = {
+  work_memory_id: string;
+  task_run_id: string;
+  task_id: string;
+  graph_id: string;
+  owner_node_id: string;
+  owner_node_role: string;
+  node_run_id: string;
+  run_attempt_id: string;
+  stage_id: string;
+  writer_agent_id: string;
+  last_writer_agent_id: string;
+  scope: string;
+  kind: string;
+  memory_semantics: string;
+  title: string;
+  payload: Record<string, unknown>;
+  payload_preview: string;
+  summary: string;
+  status: string;
+  visibility: string;
+  read_policy: Record<string, unknown>;
+  write_policy: Record<string, unknown>;
+  version: number;
+  parent_item_id: string;
+  source_event_refs: string[];
+  source_message_refs: string[];
+  artifact_refs: string[];
+  contract_refs: string[];
+  reader_policy: Record<string, unknown>;
+  tags: string[];
+  temporal_refs: string[];
+  conflict_refs: string[];
+  adopted_from_handoff_id: string;
+  idempotency_key: string;
+  source_message_hash: string;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  promotion_state: string;
+  metadata: Record<string, unknown>;
+  authority: string;
+};
+
+export type WorkingMemoryReadLog = {
+  read_log_id: string;
+  task_run_id: string;
+  graph_id: string;
+  owner_node_id: string;
+  node_run_id: string;
+  run_attempt_id: string;
+  reader_agent_id: string;
+  request: Record<string, unknown>;
+  selected_item_ids: string[];
+  excluded_item_ids: string[];
+  token_estimate: number;
+  denied_reason: string;
+  created_at: string;
+  authority: string;
+};
+
+export type WorkingMemoryTemporalEdge = {
+  edge_id: string;
+  task_run_id: string;
+  graph_id: string;
+  source_item_id: string;
+  target_item_id: string;
+  relation: string;
+  confidence: number;
+  source_node_id: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
+  authority: string;
+};
+
+export type WorkingMemoryHandoffTransaction = {
+  transaction_id: string;
+  task_run_id: string;
+  graph_id: string;
+  edge_id: string;
+  source_node_run_id: string;
+  target_node_run_id: string;
+  handoff_id: string;
+  source_message_hash: string;
+  idempotency_key: string;
+  candidate_work_memory_ids: string[];
+  adopted_work_memory_ids: string[];
+  rejected_work_memory_ids: string[];
+  ephemeral_context_refs: string[];
+  transaction_status: string;
+  created_at: string;
+  committed_at: string;
+  metadata: Record<string, unknown>;
+  authority: string;
+};
+
+export type WorkingMemoryOverview = {
+  query: string;
+  filters: Record<string, unknown>;
+  total: number;
+  active_run_ids: string[];
+  by_status: Record<string, number>;
+  by_kind: Record<string, number>;
+  by_owner_node: Record<string, number>;
+  by_writer_agent: Record<string, number>;
+  items: WorkingMemoryItem[];
+  conflict_items: WorkingMemoryItem[];
+  promotion_candidates: WorkingMemoryItem[];
+  archived_items: WorkingMemoryItem[];
+  read_logs: WorkingMemoryReadLog[];
+  temporal_edges: WorkingMemoryTemporalEdge[];
+  handoff_transactions: WorkingMemoryHandoffTransaction[];
+};
+
+export type WorkingMemoryItemDetail = {
+  item: WorkingMemoryItem;
+  read_logs: WorkingMemoryReadLog[];
+  temporal_edges: WorkingMemoryTemporalEdge[];
+  handoff_transactions: WorkingMemoryHandoffTransaction[];
+};
+
+export type WorkingMemoryFinalizationResult = {
+  task_run_id: string;
+  finalized_count: number;
+  archived_count: number;
+  discarded_count: number;
+  promotion_candidate_count: number;
+  artifact_candidate_count: number;
+  unresolved_conflict_count: number;
+  unchanged_count: number;
+  archive_report_path: string;
+  item_actions: Array<{
+    work_memory_id: string;
+    kind: string;
+    memory_semantics: string;
+    before_status: string;
+    before_promotion_state: string;
+    after_status?: string;
+    after_promotion_state?: string;
+    owner_node_id: string;
+    node_run_id: string;
+    action: string;
+  }>;
+  authority: string;
+};
+
+export type WorkingMemoryFinalizationResponse = {
+  ok: boolean;
+  result: WorkingMemoryFinalizationResult;
+};
+
+export type TaskDurableMemoryNamespace = {
+  namespace_id: string;
+  task_family: string;
+  domain_id: string;
+  task_id: string;
+  graph_id: string;
+  project_id: string;
+  artifact_namespace: string;
+  item_count: number;
+  updated_at: string;
+};
+
+export type TaskDurableMemoryItem = {
+  task_memory_id: string;
+  namespace_id: string;
+  task_family: string;
+  domain_id: string;
+  task_id: string;
+  graph_id: string;
+  project_id: string;
+  artifact_namespace: string;
+  source_work_memory_ids: string[];
+  source_artifact_refs: string[];
+  memory_type: string;
+  memory_class: string;
+  kind: string;
+  memory_semantics: string;
+  title: string;
+  canonical_statement: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  payload_preview: string;
+  retrieval_hints: string[];
+  status: string;
+  confidence: string;
+  stability: string;
+  eligible_for_task_injection: boolean;
+  eligible_for_global_promotion: boolean;
+  global_promotion_state: string;
+  created_at: string;
+  updated_at: string;
+  metadata: Record<string, unknown>;
+  authority: string;
+};
+
+export type TaskDurableMemoryOverview = {
+  query: string;
+  filters: Record<string, unknown>;
+  total: number;
+  namespace_count: number;
+  by_status: Record<string, number>;
+  by_namespace: Record<string, number>;
+  by_kind: Record<string, number>;
+  namespaces: TaskDurableMemoryNamespace[];
+  items: TaskDurableMemoryItem[];
+  global_promotion_candidates: TaskDurableMemoryItem[];
+};
+
+export type TaskDurableMemoryItemDetail = {
+  item: TaskDurableMemoryItem;
+};
+
+export type WorkingMemoryPromoteTaskDurableResponse = {
+  ok: boolean;
+  action: string;
+  work_memory_id: string;
+  task_memory: TaskDurableMemoryItem;
+  item: WorkingMemoryItem;
+};
+
+export type TaskDurableMemoryGovernanceResponse = {
+  ok: boolean;
+  action: string;
+  task_memory: TaskDurableMemoryItem;
+  filename?: string;
+  header?: MemoryHeader | null;
+};
+
+export type WorkingMemoryGovernanceResponse = {
+  ok: boolean;
+  action: string;
+  work_memory_id: string;
+  item: WorkingMemoryItem;
+};
+
 export type MemoryOverview = {
   session_id: string;
   query: string;
@@ -2058,6 +2315,8 @@ export type MemoryOverview = {
     extraction_runtime: Record<string, unknown>;
   };
   session_memory: MemorySessionInspect | null;
+  working_memory?: WorkingMemoryOverview;
+  task_durable_memory?: TaskDurableMemoryOverview;
 };
 
 export type MemoryRecallPreview = {
@@ -2287,6 +2546,175 @@ export async function getMemoryOverview(sessionId?: string, query = "") {
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return request<MemoryOverview>(`/memory/overview${suffix}`);
+}
+
+export async function getWorkingMemoryOverview(payload?: {
+  task_run_id?: string;
+  graph_id?: string;
+  owner_node_id?: string;
+  node_run_id?: string;
+  writer_agent_id?: string;
+  status?: string;
+  kind?: string;
+  query?: string;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(payload ?? {})) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    const text = String(value).trim();
+    if (text) {
+      params.set(key, text);
+    }
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<WorkingMemoryOverview>(`/memory/working/overview${suffix}`);
+}
+
+export async function getWorkingMemoryItem(workMemoryId: string) {
+  return request<WorkingMemoryItemDetail>(`/memory/working/items/${encodeURIComponent(workMemoryId)}`);
+}
+
+export async function finalizeWorkingMemoryTaskRun(
+  taskRunId: string,
+  payload?: {
+    actor_id?: string;
+    terminal_reason?: string;
+    policy?: Record<string, unknown>;
+  }
+) {
+  return request<WorkingMemoryFinalizationResponse>(
+    `/memory/working/runs/${encodeURIComponent(taskRunId)}/finalize`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload ?? {})
+    }
+  );
+}
+
+export async function getTaskDurableMemoryOverview(payload?: {
+  namespace_id?: string;
+  task_family?: string;
+  domain_id?: string;
+  task_id?: string;
+  graph_id?: string;
+  project_id?: string;
+  artifact_namespace?: string;
+  kind?: string;
+  memory_semantics?: string;
+  status?: string;
+  query?: string;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(payload ?? {})) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+    const text = String(value).trim();
+    if (text) {
+      params.set(key, text);
+    }
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<TaskDurableMemoryOverview>(`/memory/task-durable/overview${suffix}`);
+}
+
+export async function getTaskDurableMemoryItem(taskMemoryId: string) {
+  return request<TaskDurableMemoryItemDetail>(`/memory/task-durable/items/${encodeURIComponent(taskMemoryId)}`);
+}
+
+export async function listTaskDurableMemoryNamespaces() {
+  return request<{ namespaces: TaskDurableMemoryNamespace[] }>("/memory/task-durable/namespaces");
+}
+
+export async function markTaskDurableGlobalCandidate(
+  taskMemoryId: string,
+  payload?: {
+    actor_id?: string;
+    reason?: string;
+  }
+) {
+  return request<TaskDurableMemoryGovernanceResponse>(
+    `/memory/task-durable/items/${encodeURIComponent(taskMemoryId)}/promote-global-candidate`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload ?? {})
+    }
+  );
+}
+
+export async function promoteTaskDurableToGlobal(
+  taskMemoryId: string,
+  payload?: {
+    title?: string;
+    canonical_statement?: string;
+    summary?: string;
+    global_kind?: string;
+    memory_type?: string;
+    memory_class?: string;
+    confidence?: string;
+    actor_id?: string;
+    reason?: string;
+  }
+) {
+  return request<TaskDurableMemoryGovernanceResponse>(
+    `/memory/task-durable/items/${encodeURIComponent(taskMemoryId)}/promote-global`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload ?? {})
+    }
+  );
+}
+
+export async function promoteWorkingMemoryToTaskDurable(
+  workMemoryId: string,
+  payload?: {
+    title?: string;
+    canonical_statement?: string;
+    summary?: string;
+    namespace_id?: string;
+    task_family?: string;
+    domain_id?: string;
+    task_id?: string;
+    graph_id?: string;
+    project_id?: string;
+    artifact_namespace?: string;
+    memory_type?: string;
+    memory_class?: string;
+    retrieval_hints?: string[];
+    confidence?: string;
+    actor_id?: string;
+    reason?: string;
+  }
+) {
+  return request<WorkingMemoryPromoteTaskDurableResponse>(
+    `/memory/working/items/${encodeURIComponent(workMemoryId)}/promote-task-durable`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload ?? {})
+    }
+  );
+}
+
+export async function governWorkingMemoryItem(
+  workMemoryId: string,
+  action: "accept" | "discard" | "conflict",
+  payload?: {
+    actor_id?: string;
+    reason?: string;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  return request<WorkingMemoryGovernanceResponse>(
+    `/memory/working/items/${encodeURIComponent(workMemoryId)}/${action}`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload ?? {})
+    }
+  );
 }
 
 export async function getSessionMemoryFiles(sessionId: string) {
@@ -2857,6 +3285,7 @@ export async function sendHealthAgentConversationMessage(
   return request<{
     authority: string;
     message: HealthAgentConversationMessage;
+    assistant_message: HealthAgentConversationMessage | null;
   }>(`/health-system/conversation-sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: "POST",
     body: JSON.stringify(payload)

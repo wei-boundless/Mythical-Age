@@ -19,7 +19,10 @@ from tasks.workflow_registry import TaskWorkflowRegistry
 from .command_builder import HealthCommandBuilder
 from .command_service import HealthCommandService
 from .constants import HEALTH_AGENT_ID, HEALTH_SESSION_ID, normalize_health_agent_id
-from .execution_planner import build_health_agent_execution_plan, build_health_agent_run_preview
+from .execution_planner import (
+    build_health_agent_execution_plan,
+    build_health_agent_run_preview,
+)
 from .models import (
     HealthAgentConversationMessage,
     HealthAgentConversationSession,
@@ -195,16 +198,21 @@ class HealthRegistry:
     def create_conversation_session(self, payload: dict[str, Any]) -> HealthAgentConversationSession:
         now = time.time()
         session_id = str(payload.get("session_id") or "").strip() or f"health-agent-session:{int(now * 1000)}"
+        active_issue_ref = str(payload.get("active_issue_ref") or "").strip()
+        active_run_ref = str(payload.get("active_run_ref") or "").strip()
+        defaults = self._resolve_conversation_defaults(
+            active_issue_ref=active_issue_ref,
+            active_run_ref=active_run_ref,
+            task_mode=str(payload.get("task_mode") or "issue_triage").strip() or "issue_triage",
+        )
         session = HealthAgentConversationSession(
             session_id=session_id,
-            agent_id=normalize_health_agent_id(str(payload.get("agent_id") or HEALTH_AGENT_ID)),
-            agent_profile_id=str(payload.get("agent_profile_id") or "health_maintainer_agent"),
-            workflow_id=str(
-                payload.get("workflow_id") or payload.get("skill_workflow_id") or "workflow.health.issue_triage"
-            ),
-            runtime_lane=str(payload.get("runtime_lane") or "health_issue_read"),
-            active_issue_ref=str(payload.get("active_issue_ref") or ""),
-            active_run_ref=str(payload.get("active_run_ref") or ""),
+            agent_id=normalize_health_agent_id(str(payload.get("agent_id") or defaults["agent_id"] or HEALTH_AGENT_ID)),
+            agent_profile_id=str(payload.get("agent_profile_id") or defaults["agent_profile_id"] or ""),
+            workflow_id=str(payload.get("workflow_id") or payload.get("skill_workflow_id") or defaults["workflow_id"] or ""),
+            runtime_lane=str(payload.get("runtime_lane") or defaults["runtime_lane"] or ""),
+            active_issue_ref=active_issue_ref,
+            active_run_ref=active_run_ref,
             command_refs=tuple(str(item) for item in list(payload.get("command_refs") or [])),
             status=str(payload.get("status") or "active"),
             created_at=now,
@@ -233,6 +241,30 @@ class HealthRegistry:
         )
         self.store.append_conversation_message(message)
         return message
+
+    async def respond_in_conversation(
+        self,
+        session_id: str,
+        payload: dict[str, Any],
+        *,
+        task_run_loop: Any,
+        model_response_executor: Any,
+    ) -> dict[str, Any]:
+        session = self.get_conversation_session(session_id)
+        if session is None:
+            raise KeyError(session_id)
+        user_message = self.append_conversation_message(session_id, payload)
+        if str(user_message.role or "user") != "user":
+            return {"message": user_message, "assistant_message": None}
+
+        assistant_message = await self._build_conversation_reply(
+            session=session,
+            user_message=user_message,
+            task_run_loop=task_run_loop,
+            model_response_executor=model_response_executor,
+        )
+        self.store.append_conversation_message(assistant_message)
+        return {"message": user_message, "assistant_message": assistant_message}
 
     async def submit_command(
         self,
@@ -474,6 +506,7 @@ class HealthRegistry:
         source: str = "health_system.manual",
         task_run_loop: Any,
         model_response_executor: Any,
+        user_message: str = "",
     ) -> dict[str, Any]:
         started = self.start_agent_run(
             issue_id=issue_id,
@@ -498,6 +531,7 @@ class HealthRegistry:
             flow=flow,
             binding=binding,
             workflow=workflow_payload,
+            user_message=user_message,
         )
         task_contract_ref = str(task_run.get("task_contract_ref") or f"health-task-contract:{task_id}")
         task_contract_event = task_run_loop.event_log.append(
@@ -918,6 +952,7 @@ class HealthRegistry:
         flow: dict[str, Any],
         binding: dict[str, Any],
         workflow: dict[str, Any],
+        user_message: str = "",
     ) -> list[dict[str, str]]:
         system_prompt = "\n".join(
             [
@@ -942,11 +977,161 @@ class HealthRegistry:
             {
                 "role": "user",
                 "content": (
-                    "请执行本次健康维护任务，并给出候选结果。输入如下：\n"
+                    "请执行本次健康维护任务，并基于用户当前提问给出候选结果。"
+                    + (f"\n用户提问：{user_message}\n" if user_message else "\n")
+                    + "输入如下：\n"
                     + json.dumps(user_payload, ensure_ascii=False, indent=2)
                 ),
             },
         ]
+
+    async def _build_conversation_reply(
+        self,
+        *,
+        session: HealthAgentConversationSession,
+        user_message: HealthAgentConversationMessage,
+        task_run_loop: Any,
+        model_response_executor: Any,
+    ) -> HealthAgentConversationMessage:
+        now = time.time()
+        issue_id = str(session.active_issue_ref or "").strip()
+        if not issue_id and str(session.active_run_ref or "").strip():
+            run = self.get_agent_run(session.active_run_ref)
+            if run is not None and str(run.issue_id or "").strip():
+                issue_id = str(run.issue_id)
+        if not issue_id:
+            return HealthAgentConversationMessage(
+                message_id=f"health-agent-message:{int(now * 1000)}",
+                session_id=session.session_id,
+                role="assistant",
+                content="当前会话还没有绑定健康问题，所以我没法做真实分析。请先绑定一个问题，或从已关联问题的运行进入对话。",
+                created_at=now,
+            )
+
+        task_mode = self._route_conversation_task_mode(
+            user_message=user_message.content,
+            session=session,
+        )
+        session = self._refresh_conversation_session_mode(
+            session,
+            task_mode=task_mode,
+            active_issue_ref=issue_id,
+        )
+        run_result = await self.execute_agent_run(
+            issue_id=issue_id,
+            task_mode=task_mode,
+            session_id=session.session_id,
+            source="health_system.conversation",
+            task_run_loop=task_run_loop,
+            model_response_executor=model_response_executor,
+            user_message=user_message.content,
+        )
+        result = dict(run_result.get("result") or {})
+        health_run = dict(run_result.get("health_agent_run") or {})
+        content = str(result.get("content") or "").strip()
+        if not content:
+            status = str(run_result.get("status") or "unknown")
+            if status == "blocked":
+                content = "本次健康分析被运行时门禁拦截，暂时没有生成结果。"
+            elif status == "failed":
+                content = "本次健康分析执行失败，暂时没有生成结果。"
+            else:
+                content = "本次健康分析没有产出正文结果。"
+        return HealthAgentConversationMessage(
+            message_id=f"health-agent-message:{int(time.time() * 1000)}",
+            session_id=session.session_id,
+            role="assistant",
+            content=content,
+            report_ref=str(result.get("result_ref") or ""),
+            created_at=time.time(),
+            receipt_ref=str(health_run.get("run_id") or ""),
+        )
+
+    def _route_conversation_task_mode(
+        self,
+        *,
+        user_message: str,
+        session: HealthAgentConversationSession,
+    ) -> str:
+        normalized = str(user_message or "").strip().lower()
+        if any(token in normalized for token in ("修复验证", "验证修复", "verify fix", "fix verification", "验证是否修好")):
+            return "fix_verification"
+        if any(token in normalized for token in ("用例", "case", "断言", "复现草案", "测试草案")):
+            return "case_draft"
+        if any(token in normalized for token in ("链路", "trace", "节点", "根因", "分析运行")):
+            return "trace_analysis"
+        session_workflow = str(session.workflow_id or "").strip()
+        session_lane = str(session.runtime_lane or "").strip()
+        if "fix_verification" in session_workflow or "fix_verification" in session_lane:
+            return "fix_verification"
+        if "case_draft" in session_workflow or "case_draft" in session_lane:
+            return "case_draft"
+        if "trace_analysis" in session_workflow or "trace" in session_lane:
+            return "trace_analysis"
+        return "issue_triage"
+
+    def _resolve_conversation_defaults(
+        self,
+        *,
+        active_issue_ref: str,
+        active_run_ref: str,
+        task_mode: str,
+    ) -> dict[str, str]:
+        issue_id = str(active_issue_ref or "").strip()
+        if not issue_id and str(active_run_ref or "").strip():
+            run = self.get_agent_run(active_run_ref)
+            if run is not None and str(run.issue_id or "").strip():
+                issue_id = str(run.issue_id or "").strip()
+        if issue_id:
+            issue = self.get_issue(issue_id)
+            if issue is not None:
+                plan = build_health_agent_execution_plan(
+                    self.base_dir,
+                    issue=issue,
+                    task_mode=task_mode,
+                    session_id=HEALTH_SESSION_ID,
+                    source="health_system.conversation_defaults",
+                )
+                return {
+                    "agent_id": normalize_health_agent_id(plan.agent_id),
+                    "agent_profile_id": str(plan.agent_profile_id or ""),
+                    "workflow_id": str(plan.workflow_id or ""),
+                    "runtime_lane": str(plan.runtime_lane or ""),
+                }
+        return {
+            "agent_id": normalize_health_agent_id(HEALTH_AGENT_ID),
+            "agent_profile_id": "",
+            "workflow_id": "",
+            "runtime_lane": "",
+        }
+
+    def _refresh_conversation_session_mode(
+        self,
+        session: HealthAgentConversationSession,
+        *,
+        task_mode: str,
+        active_issue_ref: str,
+    ) -> HealthAgentConversationSession:
+        defaults = self._resolve_conversation_defaults(
+            active_issue_ref=active_issue_ref,
+            active_run_ref=session.active_run_ref,
+            task_mode=task_mode,
+        )
+        updated = HealthAgentConversationSession(
+            session_id=session.session_id,
+            agent_id=normalize_health_agent_id(defaults["agent_id"] or session.agent_id),
+            agent_profile_id=str(defaults["agent_profile_id"] or session.agent_profile_id),
+            workflow_id=str(defaults["workflow_id"] or session.workflow_id),
+            runtime_lane=str(defaults["runtime_lane"] or session.runtime_lane),
+            active_issue_ref=active_issue_ref or session.active_issue_ref,
+            active_run_ref=session.active_run_ref,
+            command_refs=session.command_refs,
+            status=session.status,
+            created_at=session.created_at,
+            updated_at=time.time(),
+        )
+        self.store.upsert_conversation_session(updated)
+        return updated
 
 def _verdict_from_status(status: str) -> str:
     normalized = status.lower()

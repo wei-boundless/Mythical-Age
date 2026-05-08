@@ -23,6 +23,7 @@ class RuntimeCheckpoint:
     prompt_manifest_ref: str = ""
     execution_refs: tuple[str, ...] = ()
     execution_state_ref: str = ""
+    working_memory_refs: tuple[str, ...] = ()
     execution_summary: dict[str, Any] = field(default_factory=dict)
     agent_run_refs: tuple[str, ...] = ()
     coordination_run_refs: tuple[str, ...] = ()
@@ -62,12 +63,18 @@ class RuntimeCheckpointStore:
         event_offset: int,
         execution_refs: tuple[str, ...] = (),
         execution_state_ref: str = "",
+        working_memory_refs: tuple[str, ...] = (),
         execution_summary: dict[str, Any] | None = None,
         agent_runs: tuple[AgentRun, ...] = (),
         coordination_runs: tuple[CoordinationRun, ...] = (),
     ) -> RuntimeCheckpoint:
         created_at = time.time()
         checkpoint_id = f"rtchk:{state.task_run_id}:{event_offset}"
+        resolved_working_memory_refs = tuple(
+            str(item).strip()
+            for item in (working_memory_refs or tuple(state.diagnostics.get("working_memory_refs") or ()))
+            if str(item).strip()
+        )
         checkpoint = RuntimeCheckpoint(
             checkpoint_id=checkpoint_id,
             task_run_id=state.task_run_id,
@@ -77,6 +84,7 @@ class RuntimeCheckpointStore:
             prompt_manifest_ref=state.prompt_manifest_ref,
             execution_refs=tuple(execution_refs),
             execution_state_ref=str(execution_state_ref or ""),
+            working_memory_refs=resolved_working_memory_refs,
             execution_summary=dict(execution_summary or {}),
             agent_run_refs=tuple(item.agent_run_id for item in agent_runs),
             coordination_run_refs=tuple(item.coordination_run_id for item in coordination_runs),
@@ -89,6 +97,7 @@ class RuntimeCheckpointStore:
                 event_offset=event_offset,
                 execution_refs=tuple(execution_refs),
                 execution_state_ref=str(execution_state_ref or ""),
+                working_memory_refs=resolved_working_memory_refs,
                 execution_summary=dict(execution_summary or {}),
                 agent_run_refs=tuple(item.agent_run_id for item in agent_runs),
                 coordination_run_refs=tuple(item.coordination_run_id for item in coordination_runs),
@@ -138,6 +147,7 @@ class RuntimeCheckpointStore:
             prompt_manifest_ref=str(payload.get("prompt_manifest_ref") or ""),
             execution_refs=tuple(payload.get("execution_refs") or ()),
             execution_state_ref=str(payload.get("execution_state_ref") or ""),
+            working_memory_refs=tuple(str(item) for item in list(payload.get("working_memory_refs") or []) if str(item)),
             execution_summary=dict(payload.get("execution_summary") or {}),
             agent_run_refs=tuple(str(item) for item in list(payload.get("agent_run_refs") or []) if str(item)),
             coordination_run_refs=tuple(str(item) for item in list(payload.get("coordination_run_refs") or []) if str(item)),
@@ -165,6 +175,7 @@ def _checksum(
     event_offset: int,
     execution_refs: tuple[str, ...] = (),
     execution_state_ref: str = "",
+    working_memory_refs: tuple[str, ...] = (),
     execution_summary: dict[str, Any] | None = None,
     agent_run_refs: tuple[str, ...] = (),
     coordination_run_refs: tuple[str, ...] = (),
@@ -176,6 +187,7 @@ def _checksum(
             "state": payload,
             "execution_refs": list(execution_refs),
             "execution_state_ref": str(execution_state_ref or ""),
+            "working_memory_refs": list(working_memory_refs),
             "execution_summary": dict(execution_summary or {}),
             "agent_run_refs": list(agent_run_refs),
             "coordination_run_refs": list(coordination_run_refs),

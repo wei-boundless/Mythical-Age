@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   deleteOrchestrationAgentGroup,
   deleteOrchestrationAgent,
+  getSoulSystemCatalog,
   getSoulProjectionCards,
   getOrchestrationAgents,
   getNextOrchestrationWorkerAgentId,
@@ -30,6 +31,7 @@ import {
   type OrchestrationAgentUpsertPayload,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
+  type SoulSystemCatalog,
 } from "@/lib/api";
 import { OrchestrationDirectoryRail } from "@/components/workspace/views/orchestration/OrchestrationDirectoryRail";
 import {
@@ -37,20 +39,16 @@ import {
   OrchestrationEligibilityWorkbench,
   OrchestrationPermissionsWorkbench,
   OrchestrationRuntimeWorkbench,
-  OrchestrationScopeWorkbench,
 } from "@/components/workspace/views/orchestration/OrchestrationAgentConfigWorkbenches";
 import { OrchestrationGroupWorkbench } from "@/components/workspace/views/orchestration/OrchestrationGroupWorkbench";
 import { OrchestrationRegistryWorkbench } from "@/components/workspace/views/orchestration/OrchestrationRegistryWorkbench";
 import { OrchestrationToolbarButton } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 
 type AgentCategory = "main_agent" | "system_management_agent" | "worker_sub_agent";
-type OrchestrationLayer = "registry" | "groups" | "scope" | "runtime" | "permissions" | "context" | "eligibility";
+type OrchestrationLayer = "registry" | "groups" | "runtime" | "permissions" | "context" | "eligibility";
 type WorkerDirectoryMode = "grouped" | "ungrouped";
 
 type AgentDraft = OrchestrationAgentUpsertPayload & {
-  task_scope_text: string;
-  managed_object_types_text: string;
-  capability_refs_text: string;
 };
 
 type RuntimeDraft = OrchestrationAgentRuntimeProfile & {
@@ -60,6 +58,7 @@ type RuntimeDraft = OrchestrationAgentRuntimeProfile & {
   blocked_operations_text: string;
   allowed_memory_scopes_text: string;
   allowed_context_sections_text: string;
+  output_contracts_text: string;
 };
 
 type AgentGroupDraft = OrchestrationAgentGroup & {
@@ -84,10 +83,6 @@ const EMPTY_AGENT_DRAFT: AgentDraft = {
   editable: true,
   default_soul_id: "",
   default_projection_id: "",
-  task_scope: [],
-  task_scope_text: "",
-  managed_object_types_text: "",
-  capability_refs_text: "",
   metadata: { managed_by: "orchestration_console" },
 };
 
@@ -100,6 +95,7 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   blocked_operations: [],
   allowed_memory_scopes: [],
   allowed_context_sections: [],
+  use_shared_contract: true,
   output_contracts: [],
   approval_policy: "default",
   trace_policy: "runtime_event_log",
@@ -111,6 +107,7 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   blocked_operations_text: "",
   allowed_memory_scopes_text: "",
   allowed_context_sections_text: "",
+  output_contracts_text: "",
 };
 
 const EMPTY_GROUP_DRAFT: AgentGroupDraft = {
@@ -207,11 +204,6 @@ function makeCustomGroupId(existingGroups: OrchestrationAgentGroup[]) {
   return groupId;
 }
 
-function arrayFromMetadata(metadata: Record<string, unknown> | undefined, key: string) {
-  const value = metadata?.[key];
-  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
-}
-
 function agentCategory(agent: Record<string, unknown> | null | undefined): AgentCategory {
   const value = String(agent?.agent_category || agent?.profile_type || "worker_sub_agent");
   return CATEGORY_ORDER.includes(value as AgentCategory) ? (value as AgentCategory) : "worker_sub_agent";
@@ -252,7 +244,6 @@ function projectionLabel(value: string, cards: SoulProjectionCard[] = []) {
 function agentDraftFrom(agent?: Record<string, unknown> | null): AgentDraft {
   if (!agent) return { ...EMPTY_AGENT_DRAFT, metadata: { ...EMPTY_AGENT_DRAFT.metadata } };
   const metadata = { ...((agent.metadata as Record<string, unknown> | undefined) ?? {}) };
-  const taskScope = Array.isArray(agent.task_scope) ? agent.task_scope.map((item) => String(item)) : [];
   return {
     agent_id: String(agent.agent_id || ""),
     agent_name: String(agent.agent_name || agent.display_name || ""),
@@ -263,10 +254,6 @@ function agentDraftFrom(agent?: Record<string, unknown> | null): AgentDraft {
     editable: Boolean(agent.editable ?? true),
     default_soul_id: String(agent.default_soul_id || ""),
     default_projection_id: String(agent.default_projection_id || ""),
-    task_scope: taskScope,
-    task_scope_text: taskScope.join("\n"),
-    managed_object_types_text: arrayFromMetadata(metadata, "managed_object_types").join("\n"),
-    capability_refs_text: arrayFromMetadata(metadata, "capability_refs").join("\n"),
     metadata: { ...metadata, managed_by: "orchestration_console" },
   };
 }
@@ -284,7 +271,8 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
     blocked_operations: merged.blocked_operations ?? [],
     allowed_memory_scopes: merged.allowed_memory_scopes ?? [],
     allowed_context_sections: merged.allowed_context_sections ?? [],
-    output_contracts: [],
+    use_shared_contract: Boolean(merged.use_shared_contract ?? true),
+    output_contracts: merged.output_contracts ?? [],
     approval_policy: String(merged.approval_policy || "default"),
     trace_policy: String(merged.trace_policy || "runtime_event_log"),
     lifecycle_policy: String(merged.lifecycle_policy || "orchestration_managed"),
@@ -295,6 +283,7 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
     blocked_operations_text: listText(merged.blocked_operations ?? []),
     allowed_memory_scopes_text: listText(merged.allowed_memory_scopes ?? []),
     allowed_context_sections_text: listText(merged.allowed_context_sections ?? []),
+    output_contracts_text: listText(merged.output_contracts ?? []),
   };
 }
 
@@ -307,7 +296,8 @@ function runtimePayloadFromDraft(draft: RuntimeDraft) {
     blocked_operations: splitList(draft.blocked_operations_text),
     allowed_memory_scopes: splitList(draft.allowed_memory_scopes_text),
     allowed_context_sections: splitList(draft.allowed_context_sections_text),
-    output_contracts: [],
+    use_shared_contract: Boolean(draft.use_shared_contract),
+    output_contracts: splitList(draft.output_contracts_text),
     approval_policy: draft.approval_policy,
     trace_policy: draft.trace_policy,
     lifecycle_policy: draft.lifecycle_policy,
@@ -353,7 +343,6 @@ function searchText(agent: Record<string, unknown>) {
     agent.agent_category,
     agent.interface_target,
     agent.description,
-    JSON.stringify(agent.task_scope ?? []),
     JSON.stringify(agent.metadata ?? {}),
     JSON.stringify(agent.runtime_profile ?? {}),
   ]
@@ -364,6 +353,7 @@ function searchText(agent: Record<string, unknown>) {
 export function OrchestrationView() {
   const [catalog, setCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
+  const [soulCatalog, setSoulCatalog] = useState<SoulSystemCatalog | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [activeCategory, setActiveCategory] = useState<AgentCategory>("worker_sub_agent");
@@ -384,9 +374,10 @@ export function OrchestrationView() {
     setLoading(true);
     setError("");
     try {
-      const [payload, projections] = await Promise.all([getOrchestrationAgents(), getSoulProjectionCards()]);
+      const [payload, projections, souls] = await Promise.all([getOrchestrationAgents(), getSoulProjectionCards(), getSoulSystemCatalog()]);
       setCatalog(payload);
       setProjectionCatalog(projections);
+      setSoulCatalog(souls);
       const firstGroupId = String(payload.agent_groups?.[0]?.group_id || "");
       setSelectedGroupId((current) => current || firstGroupId);
       setSelectedAgentId((current) => {
@@ -413,6 +404,7 @@ export function OrchestrationView() {
   const agents = useMemo(() => catalog?.agents ?? [], [catalog]);
   const agentGroups = useMemo(() => catalog?.agent_groups ?? [], [catalog]);
   const projectionCards = useMemo(() => projectionCatalog?.cards ?? [], [projectionCatalog]);
+  const soulSeeds = useMemo(() => soulCatalog?.seeds ?? [], [soulCatalog]);
   const selectedAgent = agents.find((agent) => String(agent.agent_id) === selectedAgentId) ?? null;
   const selectedGroup = agentGroups.find((group) => group.group_id === selectedGroupId) ?? null;
   const selectedProfile = (selectedAgent?.runtime_profile ?? {}) as Partial<OrchestrationAgentRuntimeProfile>;
@@ -425,6 +417,7 @@ export function OrchestrationView() {
   const runtimeLaneOptionItems = useMemo(() => catalog?.options.runtime_lane_options ?? [], [catalog]);
   const memoryScopeOptionItems = useMemo(() => catalog?.options.memory_scope_options ?? [], [catalog]);
   const contextSectionOptionItems = useMemo(() => catalog?.options.context_section_options ?? [], [catalog]);
+  const outputContractOptionItems = useMemo(() => catalog?.options.output_contract_options ?? [], [catalog]);
   const approvalPolicyOptions = useMemo(() => catalog?.options.approval_policy_options ?? [], [catalog]);
   const tracePolicyOptions = useMemo(() => catalog?.options.trace_policy_options ?? [], [catalog]);
   const runtimeOptionLabels = useMemo(
@@ -434,6 +427,7 @@ export function OrchestrationView() {
       ...optionLabelMap(runtimeLaneOptionItems),
       ...optionLabelMap(memoryScopeOptionItems),
       ...optionLabelMap(contextSectionOptionItems),
+      ...optionLabelMap(outputContractOptionItems),
       ...optionLabelMap(approvalPolicyOptions),
       ...optionLabelMap(tracePolicyOptions),
     ]),
@@ -442,6 +436,7 @@ export function OrchestrationView() {
       contextSectionOptionItems,
       memoryScopeOptionItems,
       operationOptionItems,
+      outputContractOptionItems,
       runtimeLaneOptionItems,
       taskModeOptionItems,
       tracePolicyOptions,
@@ -525,9 +520,6 @@ export function OrchestrationView() {
   const allowedOps = splitList(runtimeDraft.allowed_operations_text);
   const blockedOps = splitList(runtimeDraft.blocked_operations_text);
   const overlapOps = allowedOps.filter((item) => blockedOps.includes(item));
-  const taskScope = splitList(agentDraft.task_scope_text);
-  const capabilityRefs = splitList(agentDraft.capability_refs_text);
-  const managedObjects = splitList(agentDraft.managed_object_types_text);
   const runtimeSaveBlocked = agentMode === "new" || !agentDraft.agent_id.trim();
   const fixedIdentityAgent = agentDraft.agent_category === "main_agent" || agentDraft.agent_category === "system_management_agent";
   const categoryCounts = groupedAgents.reduce<Record<string, number>>((acc, group) => {
@@ -535,13 +527,11 @@ export function OrchestrationView() {
     return acc;
   }, {});
   const legacySystemKey = String(agentDraft.metadata?.system_key || "");
-  const scopeSuggestions = Array.from(new Set([...(catalog?.options.task_modes ?? []), "health_management", "trace_analysis", "memory_management", "permission_management", "development"]));
   const readinessRows = [
     { label: "Agent 名册", value: agentDraft.agent_id || "未保存", ready: Boolean(agentDraft.agent_id && agentDraft.agent_name) },
-    { label: "职责覆盖", value: String(taskScope.length), ready: Boolean(taskScope.length) },
     { label: "运行配置", value: runtimeDraft.agent_profile_id || "未配置", ready: Boolean(runtimeDraft.agent_profile_id) && !runtimeSaveBlocked },
     { label: "权限边界", value: `${allowedOps.length}/${blockedOps.length}`, ready: Boolean(allowedOps.length) && !overlapOps.length },
-    { label: "上下文边界", value: String(splitList(runtimeDraft.allowed_context_sections_text).length), ready: Boolean(splitList(runtimeDraft.allowed_context_sections_text).length) },
+    { label: "上下文边界", value: `${splitList(runtimeDraft.allowed_context_sections_text).length} / ${runtimeDraft.use_shared_contract ? "含共同契约" : "无共同契约"}`, ready: Boolean(splitList(runtimeDraft.allowed_context_sections_text).length) },
   ];
   const readinessGapCount = readinessRows.filter((item) => !item.ready).length;
   const selectedAgentGroup = selectedAgentId
@@ -549,15 +539,12 @@ export function OrchestrationView() {
     : null;
   const eligibilityChecks = [
     { label: "类别", value: CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? text(agentDraft.agent_category), ready: Boolean(agentDraft.agent_category) },
-    { label: "任务范围", value: taskScope.slice(0, 4).join(" / ") || "未配置", ready: Boolean(taskScope.length) },
-    { label: "能力引用", value: capabilityRefs.slice(0, 4).join(" / ") || "未配置", ready: Boolean(capabilityRefs.length) || agentDraft.agent_category !== "system_management_agent" },
     { label: "允许操作", value: displayOptionList(allowedOps.slice(0, 4), runtimeOptionLabels), ready: Boolean(allowedOps.length) },
     { label: "阻断冲突", value: overlapOps.length ? overlapOps.join(" / ") : "无", ready: !overlapOps.length },
-    { label: "上下文段", value: displayOptionList(splitList(runtimeDraft.allowed_context_sections_text).slice(0, 4), runtimeOptionLabels), ready: Boolean(splitList(runtimeDraft.allowed_context_sections_text).length) },
+    { label: "上下文段", value: `${displayOptionList(splitList(runtimeDraft.allowed_context_sections_text).slice(0, 4), runtimeOptionLabels)} / ${runtimeDraft.use_shared_contract ? "采用共同契约" : "不采用共同契约"}`, ready: Boolean(splitList(runtimeDraft.allowed_context_sections_text).length) },
   ];
   const agentLayerTabs: Array<[OrchestrationLayer, string, string]> = [
     ["registry", "名册", agentMode === "new" ? "草稿" : ""],
-    ["scope", "职责覆盖", `${taskScope.length}`],
     ["runtime", "运行", runtimeDraft.agent_profile_id && !runtimeSaveBlocked ? "已配置" : "待保存"],
     ["permissions", "权限能力", `${allowedOps.length}/${blockedOps.length}`],
     ["context", "上下文", `${splitList(runtimeDraft.allowed_context_sections_text).length}`],
@@ -643,14 +630,6 @@ export function OrchestrationView() {
     }));
   }
 
-  function addAgentLine(field: "task_scope_text" | "managed_object_types_text" | "capability_refs_text", value: string) {
-    if (!value) return;
-    setAgentDraft((current) => ({
-      ...current,
-      [field]: Array.from(new Set([...splitList(String(current[field] || "")), value])).join("\n"),
-    }));
-  }
-
   async function startBlankAgentDraft() {
     setSaving("create");
     setError("");
@@ -701,12 +680,9 @@ export function OrchestrationView() {
       const metadata = {
         ...(agentDraft.metadata ?? {}),
         managed_by: "orchestration_console",
-        managed_object_types: managedObjects,
-        capability_refs: capabilityRefs,
       };
       const payload = await upsertOrchestrationAgent(agentDraft.agent_id, {
         ...agentDraft,
-        task_scope: taskScope,
         metadata,
       });
       setCatalog(payload);
@@ -853,7 +829,7 @@ export function OrchestrationView() {
         <div>
           <span>Agent Runtime Studio</span>
           <h2>编排系统工作台</h2>
-          <p>Agent 名册、职责覆盖、运行档案、权限与上下文输出</p>
+          <p>Agent 名册、运行档案、权限与上下文输出</p>
         </div>
         <div className="boundary-actions">
           <OrchestrationToolbarButton onClick={() => void load()}><RefreshCw size={15} />刷新</OrchestrationToolbarButton>
@@ -898,7 +874,7 @@ export function OrchestrationView() {
             <div>
               <span>{CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? "Agent"}</span>
               <h3>{agentDraft.agent_name || agentDraft.agent_id || "请选择或新建 Agent"}</h3>
-              <p>{agentDraft.description || "配置 Agent 的身份、职责、运行权限、记忆与上下文边界。"}</p>
+              <p>{agentDraft.description || "配置 Agent 的身份、运行权限、记忆与上下文边界。"}</p>
             </div>
             <div className="orchestration-agent-focus__meta">
               <span>{agentDraft.agent_id || "未生成 ID"}</span>
@@ -942,6 +918,7 @@ export function OrchestrationView() {
                   patchAgentDraft={(patch) => setAgentDraft((current) => ({ ...current, ...patch }))}
                   profileMissing={profileMissing}
                   projectionCards={projectionCards}
+                  soulSeeds={soulSeeds}
                   removeAgent={removeAgent}
                   runtimeDraft={runtimeDraft}
                   runtimeSaveBlocked={runtimeSaveBlocked}
@@ -949,20 +926,6 @@ export function OrchestrationView() {
                   saveRuntimeProfile={saveRuntimeProfile}
                   saving={saving}
                   selectedAgentBuiltin={Boolean(selectedAgent?.builtin)}
-                  taskScopeCount={taskScope.length}
-                />
-              ) : null}
-
-              {activeLayer === "scope" ? (
-                <OrchestrationScopeWorkbench
-                  addAgentLine={addAgentLine}
-                  agentDraft={agentDraft}
-                  capabilityRefsSummary={displayList(capabilityRefs)}
-                  managedObjectsSummary={displayList(managedObjects)}
-                  patchAgentDraft={(patch) => setAgentDraft((current) => ({ ...current, ...patch }))}
-                  scopeSuggestions={scopeSuggestions}
-                  taskScopeCount={taskScope.length}
-                  taskScopeSummary={displayList(taskScope)}
                 />
               ) : null}
 
@@ -971,6 +934,9 @@ export function OrchestrationView() {
                   approvalPolicies={catalog?.options.approval_policies ?? ["default"]}
                   approvalPolicyOptions={approvalPolicyOptions}
                   displayId={displayId}
+                  outputContractOptionItems={outputContractOptionItems}
+                  outputContractOptions={catalog?.options.output_contracts ?? []}
+                  outputContractsSummary={displayOptionList(splitList(runtimeDraft.output_contracts_text), runtimeOptionLabels)}
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   runtimeDraft={runtimeDraft}
                   runtimeLaneOptionItems={runtimeLaneOptionItems}
@@ -1009,6 +975,7 @@ export function OrchestrationView() {
                   memorySummary={displayOptionList(splitList(runtimeDraft.allowed_memory_scopes_text), runtimeOptionLabels)}
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   runtimeDraft={runtimeDraft}
+                  sharedContractEnabled={Boolean(runtimeDraft.use_shared_contract)}
                 />
               ) : null}
 
@@ -1045,10 +1012,11 @@ export function OrchestrationView() {
           <div className="boundary-kv orchestration-assembly-kv">
             <p><span>所在组</span><strong>{selectedAgentGroup?.title || "未进组"}</strong></p>
             <p><span>默认投影</span><strong>{projectionLabel(agentDraft.default_projection_id || "", projectionCards)}</strong></p>
-            <p><span>任务范围</span><strong>{compactList(taskScope)}</strong></p>
+            <p><span>任务模式</span><strong>{compactList(splitList(runtimeDraft.allowed_task_modes_text))}</strong></p>
             <p><span>运行通道</span><strong>{compactList(splitList(runtimeDraft.allowed_runtime_lanes_text))}</strong></p>
             <p><span>允许操作</span><strong>{compactList(allowedOps)}</strong></p>
             <p><span>上下文段</span><strong>{compactList(splitList(runtimeDraft.allowed_context_sections_text))}</strong></p>
+            <p><span>共同契约</span><strong>{runtimeDraft.use_shared_contract ? "采用" : "不采用"}</strong></p>
           </div>
           <div className="boundary-actions boundary-actions--stack">
             <OrchestrationToolbarButton disabled={saving === "agent"} onClick={() => void saveAgent()} variant="primary">

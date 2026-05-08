@@ -55,6 +55,68 @@ function jsonPreview(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function recordOf(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function boolValue(value: unknown, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null || value === "") return fallback;
+  return String(value).toLowerCase() === "true";
+}
+
+function buildDispatchPreflightIssues(nodes: Array<Record<string, unknown>>, edges: Array<Record<string, unknown>>) {
+  const issues: Array<{ code: string; message: string; severity: string; node_id?: string; edge_id?: string }> = [];
+  const incomingCount = new Map<string, number>();
+  const outgoingCount = new Map<string, number>();
+  for (const edge of edges) {
+    const source = String(edge.source_node_id ?? edge.from ?? edge.source ?? "");
+    const target = String(edge.target_node_id ?? edge.to ?? edge.target ?? "");
+    if (source) outgoingCount.set(source, (outgoingCount.get(source) ?? 0) + 1);
+    if (target) incomingCount.set(target, (incomingCount.get(target) ?? 0) + 1);
+  }
+  for (const node of nodes) {
+    const nodeId = String(node.node_id ?? node.id ?? "");
+    const mode = String(node.execution_mode ?? "sync");
+    const backgroundPolicy = recordOf(node.background_policy);
+    const notificationPolicy = recordOf(node.notification_policy);
+    const humanGatePolicy = recordOf(node.human_gate_policy);
+    if (mode === "parallel" && !String(node.dispatch_group ?? "").trim()) {
+      issues.push({ code: "parallel_node_dispatch_group_missing", message: "并行节点缺少 dispatch_group。", severity: "error", node_id: nodeId });
+    }
+    if (mode === "background") {
+      if (!boolValue(backgroundPolicy.enabled)) {
+        issues.push({ code: "background_node_policy_disabled", message: "后台节点必须显式启用 background_policy.enabled。", severity: "error", node_id: nodeId });
+      }
+      if (Number(backgroundPolicy.max_runtime_seconds ?? 0) <= 0) {
+        issues.push({ code: "background_node_timeout_missing", message: "后台节点必须配置 max_runtime_seconds。", severity: "error", node_id: nodeId });
+      }
+      if (!Object.keys(notificationPolicy).length) {
+        issues.push({ code: "background_node_notification_policy_missing", message: "后台节点必须配置 notification_policy。", severity: "error", node_id: nodeId });
+      }
+    }
+    if (mode === "barrier" && (incomingCount.get(nodeId) ?? 0) <= 0) {
+      issues.push({ code: "barrier_node_missing_upstream", message: "汇合节点必须存在上游边。", severity: "error", node_id: nodeId });
+    }
+    if (mode === "manual_gate" && !Object.keys(humanGatePolicy).length) {
+      issues.push({ code: "manual_gate_policy_missing", message: "人工门控节点必须配置 human_gate_policy。", severity: "error", node_id: nodeId });
+    }
+    if (mode === "parallel" && (outgoingCount.get(nodeId) ?? 0) <= 0) {
+      issues.push({ code: "parallel_node_join_path_missing", message: "并行节点必须有下游汇合或后续处理路径。", severity: "warning", node_id: nodeId });
+    }
+  }
+  for (const edge of edges) {
+    const edgeId = String(edge.edge_id ?? edge.id ?? "");
+    if (String(edge.wait_policy ?? "") === "wait_handoff_ack" && !boolValue(edge.ack_required, true)) {
+      issues.push({ code: "edge_ack_required_conflict", message: "等待 handoff ack 的边不能关闭 ack_required。", severity: "error", edge_id: edgeId });
+    }
+    if (String(edge.result_delivery_policy ?? "contract_payload_and_refs") === "contract_payload_and_refs" && !String(edge.payload_contract_id ?? edge.contract_id ?? "").trim()) {
+      issues.push({ code: "edge_result_contract_missing", message: "契约载荷投递边必须配置 payload contract。", severity: "error", edge_id: edgeId });
+    }
+  }
+  return issues;
+}
+
 export function TaskAssemblyPreflightPanel({
   selectedTask,
   selectedCoordination,
@@ -94,9 +156,12 @@ export function TaskAssemblyPreflightPanel({
   const [nodeAssembly, setNodeAssembly] = useState<RuntimeAssembly | null>(null);
 
   const graphNodes = useMemo(() => selectedGraphSpec.nodes ?? [], [selectedGraphSpec.nodes]);
+  const graphEdges = useMemo(() => selectedGraphSpec.edges ?? [], [selectedGraphSpec.edges]);
   const currentNodeId = graphNodes.length ? selectedNodeId || nodeIdOf(graphNodes[0], 0) : "";
   const selectedNode = graphNodes.find((node, index) => nodeIdOf(node, index) === currentNodeId) ?? null;
-  const graphIssues = selectedGraphSpec.issues ?? [];
+  const graphIssues = useMemo(() => selectedGraphSpec.issues ?? [], [selectedGraphSpec.issues]);
+  const dispatchIssues = useMemo(() => buildDispatchPreflightIssues(graphNodes, graphEdges), [graphEdges, graphNodes]);
+  const allPreflightIssues = useMemo(() => [...graphIssues, ...dispatchIssues], [dispatchIssues, graphIssues]);
 
   async function runWorkflowManifest() {
     if (!selectedTask?.default_workflow_id || !selectedTask.task_id) return null;
@@ -158,7 +223,7 @@ export function TaskAssemblyPreflightPanel({
           <div className="boundary-identity-stack">
             <span>装配预检 / 通用任务图</span>
             <strong>{selectedCoordination?.title || selectedTask?.task_title || "任务图草稿"}</strong>
-            <small>{graphNodes.length} 节点 / {selectedGraphSpec.edges?.length ?? 0} 边</small>
+            <small>{graphNodes.length} 节点 / {graphEdges.length} 边</small>
           </div>
           <div className="boundary-actions">
             <TaskSystemToolbarButton onClick={onBackToGraph}><Network size={15} />返回任务图</TaskSystemToolbarButton>
@@ -173,6 +238,7 @@ export function TaskAssemblyPreflightPanel({
         {error ? <div className="boundary-alert boundary-alert--error">{error}</div> : null}
         <div className="boundary-metric-grid">
           <ReadinessTile label="图结构" value={editorValid ? "通过" : `${editorIssueCount} 个问题`} ready={editorValid} />
+          <ReadinessTile label="调度策略" value={dispatchIssues.length ? `${dispatchIssues.length} 个问题` : "通过"} ready={!dispatchIssues.length} />
           <ReadinessTile label="拓扑草稿" value={topologyDirty ? "未同步" : "已同步"} ready={!topologyDirty} />
           <ReadinessTile label="单任务装配" value={workflowReady ? "可预检" : "缺 workflow"} ready={workflowReady} />
           <ReadinessTile label="节点装配" value={nodeReady ? currentNodeId : "未选节点"} ready={nodeReady} />
@@ -237,16 +303,16 @@ export function TaskAssemblyPreflightPanel({
 
       <section className="task-assembly-preflight__grid task-assembly-preflight__grid--wide">
         <section className="boundary-card">
-          <header><strong>图结构问题</strong><span>{graphIssues.length}</span></header>
+          <header><strong>预检问题</strong><span>{allPreflightIssues.length}</span></header>
           <div className="boundary-task-table">
-            {graphIssues.map((issue, index) => (
+            {allPreflightIssues.map((issue, index) => (
               <article key={`${String(issue.code ?? "issue")}-${index}`}>
                 <strong>{String(issue.message ?? issue.code ?? "校验问题")}</strong>
                 <span>{String(issue.severity ?? "warning")}</span>
                 <small>{String(issue.node_id ?? issue.edge_id ?? "")}</small>
               </article>
             ))}
-            {!graphIssues.length ? <div className="boundary-empty">图结构暂未发现问题。</div> : null}
+            {!allPreflightIssues.length ? <div className="boundary-empty">调度与图结构暂未发现问题。</div> : null}
           </div>
         </section>
 

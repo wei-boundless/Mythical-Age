@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from typing import Any
 
 from soul.agent_prompt_bundle import build_agent_prompt_bundle
 from soul.contracts import PromptSection, SoulProjectionRequest, SoulRuntimeView, SoulToolView
 from soul.prompt_assembly import build_prompt_manifest
+from soul.registry import CORE_PATH, read_text
 
 from .view_mapping import (
     soul_skill_view_from_skill_runtime_view,
@@ -16,6 +18,9 @@ from .view_mapping import (
 class SoulRuntimeAssemblyBuilder:
     """Build runtime-facing soul identity artifacts for orchestration consumption."""
 
+    def __init__(self, base_dir: Path) -> None:
+        self.base_dir = Path(base_dir)
+
     def build_runtime_view(
         self,
         *,
@@ -25,6 +30,7 @@ class SoulRuntimeAssemblyBuilder:
         resource_views: list[Any],
         soul_id: str = "runtime",
         agent_profile_id: str = "runtime_agent",
+        use_shared_contract: bool = True,
     ) -> dict[str, Any]:
         contract = task_prompt_contract.to_dict() if hasattr(task_prompt_contract, "to_dict") else dict(task_prompt_contract)
         projection = projection_requirement.to_dict() if hasattr(projection_requirement, "to_dict") else dict(projection_requirement)
@@ -50,6 +56,7 @@ class SoulRuntimeAssemblyBuilder:
             request=request,
             soul_skill_views=soul_skill_views,
             soul_tool_views=soul_tool_views,
+            use_shared_contract=use_shared_contract,
         )
         runtime_view = SoulRuntimeView(
             soul_id=request.soul_id,
@@ -102,6 +109,7 @@ class SoulRuntimeAssemblyBuilder:
         request: SoulProjectionRequest,
         soul_skill_views: tuple[Any, ...],
         soul_tool_views: tuple[SoulToolView, ...],
+        use_shared_contract: bool,
     ) -> tuple[PromptSection, ...]:
         resource_content = _resource_projection_content(soul_tool_views)
         resource_policy_ref = str(contract.get("metadata", {}).get("resource_policy_ref") or "")
@@ -114,6 +122,17 @@ class SoulRuntimeAssemblyBuilder:
             projection_lines.append(f"Projection prompt: {projection_prompt}")
         projection_content = "\n".join(line for line in projection_lines if line)
         candidate_sections = [
+            PromptSection(
+                section_id="static_common_rules",
+                title="静态共同准则",
+                source_type="core",
+                source_id=CORE_PATH,
+                owner_layer="soul_core",
+                cache_scope="static",
+                visible_to_model=use_shared_contract,
+                content=read_text(self.base_dir / CORE_PATH).strip() or "当前未配置静态共同准则。",
+                source_refs=(CORE_PATH,),
+            ),
             PromptSection(
                 section_id="task_section",
                 title="任务契约",
@@ -203,14 +222,17 @@ def build_soul_runtime_view(
     resource_views: list[Any],
     soul_id: str = "runtime",
     agent_profile_id: str = "runtime_agent",
+    use_shared_contract: bool = True,
+    base_dir: Path | str = ".",
 ) -> dict[str, Any]:
-    return SoulRuntimeAssemblyBuilder().build_runtime_view(
+    return SoulRuntimeAssemblyBuilder(Path(base_dir)).build_runtime_view(
         task_prompt_contract=task_prompt_contract,
         projection_requirement=projection_requirement,
         skill_views=skill_views,
         resource_views=resource_views,
         soul_id=soul_id,
         agent_profile_id=agent_profile_id,
+        use_shared_contract=use_shared_contract,
     )
 
 

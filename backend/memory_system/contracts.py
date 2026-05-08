@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-MemoryLayer = Literal["conversation", "state", "long_term"]
+MemoryLayer = Literal["conversation", "state", "working", "task_durable", "long_term"]
 BudgetClass = Literal["required", "preferred", "optional", "debug_only"]
 RestoreKind = Literal[
     "active_binding",

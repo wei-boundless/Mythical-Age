@@ -67,10 +67,16 @@ def build_orchestration_runtime_bundle(
         runtime_profile=runtime_profile,
         memory_request_profile=memory_request_profile,
     )
+    requested_runtime_lane = _requested_runtime_lane(
+        binding=binding,
+        registered_task=registered_task,
+        task_execution_assembly=task_execution_assembly,
+    )
     runtime_lane_profile = profile_registry.build_runtime_lane_profile(
         agent_id=agent_id,
         runtime_profile=runtime_profile,
         task_mode=str(task_execution_assembly.get("task_mode") or ""),
+        requested_runtime_lane=requested_runtime_lane,
     )
     output_boundary_profile = profile_registry.build_output_boundary_profile(
         agent_id=agent_id,
@@ -109,6 +115,7 @@ def build_orchestration_runtime_bundle(
         resource_views=[],
         soul_id=str(projection_requirement.get("soul_id") or getattr(descriptor, "default_soul_id", "") or "runtime"),
         agent_profile_id=str(getattr(runtime_profile, "agent_profile_id", "") or "runtime_agent"),
+        use_shared_contract=bool(getattr(runtime_profile, "use_shared_contract", True)),
     )
     soul_runtime_view = dict(soul_runtime.get("runtime_view") or {})
     prompt_manifest = dict(soul_runtime.get("prompt_manifest") or {})
@@ -158,6 +165,7 @@ def build_orchestration_runtime_bundle(
             "memory_view_ref": str(memory_view.get("view_id") or ""),
             "context_policy_ref": _context_policy_ref(context_policy),
             "runtime_lane": runtime_lane_profile.lane_id,
+            "requested_runtime_lane": requested_runtime_lane,
             "active_skill_name": str(active_skill_payload.get("name") or ""),
         },
     )
@@ -189,6 +197,7 @@ def build_orchestration_runtime_bundle(
             "prompt_structure_profile_ref": prompt_profile.profile_id,
             "memory_scope_profile_ref": memory_scope_profile.profile_id,
             "runtime_lane_profile_ref": runtime_lane_profile.profile_id,
+            "requested_runtime_lane": requested_runtime_lane,
             "output_boundary_profile_ref": output_boundary_profile.profile_id,
             "projection_resolution": projection_diagnostics,
         },
@@ -203,6 +212,27 @@ def build_orchestration_runtime_bundle(
         "agent_runtime_spec": runtime_spec.to_dict(),
         "runtime_executable": True,
     }
+
+
+def _requested_runtime_lane(
+    *,
+    binding: dict[str, Any],
+    registered_task: dict[str, Any],
+    task_execution_assembly: dict[str, Any],
+) -> str:
+    binding_lane = str(binding.get("runtime_lane") or "").strip()
+    if binding_lane:
+        return binding_lane
+    task_policy = dict(registered_task.get("task_policy") or {})
+    task_structure = dict(task_policy.get("task_structure") or {})
+    policy_lane = str(task_structure.get("runtime_lane_hint") or "").strip()
+    if policy_lane:
+        return policy_lane
+    metadata = dict(task_execution_assembly.get("metadata") or {})
+    metadata_lane = str(metadata.get("runtime_lane_hint") or metadata.get("default_runtime_lane") or "").strip()
+    if metadata_lane:
+        return metadata_lane
+    return str(task_execution_assembly.get("runtime_lane") or "").strip()
 
 
 def _build_projection_requirement(

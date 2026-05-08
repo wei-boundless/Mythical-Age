@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from context_management import ContextPackage
+from project_layout import ProjectLayout
 from .bundle_service import MemoryBundleService
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .durable import DurableMemoryLayer
@@ -13,6 +14,9 @@ from .messages import MemoryMessageAdapter
 from .request_service import MemoryRequestService
 from .session import SessionMemoryLayer
 from .state_memory import StateMemoryStoreAdapter
+from .task_durable_memory_service import TaskDurableMemoryService
+from .working_memory_service import WorkingMemoryService
+from .working_memory_finalizer import WorkingMemoryFinalizer
 from .writeback_service import MemoryWritebackBuilderService
 
 
@@ -57,11 +61,17 @@ class MemoryFacade:
         self.conversation_memory = ConversationMemoryStoreAdapter(self.session_root)
         self.state_memory = StateMemoryStoreAdapter(self.session_root)
         self.long_term_memory = LongTermMemoryStoreAdapter(self.memory_manager.root_dir)
+        layout = ProjectLayout.from_backend_dir(base_dir)
+        self.working_memory = WorkingMemoryService(layout.working_memory_dir)
+        self.task_durable_memory = TaskDurableMemoryService(layout.task_durable_memory_dir)
+        self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
         self.request_service = MemoryRequestService()
         self.bundle_service = MemoryBundleService(
             session_memory=self.session_memory,
             conversation_memory=self.conversation_memory,
             state_memory=self.state_memory,
+            working_memory=self.working_memory,
+            task_durable_memory=self.task_durable_memory,
             long_term_memory=self.long_term_memory,
             durable_memory=self.durable_memory,
             request_service=self.request_service,
@@ -166,6 +176,12 @@ class MemoryFacade:
     def build_conversation_memory_context_candidates(self, session_id: str):
         return self.bundle_service.build_conversation_memory_context_candidates(session_id)
 
+    def build_working_memory_context_candidates(self, **payload: Any):
+        return self.bundle_service.build_working_memory_context_candidates(**payload)
+
+    def build_task_durable_memory_context_candidates(self, **payload: Any):
+        return self.bundle_service.build_task_durable_memory_context_candidates(**payload)
+
     def build_long_term_memory_records(self, *, limit: int = 200, runtime_visible_only: bool = True):
         return self.bundle_service.build_long_term_memory_records(
             limit=limit,
@@ -198,6 +214,157 @@ class MemoryFacade:
             recent_tools=recent_tools,
             relevant_notes=relevant_notes,
         )
+
+    def create_working_memory_item(self, **payload: Any):
+        return self.working_memory.create_item(**payload)
+
+    def get_working_memory_item(self, work_memory_id: str):
+        return self.working_memory.get_item(work_memory_id)
+
+    def query_working_memory_items(self, **filters: Any):
+        return self.working_memory.query_items(**filters)
+
+    def accept_working_memory_item(self, work_memory_id: str, **payload: Any):
+        return self.working_memory.accept_item(work_memory_id, **payload)
+
+    def discard_working_memory_item(self, work_memory_id: str, **payload: Any):
+        return self.working_memory.discard_item(work_memory_id, **payload)
+
+    def mark_working_memory_conflict(self, work_memory_id: str, **payload: Any):
+        return self.working_memory.mark_conflict(work_memory_id, **payload)
+
+    def record_working_memory_read(self, **payload: Any):
+        return self.working_memory.record_read(**payload)
+
+    def select_working_memory_for_node(self, **payload: Any):
+        return self.working_memory.select_for_node(**payload)
+
+    def list_working_memory_read_logs(self, task_run_id: str = "", *, limit: int = 200):
+        return self.working_memory.list_read_logs(task_run_id, limit=limit)
+
+    def create_working_memory_temporal_edge(self, **payload: Any):
+        return self.working_memory.create_temporal_edge(**payload)
+
+    def list_working_memory_temporal_edges(self, task_run_id: str = ""):
+        return self.working_memory.list_temporal_edges(task_run_id)
+
+    def create_working_memory_handoff_transaction(self, **payload: Any):
+        return self.working_memory.create_handoff_transaction(**payload)
+
+    def resolve_working_memory_handoff(self, **payload: Any):
+        return self.working_memory.resolve_handoff_into_working_memory(**payload)
+
+    def commit_working_memory_handoff_transaction(self, transaction_id: str, **payload: Any):
+        return self.working_memory.commit_handoff_transaction(transaction_id, **payload)
+
+    def list_working_memory_handoff_transactions(self, task_run_id: str = ""):
+        return self.working_memory.list_handoff_transactions(task_run_id)
+
+    def save_working_memory_policy_profile(self, **payload: Any):
+        return self.working_memory.save_policy_profile(**payload)
+
+    def get_working_memory_policy_profile(self, profile_id: str):
+        return self.working_memory.get_policy_profile(profile_id)
+
+    def finalize_working_memory_task_run(self, task_run_id: str, **payload: Any):
+        return self.working_memory_finalizer.finalize_task_run(task_run_id, **payload)
+
+    def create_task_durable_memory_item(self, **payload: Any):
+        return self.task_durable_memory.create_item(**payload)
+
+    def get_task_durable_memory_item(self, task_memory_id: str):
+        return self.task_durable_memory.get_item(task_memory_id)
+
+    def query_task_durable_memory_items(self, **filters: Any):
+        return self.task_durable_memory.query_items(**filters)
+
+    def list_task_durable_memory_namespaces(self):
+        return self.task_durable_memory.list_namespaces()
+
+    def promote_working_memory_item_to_task_durable(self, work_memory_id: str, **payload: Any) -> dict[str, Any]:
+        item = self.working_memory.get_item(work_memory_id)
+        if item is None:
+            raise KeyError(f"Unknown working memory item: {work_memory_id}")
+        task_memory_item = self.task_durable_memory.promote_working_memory_item(item, **payload)
+        updated = self.working_memory.store.update_item_lifecycle(
+            item.work_memory_id,
+            status="promoted",
+            promotion_state="promoted_to_task_durable",
+            authority="human_gate_adopted",
+            actor_id=str(payload.get("actor_id") or "memory_governance_ui"),
+            metadata={
+                "promoted_task_memory_id": task_memory_item.task_memory_id,
+                "promoted_task_memory_namespace_id": task_memory_item.namespace_id,
+                "promoted_task_memory_title": task_memory_item.title,
+                "promotion_reason": str(payload.get("reason") or "manual_working_memory_promotion"),
+                "promotion_target": "task_durable_memory",
+            },
+            event_type="promoted_to_task_durable",
+        )
+        return {
+            "task_memory": task_memory_item,
+            "item": updated,
+        }
+
+    def mark_task_durable_item_global_candidate(self, task_memory_id: str, **payload: Any) -> dict[str, Any]:
+        updated = self.task_durable_memory.store.update_lifecycle(
+            task_memory_id,
+            eligible_for_global_promotion=True,
+            global_promotion_state="candidate",
+            actor_id=str(payload.get("actor_id") or "memory_governance_ui"),
+            metadata={
+                "global_candidate_reason": str(payload.get("reason") or "manual_global_candidate"),
+                "global_candidate_actor_id": str(payload.get("actor_id") or "memory_governance_ui"),
+            },
+            event_type="global_candidate_marked",
+        )
+        return {"task_memory": updated}
+
+    def promote_task_durable_item_to_global_durable(self, task_memory_id: str, **payload: Any) -> dict[str, Any]:
+        item = self.task_durable_memory.get_item(task_memory_id)
+        if item is None:
+            raise KeyError(f"Unknown task durable memory item: {task_memory_id}")
+        if not item.eligible_for_global_promotion and item.global_promotion_state not in {"candidate", "approved"}:
+            raise ValueError("Task durable memory item must be marked as global promotion candidate first")
+        allowed_kinds = {"user_preference", "system_rule", "cross_task_policy", "global_working_convention"}
+        promotion_kind = str(payload.get("global_kind") or item.metadata.get("global_kind") or item.kind or "").strip()
+        if promotion_kind not in allowed_kinds:
+            raise ValueError("Task durable memory item is not an allowed global promotion kind")
+        result = self.create_durable_memory_note(
+            title=str(payload.get("title") or item.title or item.task_memory_id),
+            canonical_statement=str(payload.get("canonical_statement") or item.canonical_statement or item.summary),
+            summary=str(payload.get("summary") or item.summary or item.canonical_statement),
+            memory_type=str(payload.get("memory_type") or "project"),
+            memory_class=str(payload.get("memory_class") or "work"),
+            retrieval_hints=list(item.retrieval_hints)[:8],
+            confidence=str(payload.get("confidence") or item.confidence or "medium"),
+            source_kind="task_durable_global_promotion",
+            source_message_excerpt=(
+                f"task_memory_id: {item.task_memory_id}\n"
+                f"namespace_id: {item.namespace_id}\n"
+                f"task_id: {item.task_id}\n"
+                f"graph_id: {item.graph_id}\n"
+                f"canonical_statement: {item.canonical_statement}\n"
+            )[:1600],
+        )
+        updated = self.task_durable_memory.store.update_lifecycle(
+            task_memory_id,
+            eligible_for_global_promotion=True,
+            global_promotion_state="promoted_to_global",
+            actor_id=str(payload.get("actor_id") or "memory_governance_ui"),
+            metadata={
+                "promoted_global_durable_filename": result.get("filename", ""),
+                "promoted_global_durable_title": str(payload.get("title") or item.title or item.task_memory_id),
+                "global_promotion_reason": str(payload.get("reason") or "manual_task_durable_global_promotion"),
+                "global_kind": promotion_kind,
+            },
+            event_type="promoted_to_global_durable",
+        )
+        return {
+            "filename": result["filename"],
+            "header": result.get("header"),
+            "task_memory": updated,
+        }
 
     def build_memory_runtime_view(
         self,

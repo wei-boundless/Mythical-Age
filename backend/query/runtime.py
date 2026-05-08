@@ -59,7 +59,7 @@ class QueryRuntime:
         self.skill_registry = skill_registry
         self.unit_catalog = build_base_unit_catalog()
         self.tool_contract_gate = SimpleNamespace(
-            mode=str(os.getenv("TOOL_CONTRACT_MODE", "shadow") or "shadow").strip().lower()
+            mode=str(os.getenv("TOOL_CONTRACT_MODE", "enforce") or "enforce").strip().lower()
         )
         self.model_response_executor = ModelResponseRuntimeExecutor(
             model_runtime=model_runtime,
@@ -91,14 +91,10 @@ class QueryRuntime:
             evidence_orchestrator=self.evidence_orchestrator,
         )
 
-        self.legacy_query_chain_removed = True
-        self.legacy_runtime_components = {
-            "query_planner": "removed",
-            "runtime_tool_bridge": "removed",
-            "runtime_followup": "removed",
+        self.runtime_components = {
+            "query_runtime": "adapter_only",
+            "single_agent_runtime": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
-            "worker_direct_execution": "removed",
-            "task_coordinator": "removed_from_main_runtime",
         }
 
     def build_system_prompt_for_session(
@@ -211,7 +207,6 @@ class QueryRuntime:
             trace.annotate(
                 {
                     "app.query_runtime_role": "adapter_only",
-                    "app.legacy_query_chain_removed": "true",
                     "app.runtime_channel": "single_agent_runtime",
                 }
             )
@@ -229,7 +224,7 @@ class QueryRuntime:
         if callable(builder):
             result = builder(session_id=session_id)
             return result.to_dict() if hasattr(result, "to_dict") else dict(result or {})
-        return {"status": "blocked", "reason": "legacy_session_memory_refresh_removed"}
+        return {"status": "blocked", "reason": "session_memory_refresh_inspection_unavailable"}
 
     def commit_durable_memory_extraction(self, session_id: str) -> int:
         history = self.session_manager.load_session(session_id)
@@ -252,7 +247,7 @@ class QueryRuntime:
                     for candidate in candidates
                 ],
             }
-        return {"status": "blocked", "reason": "legacy_durable_memory_extraction_removed"}
+        return {"status": "blocked", "reason": "durable_memory_extraction_inspection_unavailable"}
 
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)

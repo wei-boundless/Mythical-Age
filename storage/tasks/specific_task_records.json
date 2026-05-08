@@ -167,6 +167,37 @@
         "task_resource": "task.health.fix_verification",
         "source_flow_id": "flow.health.fix_verification"
       }
+    },
+    {
+      "task_id": "task.longform_novel.create_full_novel",
+      "task_title": "长篇小说完整创作",
+      "task_family": "longform_novel_writing",
+      "task_mode": "longform_novel_graph",
+      "description": "通过多 Agent 拓扑完成项目规划、设定管理、章节写作、连续性审查、记忆整理与最终交付。",
+      "enabled": true,
+      "input_contract_id": "contract.novel.project_brief",
+      "output_contract_id": "contract.novel.final_manuscript_package",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.longform_novel.graph_runtime",
+      "default_workflow_id": "workflow.longform_novel.graph_runtime",
+      "default_projection_policy": "task_graph_agent_projection",
+      "task_policy": {
+        "safety_policy": {
+          "safety_class": "S2_bounded",
+          "write_mode": "artifact_ref_only",
+          "verification_mode": "contract_and_review"
+        },
+        "task_structure": {
+          "execution_chain_type": "graph_run_loop",
+          "trigger_signals": [
+            "task_package.longform_novel"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "task_package_wizard",
+        "package_template": "longform_novel_writing"
+      }
     }
   ],
   "deleted_task_ids": []

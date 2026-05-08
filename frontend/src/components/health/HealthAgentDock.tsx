@@ -239,16 +239,7 @@ export function HealthAgentDock({
     };
     setMessages((prev) => [
       ...prev,
-      localUser,
-      {
-        message_id: `local:assistant:${Date.now()}`,
-        session_id: session?.session_id || "local",
-        role: "assistant",
-        content: selectedIssue || selectedRun
-          ? "已收到。需要我代操时，请用下方动作按钮；我会通过健康系统 command 申请执行并返回回执。"
-          : "请先在问题中心选择一个问题，或在验证中心选择一次运行。",
-        created_at: Date.now() / 1000
-      }
+      localUser
     ]);
     setDraft("");
     if (!session) {
@@ -260,7 +251,13 @@ export function HealthAgentDock({
         role: "user",
         content: value
       });
-      setMessages((prev) => prev.map((item) => (item.message_id === localUser.message_id ? response.message : item)));
+      setMessages((prev) => {
+        const next = prev.map((item) => (item.message_id === localUser.message_id ? response.message : item));
+        if (response.assistant_message) {
+          next.push(response.assistant_message);
+        }
+        return next;
+      });
       setMode("idle");
     } catch {
       setMode("failed");

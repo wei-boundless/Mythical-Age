@@ -7,7 +7,6 @@ import {
   OrchestrationField,
   OrchestrationOptionSelection,
   OrchestrationReadinessCard,
-  OrchestrationSuggestionGrid,
   type OrchestrationOption,
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 
@@ -22,12 +21,8 @@ type RuntimeDraftLike = {
   blocked_operations_text?: string;
   allowed_memory_scopes_text?: string;
   allowed_context_sections_text?: string;
-};
-
-type AgentDraftLike = {
-  task_scope_text?: string;
-  managed_object_types_text?: string;
-  capability_refs_text?: string;
+  use_shared_contract?: boolean;
+  output_contracts_text?: string;
 };
 
 function splitList(value: string | undefined) {
@@ -41,48 +36,6 @@ function serializeList(values: string[]) {
   return Array.from(new Set(values.map((item) => String(item || "").trim()).filter(Boolean))).join("\n");
 }
 
-export function OrchestrationScopeWorkbench({
-  agentDraft,
-  patchAgentDraft,
-  taskScopeCount,
-  scopeSuggestions,
-  addAgentLine,
-  taskScopeSummary,
-  managedObjectsSummary,
-  capabilityRefsSummary,
-}: {
-  agentDraft: AgentDraftLike;
-  patchAgentDraft: (patch: Partial<AgentDraftLike>) => void;
-  taskScopeCount: number;
-  scopeSuggestions: string[];
-  addAgentLine: (field: "task_scope_text" | "managed_object_types_text" | "capability_refs_text", value: string) => void;
-  taskScopeSummary: string;
-  managedObjectsSummary: string;
-  capabilityRefsSummary: string;
-}) {
-  return (
-    <section className="boundary-layer-grid boundary-layer-grid--wide">
-      <div className="boundary-card">
-        <header><strong>固定职责与任务覆盖范围</strong><OrchestrationBadge>{taskScopeCount} 项</OrchestrationBadge></header>
-        <div className="boundary-form">
-          <OrchestrationField label="任务覆盖范围" wide><textarea value={agentDraft.task_scope_text || ""} onChange={(event) => patchAgentDraft({ task_scope_text: event.target.value })} /></OrchestrationField>
-          <OrchestrationField label="可管理对象类型" wide><textarea value={agentDraft.managed_object_types_text || ""} onChange={(event) => patchAgentDraft({ managed_object_types_text: event.target.value })} /></OrchestrationField>
-          <OrchestrationField label="能力引用" wide><textarea value={agentDraft.capability_refs_text || ""} onChange={(event) => patchAgentDraft({ capability_refs_text: event.target.value })} /></OrchestrationField>
-        </div>
-        <OrchestrationSuggestionGrid items={scopeSuggestions} onAdd={(item) => addAgentLine("task_scope_text", item)} />
-      </div>
-      <aside className="boundary-card">
-        <header><strong>覆盖摘要</strong></header>
-        <div className="boundary-kv">
-          <p><span>任务范围</span><strong>{taskScopeSummary}</strong></p>
-          <p><span>管理对象</span><strong>{managedObjectsSummary}</strong></p>
-          <p><span>能力</span><strong>{capabilityRefsSummary}</strong></p>
-        </div>
-      </aside>
-    </section>
-  );
-}
-
 export function OrchestrationRuntimeWorkbench({
   runtimeDraft,
   patchRuntimeDraft,
@@ -94,9 +47,12 @@ export function OrchestrationRuntimeWorkbench({
   runtimeLaneOptions,
   taskModeOptionItems,
   runtimeLaneOptionItems,
+  outputContractOptions,
+  outputContractOptionItems,
   displayId,
   taskModesSummary,
   runtimeLanesSummary,
+  outputContractsSummary,
 }: {
   runtimeDraft: RuntimeDraftLike;
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
@@ -106,11 +62,14 @@ export function OrchestrationRuntimeWorkbench({
   tracePolicyOptions: OrchestrationOption[];
   taskModeOptions: string[];
   runtimeLaneOptions: string[];
+  outputContractOptions: string[];
   taskModeOptionItems: OrchestrationOption[];
   runtimeLaneOptionItems: OrchestrationOption[];
+  outputContractOptionItems: OrchestrationOption[];
   displayId: (value: unknown, fallback?: string) => string;
   taskModesSummary: string;
   runtimeLanesSummary: string;
+  outputContractsSummary: string;
 }) {
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide">
@@ -146,12 +105,21 @@ export function OrchestrationRuntimeWorkbench({
           options={runtimeLaneOptionItems}
           selectedValues={splitList(runtimeDraft.allowed_runtime_lanes_text)}
         />
+        <OrchestrationOptionSelection
+          displayId={displayId}
+          fallbackOptions={outputContractOptions}
+          label="允许输出契约"
+          onChange={(values) => patchRuntimeDraft({ output_contracts_text: serializeList(values) })}
+          options={outputContractOptionItems}
+          selectedValues={splitList(runtimeDraft.output_contracts_text)}
+        />
       </div>
       <aside className="boundary-card">
         <header><strong>运行摘要</strong></header>
         <div className="boundary-kv">
           <p><span>任务范围</span><strong>{taskModesSummary}</strong></p>
           <p><span>运行通道</span><strong>{runtimeLanesSummary}</strong></p>
+          <p><span>输出契约</span><strong>{outputContractsSummary}</strong></p>
         </div>
       </aside>
     </section>
@@ -223,6 +191,7 @@ export function OrchestrationContextWorkbench({
   displayId,
   memorySummary,
   contextSummary,
+  sharedContractEnabled,
 }: {
   runtimeDraft: RuntimeDraftLike;
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
@@ -233,6 +202,7 @@ export function OrchestrationContextWorkbench({
   displayId: (value: unknown, fallback?: string) => string;
   memorySummary: string;
   contextSummary: string;
+  sharedContractEnabled: boolean;
 }) {
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide">
@@ -254,12 +224,21 @@ export function OrchestrationContextWorkbench({
           options={contextSectionOptionItems}
           selectedValues={splitList(runtimeDraft.allowed_context_sections_text)}
         />
+        <label className="boundary-check">
+          <input
+            checked={Boolean(runtimeDraft.use_shared_contract ?? true)}
+            onChange={(event) => patchRuntimeDraft({ use_shared_contract: event.target.checked })}
+            type="checkbox"
+          />
+          采用共同契约
+        </label>
       </div>
       <aside className="boundary-card">
         <header><strong>边界摘要</strong></header>
         <div className="boundary-kv">
           <p><span>记忆</span><strong>{memorySummary}</strong></p>
           <p><span>上下文</span><strong>{contextSummary}</strong></p>
+          <p><span>共同契约</span><strong>{sharedContractEnabled ? "采用" : "不采用"}</strong></p>
         </div>
       </aside>
     </section>

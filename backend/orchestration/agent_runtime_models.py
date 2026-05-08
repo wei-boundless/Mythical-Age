@@ -14,6 +14,7 @@ class AgentRuntimeProfile:
     blocked_operations: tuple[str, ...] = ()
     allowed_memory_scopes: tuple[str, ...] = ()
     allowed_context_sections: tuple[str, ...] = ()
+    use_shared_contract: bool = True
     output_contracts: tuple[str, ...] = ()
     approval_policy: str = "default"
     trace_policy: str = "runtime_event_log"

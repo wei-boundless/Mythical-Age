@@ -16,6 +16,7 @@ from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.resource_gate import OperationGate, OperationGatePipelineContext
 from project_layout import ProjectLayout
 from output_boundary.boundary import AssistantOutputBoundary
+from memory_system import WorkingMemoryFinalizer, WorkingMemoryService
 from tasks.flow_registry import TaskFlowRegistry
 from tasks.coordination_graph_compiler import compile_coordination_graph_spec
 from tasks.run_models import (
@@ -78,12 +79,16 @@ from .langgraph_coordination_runtime import LangGraphCoordinationRuntime
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
 from .model_adoption import build_model_response_runtime_adoption
 from .models import (
+    AgentDispatchPlan,
+    AgentDispatchRecord,
     AgentHandoffEnvelope,
     AgentRun,
     AgentRunResult,
+    CoordinationBarrierState,
     CoordinationMergeResult,
     CoordinationNodeRun,
     CoordinationRun,
+    QueuedAgentNotification,
     RuntimeLoopState,
     TaskRun,
 )
@@ -172,6 +177,8 @@ class TaskRunLoop:
         )
         self.artifact_ref_index = ArtifactRefIndex(self.state_index, self)
         self.evidence_orchestrator = evidence_orchestrator
+        self.working_memory = WorkingMemoryService(_working_memory_root_for_loop(self.root_dir))
+        self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
 
     @staticmethod
     def _apply_observation_aggregation(
@@ -226,6 +233,8 @@ class TaskRunLoop:
         assembly_payload = dict(runtime_assembly or {})
         assembly_ref = str(assembly_payload.get("assembly_id") or "")
         manifest_ref = str(assembly_payload.get("manifest_ref") or "")
+        working_memory_refs = _working_memory_refs_from_assembly(assembly_payload)
+        working_memory_diag = _working_memory_diagnostics_from_assembly(assembly_payload)
         task_run_id = f"taskrun:{session_id}:{task_id}:{uuid.uuid4().hex[:8]}"
         agent_run_id = f"agrun:{task_run_id}:main"
         coordination_run = (
@@ -269,11 +278,13 @@ class TaskRunLoop:
                 "adoption_mode": adoption_mode,
                 "runtime_assembly_ref": assembly_ref,
                 "contract_manifest_ref": manifest_ref,
+                "working_memory_refs": working_memory_refs,
             },
             refs={
                 "task_contract_ref": task_contract_ref,
                 "runtime_assembly_ref": assembly_ref,
                 "contract_manifest_ref": manifest_ref,
+                "working_memory_ref": ",".join(working_memory_refs),
             },
         )
         agent_run = AgentRun(
@@ -309,6 +320,27 @@ class TaskRunLoop:
                 payload={"coordination_run": coordination_run.to_dict()},
                 refs={"coordination_run_ref": coordination_run.coordination_run_id},
             )
+        initial_dispatch_plan = (
+            _compile_agent_dispatch_plan_from_payload(
+                task_run_id=task_run_id,
+                coordination_run_id=coordination_run.coordination_run_id,
+                coordination_task_payload={},
+                topology_template_payload={},
+            )
+            if coordination_run is not None
+            else None
+        )
+        dispatch_plan_event = None
+        if initial_dispatch_plan is not None:
+            dispatch_plan_event = self.event_log.append(
+                task_run_id,
+                "agent_dispatch_plan_compiled",
+                payload={"agent_dispatch_plan": initial_dispatch_plan.to_dict(), "source": "runtime_start"},
+                refs={
+                    "coordination_run_ref": coordination_run.coordination_run_id,
+                    "dispatch_plan_ref": initial_dispatch_plan.dispatch_plan_id,
+                },
+            )
         iteration = self.event_log.append(
             task_run_id,
             "loop_iteration_started",
@@ -338,6 +370,9 @@ class TaskRunLoop:
                 "loop_limits": self.limits.to_dict(),
                 "runtime_assembly_ref": assembly_ref,
                 "contract_manifest_ref": manifest_ref,
+                "working_memory_refs": working_memory_refs,
+                **({"agent_dispatch_plan": initial_dispatch_plan.to_dict()} if initial_dispatch_plan is not None else {}),
+                **working_memory_diag,
                 **dict(diagnostics or {}),
             },
         )
@@ -346,6 +381,7 @@ class TaskRunLoop:
             event_offset=iteration.offset,
             execution_refs=(),
             execution_state_ref="",
+            working_memory_refs=tuple(working_memory_refs),
             execution_summary=self.execution_store.build_summary(task_run_id),
             agent_runs=(agent_run,),
             coordination_runs=((coordination_run,) if coordination_run is not None else ()),
@@ -391,6 +427,9 @@ class TaskRunLoop:
                 "loop_limits": self.limits.to_dict(),
                 "runtime_assembly_ref": assembly_ref,
                 "contract_manifest_ref": manifest_ref,
+                "working_memory_refs": working_memory_refs,
+                **({"agent_dispatch_plan": initial_dispatch_plan.to_dict()} if initial_dispatch_plan is not None else {}),
+                **working_memory_diag,
                 **dict(diagnostics or {}),
             },
         )
@@ -401,6 +440,8 @@ class TaskRunLoop:
         ordered_events = [started.to_dict(), agent_run_event.to_dict()]
         if coordination_run_event is not None:
             ordered_events.append(coordination_run_event.to_dict())
+        if dispatch_plan_event is not None:
+            ordered_events.append(dispatch_plan_event.to_dict())
         ordered_events.extend((iteration.to_dict(), checkpoint_event.to_dict()))
         return TaskRunLoopStartResult(
             task_run=task_run,
@@ -410,6 +451,78 @@ class TaskRunLoop:
             checkpoint=checkpoint,
             events=tuple(ordered_events),
         )
+
+    def submit_working_memory_candidates(
+        self,
+        *,
+        task_run_id: str,
+        node_id: str = "",
+        node_run_id: str = "",
+        run_attempt_id: str = "",
+        stage_id: str = "",
+        writer_agent_id: str = "",
+        candidates: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    ) -> tuple[Any, ...]:
+        stored = []
+        for index, candidate in enumerate(list(candidates or ())):
+            if not isinstance(candidate, dict):
+                continue
+            payload = {
+                "task_run_id": task_run_id,
+                "owner_node_id": node_id or str(candidate.get("owner_node_id") or ""),
+                "node_run_id": node_run_id or str(candidate.get("node_run_id") or ""),
+                "run_attempt_id": run_attempt_id or str(candidate.get("run_attempt_id") or ""),
+                "stage_id": stage_id or str(candidate.get("stage_id") or ""),
+                "writer_agent_id": writer_agent_id or str(candidate.get("writer_agent_id") or ""),
+                **dict(candidate),
+            }
+            if not str(payload.get("idempotency_key") or "").strip():
+                payload["idempotency_key"] = f"{task_run_id}:{payload.get('owner_node_id')}:{payload.get('node_run_id')}:{payload.get('kind')}:{index}"
+            stored.append(self.working_memory.create_item(**payload))
+        event = self.event_log.append(
+            task_run_id,
+            "working_memory_candidates_submitted",
+            payload={
+                "candidate_count": len(stored),
+                "work_memory_ids": [item.work_memory_id for item in stored],
+                "node_id": node_id,
+                "node_run_id": node_run_id,
+                "run_attempt_id": run_attempt_id,
+                "stage_id": stage_id,
+                "writer_agent_id": writer_agent_id,
+            },
+            refs={"working_memory_ref": ",".join(item.work_memory_id for item in stored)},
+        )
+        _ = event
+        return tuple(stored)
+
+    def finalize_working_memory(
+        self,
+        *,
+        task_run_id: str,
+        actor_id: str = "runloop",
+        terminal_reason: str = "completed",
+        policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = self.working_memory_finalizer.finalize_task_run(
+            task_run_id,
+            actor_id=actor_id,
+            terminal_reason=terminal_reason,
+            policy=policy,
+        )
+        event = self.event_log.append(
+            task_run_id,
+            "working_memory_finalized",
+            payload=result.to_dict(),
+            refs={
+                "working_memory_finalization_ref": result.archive_report_path,
+                "working_memory_task_run_ref": task_run_id,
+            },
+        )
+        return {
+            "result": result.to_dict(),
+            "event": event.to_dict(),
+        }
 
     async def run_single_agent_stream(
         self,
@@ -2106,6 +2219,15 @@ class TaskRunLoop:
         result_refs.append(f"commit_gate:{final_commit.gate_id}")
         yield {"type": "runtime_loop_event", "event": commit_event.to_dict()}
         yield {"type": "runtime_task_result_commit", "commit_gate": final_commit.to_dict()}
+        working_memory_finalization = self.finalize_working_memory(
+            task_run_id=terminal_state.task_run_id,
+            actor_id=terminal_state.agent_id or "runloop",
+            terminal_reason=terminal_state.terminal_reason or terminal_reason,
+        )
+        working_memory_finalization_result = dict(working_memory_finalization.get("result") or {})
+        result_refs.append(f"working_memory_finalization:{working_memory_finalization_result.get('archive_report_path') or terminal_state.task_run_id}")
+        yield {"type": "runtime_loop_event", "event": dict(working_memory_finalization.get("event") or {})}
+        yield {"type": "working_memory_finalized", "result": working_memory_finalization_result}
         yield {
             "type": "done",
             "content": final_content,
@@ -2120,6 +2242,7 @@ class TaskRunLoop:
             "terminal_reason": terminal_reason,
             "commit_gate": assistant_commit.to_dict(),
             "task_result_commit": final_commit.to_dict(),
+            "working_memory_finalization": working_memory_finalization_result,
             "task_run_ledger": final_task_run_ledger.to_dict() if final_task_run_ledger is not None else {},
             "task_result": task_result.to_dict() if task_result is not None else {},
             "output_commit": {
@@ -2127,10 +2250,10 @@ class TaskRunLoop:
                 "assistant_commit_applied": assistant_commit_applied,
                 "assistant_commit": assistant_commit.to_dict(),
                 "task_result_commit": final_commit.to_dict(),
+                "working_memory_finalization": working_memory_finalization_result,
                 "memory": dict(memory_commit_state),
                 "file_work_context_writeback": bool(final_main_context or final_task_summary_refs),
             },
-            "legacy_query_chain_removed": True,
         }
         terminal_state = RuntimeLoopState(
             task_run_id=terminal_state.task_run_id,
@@ -2167,12 +2290,15 @@ class TaskRunLoop:
                 "task_run_ledger": final_task_run_ledger.to_dict() if final_task_run_ledger is not None else {},
                 "task_result": task_result.to_dict() if task_result is not None else {},
                 "assistant_session_write_allowed": assistant_commit.commit_allowed,
+                "working_memory_finalization": working_memory_finalization_result,
                 **memory_commit_state,
                 "artifact_write_allowed": False,
             },
             diagnostics={
                 **dict(terminal_state.diagnostics),
                 "result_ref_count": len(result_refs),
+                "working_memory_finalized": True,
+                "working_memory_finalization": working_memory_finalization_result,
             },
         )
         terminal_event = self.event_log.append(
@@ -2625,6 +2751,11 @@ class TaskRunLoop:
             event_offset=event_offset,
             execution_refs=execution_refs,
             execution_state_ref=execution_state_ref,
+            working_memory_refs=tuple(
+                str(item).strip()
+                for item in list(state.diagnostics.get("working_memory_refs") or [])
+                if str(item).strip()
+            ),
             execution_summary=execution_summary,
             agent_runs=agent_runs,
             coordination_runs=coordination_runs,
@@ -2764,6 +2895,78 @@ class TaskRunLoop:
                         refs={"coordination_run_ref": coordination_run.coordination_run_id},
                     )
                 )
+            dispatch_plan = _compile_agent_dispatch_plan_from_payload(
+                task_run_id=start_result.task_run.task_run_id,
+                coordination_run_id=coordination_run.coordination_run_id,
+                coordination_task_payload=coordination_task_payload,
+                topology_template_payload=topology_template_payload,
+            )
+            coordination_run = CoordinationRun(
+                coordination_run_id=coordination_run.coordination_run_id,
+                task_run_id=coordination_run.task_run_id,
+                coordination_task_ref=coordination_run.coordination_task_ref,
+                coordinator_agent_id=coordination_run.coordinator_agent_id,
+                topology_template_id=coordination_run.topology_template_id,
+                communication_protocol_id=coordination_run.communication_protocol_id,
+                handoff_policy=coordination_run.handoff_policy,
+                failure_policy=coordination_run.failure_policy,
+                merge_policy=coordination_run.merge_policy,
+                status=coordination_run.status,
+                latest_checkpoint_ref=coordination_run.latest_checkpoint_ref,
+                created_at=coordination_run.created_at,
+                updated_at=time.time(),
+                diagnostics={
+                    **dict(coordination_run.diagnostics),
+                    "agent_dispatch_plan": dispatch_plan.to_dict(),
+                },
+            )
+            self.state_index.upsert_coordination_run(coordination_run)
+            current_task_run = self.state_index.get_task_run(start_result.task_run.task_run_id) or start_result.task_run
+            self.state_index.upsert_task_run(
+                TaskRun(
+                    task_run_id=current_task_run.task_run_id,
+                    session_id=current_task_run.session_id,
+                    task_id=current_task_run.task_id,
+                    task_contract_ref=current_task_run.task_contract_ref,
+                    agent_id=current_task_run.agent_id,
+                    agent_profile_id=current_task_run.agent_profile_id,
+                    runtime_lane=current_task_run.runtime_lane,
+                    status=current_task_run.status,
+                    created_at=current_task_run.created_at,
+                    updated_at=time.time(),
+                    latest_event_offset=current_task_run.latest_event_offset,
+                    latest_checkpoint_ref=current_task_run.latest_checkpoint_ref,
+                    terminal_reason=current_task_run.terminal_reason,
+                    diagnostics={
+                        **dict(current_task_run.diagnostics),
+                        "agent_dispatch_plan": dispatch_plan.to_dict(),
+                    },
+                )
+            )
+            events.append(
+                self.event_log.append(
+                    start_result.task_run.task_run_id,
+                    "agent_dispatch_plan_compiled",
+                    payload={"agent_dispatch_plan": dispatch_plan.to_dict(), "source": "coordination_task_contract"},
+                    refs={
+                        "coordination_run_ref": coordination_run.coordination_run_id,
+                        "dispatch_plan_ref": dispatch_plan.dispatch_plan_id,
+                    },
+                )
+            )
+            notification_events = [
+                self.event_log.append(
+                    start_result.task_run.task_run_id,
+                    "agent_notification_queued",
+                    payload={"queued_agent_notification": notification.to_dict(), "source": "dispatch_plan"},
+                    refs={
+                        "coordination_run_ref": coordination_run.coordination_run_id,
+                        "notification_ref": notification.notification_id,
+                    },
+                )
+                for notification in dispatch_plan.queued_notifications
+            ]
+            events.extend(notification_events)
             current_coordination_run = coordination_run
             if self.langgraph_coordination_runtime.supports(coordination_run):
                 runtime_result = self.langgraph_coordination_runtime.initialize(
@@ -2940,7 +3143,6 @@ class TaskRunLoop:
         provisioned = self.worker_agent_factory.provision_worker_agent(
             request=spawn_request,
             requested_agent_name=requested_agent_name,
-            task_scope=blueprint.allowed_task_modes,
         )
         child_agent_run = AgentRun(
             agent_run_id=f"agrun:{task_run_id}:worker:{existing_count}",
@@ -3541,10 +3743,10 @@ class TaskRunLoop:
     ) -> str:
         artifact_root = str(explicit_inputs.get("artifact_root") or "").strip()
         lines = [
-            f"继续推进长篇小说持续交付流程，当前进入阶段：{next_stage_id or next_task_ref}。",
+            f"继续推进协调任务阶段，当前进入阶段：{next_stage_id or next_task_ref}。",
             f"当前执行任务：{next_task_ref}。",
             "这是从同一协调流程自动续接的内部阶段，不需要向用户重新确认。",
-            "必须基于上游真实产物继续推进，不得伪造全书完结。",
+            "必须基于上游真实产物继续推进，不得伪造最终完成状态。",
         ]
         if artifact_root:
             lines.append(f"产物根目录：{artifact_root}")
@@ -5511,6 +5713,199 @@ def _memory_commit_state_from_assistant_commit_result(result: Any) -> dict[str, 
         "session_memory_chars": session_memory_chars,
         "durable_saved_count": durable_saved_count,
     }
+
+
+def _working_memory_refs_from_assembly(assembly: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for section in list(dict(assembly or {}).get("context_sections") or []):
+        if not isinstance(section, dict):
+            continue
+        metadata = dict(section.get("metadata") or {})
+        for item in list(metadata.get("refs") or []):
+            value = str(item or "").strip()
+            if value and value not in refs:
+                refs.append(value)
+    return refs
+
+
+def _working_memory_diagnostics_from_assembly(assembly: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(dict(assembly or {}).get("diagnostics") or {})
+    keys = (
+        "working_memory_enabled",
+        "working_memory_task_run_id",
+        "working_memory_graph_id",
+        "working_memory_owner_node_id",
+        "working_memory_node_run_id",
+        "working_memory_run_attempt_id",
+        "working_memory_required_count",
+        "working_memory_preferred_count",
+        "working_memory_conflict_count",
+    )
+    return {
+        key: diagnostics.get(key)
+        for key in keys
+        if key in diagnostics
+    }
+
+
+def _compile_agent_dispatch_plan_from_payload(
+    *,
+    task_run_id: str,
+    coordination_run_id: str,
+    coordination_task_payload: dict[str, Any],
+    topology_template_payload: dict[str, Any],
+) -> AgentDispatchPlan:
+    nodes = _dispatch_nodes_from_payload(coordination_task_payload, topology_template_payload)
+    edges = _dispatch_edges_from_payload(coordination_task_payload, topology_template_payload)
+    upstream: dict[str, list[str]] = {}
+    downstream: dict[str, list[str]] = {}
+    for edge in edges:
+        source = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
+        target = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+        if source and target:
+            downstream.setdefault(source, []).append(target)
+            upstream.setdefault(target, []).append(source)
+
+    records: list[AgentDispatchRecord] = []
+    barriers: list[CoordinationBarrierState] = []
+    notifications: list[QueuedAgentNotification] = []
+    dispatch_groups: dict[str, list[str]] = {}
+    ready_node_ids: list[str] = []
+    blocked_node_ids: list[str] = []
+    background_node_ids: list[str] = []
+    now = time.time()
+    for index, node in enumerate(nodes):
+        node_id = str(node.get("node_id") or node.get("id") or f"node_{index + 1}").strip()
+        if not node_id:
+            continue
+        mode = str(node.get("execution_mode") or "sync").strip() or "sync"
+        dispatch_group = str(node.get("dispatch_group") or "").strip()
+        wait_policy = str(node.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed"
+        join_policy = str(node.get("join_policy") or "all_success").strip() or "all_success"
+        background_policy = dict(node.get("background_policy") or {})
+        notification_policy = dict(node.get("notification_policy") or {})
+        lifecycle_policy = dict(node.get("resource_lifecycle_policy") or {})
+        node_upstream = tuple(upstream.get(node_id, ()))
+        node_downstream = tuple(downstream.get(node_id, ()))
+        status = "ready" if not node_upstream or wait_policy == "fire_and_continue" else "blocked"
+        if mode == "manual_gate":
+            status = "waiting"
+        if status == "ready":
+            ready_node_ids.append(node_id)
+        else:
+            blocked_node_ids.append(node_id)
+        if mode == "background":
+            background_node_ids.append(node_id)
+        if dispatch_group:
+            dispatch_groups.setdefault(dispatch_group, []).append(node_id)
+        record = AgentDispatchRecord(
+            dispatch_id=f"dispatch:{coordination_run_id}:{node_id}",
+            task_run_id=task_run_id,
+            coordination_run_id=coordination_run_id,
+            node_id=node_id,
+            node_run_id=f"noderun:{coordination_run_id}:{node_id}",
+            agent_id=str(node.get("agent_id") or "").strip(),
+            execution_mode=mode,
+            dispatch_group=dispatch_group,
+            wait_policy=wait_policy,
+            join_policy=join_policy,
+            status=status,
+            blocks_downstream=not (mode == "background" and background_policy.get("blocks_downstream") is False),
+            background_policy=background_policy,
+            notification_policy=notification_policy,
+            resource_lifecycle_policy=lifecycle_policy,
+            upstream_node_ids=node_upstream,
+            downstream_node_ids=node_downstream,
+            created_at=now,
+            diagnostics={
+                "node_type": str(node.get("node_type") or ""),
+                "output_contract_id": str(node.get("output_contract_id") or node.get("node_contract_id") or ""),
+            },
+        )
+        records.append(record)
+        if mode == "barrier":
+            barriers.append(
+                CoordinationBarrierState(
+                    barrier_id=f"barrier:{coordination_run_id}:{node_id}",
+                    task_run_id=task_run_id,
+                    coordination_run_id=coordination_run_id,
+                    node_id=node_id,
+                    join_policy=join_policy,
+                    waiting_for_node_ids=node_upstream,
+                    status="waiting",
+                )
+            )
+        if mode == "background":
+            notifications.append(
+                QueuedAgentNotification(
+                    notification_id=f"notify:{coordination_run_id}:{node_id}:completion",
+                    task_run_id=task_run_id,
+                    coordination_run_id=coordination_run_id,
+                    node_id=node_id,
+                    event="background_completion_pending",
+                    priority=str(notification_policy.get("priority") or "later"),
+                    include_result=str(notification_policy.get("include_result") or "summary_and_refs"),
+                    status="queued",
+                    created_at=now,
+                    diagnostics={"state_order": "status_before_notification"},
+                )
+            )
+
+    return AgentDispatchPlan(
+        dispatch_plan_id=f"dispatchplan:{coordination_run_id}",
+        task_run_id=task_run_id,
+        coordination_run_id=coordination_run_id,
+        records=tuple(records),
+        barrier_states=tuple(barriers),
+        queued_notifications=tuple(notifications),
+        ready_node_ids=tuple(ready_node_ids),
+        blocked_node_ids=tuple(blocked_node_ids),
+        background_node_ids=tuple(background_node_ids),
+        dispatch_groups=dispatch_groups,
+        diagnostics={
+            "node_count": len(records),
+            "edge_count": len(edges),
+            "ready_count": len(ready_node_ids),
+            "blocked_count": len(blocked_node_ids),
+            "background_count": len(background_node_ids),
+            "barrier_count": len(barriers),
+            "notification_count": len(notifications),
+            "scheduler_phase": "compiled_plan_only",
+        },
+    )
+
+
+def _dispatch_nodes_from_payload(coordination_task_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = (
+        coordination_task_payload.get("graph_nodes"),
+        topology_template_payload.get("nodes"),
+        dict(coordination_task_payload.get("metadata") or {}).get("graph_nodes"),
+    )
+    for value in candidates:
+        nodes = [dict(item) for item in list(value or []) if isinstance(item, dict)]
+        if nodes:
+            return nodes
+    return []
+
+
+def _dispatch_edges_from_payload(coordination_task_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = (
+        coordination_task_payload.get("graph_edges"),
+        topology_template_payload.get("edges"),
+        dict(coordination_task_payload.get("metadata") or {}).get("graph_edges"),
+    )
+    for value in candidates:
+        edges = [dict(item) for item in list(value or []) if isinstance(item, dict)]
+        if edges:
+            return edges
+    return []
+
+
+def _working_memory_root_for_loop(root_dir: Path) -> Path:
+    runtime_root = Path(root_dir).resolve()
+    if runtime_root.name == "runtime_state":
+        return runtime_root.parent / "working_memory"
+    return runtime_root / "working_memory"
 
 
 def _safe_int(value: Any) -> int:

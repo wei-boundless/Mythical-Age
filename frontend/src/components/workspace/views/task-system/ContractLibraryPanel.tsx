@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Copy, Database, GitBranch, Plus, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
@@ -205,8 +205,8 @@ export function ContractLibraryPanel({
   }
 
   return (
-    <section className="boundary-layer-grid boundary-layer-grid--wide">
-      <aside className="boundary-card">
+    <section className="contract-library-workbench">
+      <aside className="boundary-card contract-library-workbench__rail">
         <header>
           <strong>契约库</strong>
           <TaskSystemToolbarButton onClick={createDraft}>
@@ -229,12 +229,12 @@ export function ContractLibraryPanel({
         </div>
       </aside>
 
-      <section className="boundary-card boundary-card--editor">
+      <section className="boundary-card boundary-card--editor contract-library-workbench__editor">
         <header className="boundary-editor-title">
           <div className="boundary-identity-stack">
             <span>ContractSpec 主数据</span>
             <strong>{contractSpecTitle(draft)}</strong>
-            <small>{draft.contract_id || "新契约尚未保存"}</small>
+            <small>{contractKindLabel(draft.contract_kind)}</small>
           </div>
           <div className="boundary-actions">
             <TaskSystemToolbarButton disabled={saving} onClick={() => void remove()}>
@@ -249,26 +249,49 @@ export function ContractLibraryPanel({
         {localError ? <div className="boundary-alert boundary-alert--error">{localError}</div> : null}
         {issues.length ? <IssueList issues={issues} /> : null}
 
-        <div className="boundary-form">
-          <TaskSystemField label="契约 ID"><input value={draft.contract_id} onChange={(event) => setDraft((value) => ({ ...value, contract_id: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="中文名称"><input value={draft.title_zh} onChange={(event) => setDraft((value) => ({ ...value, title_zh: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="英文名称"><input value={draft.title_en} onChange={(event) => setDraft((value) => ({ ...value, title_en: event.target.value }))} /></TaskSystemField>
-          <TaskSystemSelectField label="契约类型" value={draft.contract_kind} options={contractManagement.contract_kind_options ?? []} onChange={(value) => setDraft((current) => ({ ...current, contract_kind: value }))} formatOption={contractKindLabel} />
-          <TaskSystemField label="版本"><input value={draft.version} onChange={(event) => setDraft((value) => ({ ...value, version: event.target.value }))} /></TaskSystemField>
-          <label className="boundary-check"><input checked={draft.enabled} onChange={(event) => setDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用契约</label>
-          <TaskSystemField label="说明" wide><textarea value={draft.description} onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="允许 Agent 类别" wide><textarea value={draftText.allowed_agent_kinds} onChange={(event) => setDraftText((value) => ({ ...value, allowed_agent_kinds: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="允许 Runtime Lane" wide><textarea value={draftText.allowed_runtime_lanes} onChange={(event) => setDraftText((value) => ({ ...value, allowed_runtime_lanes: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="输入字段 JSON" wide><textarea value={draftText.input_fields} onChange={(event) => setDraftText((value) => ({ ...value, input_fields: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="输出字段 JSON" wide><textarea value={draftText.output_fields} onChange={(event) => setDraftText((value) => ({ ...value, output_fields: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="产物要求 JSON" wide><textarea value={draftText.artifact_requirements} onChange={(event) => setDraftText((value) => ({ ...value, artifact_requirements: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="验收规则 JSON" wide><textarea value={draftText.acceptance_rules} onChange={(event) => setDraftText((value) => ({ ...value, acceptance_rules: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="运行要求 JSON" wide><textarea value={draftText.runtime_requirements} onChange={(event) => setDraftText((value) => ({ ...value, runtime_requirements: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="上下文可见性 JSON" wide><textarea value={draftText.context_visibility_policy} onChange={(event) => setDraftText((value) => ({ ...value, context_visibility_policy: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="交接策略 JSON" wide><textarea value={draftText.handoff_policy} onChange={(event) => setDraftText((value) => ({ ...value, handoff_policy: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="失败策略 JSON" wide><textarea value={draftText.failure_policy} onChange={(event) => setDraftText((value) => ({ ...value, failure_policy: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="人工门控 JSON" wide><textarea value={draftText.human_gate_policy} onChange={(event) => setDraftText((value) => ({ ...value, human_gate_policy: event.target.value }))} /></TaskSystemField>
-          <TaskSystemField label="扩展元数据 JSON" wide><textarea value={draftText.metadata} onChange={(event) => setDraftText((value) => ({ ...value, metadata: event.target.value }))} /></TaskSystemField>
+        <div className="contract-editor-sections">
+          <section className="contract-editor-section">
+            <header><Database size={15} /><strong>主数据</strong><span>身份、类型与启用状态</span></header>
+            <div className="boundary-form">
+              <TaskSystemField label="契约 ID"><input value={draft.contract_id} onChange={(event) => setDraft((value) => ({ ...value, contract_id: event.target.value }))} /></TaskSystemField>
+              <TaskSystemSelectField label="契约类型" value={draft.contract_kind} options={contractManagement.contract_kind_options ?? []} onChange={(value) => setDraft((current) => ({ ...current, contract_kind: value }))} formatOption={contractKindLabel} />
+              <TaskSystemField label="中文名称"><input value={draft.title_zh} onChange={(event) => setDraft((value) => ({ ...value, title_zh: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="英文名称"><input value={draft.title_en} onChange={(event) => setDraft((value) => ({ ...value, title_en: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="版本"><input value={draft.version} onChange={(event) => setDraft((value) => ({ ...value, version: event.target.value }))} /></TaskSystemField>
+              <label className="boundary-check"><input checked={draft.enabled} onChange={(event) => setDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用契约</label>
+              <TaskSystemField label="说明" wide><textarea value={draft.description} onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))} /></TaskSystemField>
+            </div>
+          </section>
+
+          <section className="contract-editor-section">
+            <header><Copy size={15} /><strong>字段与产物</strong><span>输入、输出、产物、验收</span></header>
+            <div className="boundary-form">
+              <TaskSystemField label="输入字段 JSON" wide><textarea value={draftText.input_fields} onChange={(event) => setDraftText((value) => ({ ...value, input_fields: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="输出字段 JSON" wide><textarea value={draftText.output_fields} onChange={(event) => setDraftText((value) => ({ ...value, output_fields: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="产物要求 JSON" wide><textarea value={draftText.artifact_requirements} onChange={(event) => setDraftText((value) => ({ ...value, artifact_requirements: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="验收规则 JSON" wide><textarea value={draftText.acceptance_rules} onChange={(event) => setDraftText((value) => ({ ...value, acceptance_rules: event.target.value }))} /></TaskSystemField>
+            </div>
+          </section>
+
+          <section className="contract-editor-section">
+            <header><GitBranch size={15} /><strong>运行与通信</strong><span>可见性、交接、运行要求</span></header>
+            <div className="boundary-form">
+              <TaskSystemField label="运行要求 JSON" wide><textarea value={draftText.runtime_requirements} onChange={(event) => setDraftText((value) => ({ ...value, runtime_requirements: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="上下文可见性 JSON" wide><textarea value={draftText.context_visibility_policy} onChange={(event) => setDraftText((value) => ({ ...value, context_visibility_policy: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="交接策略 JSON" wide><textarea value={draftText.handoff_policy} onChange={(event) => setDraftText((value) => ({ ...value, handoff_policy: event.target.value }))} /></TaskSystemField>
+            </div>
+          </section>
+
+          <section className="contract-editor-section">
+            <header><ShieldCheck size={15} /><strong>治理策略</strong><span>失败、人工门控、适用范围</span></header>
+            <div className="boundary-form">
+              <TaskSystemField label="失败策略 JSON" wide><textarea value={draftText.failure_policy} onChange={(event) => setDraftText((value) => ({ ...value, failure_policy: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="人工门控 JSON" wide><textarea value={draftText.human_gate_policy} onChange={(event) => setDraftText((value) => ({ ...value, human_gate_policy: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="允许 Agent 类别" wide><textarea value={draftText.allowed_agent_kinds} onChange={(event) => setDraftText((value) => ({ ...value, allowed_agent_kinds: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="允许 Runtime Lane" wide><textarea value={draftText.allowed_runtime_lanes} onChange={(event) => setDraftText((value) => ({ ...value, allowed_runtime_lanes: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="扩展元数据 JSON" wide><textarea value={draftText.metadata} onChange={(event) => setDraftText((value) => ({ ...value, metadata: event.target.value }))} /></TaskSystemField>
+            </div>
+          </section>
         </div>
       </section>
     </section>

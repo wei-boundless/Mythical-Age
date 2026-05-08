@@ -130,7 +130,7 @@ export function ContractOverviewPanel({
             <article className="boundary-readiness boundary-readiness--ready" key={kind}>
               <span>{kindLabel(kind)}</span>
               <strong>{count}</strong>
-              <small>{kind}</small>
+              <small>已归类</small>
             </article>
           ))}
           {!byKind.length ? <div className="boundary-empty">契约库为空，先到契约库建立通用 ContractSpec。</div> : null}
@@ -140,7 +140,6 @@ export function ContractOverviewPanel({
             <article key={spec.contract_id}>
               <strong>{contractSpecTitle(spec)}</strong>
               <span>{kindLabel(spec.contract_kind)}</span>
-              <small>{spec.contract_id}</small>
             </article>
           ))}
         </div>

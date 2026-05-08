@@ -184,6 +184,9 @@ def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRec
         "task.dev.light_web_game": "template.dev.light_web_game",
         "task.dev.arcade_game_bundle": "template.dev.arcade_game_bundle",
         "task.health.issue_triage": "template.health.issue_triage",
+        "task.health.trace_analysis": "template.health.trace_analysis",
+        "task.health.case_draft": "template.health.case_draft",
+        "task.health.fix_verification": "template.health.fix_verification",
     }
     template_id = task_template_ids.get(target)
     if not template_id:
@@ -395,6 +398,20 @@ def _is_system_managed_item(item: dict[str, Any]) -> bool:
     if str(metadata.get("managed_by") or "").strip() == "task_system":
         return True
     return bool(str(metadata.get("task_resource") or "").strip())
+
+
+def _derived_count(effective_items: list[Any], explicit_items: list[Any], *, key_attr: str) -> int:
+    explicit_keys = {
+        str(getattr(item, key_attr, "") or "").strip()
+        for item in explicit_items
+        if str(getattr(item, key_attr, "") or "").strip()
+    }
+    return sum(
+        1
+        for item in effective_items
+        if str(getattr(item, key_attr, "") or "").strip()
+        and str(getattr(item, key_attr, "") or "").strip() not in explicit_keys
+    )
 
 
 def _next_prefixed_id(existing_ids: list[str], *, prefix: str, width: int = 6) -> str:
@@ -1548,6 +1565,30 @@ class TaskFlowRegistry:
             _write_json(_projection_bindings_path(self.base_dir), {"projection_bindings": normalized})
         return bindings
 
+    def list_explicit_projection_bindings(self) -> list[TaskProjectionBinding]:
+        payload = _read_json(_projection_bindings_path(self.base_dir), {"projection_bindings": []})
+        bindings: list[TaskProjectionBinding] = []
+        for item in list(payload.get("projection_bindings") or []):
+            if not isinstance(item, dict):
+                continue
+            bindings.append(
+                TaskProjectionBinding(
+                    binding_id=str(item.get("binding_id") or ""),
+                    task_id=str(item.get("task_id") or ""),
+                    projection_selection_mode=str(item.get("projection_selection_mode") or "task_default"),
+                    allowed_projection_ids=tuple(
+                        str(value).strip()
+                        for value in list(item.get("allowed_projection_ids") or [])
+                        if str(value).strip()
+                    ),
+                    default_projection_id=str(item.get("default_projection_id") or ""),
+                    projection_required=bool(item.get("projection_required", False)),
+                    notes=str(item.get("notes") or ""),
+                    metadata=dict(item.get("metadata") or {}),
+                )
+            )
+        return bindings
+
     def get_projection_binding(self, task_id: str) -> TaskProjectionBinding | None:
         target = str(task_id or "").strip()
         return next((item for item in self.list_projection_bindings() if item.task_id == target), None)
@@ -1618,6 +1659,25 @@ class TaskFlowRegistry:
         normalized = [item.to_dict() for item in bindings]
         if payload.get("flow_contract_bindings") != normalized:
             _write_json(_flow_contract_bindings_path(self.base_dir), {"flow_contract_bindings": normalized})
+        return bindings
+
+    def list_explicit_flow_contract_bindings(self) -> list[TaskFlowContractBinding]:
+        payload = _read_json(_flow_contract_bindings_path(self.base_dir), {"flow_contract_bindings": []})
+        bindings: list[TaskFlowContractBinding] = []
+        for item in list(payload.get("flow_contract_bindings") or []):
+            if not isinstance(item, dict):
+                continue
+            bindings.append(
+                TaskFlowContractBinding(
+                    binding_id=str(item.get("binding_id") or ""),
+                    task_id=str(item.get("task_id") or ""),
+                    flow_contract_id=str(item.get("flow_contract_id") or ""),
+                    override_policy=str(item.get("override_policy") or "task_default"),
+                    verification_gate_profile=str(item.get("verification_gate_profile") or ""),
+                    fallback_policy=str(item.get("fallback_policy") or ""),
+                    metadata=dict(item.get("metadata") or {}),
+                )
+            )
         return bindings
 
     def get_flow_contract_binding(self, task_id: str) -> TaskFlowContractBinding | None:
@@ -1692,6 +1752,32 @@ class TaskFlowRegistry:
         normalized = [item.to_dict() for item in plans]
         if payload.get("adoption_plans") != normalized:
             _write_json(_adoption_plans_path(self.base_dir), {"adoption_plans": normalized})
+        return plans
+
+    def list_explicit_task_agent_adoption_plans(self) -> list[TaskAgentAdoptionPlan]:
+        payload = _read_json(_adoption_plans_path(self.base_dir), {"adoption_plans": []})
+        plans: list[TaskAgentAdoptionPlan] = []
+        for item in list(payload.get("adoption_plans") or []):
+            if not isinstance(item, dict):
+                continue
+            plans.append(
+                TaskAgentAdoptionPlan(
+                    plan_id=str(item.get("plan_id") or ""),
+                    task_id=str(item.get("task_id") or ""),
+                    adoption_mode=normalize_task_agent_adoption_mode(str(item.get("adoption_mode") or "adopt_existing")),
+                    default_agent_id=str(item.get("default_agent_id") or "agent:0"),
+                    allowed_agent_categories=tuple(
+                        str(value).strip()
+                        for value in list(item.get("allowed_agent_categories") or [])
+                        if str(value).strip()
+                    ),
+                    allow_worker_agent_spawn=bool(item.get("allow_worker_agent_spawn", False)),
+                    worker_agent_blueprint_id=str(item.get("worker_agent_blueprint_id") or ""),
+                    worker_agent_naming_rule=str(item.get("worker_agent_naming_rule") or ""),
+                    notes=str(item.get("notes") or ""),
+                    metadata=dict(item.get("metadata") or {}),
+                )
+            )
         return plans
 
     def get_task_agent_adoption_plan(self, task_id: str) -> TaskAgentAdoptionPlan | None:
@@ -1837,6 +1923,35 @@ class TaskFlowRegistry:
         normalized = [item.to_dict() for item in profiles]
         if payload.get("memory_request_profiles") != normalized:
             _write_json(_memory_request_profiles_path(self.base_dir), {"memory_request_profiles": normalized})
+        return profiles
+
+    def list_explicit_task_memory_request_profiles(self) -> list[TaskMemoryRequestProfile]:
+        payload = _read_json(_memory_request_profiles_path(self.base_dir), {"memory_request_profiles": []})
+        profiles: list[TaskMemoryRequestProfile] = []
+        for item in list(payload.get("memory_request_profiles") or []):
+            if not isinstance(item, dict):
+                continue
+            profiles.append(
+                TaskMemoryRequestProfile(
+                    profile_id=str(item.get("profile_id") or ""),
+                    task_id=str(item.get("task_id") or ""),
+                    requested_memory_layers=tuple(
+                        str(value).strip()
+                        for value in list(item.get("requested_memory_layers") or [])
+                        if str(value).strip()
+                    ),
+                    requested_topics=tuple(
+                        str(value).strip()
+                        for value in list(item.get("requested_topics") or [])
+                        if str(value).strip()
+                    ),
+                    memory_priority=str(item.get("memory_priority") or "normal"),
+                    writeback_policy=str(item.get("writeback_policy") or "task_default"),
+                    allow_long_term_memory=bool(item.get("allow_long_term_memory", False)),
+                    memory_scope_hint=str(item.get("memory_scope_hint") or ""),
+                    metadata=dict(item.get("metadata") or {}),
+                )
+            )
         return profiles
 
     def get_task_memory_request_profile(self, task_id: str) -> TaskMemoryRequestProfile | None:
@@ -2026,6 +2141,8 @@ class TaskFlowRegistry:
         edges: tuple[dict[str, Any], ...] = (),
         graph_contract_id: str = "",
         default_protocol_id: str = "",
+        working_memory_policy_profile_id: str = "",
+        working_memory_policy: dict[str, Any] | None = None,
         runtime_policy: dict[str, Any] | None = None,
         context_policy: dict[str, Any] | None = None,
         publish_state: str = "draft",
@@ -2048,6 +2165,8 @@ class TaskFlowRegistry:
                 "edges": [dict(item) for item in edges],
                 "graph_contract_id": graph_contract_id,
                 "default_protocol_id": default_protocol_id,
+                "working_memory_policy_profile_id": working_memory_policy_profile_id,
+                "working_memory_policy": dict(working_memory_policy or {}),
                 "runtime_policy": dict(runtime_policy or {}),
                 "context_policy": dict(context_policy or {}),
                 "publish_state": publish_state,
@@ -2100,11 +2219,14 @@ class TaskFlowRegistry:
                     "coordinator_agent_id": coordination.coordinator_agent_id,
                     "agent_group_id": coordination.agent_group_id,
                     "coordination_mode": coordination.coordination_mode,
+                    "working_memory_profile_id": str(metadata.get("working_memory_profile_id") or ""),
                 },
                 "context_policy": {
                     "shared_context_policy": coordination.shared_context_policy,
                     "memory_sharing_policy": coordination.memory_sharing_policy,
                 },
+                "working_memory_policy_profile_id": str(metadata.get("working_memory_profile_id") or ""),
+                "working_memory_policy": dict(metadata.get("working_memory_policy") or {}),
                 "publish_state": "published" if coordination.enabled else "draft",
                 "enabled": coordination.enabled,
                 "metadata": metadata,
@@ -2768,6 +2890,15 @@ class TaskFlowRegistry:
         templates = self.template_registry.list_templates()
         template_validation_matrix = self.template_registry.build_validation_matrix()
         invalid_bindings = [item for item in bindings if item.validation_state != "valid"]
+        projection_bindings = self.list_projection_bindings()
+        explicit_projection_bindings = self.list_explicit_projection_bindings()
+        flow_contract_bindings = self.list_flow_contract_bindings()
+        explicit_flow_contract_bindings = self.list_explicit_flow_contract_bindings()
+        adoption_plans = self.list_task_agent_adoption_plans()
+        explicit_adoption_plans = self.list_explicit_task_agent_adoption_plans()
+        memory_request_profiles = self.list_task_memory_request_profiles()
+        explicit_memory_request_profiles = self.list_explicit_task_memory_request_profiles()
+        communication_protocols = self.list_task_communication_protocols()
         return {
             "authority": "task_system.overview",
             "summary": {
@@ -2783,11 +2914,35 @@ class TaskFlowRegistry:
                 "enabled_task_template_count": sum(1 for item in templates if item.enabled),
                 "task_domain_count": len(task_domains),
                 "coordination_task_count": len(coordination_tasks),
-                "projection_binding_count": len(self.list_projection_bindings()),
-                "flow_contract_binding_count": len(self.list_flow_contract_bindings()),
-                "adoption_plan_count": len(self.list_task_agent_adoption_plans()),
-                "memory_request_profile_count": len(self.list_task_memory_request_profiles()),
-                "communication_protocol_count": len(self.list_task_communication_protocols()),
+                "projection_binding_count": len(explicit_projection_bindings),
+                "derived_projection_binding_count": _derived_count(
+                    projection_bindings,
+                    explicit_projection_bindings,
+                    key_attr="binding_id",
+                ),
+                "effective_projection_binding_count": len(projection_bindings),
+                "flow_contract_binding_count": len(explicit_flow_contract_bindings),
+                "derived_flow_contract_binding_count": _derived_count(
+                    flow_contract_bindings,
+                    explicit_flow_contract_bindings,
+                    key_attr="binding_id",
+                ),
+                "effective_flow_contract_binding_count": len(flow_contract_bindings),
+                "adoption_plan_count": len(explicit_adoption_plans),
+                "derived_adoption_plan_count": _derived_count(
+                    adoption_plans,
+                    explicit_adoption_plans,
+                    key_attr="plan_id",
+                ),
+                "effective_adoption_plan_count": len(adoption_plans),
+                "memory_request_profile_count": len(explicit_memory_request_profiles),
+                "derived_memory_request_profile_count": _derived_count(
+                    memory_request_profiles,
+                    explicit_memory_request_profiles,
+                    key_attr="profile_id",
+                ),
+                "effective_memory_request_profile_count": len(memory_request_profiles),
+                "communication_protocol_count": len(communication_protocols),
                 "invalid_binding_count": len(invalid_bindings),
                 "invalid_template_count": sum(
                     1
@@ -2802,15 +2957,15 @@ class TaskFlowRegistry:
             "task_assignments": [item.to_dict() for item in task_assignments],
             "flows": [item.to_dict() for item in flows],
             "bindings": [item.to_dict() for item in bindings],
-            "projection_bindings": [item.to_dict() for item in self.list_projection_bindings()],
-            "flow_contract_bindings": [item.to_dict() for item in self.list_flow_contract_bindings()],
-            "agent_adoption_plans": [item.to_dict() for item in self.list_task_agent_adoption_plans()],
-            "memory_request_profiles": [item.to_dict() for item in self.list_task_memory_request_profiles()],
+            "projection_bindings": [item.to_dict() for item in projection_bindings],
+            "flow_contract_bindings": [item.to_dict() for item in flow_contract_bindings],
+            "agent_adoption_plans": [item.to_dict() for item in adoption_plans],
+            "memory_request_profiles": [item.to_dict() for item in memory_request_profiles],
             "templates": [item.to_dict() for item in templates],
             "template_validation_matrix": template_validation_matrix,
             "coordination_tasks": [item.to_dict() for item in coordination_tasks],
             "topology_templates": [item.to_dict() for item in self.list_topology_templates()],
-            "communication_protocols": [item.to_dict() for item in self.list_task_communication_protocols()],
+            "communication_protocols": [item.to_dict() for item in communication_protocols],
             "link_permission_matrix": self.build_link_permission_matrix(),
             "agent_task_connections": self.build_agent_task_connection_overview(),
             "agent_carrying_profiles": self.build_agent_carrying_overview(),

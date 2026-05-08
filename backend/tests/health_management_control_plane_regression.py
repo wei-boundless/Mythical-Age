@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
 
 from health_system import HealthRegistry
 from orchestration import AgentRuntimeRegistry
 from orchestration import AgentRegistry
 from tasks import TaskFlowRegistry
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from app import app
+from bootstrap.app_runtime import app_runtime
+from fastapi.testclient import TestClient
 
 
 class FakeTestSystemService:
@@ -20,6 +30,12 @@ class FakeTestSystemService:
             "ended_at": 0.0,
             "scenario_ids": scenario_ids,
         }
+
+
+async def _fake_health_executor_stream(*, user_message, model_messages, directive, tool_instances):
+    del model_messages, directive, tool_instances
+    yield {"type": "answer_candidate", "content": f"健康分析已收到：{user_message}"}
+    yield {"type": "done", "content": f"健康分析已收到：{user_message}"}
 
 
 def test_health_report_issue_command_creates_receipt_report_and_issue(tmp_path) -> None:
@@ -144,3 +160,117 @@ def test_default_health_management_agent_configuration_is_bound_and_guarded(tmp_
     assert "op.write_file" in profile.blocked_operations
     assert "issue_triage" in connection.available_task_modes
     assert connection.default_runtime_lane_hint == "health_issue_read"
+
+
+def test_health_conversation_message_returns_real_assistant_reply() -> None:
+    with TestClient(app) as client:
+        runtime = app_runtime.require_ready()
+        original_stream = runtime.query_runtime.model_response_executor.stream
+        runtime.query_runtime.model_response_executor.stream = _fake_health_executor_stream  # type: ignore[method-assign]
+        try:
+            issue = client.post(
+                "/api/health-system/issues",
+                json={
+                    "title": "健康对话真实执行回归",
+                    "owner_system": "health_system",
+                    "severity": "medium",
+                    "runtime_trace_refs": ["runtime-loop:test-health-conversation"],
+                },
+            )
+            assert issue.status_code == 200
+            issue_id = issue.json()["issue_id"]
+
+            session = client.post(
+                "/api/health-system/conversation-sessions",
+                json={"active_issue_ref": issue_id},
+            )
+            assert session.status_code == 200
+            session_id = session.json()["session"]["session_id"]
+
+            response = client.post(
+                f"/api/health-system/conversation-sessions/{session_id}/messages",
+                json={"role": "user", "content": "请分析这个问题"},
+            )
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["message"]["role"] == "user"
+            assert payload["assistant_message"]["role"] == "assistant"
+            assert "请分析这个问题" in payload["assistant_message"]["content"]
+        finally:
+            runtime.query_runtime.model_response_executor.stream = original_stream  # type: ignore[method-assign]
+
+
+def test_health_conversation_without_bound_issue_returns_block_message() -> None:
+    with TestClient(app) as client:
+        session = client.post("/api/health-system/conversation-sessions", json={})
+        assert session.status_code == 200
+        session_id = session.json()["session"]["session_id"]
+
+        response = client.post(
+            f"/api/health-system/conversation-sessions/{session_id}/messages",
+            json={"role": "user", "content": "帮我看看"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["assistant_message"]["role"] == "assistant"
+        assert "还没有绑定健康问题" in payload["assistant_message"]["content"]
+
+
+def test_health_conversation_routes_trace_analysis_mode() -> None:
+    registry = HealthRegistry(BACKEND_DIR)
+    issue = registry.create_issue(
+        {
+            "title": "健康会话链路分析路由",
+            "owner_system": "health_system",
+            "severity": "medium",
+            "runtime_trace_refs": ["runtime-loop:test-trace-route"],
+        }
+    )
+    session = registry.create_conversation_session({"active_issue_ref": issue.issue_id})
+
+    routed = registry._route_conversation_task_mode(  # type: ignore[attr-defined]
+        user_message="请分析一下这次运行链路和问题节点",
+        session=session,
+    )
+
+    assert routed == "trace_analysis"
+
+
+def test_health_conversation_routes_case_draft_mode() -> None:
+    registry = HealthRegistry(BACKEND_DIR)
+    issue = registry.create_issue(
+        {
+            "title": "健康会话用例草案路由",
+            "owner_system": "health_system",
+            "severity": "medium",
+            "runtime_trace_refs": ["runtime-loop:test-case-route"],
+        }
+    )
+    session = registry.create_conversation_session({"active_issue_ref": issue.issue_id})
+
+    routed = registry._route_conversation_task_mode(  # type: ignore[attr-defined]
+        user_message="帮我整理一个复现用例草案，顺便列断言",
+        session=session,
+    )
+
+    assert routed == "case_draft"
+
+
+def test_health_conversation_routes_fix_verification_mode() -> None:
+    registry = HealthRegistry(BACKEND_DIR)
+    issue = registry.create_issue(
+        {
+            "title": "健康会话修复验证路由",
+            "owner_system": "health_system",
+            "severity": "medium",
+            "runtime_trace_refs": ["runtime-loop:test-fix-route"],
+        }
+    )
+    session = registry.create_conversation_session({"active_issue_ref": issue.issue_id})
+
+    routed = registry._route_conversation_task_mode(  # type: ignore[attr-defined]
+        user_message="请帮我做修复验证，确认问题是不是已经消失",
+        session=session,
+    )
+
+    assert routed == "fix_verification"

@@ -51,6 +51,26 @@
         "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.longform_novel.create_full_novel",
+      "task_id": "task.longform_novel.create_full_novel",
+      "projection_selection_mode": "task_graph_agent_projection",
+      "allowed_projection_ids": [
+        "projection.longform_novel.showrunner",
+        "projection.longform_novel.story_architect",
+        "projection.longform_novel.chapter_writer",
+        "projection.longform_novel.continuity_editor",
+        "projection.longform_novel.memory_publisher"
+      ],
+      "default_projection_id": "projection.longform_novel.showrunner",
+      "projection_required": true,
+      "notes": "长篇小说任务使用任务图节点 Agent 的专属投影。",
+      "metadata": {
+        "task_family": "longform_novel_writing",
+        "managed_by": "task_package_wizard"
+      },
+      "authority": "task_system.task_projection_binding"
     }
   ]
 }

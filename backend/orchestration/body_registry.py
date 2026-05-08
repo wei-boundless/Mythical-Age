@@ -123,17 +123,29 @@ class BodyProfileRegistry:
         agent_id: str,
         runtime_profile: AgentRuntimeProfile | None,
         task_mode: str,
+        requested_runtime_lane: str = "",
     ) -> RuntimeLaneProfile:
         allowed_lanes = [
             str(item).strip()
             for item in getattr(runtime_profile, "allowed_runtime_lanes", ())
             if str(item).strip()
         ]
-        lane_id = allowed_lanes[0] if allowed_lanes else "full_interactive"
-        if task_mode == "task_dispatch" and "task_dispatch" in allowed_lanes:
+        requested_lane = str(requested_runtime_lane or "").strip()
+        lane_source = "agent_default"
+        lane_issue = ""
+        if requested_lane and (not allowed_lanes or requested_lane in allowed_lanes):
+            lane_id = requested_lane
+            lane_source = "task_binding"
+        else:
+            lane_id = allowed_lanes[0] if allowed_lanes else "full_interactive"
+            if requested_lane:
+                lane_issue = "requested_runtime_lane_not_allowed"
+        if not requested_lane and task_mode == "task_dispatch" and "task_dispatch" in allowed_lanes:
             lane_id = "task_dispatch"
-        elif task_mode == "light_web_game" and "game_delivery" in allowed_lanes:
+            lane_source = "task_mode_default"
+        elif not requested_lane and task_mode == "light_web_game" and "game_delivery" in allowed_lanes:
             lane_id = "game_delivery"
+            lane_source = "task_mode_default"
         return RuntimeLaneProfile(
             profile_id=f"lane:{agent_id}:default",
             lane_id=lane_id,
@@ -141,7 +153,13 @@ class BodyProfileRegistry:
             tool_followup_policy="continue_until_terminal",
             checkpoint_policy="event_checkpoint_spine",
             resume_policy="checkpoint_replay",
-            metadata={"agent_id": agent_id, "task_mode": task_mode},
+            metadata={
+                "agent_id": agent_id,
+                "task_mode": task_mode,
+                "requested_runtime_lane": requested_lane,
+                "lane_source": lane_source,
+                "lane_issue": lane_issue,
+            },
         )
 
     def build_output_boundary_profile(

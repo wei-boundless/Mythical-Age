@@ -13,12 +13,14 @@ from .contracts import ContextCandidateDecision, ContextPolicyResult
 
 SECTION_BY_LAYER = {
     "state": "active_process_context",
+    "working": "active_process_context",
     "conversation": "hot_truth_window",
     "long_term": "relevant_durable_context",
 }
 
 PRIORITY_BY_LAYER = {
     "state": 100,
+    "working": 90,
     "conversation": 70,
     "long_term": 30,
 }
@@ -192,6 +194,8 @@ class MemoryContextPolicy:
             return False, "context_budget_exceeded"
         if candidate.memory_layer == "state":
             return True, "state_memory_core_context"
+        if candidate.memory_layer == "working":
+            return True, "working_memory_task_context"
         if candidate.memory_layer == "conversation":
             return True, "conversation_memory_continuity_context"
         if candidate.memory_layer == "long_term":

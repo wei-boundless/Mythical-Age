@@ -175,6 +175,36 @@
         "source_flow_id": "flow.health.fix_verification"
       },
       "execution_chain_type": "single_agent_chain"
+    },
+    {
+      "task_id": "task.longform_novel.create_full_novel",
+      "task_title": "长篇小说完整创作",
+      "task_kind": "specific_task",
+      "task_family": "longform_novel_writing",
+      "task_mode": "longform_novel_graph",
+      "flow_id": "flow.longform_novel.graph_runtime",
+      "workflow_id": "workflow.longform_novel.graph_runtime",
+      "workflow_file_ref": "workflow:workflow.longform_novel.graph_runtime",
+      "projection_id": "",
+      "input_contract_id": "contract.novel.project_brief",
+      "output_contract_id": "contract.novel.final_manuscript_package",
+      "safety_policy": {
+        "safety_class": "S2_bounded",
+        "write_mode": "artifact_ref_only",
+        "verification_mode": "contract_and_review"
+      },
+      "task_structure": {
+        "execution_chain_type": "graph_run_loop",
+        "trigger_signals": [
+          "task_package.longform_novel"
+        ]
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "task_package_wizard",
+        "package_template": "longform_novel_writing"
+      },
+      "execution_chain_type": "graph_run_loop"
     }
   ]
 }

@@ -113,7 +113,7 @@ class MCPExecutionPlan:
     artifact_refs: list[str] = field(default_factory=list)
     candidate_refs: list[str] = field(default_factory=list)
     fallback_execution_kind: Literal["agent", "builtin_tool_lane", "none"] = "agent"
-    cutover_mode: Literal["shadow", "primary", "disabled"] = "primary"
+    cutover_mode: Literal["primary", "disabled"] = "primary"
 
     def to_dict(self) -> dict[str, Any]:
         return {

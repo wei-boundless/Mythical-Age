@@ -196,3 +196,170 @@ def test_task_run_loop_start_writes_runtime_assembly_refs_to_trace(tmp_path: Pat
     assert result.loop_state.diagnostics["contract_manifest_ref"] == assembly.manifest_ref
     started_event = result.events[0]
     assert started_event["refs"]["runtime_assembly_ref"] == assembly.assembly_id
+
+
+def test_runtime_assembly_includes_working_memory_sections_when_provided() -> None:
+    assembly = build_single_agent_runtime_assembly(
+        manifest=_manifest(),
+        agent_profile=AgentRuntimeProfile(agent_profile_id="test_profile", agent_id="agent:test"),
+        working_memory_context={
+            "task_run_id": "taskrun:test",
+            "graph_id": "graph:test",
+            "owner_node_id": "writer",
+            "node_run_id": "writer.run.001",
+            "working_memory.required": {
+                "item_count": 2,
+                "refs": ["wm:1", "wm:2"],
+                "content_mode": "summary",
+            },
+            "working_memory.conflict_warnings": {
+                "item_count": 1,
+                "refs": ["wm:conflict:1"],
+                "content_mode": "warning_summary",
+            },
+        },
+    )
+
+    payload = assembly.to_dict()
+    section_ids = [item["section_id"] for item in payload["context_sections"]]
+
+    assert "working_memory.required" in section_ids
+    assert "working_memory.conflict_warnings" in section_ids
+    assert payload["diagnostics"]["working_memory_enabled"] is True
+    assert payload["diagnostics"]["working_memory_required_count"] == 2
+    assert payload["diagnostics"]["working_memory_conflict_count"] == 1
+
+
+def test_runtime_assembly_includes_task_durable_sections_when_provided() -> None:
+    assembly = build_single_agent_runtime_assembly(
+        manifest=_manifest(),
+        agent_profile=AgentRuntimeProfile(agent_profile_id="test_profile", agent_id="agent:test"),
+        task_durable_memory_context={
+            "namespace_id": "tdmns:test",
+            "task_id": "task.test",
+            "graph_id": "graph:test",
+            "task_durable_memory.required": {
+                "item_count": 1,
+                "refs": ["tdm:1"],
+                "content_mode": "summary",
+            },
+            "task_durable_memory.preferred": {
+                "item_count": 2,
+                "refs": ["tdm:2", "tdm:3"],
+                "content_mode": "summary",
+            },
+        },
+    )
+
+    payload = assembly.to_dict()
+    section_ids = [item["section_id"] for item in payload["context_sections"]]
+
+    assert "task_durable_memory.required" in section_ids
+    assert "task_durable_memory.preferred" in section_ids
+    assert payload["diagnostics"]["task_durable_memory_enabled"] is True
+    assert payload["diagnostics"]["task_durable_memory_namespace_id"] == "tdmns:test"
+    assert payload["diagnostics"]["task_durable_memory_required_count"] == 1
+    assert payload["diagnostics"]["task_durable_memory_preferred_count"] == 2
+
+
+def test_stage_execution_request_carries_working_memory_refs() -> None:
+    request = StageExecutionRequest(
+        request_id="",
+        coordination_run_id="coordrun:test",
+        thread_id="thread:test",
+        root_task_run_id="taskrun:test",
+        stage_id="stage.writer",
+        node_id="writer",
+        task_ref="task.writer",
+        working_memory_refs=("wm:1", "wm:2"),
+    )
+
+    restored = StageExecutionRequest.from_dict(request.to_dict())
+
+    assert restored.working_memory_refs == ("wm:1", "wm:2")
+
+
+def test_runtime_checkpoint_carries_working_memory_refs(tmp_path: Path) -> None:
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+
+    started = loop.start(
+        session_id="session:wm-checkpoint",
+        task_id="task:wm-checkpoint",
+        runtime_assembly={
+            "context_sections": [
+                {"section_id": "working_memory.required", "metadata": {"refs": ["wm:accepted"]}},
+                {"section_id": "working_memory.preferred", "metadata": {"refs": ["wm:proposed"]}},
+            ],
+        },
+    )
+
+    loaded = loop.checkpoints.load_latest(started.task_run.task_run_id)
+
+    assert loaded is not None
+    assert loaded.working_memory_refs == ("wm:accepted", "wm:proposed")
+
+
+def test_task_run_loop_can_submit_working_memory_candidates(tmp_path: Path) -> None:
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+
+    stored = loop.submit_working_memory_candidates(
+        task_run_id="taskrun:test",
+        node_id="writer",
+        node_run_id="writer.run.001",
+        run_attempt_id="attempt_01",
+        writer_agent_id="agent:test",
+        candidates=(
+            {
+                "kind": "chapter_draft",
+                "summary": "第一章草稿",
+                "status": "draft",
+            },
+            {
+                "kind": "review_note",
+                "summary": "需要补连续性检查",
+                "status": "proposed",
+            },
+        ),
+    )
+
+    assert len(stored) == 2
+    assert stored[0].owner_node_id == "writer"
+    assert stored[0].node_run_id == "writer.run.001"
+    assert stored[1].writer_agent_id == "agent:test"
+
+
+def test_task_run_loop_can_finalize_working_memory_without_durable_promotion(tmp_path: Path) -> None:
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    stored = loop.submit_working_memory_candidates(
+        task_run_id="taskrun:test-finalize",
+        node_id="writer",
+        node_run_id="writer.run.001",
+        writer_agent_id="agent:test",
+        candidates=(
+            {
+                "kind": "chapter_draft",
+                "summary": "章节草稿",
+                "status": "accepted",
+                "artifact_refs": ["artifact:chapter-1"],
+            },
+            {
+                "kind": "review_note",
+                "summary": "未采纳审查意见",
+                "status": "proposed",
+            },
+        ),
+    )
+
+    finalized = loop.finalize_working_memory(
+        task_run_id="taskrun:test-finalize",
+        actor_id="agent:main",
+        terminal_reason="completed",
+    )
+
+    result = finalized["result"]
+    assert result["artifact_candidate_count"] == 1
+    assert result["discarded_count"] == 1
+    assert finalized["event"]["event_type"] == "working_memory_finalized"
+    assert loop.working_memory.get_item(stored[0].work_memory_id).status == "archived"
+    assert loop.working_memory.get_item(stored[0].work_memory_id).promotion_state == "promoted_to_artifact_store"
+    assert loop.working_memory.get_item(stored[1].work_memory_id).status == "discarded"

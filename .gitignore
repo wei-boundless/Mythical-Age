@@ -19,6 +19,8 @@ backend/durable_memory/**/*.md
 !backend/durable_memory/SCHEMA.md
 !backend/durable_memory/meta/SCHEMA.md
 storage/runtime_state/
+storage/working_memory/
+storage/task_durable_memory/
 storage/session_memory/
 storage/sessions/
 storage/indexes_v2/

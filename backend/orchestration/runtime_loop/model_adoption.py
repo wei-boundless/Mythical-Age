@@ -91,7 +91,6 @@ def build_model_response_runtime_adoption(
             "filesystem_write_allowed": any(
                 operation in {"op.write_file", "op.edit_file"} for operation in allowed_operations
             ),
-            "legacy_query_chain_removed": True,
             "adoption_owner": "TaskRunLoop",
             "authorization_inputs": {
                 "task_operation_requirement": True,
@@ -123,7 +122,6 @@ def build_model_response_runtime_adoption(
         runtime_executable=True,
         diagnostics={
             "directive_only_executor": True,
-            "legacy_query_chain_removed": True,
             "adoption_owner": "TaskRunLoop",
             "task_execution_assembly_ref": str(task_execution_assembly.get("assembly_id") or ""),
             "task_body_orchestration_ref": str(task_body_orchestration.get("orchestration_id") or ""),

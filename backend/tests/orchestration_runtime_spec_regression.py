@@ -8,6 +8,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from orchestration import build_orchestration_runtime_bundle
+from orchestration.agent_runtime_models import AgentRuntimeProfile
+from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from tasks.assembly_builder import build_task_execution_assembly_bundle
 
 
@@ -86,6 +88,7 @@ def test_orchestration_runtime_bundle_uses_selected_task_profiles() -> None:
         task_id="taskinst:turn:session-orch-health:1:health_issue_triage",
         user_goal="请检查这个 health issue 的修复建议。",
         task_assembly_bundle=task_bundle,
+        agent_runtime_profile=AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:3"),
         current_turn_context={
             "authority": "context.current_turn",
             "turn_id": "turn:session-orch-health:1",
@@ -96,9 +99,112 @@ def test_orchestration_runtime_bundle_uses_selected_task_profiles() -> None:
     runtime_spec = payload["agent_runtime_spec"]
     orchestration = payload["task_body_orchestration"]
 
-    assert runtime_spec["runtime_lane"] in {"health_issue_read", "full_interactive"}
+    assert runtime_spec["runtime_lane"] == "health_issue_read"
     assert orchestration["resource_binding_plan"]["operation_requirement_ref"].startswith("opreq:")
     assert orchestration["verification_gate_plan"]["task_constraints"] == task_bundle["task_execution_assembly"]["task_constraints"]
+
+
+def test_orchestration_runtime_bundle_uses_health_flow_runtime_lanes() -> None:
+    expected_lanes = {
+        "task.health.issue_triage": "health_issue_read",
+        "task.health.trace_analysis": "health_trace_read",
+        "task.health.case_draft": "case_draft_candidate",
+        "task.health.fix_verification": "fix_verification_candidate",
+    }
+    for selected_task_id, expected_lane in expected_lanes.items():
+        task_bundle = build_task_execution_assembly_bundle(
+            session_id="session-orch-health-lanes",
+            task_id=f"taskinst:turn:session-orch-health-lanes:1:{selected_task_id}",
+            user_goal="请执行健康系统管理任务。",
+            source="test",
+            current_turn_context={
+                "authority": "context.current_turn",
+                "turn_id": "turn:session-orch-health-lanes:1",
+                "selected_task_id": selected_task_id,
+            },
+        )
+
+        payload = build_orchestration_runtime_bundle(
+            base_dir=BACKEND_DIR,
+            session_id="session-orch-health-lanes",
+            task_id=f"taskinst:turn:session-orch-health-lanes:1:{selected_task_id}",
+            user_goal="请执行健康系统管理任务。",
+            task_assembly_bundle=task_bundle,
+            agent_runtime_profile=AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:3"),
+            current_turn_context={
+                "authority": "context.current_turn",
+                "turn_id": "turn:session-orch-health-lanes:1",
+                "selected_task_id": selected_task_id,
+            },
+        )
+
+        task_structure = task_bundle["registered_task"]["task_policy"]["task_structure"]
+        runtime_spec = payload["agent_runtime_spec"]
+        lane_profile = payload["runtime_lane_profile"]
+
+        assert task_structure["runtime_lane_hint"] == expected_lane
+        assert runtime_spec["runtime_lane"] == expected_lane
+        assert runtime_spec["runtime_lane"] == task_structure["runtime_lane_hint"]
+        assert lane_profile["metadata"]["requested_runtime_lane"] == expected_lane
+        assert lane_profile["metadata"]["lane_issue"] == ""
+
+
+def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
+    task_bundle = build_task_execution_assembly_bundle(
+        session_id="session-orch-shared-contract",
+        task_id="taskinst:turn:session-orch-shared-contract:1:general_response",
+        user_goal="测试共同契约是否进入编排运行时。",
+        source="test",
+    )
+    profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
+    assert profile is not None
+
+    payload_with_shared = build_orchestration_runtime_bundle(
+        base_dir=BACKEND_DIR,
+        session_id="session-orch-shared-contract",
+        task_id="taskinst:turn:session-orch-shared-contract:1:general_response",
+        user_goal="测试共同契约是否进入编排运行时。",
+        task_assembly_bundle=task_bundle,
+        agent_runtime_profile=profile,
+    )
+    section_ids_with_shared = [
+        str(section.get("section_id") or "")
+        for section in payload_with_shared["task_body_orchestration"]["soul_runtime_view"].get("sections", [])
+        if isinstance(section, dict)
+    ]
+
+    profile_without_shared = AgentRuntimeProfile(
+        agent_profile_id=profile.agent_profile_id,
+        agent_id=profile.agent_id,
+        allowed_task_modes=profile.allowed_task_modes,
+        allowed_runtime_lanes=profile.allowed_runtime_lanes,
+        allowed_operations=profile.allowed_operations,
+        blocked_operations=profile.blocked_operations,
+        allowed_memory_scopes=profile.allowed_memory_scopes,
+        allowed_context_sections=profile.allowed_context_sections,
+        use_shared_contract=False,
+        output_contracts=profile.output_contracts,
+        approval_policy=profile.approval_policy,
+        trace_policy=profile.trace_policy,
+        lifecycle_policy=profile.lifecycle_policy,
+        metadata=profile.metadata,
+    )
+    payload_without_shared = build_orchestration_runtime_bundle(
+        base_dir=BACKEND_DIR,
+        session_id="session-orch-shared-contract",
+        task_id="taskinst:turn:session-orch-shared-contract:1:general_response",
+        user_goal="测试共同契约是否进入编排运行时。",
+        task_assembly_bundle=task_bundle,
+        agent_runtime_profile=profile_without_shared,
+    )
+    section_ids_without_shared = [
+        str(section.get("section_id") or "")
+        for section in payload_without_shared["task_body_orchestration"]["soul_runtime_view"].get("sections", [])
+        if isinstance(section, dict)
+    ]
+
+    assert "static_common_rules" in section_ids_with_shared
+    assert "static_common_rules" not in section_ids_without_shared
 
 
 def test_removed_story_task_selection_falls_back_to_general_runtime() -> None:

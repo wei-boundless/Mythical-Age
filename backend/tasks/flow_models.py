@@ -198,7 +198,6 @@ class TaskAgentAdoptionPlan:
             )
         payload["execution_chain_type"] = execution_chain_type
         payload["authority"] = "task_system.task_execution_policy"
-        payload.pop("default_agent_id", None)
         payload["runtime_agent_selection_policy"] = str(metadata.get("runtime_agent_selection_policy") or "orchestration_default")
         payload["task_level"] = str(metadata.get("task_level") or "standard")
         payload["task_privilege"] = str(metadata.get("task_privilege") or "bounded")

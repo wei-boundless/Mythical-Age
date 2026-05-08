@@ -47,6 +47,18 @@
         "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.longform_novel.create_full_novel",
+      "task_id": "task.longform_novel.create_full_novel",
+      "flow_contract_id": "flow.longform_novel.graph_runtime",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
     }
   ]
 }

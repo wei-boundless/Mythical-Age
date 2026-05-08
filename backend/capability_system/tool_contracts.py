@@ -177,7 +177,7 @@ class ToolContractDecision:
 
 @dataclass(slots=True)
 class ToolContractGate:
-    mode: str = "shadow"
+    mode: str = "enforce"
 
     def evaluate(
         self,
@@ -190,7 +190,9 @@ class ToolContractGate:
     ) -> ToolContractDecision:
         normalized_input = dict(tool_input or {})
         normalized_bindings = dict(binding_context or {})
-        normalized_mode = (self.mode or "shadow").strip().lower() or "shadow"
+        normalized_mode = (self.mode or "enforce").strip().lower() or "enforce"
+        if normalized_mode not in {"enforce", "disabled"}:
+            normalized_mode = "enforce"
         effective_scope = coerce_tool_scope(
             tool_scope,
             source="legacy",
@@ -277,4 +279,3 @@ class ToolContractGate:
             ]
 
         return []
-

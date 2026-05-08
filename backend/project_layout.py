@@ -33,6 +33,14 @@ class ProjectLayout:
         return self.storage_root / "session_memory"
 
     @property
+    def working_memory_dir(self) -> Path:
+        return self.storage_root / "working_memory"
+
+    @property
+    def task_durable_memory_dir(self) -> Path:
+        return self.storage_root / "task_durable_memory"
+
+    @property
     def sessions_dir(self) -> Path:
         return self.storage_root / "sessions"
 
@@ -83,6 +91,8 @@ class ProjectLayout:
             self.storage_root,
             self.durable_memory_dir,
             self.session_memory_dir,
+            self.working_memory_dir,
+            self.task_durable_memory_dir,
             self.sessions_dir,
             self.runtime_state_dir,
             self.health_system_dir,

@@ -6,6 +6,7 @@ from orchestration.agent_group_registry import AgentGroupRegistry
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from orchestration.assembly_builder import build_orchestration_runtime_bundle
 from orchestration.runtime_loop.runtime_assembly_builder import build_single_agent_runtime_assembly
 from orchestration.runtime_loop.contract_compiler_models import CompiledGlobalContract, ContractManifest
 from orchestration.worker_agent_factory import default_worker_agent_blueprints
@@ -49,6 +50,157 @@ def test_builtin_agent_upsert_and_runtime_profile_updates_fail_closed(tmp_path):
         )
 
 
+def test_custom_agent_runtime_profile_persists_output_contracts(tmp_path):
+    agent_registry = AgentRegistry(tmp_path)
+    runtime_registry = AgentRuntimeRegistry(tmp_path)
+    agent_registry.upsert_agent(
+        agent_id="agent:6",
+        agent_name="契约测试 Agent",
+        agent_category="worker_sub_agent",
+    )
+
+    runtime_registry.upsert_profile(
+        agent_id="agent:6",
+        agent_profile_id="agent_6_runtime",
+        allowed_operations=("op.model_response",),
+        output_contracts=("contract.test.chapter_draft", "contract.test.review_report"),
+    )
+
+    loaded = runtime_registry.get_profile("agent:6")
+
+    assert loaded is not None
+    assert loaded.output_contracts == ("contract.test.chapter_draft", "contract.test.review_report")
+
+
+def test_custom_agent_runtime_profile_persists_shared_contract_flag(tmp_path):
+    agent_registry = AgentRegistry(tmp_path)
+    runtime_registry = AgentRuntimeRegistry(tmp_path)
+    agent_registry.upsert_agent(
+        agent_id="agent:6",
+        agent_name="共同契约测试 Agent",
+        agent_category="worker_sub_agent",
+    )
+
+    runtime_registry.upsert_profile(
+        agent_id="agent:6",
+        agent_profile_id="agent_6_runtime",
+        allowed_operations=("op.model_response",),
+        use_shared_contract=False,
+    )
+
+    loaded = runtime_registry.get_profile("agent:6")
+
+    assert loaded is not None
+    assert loaded.use_shared_contract is False
+
+
+def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
+    agent_registry = AgentRegistry(tmp_path)
+
+    agent_registry.upsert_agent(
+        agent_id="agent:6",
+        agent_name="投影绑定测试 Agent",
+        agent_category="worker_sub_agent",
+        default_soul_id="xuannv",
+        default_projection_id="xuannv__primary",
+        metadata={
+            "managed_by": "orchestration_console",
+            "prompt_profile": {
+                "authority": "orchestration.agent_prompt_profile",
+                "system_prompt": "这段旧名册 Prompt 不能进入 runtime prompt。",
+                "guardrails": ["旧护栏不能进入 runtime prompt"],
+                "output_style": "旧输出风格不能进入 runtime prompt。",
+                "storage_policy": "agent_metadata_frontend_configured",
+            },
+        },
+    )
+    runtime_registry = AgentRuntimeRegistry(tmp_path)
+    runtime_registry.upsert_profile(
+        agent_id="agent:6",
+        agent_profile_id="agent_6_runtime",
+        allowed_task_modes=("projection_test",),
+        allowed_runtime_lanes=("full_interactive",),
+        allowed_operations=("op.model_response",),
+        allowed_context_sections=("task", "projection", "prompt_manifest"),
+        output_contracts=("AssistantFinalAnswer",),
+    )
+
+    loaded = agent_registry.get_agent("agent:6")
+
+    assert loaded is not None
+    assert loaded.metadata["prompt_profile"]["authority"] == "orchestration.agent_prompt_profile"
+    bundle = build_orchestration_runtime_bundle(
+        base_dir=tmp_path,
+        session_id="session:projection-test",
+        task_id="task:projection-test",
+        user_goal="测试旧名册 Prompt 不进入 runtime。",
+        task_assembly_bundle={
+            "task_contract": {"user_goal": "测试旧名册 Prompt 不进入 runtime。"},
+            "task_execution_assembly": {
+                "assembly_id": "assembly:projection-test",
+                "task_mode": "projection_test",
+                "task_family": "test",
+                "output_contract_id": "AssistantFinalAnswer",
+                "requested_outputs": ["AssistantFinalAnswer"],
+            },
+            "projection_selection": {},
+            "operation_requirement": {"requirement_id": "opreq:projection-test"},
+        },
+        agent_runtime_profile=runtime_registry.get_profile("agent:6"),
+    )
+    orchestration = bundle["task_body_orchestration"]
+    rendered = "\n".join(
+        str(section.get("content") or "")
+        for section in orchestration["prompt_manifest"].get("sections", [])
+        if isinstance(section, dict)
+    )
+
+    assert "这段旧名册 Prompt 不能进入 runtime prompt" not in rendered
+    assert "旧护栏不能进入 runtime prompt" not in rendered
+    assert orchestration["projection_ref"] == "xuannv__primary"
+
+
+def test_builtin_agent_runtime_profile_allows_only_output_contract_updates(tmp_path):
+    runtime_registry = AgentRuntimeRegistry(tmp_path)
+    current = runtime_registry.get_profile("agent:3")
+
+    assert current is not None
+
+    updated = runtime_registry.upsert_profile(
+        agent_id="agent:3",
+        agent_profile_id=current.agent_profile_id,
+        allowed_task_modes=current.allowed_task_modes,
+        allowed_runtime_lanes=current.allowed_runtime_lanes,
+        allowed_operations=current.allowed_operations,
+        blocked_operations=current.blocked_operations,
+        allowed_memory_scopes=current.allowed_memory_scopes,
+        allowed_context_sections=current.allowed_context_sections,
+        output_contracts=("HealthTriageResult", "HealthTraceAnalysis"),
+        approval_policy=current.approval_policy,
+        trace_policy=current.trace_policy,
+        lifecycle_policy=current.lifecycle_policy,
+    )
+
+    assert updated.output_contracts == ("HealthTriageResult", "HealthTraceAnalysis")
+    assert updated.allowed_operations == current.allowed_operations
+
+    with pytest.raises(PermissionError):
+        runtime_registry.upsert_profile(
+            agent_id="agent:3",
+            agent_profile_id=current.agent_profile_id,
+            allowed_task_modes=current.allowed_task_modes,
+            allowed_runtime_lanes=current.allowed_runtime_lanes,
+            allowed_operations=(*current.allowed_operations, "op.write_file"),
+            blocked_operations=current.blocked_operations,
+            allowed_memory_scopes=current.allowed_memory_scopes,
+            allowed_context_sections=current.allowed_context_sections,
+            output_contracts=updated.output_contracts,
+            approval_policy=current.approval_policy,
+            trace_policy=current.trace_policy,
+            lifecycle_policy=current.lifecycle_policy,
+        )
+
+
 def test_agent_group_members_must_be_existing_unlocked_workers(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     group_registry = AgentGroupRegistry(tmp_path)
@@ -56,7 +208,6 @@ def test_agent_group_members_must_be_existing_unlocked_workers(tmp_path):
         agent_id="agent:6",
         agent_name="测试子 Agent",
         agent_category="worker_sub_agent",
-        task_scope=("bounded_patch",),
     )
 
     group = group_registry.upsert_group(

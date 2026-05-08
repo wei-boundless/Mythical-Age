@@ -68,6 +68,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             blocked_operations=("op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_read_write", "state_read_write", "long_term_candidate"),
             allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts"),
+            use_shared_contract=True,
             output_contracts=(),
             lifecycle_policy="system_builtin",
         ),
@@ -87,6 +88,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             allowed_memory_scopes=("permission_policy_readonly", "issue_local_readonly"),
             allowed_context_sections=("task", "projection", "runtime_trace", "prompt_manifest", "runtime_contracts"),
+            use_shared_contract=True,
             output_contracts=(),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
@@ -108,6 +110,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             allowed_memory_scopes=("memory_trace_readonly", "state_readonly", "issue_local_readonly"),
             allowed_context_sections=("task", "projection", "memory_runtime_view", "runtime_trace", "prompt_manifest", "runtime_contracts"),
+            use_shared_contract=True,
             output_contracts=(),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
@@ -138,7 +141,13 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             allowed_memory_scopes=("issue_local_readonly", "health_trace_readonly"),
             allowed_context_sections=("task", "health_issue", "runtime_trace", "prompt_manifest", "memory_runtime_view", "assertions", "runtime_contracts"),
-            output_contracts=(),
+            use_shared_contract=True,
+            output_contracts=(
+                "HealthTriageResult",
+                "HealthTraceAnalysis",
+                "HealthCaseDraftProposal",
+                "HealthFixVerificationProposal",
+            ),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
             metadata={"system_key": "health_system", "manager_kind": "health"},
@@ -159,6 +168,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             allowed_memory_scopes=("capability_catalog_readonly", "issue_local_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_trace", "prompt_manifest", "runtime_contracts"),
+            use_shared_contract=True,
             output_contracts=(),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
@@ -180,6 +190,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             allowed_memory_scopes=("projection_readonly", "state_readonly", "issue_local_readonly"),
             allowed_context_sections=("task", "projection", "prompt_manifest", "runtime_trace", "runtime_contracts"),
+            use_shared_contract=True,
             output_contracts=(),
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
@@ -198,6 +209,7 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
         blocked_operations=tuple(str(item) for item in list(payload.get("blocked_operations") or []) if str(item)),
         allowed_memory_scopes=tuple(str(item) for item in list(payload.get("allowed_memory_scopes") or []) if str(item)),
         allowed_context_sections=tuple(str(item) for item in list(payload.get("allowed_context_sections") or []) if str(item)),
+        use_shared_contract=bool(payload.get("use_shared_contract", True)),
         output_contracts=tuple(str(item) for item in list(payload.get("output_contracts") or []) if str(item)),
         approval_policy=str(payload.get("approval_policy") or "default"),
         trace_policy=str(payload.get("trace_policy") or "runtime_event_log"),
@@ -251,6 +263,7 @@ class AgentRuntimeRegistry:
         blocked_operations: tuple[str, ...] = (),
         allowed_memory_scopes: tuple[str, ...] = (),
         allowed_context_sections: tuple[str, ...] = (),
+        use_shared_contract: bool = True,
         output_contracts: tuple[str, ...] = (),
         approval_policy: str = "default",
         trace_policy: str = "runtime_event_log",
@@ -262,10 +275,46 @@ class AgentRuntimeRegistry:
             raise ValueError("agent_id must start with agent:")
         if self.agent_registry.get_agent(target) is None:
             raise ValueError("unknown agent")
+        current = self.get_profile(target)
         current_agent = self.agent_registry.get_agent(target)
         if current_agent is not None and current_agent.builtin:
-            raise PermissionError("system builtin agent runtime profile is locked")
-        current = self.get_profile(target)
+            if current is None:
+                raise PermissionError("system builtin agent runtime profile is locked")
+            locked_payload = AgentRuntimeProfile(
+                agent_profile_id=str(agent_profile_id or current.agent_profile_id).strip(),
+                agent_id=target,
+                allowed_task_modes=tuple(str(item).strip() for item in allowed_task_modes if str(item).strip()),
+                allowed_runtime_lanes=tuple(str(item).strip() for item in allowed_runtime_lanes if str(item).strip()),
+                allowed_operations=tuple(str(item).strip() for item in allowed_operations if str(item).strip()),
+                blocked_operations=tuple(str(item).strip() for item in blocked_operations if str(item).strip()),
+                allowed_memory_scopes=tuple(str(item).strip() for item in allowed_memory_scopes if str(item).strip()),
+                allowed_context_sections=tuple(str(item).strip() for item in allowed_context_sections if str(item).strip()),
+                use_shared_contract=bool(use_shared_contract),
+                output_contracts=tuple(str(item).strip() for item in output_contracts if str(item).strip()),
+                approval_policy=str(approval_policy or "default").strip() or "default",
+                trace_policy=str(trace_policy or "runtime_event_log").strip() or "runtime_event_log",
+                lifecycle_policy=str(lifecycle_policy or "orchestration_managed").strip() or "orchestration_managed",
+                metadata=current.metadata,
+            )
+            locked_fields = (
+                "agent_profile_id",
+                "allowed_task_modes",
+                "allowed_runtime_lanes",
+                "allowed_operations",
+                "blocked_operations",
+                "allowed_memory_scopes",
+                "allowed_context_sections",
+                "use_shared_contract",
+                "approval_policy",
+                "trace_policy",
+                "lifecycle_policy",
+            )
+            if any(getattr(locked_payload, field_name) != getattr(current, field_name) for field_name in locked_fields):
+                raise PermissionError("system builtin agent runtime profile is locked")
+            profiles = [item for item in self.list_profiles() if item.agent_id != target]
+            profiles.append(locked_payload)
+            _write_json(self.path, {"profiles": [item.to_dict() for item in profiles]})
+            return locked_payload
         profile = AgentRuntimeProfile(
             agent_profile_id=str(agent_profile_id or (current.agent_profile_id if current else f"{target.removeprefix('agent:').replace(':', '_')}_runtime")).strip(),
             agent_id=target,
@@ -275,6 +324,7 @@ class AgentRuntimeRegistry:
             blocked_operations=tuple(str(item).strip() for item in blocked_operations if str(item).strip()),
             allowed_memory_scopes=tuple(str(item).strip() for item in allowed_memory_scopes if str(item).strip()),
             allowed_context_sections=tuple(str(item).strip() for item in allowed_context_sections if str(item).strip()),
+            use_shared_contract=bool(use_shared_contract),
             output_contracts=tuple(str(item).strip() for item in output_contracts if str(item).strip()),
             approval_policy=str(approval_policy or "default").strip() or "default",
             trace_policy=str(trace_policy or "runtime_event_log").strip() or "runtime_event_log",

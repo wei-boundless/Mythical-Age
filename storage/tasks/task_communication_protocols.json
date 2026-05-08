@@ -1,3 +1,42 @@
 {
-  "communication_protocols": []
+  "communication_protocols": [
+    {
+      "protocol_id": "protocol.longform_novel.a2a_handoff",
+      "title": "长篇小说 A2A 交接协议",
+      "message_types": [
+        "message/send"
+      ],
+      "payload_contracts": [
+        "contract.novel.project_brief",
+        "contract.novel.project_plan",
+        "contract.novel.world_bible_delta",
+        "contract.novel.volume_outline",
+        "contract.novel.character_delta",
+        "contract.novel.chapter_brief",
+        "contract.novel.chapter_draft",
+        "contract.novel.continuity_review",
+        "contract.novel.memory_promotion_batch",
+        "contract.novel.final_manuscript_package"
+      ],
+      "signal_rules": [
+        "contract_payload_required",
+        "working_memory_refs_are_refs_only"
+      ],
+      "handoff_rules": [
+        "no_raw_private_memory",
+        "ack_required",
+        "task_durable_only_after_review"
+      ],
+      "ack_policy": "explicit_ack",
+      "timeout_policy": "fail_closed",
+      "error_signal_policy": "raise_to_coordinator",
+      "enabled": true,
+      "metadata": {
+        "task_family": "longform_novel_writing",
+        "domain_id": "domain.longform_novel",
+        "a2a_protocol": "official"
+      },
+      "authority": "task_system.task_communication_protocol"
+    }
+  ]
 }

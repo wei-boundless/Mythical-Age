@@ -53,12 +53,12 @@ const SOUL_MODES: Array<{
   {
     id: "contract",
     label: "灵魂设定",
-    description: "切换当前对话灵魂，并维护灵魂设定。"
+    description: "灵魂是agent的内在与设定，他们可以降下投影来完成任务。"
   },
   {
     id: "projection",
     label: "投影",
-    description: "在执行不同任务的时候，我们可以让其它灵魂降下投影，从而更好的执行特定任务，投影可以根据需要进行管理。"
+    description: "投影可以根据需要进行管理，请不要受约束，投影可以是任何角色。"
   },
   {
     id: "core",
@@ -262,6 +262,17 @@ function projectionDefaultsFromSeed(seed: SoulSystemSeed) {
     projectionPrompt: promptSections,
     templateSections,
   };
+}
+
+function blankProjectionNodes(): ProjectionNode[] {
+  return [
+    {
+      id: projectionNodeId("身份锚点", 0),
+      type: "identity_anchor",
+      title: "身份锚点",
+      content: "",
+    },
+  ];
 }
 
 function projectionSummaryText(card: { usage_summary?: string; projection_prompt?: string; identity_anchor?: string }) {
@@ -531,14 +542,13 @@ export function PlaygroundView() {
     const profile = profileForSeed(seed);
     const roleType = profile?.preferred_role_types?.[0] ?? "dialogue";
     const soulName = profile?.display_name ?? seed.name;
-    const defaults = projectionDefaultsFromSeed(seed);
     return {
       isNew: true,
       soul_id: seed.key,
       soul_name: soulName,
       projection_name: buildProjectionName(seed, roleType),
-      identity_anchor: defaults.identityAnchor,
-      projection_prompt: defaults.projectionPrompt,
+      identity_anchor: "",
+      projection_prompt: "",
     };
   }
 
@@ -571,7 +581,7 @@ export function PlaygroundView() {
     setSelectedProjectionId("");
     const nextDraft = buildProjectionDraftForSeed(seed);
     setProjectionDraft(nextDraft);
-    setProjectionDraftNodes(buildProjectionNodesFromDraft(nextDraft));
+    setProjectionDraftNodes(blankProjectionNodes());
     setProjectionPanelPage("editor");
     setNotice("");
     setError("");
@@ -1183,7 +1193,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                     <div className="soul-projection-editor-card soul-projection-editor-card--draft">
                       <div className="soul-projection-editor-card__head">
                         <div>
-                          <span>新投影</span>
+                          <span>新专属投影</span>
                           <strong>{projectionDraft.projection_name || "未命名投影"}</strong>
                         </div>
                         <small>草稿</small>
@@ -1214,7 +1224,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                           <input
                             value={projectionDraft.projection_name}
                             onChange={(event) => updateProjectionDraft("projection_name", event.target.value)}
-                            placeholder={`${projectionDraft.soul_name} / 投影`}
+                            placeholder={`${projectionDraft.soul_name} / 专属投影`}
                           />
                         </label>
                       </div>
@@ -1242,6 +1252,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                             <textarea
                               value={node.content}
                               onChange={(event) => updateProjectionDraftNode(node.id, "content", event.target.value)}
+                              placeholder={node.type === "identity_anchor" ? "在这里写这个 Agent 的身份设定、职责边界、必须遵守的规则和禁止事项。" : ""}
                               rows={6}
                             />
                           </article>

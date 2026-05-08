@@ -113,9 +113,17 @@ def test_task_system_overview_exposes_templates_and_validation_matrix(tmp_path) 
 
     assert payload["summary"]["task_template_count"] >= 6
     assert payload["summary"]["projection_binding_count"] == 0
+    assert payload["summary"]["derived_projection_binding_count"] == 4
+    assert payload["summary"]["effective_projection_binding_count"] == 4
     assert payload["summary"]["flow_contract_binding_count"] == 0
+    assert payload["summary"]["derived_flow_contract_binding_count"] == 4
+    assert payload["summary"]["effective_flow_contract_binding_count"] == 4
     assert payload["summary"]["adoption_plan_count"] == 0
+    assert payload["summary"]["derived_adoption_plan_count"] == 4
+    assert payload["summary"]["effective_adoption_plan_count"] == 4
     assert payload["summary"]["memory_request_profile_count"] == 0
+    assert payload["summary"]["derived_memory_request_profile_count"] == 4
+    assert payload["summary"]["effective_memory_request_profile_count"] == 4
     assert payload["summary"]["communication_protocol_count"] == 0
     assert payload["templates"]
     assert payload["template_validation_matrix"]["authority"] == "task_system.template_validation_matrix"

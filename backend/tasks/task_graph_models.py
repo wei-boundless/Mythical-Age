@@ -6,6 +6,25 @@ from typing import Any, Literal
 
 TaskGraphKind = Literal["single_agent", "multi_agent", "coordination"]
 TaskGraphPublishState = Literal["draft", "published", "archived"]
+NODE_EXECUTION_MODES = {"sync", "async", "parallel", "background", "barrier", "manual_gate"}
+NODE_WAIT_POLICIES = {
+    "wait_all_upstream_completed",
+    "wait_any_upstream_completed",
+    "wait_required_contracts",
+    "wait_handoff_ack",
+    "fire_and_continue",
+    "manual_release",
+}
+NODE_JOIN_POLICIES = {
+    "all_success",
+    "any_success",
+    "quorum",
+    "coordinator_decides",
+    "allow_partial_with_issues",
+    "fail_on_any_error",
+}
+EDGE_FAILURE_PROPAGATION_POLICIES = {"fail_downstream", "isolate_failure", "coordinator_decides", "allow_partial"}
+EDGE_RESULT_DELIVERY_POLICIES = {"contract_payload_and_refs", "refs_only", "summary_and_refs", "notification_only"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +45,16 @@ class TaskGraphNodeDefinition:
     projection_overlay_id: str = ""
     failure_policy: dict[str, Any] = field(default_factory=dict)
     human_gate_policy: dict[str, Any] = field(default_factory=dict)
+    memory_read_policy: dict[str, Any] = field(default_factory=dict)
     memory_writeback_policy: dict[str, Any] = field(default_factory=dict)
+    dynamic_memory_read_policy: dict[str, Any] = field(default_factory=dict)
+    execution_mode: str = "sync"
+    dispatch_group: str = ""
+    wait_policy: str = "wait_all_upstream_completed"
+    join_policy: str = "all_success"
+    background_policy: dict[str, Any] = field(default_factory=dict)
+    notification_policy: dict[str, Any] = field(default_factory=dict)
+    resource_lifecycle_policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -43,8 +71,13 @@ class TaskGraphEdgeDefinition:
     payload_contract_id: str = ""
     context_filter_policy: dict[str, Any] = field(default_factory=dict)
     artifact_ref_policy: dict[str, Any] = field(default_factory=dict)
+    working_memory_handoff_policy: dict[str, Any] = field(default_factory=dict)
     ack_policy: str = "explicit_ack"
     timeout_policy: str = "fail_closed"
+    wait_policy: str = ""
+    ack_required: bool = True
+    failure_propagation_policy: str = "fail_downstream"
+    result_delivery_policy: str = "contract_payload_and_refs"
     failure_policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -77,6 +110,8 @@ class TaskGraphDefinition:
     edges: tuple[TaskGraphEdgeDefinition, ...] = ()
     graph_contract_id: str = ""
     default_protocol_id: str = ""
+    working_memory_policy_profile_id: str = ""
+    working_memory_policy: dict[str, Any] = field(default_factory=dict)
     runtime_policy: dict[str, Any] = field(default_factory=dict)
     context_policy: dict[str, Any] = field(default_factory=dict)
     publish_state: TaskGraphPublishState = "draft"
@@ -125,7 +160,16 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         projection_overlay_id=str(payload.get("projection_overlay_id") or "").strip(),
         failure_policy=dict(payload.get("failure_policy") or {}),
         human_gate_policy=dict(payload.get("human_gate_policy") or {}),
+        memory_read_policy=dict(payload.get("memory_read_policy") or {}),
         memory_writeback_policy=dict(payload.get("memory_writeback_policy") or {}),
+        dynamic_memory_read_policy=dict(payload.get("dynamic_memory_read_policy") or {}),
+        execution_mode=str(payload.get("execution_mode") or "sync").strip() or "sync",
+        dispatch_group=str(payload.get("dispatch_group") or "").strip(),
+        wait_policy=str(payload.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed",
+        join_policy=str(payload.get("join_policy") or "all_success").strip() or "all_success",
+        background_policy=dict(payload.get("background_policy") or {}),
+        notification_policy=dict(payload.get("notification_policy") or {}),
+        resource_lifecycle_policy=dict(payload.get("resource_lifecycle_policy") or {}),
         metadata=dict(payload.get("metadata") or {}),
     )
 
@@ -140,8 +184,13 @@ def task_graph_edge_from_dict(payload: dict[str, Any]) -> TaskGraphEdgeDefinitio
         payload_contract_id=str(payload.get("payload_contract_id") or "").strip(),
         context_filter_policy=dict(payload.get("context_filter_policy") or {}),
         artifact_ref_policy=dict(payload.get("artifact_ref_policy") or {}),
+        working_memory_handoff_policy=dict(payload.get("working_memory_handoff_policy") or {}),
         ack_policy=str(payload.get("ack_policy") or "explicit_ack").strip(),
         timeout_policy=str(payload.get("timeout_policy") or "fail_closed").strip(),
+        wait_policy=str(payload.get("wait_policy") or "").strip(),
+        ack_required=bool(payload.get("ack_required", True)),
+        failure_propagation_policy=str(payload.get("failure_propagation_policy") or "fail_downstream").strip() or "fail_downstream",
+        result_delivery_policy=str(payload.get("result_delivery_policy") or "contract_payload_and_refs").strip() or "contract_payload_and_refs",
         failure_policy=dict(payload.get("failure_policy") or {}),
         metadata=dict(payload.get("metadata") or {}),
     )
@@ -159,6 +208,14 @@ def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
         if isinstance(item, dict)
     )
     graph_id = str(payload.get("graph_id") or payload.get("coordination_task_id") or "").strip()
+    runtime_policy = dict(payload.get("runtime_policy") or {})
+    working_memory_policy_profile_id = str(
+        payload.get("working_memory_policy_profile_id")
+        or runtime_policy.get("working_memory_profile_id")
+        or ""
+    ).strip()
+    if working_memory_policy_profile_id and "working_memory_profile_id" not in runtime_policy:
+        runtime_policy["working_memory_profile_id"] = working_memory_policy_profile_id
     return TaskGraphDefinition(
         graph_id=graph_id,
         title=str(payload.get("title") or graph_id or "未命名任务图").strip(),
@@ -171,7 +228,9 @@ def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
         edges=edges,
         graph_contract_id=str(payload.get("graph_contract_id") or "").strip(),
         default_protocol_id=str(payload.get("default_protocol_id") or payload.get("protocol_id") or "").strip(),
-        runtime_policy=dict(payload.get("runtime_policy") or {}),
+        working_memory_policy_profile_id=working_memory_policy_profile_id,
+        working_memory_policy=dict(payload.get("working_memory_policy") or {}),
+        runtime_policy=runtime_policy,
         context_policy=dict(payload.get("context_policy") or {}),
         publish_state=_normalize_publish_state(payload.get("publish_state"), bool(payload.get("enabled", False))),
         enabled=bool(payload.get("enabled", False)),
@@ -196,6 +255,38 @@ def validate_task_graph(graph: TaskGraphDefinition) -> tuple[TaskGraphValidation
             issues.append(TaskGraphValidationIssue(code="node_missing_id", message="节点缺少 node_id"))
         if node.node_type == "agent" and not node.agent_id and not node.agent_group_id:
             issues.append(TaskGraphValidationIssue(code="agent_node_missing_agent_ref", message="Agent 节点缺少 agent_id 或 agent_group_id", node_id=node.node_id))
+        if node.execution_mode not in NODE_EXECUTION_MODES:
+            issues.append(TaskGraphValidationIssue(code="node_execution_mode_invalid", message="节点 execution_mode 不受支持", node_id=node.node_id))
+        if node.wait_policy not in NODE_WAIT_POLICIES:
+            issues.append(TaskGraphValidationIssue(code="node_wait_policy_invalid", message="节点 wait_policy 不受支持", node_id=node.node_id))
+        if node.join_policy not in NODE_JOIN_POLICIES:
+            issues.append(TaskGraphValidationIssue(code="node_join_policy_invalid", message="节点 join_policy 不受支持", node_id=node.node_id))
+        if node.execution_mode == "background":
+            if not bool(node.background_policy.get("enabled")):
+                issues.append(TaskGraphValidationIssue(code="background_node_policy_disabled", message="后台节点必须显式启用 background_policy.enabled", node_id=node.node_id))
+            if not _positive_int_policy(node.background_policy, "max_runtime_seconds"):
+                issues.append(TaskGraphValidationIssue(code="background_node_timeout_missing", message="后台节点必须配置 max_runtime_seconds", node_id=node.node_id))
+            if not node.notification_policy:
+                issues.append(TaskGraphValidationIssue(code="background_node_notification_policy_missing", message="后台节点必须配置 notification_policy", node_id=node.node_id))
+        if node.execution_mode == "parallel" and not node.dispatch_group:
+            issues.append(TaskGraphValidationIssue(code="parallel_node_dispatch_group_missing", message="并行节点必须配置 dispatch_group", node_id=node.node_id))
+        if node.execution_mode == "barrier":
+            if node.wait_policy == "fire_and_continue":
+                issues.append(TaskGraphValidationIssue(code="barrier_node_wait_policy_invalid", message="汇合节点不能使用 fire_and_continue 等待策略", node_id=node.node_id))
+            incoming = [edge for edge in graph.edges if edge.target_node_id == node.node_id]
+            if not incoming:
+                issues.append(TaskGraphValidationIssue(code="barrier_node_missing_upstream", message="汇合节点必须存在上游边", node_id=node.node_id))
+        if node.execution_mode == "manual_gate" and not node.human_gate_policy:
+            issues.append(TaskGraphValidationIssue(code="manual_gate_policy_missing", message="人工门控节点必须配置 human_gate_policy", node_id=node.node_id))
+        if node.memory_read_policy and not _listish_policy(node.memory_read_policy, ("readable_kinds", "readable_scopes")):
+            issues.append(TaskGraphValidationIssue(code="node_memory_read_policy_shape", message="节点工作记忆读取策略缺少 readable_kinds 或 readable_scopes", severity="warning", node_id=node.node_id))
+        if node.memory_writeback_policy and not _listish_policy(node.memory_writeback_policy, ("writable_kinds", "writable_scopes")):
+            issues.append(TaskGraphValidationIssue(code="node_memory_write_policy_shape", message="节点工作记忆写入策略缺少 writable_kinds 或 writable_scopes", severity="warning", node_id=node.node_id))
+        if node.dynamic_memory_read_policy:
+            if bool(node.dynamic_memory_read_policy.get("allow_temporal_expansion")) and not _positive_int_policy(node.dynamic_memory_read_policy, "max_temporal_expansion_depth"):
+                issues.append(TaskGraphValidationIssue(code="node_temporal_expansion_limit_missing", message="节点允许 temporal 扩展时需要配置 max_temporal_expansion_depth", severity="warning", node_id=node.node_id))
+            if not _positive_int_policy(node.dynamic_memory_read_policy, "max_dynamic_reads_per_node_run"):
+                issues.append(TaskGraphValidationIssue(code="node_dynamic_read_limit_missing", message="节点动态读取策略缺少 max_dynamic_reads_per_node_run", severity="warning", node_id=node.node_id))
     for edge in graph.edges:
         if not edge.edge_id:
             issues.append(TaskGraphValidationIssue(code="edge_missing_id", message="边缺少 edge_id"))
@@ -203,6 +294,16 @@ def validate_task_graph(graph: TaskGraphDefinition) -> tuple[TaskGraphValidation
             issues.append(TaskGraphValidationIssue(code="edge_missing_source", message="边的源节点不存在", edge_id=edge.edge_id, node_id=edge.source_node_id))
         if edge.target_node_id not in node_id_set:
             issues.append(TaskGraphValidationIssue(code="edge_missing_target", message="边的目标节点不存在", edge_id=edge.edge_id, node_id=edge.target_node_id))
+        if edge.wait_policy and edge.wait_policy not in NODE_WAIT_POLICIES:
+            issues.append(TaskGraphValidationIssue(code="edge_wait_policy_invalid", message="边 wait_policy 不受支持", edge_id=edge.edge_id))
+        if edge.failure_propagation_policy not in EDGE_FAILURE_PROPAGATION_POLICIES:
+            issues.append(TaskGraphValidationIssue(code="edge_failure_propagation_policy_invalid", message="边 failure_propagation_policy 不受支持", edge_id=edge.edge_id))
+        if edge.result_delivery_policy not in EDGE_RESULT_DELIVERY_POLICIES:
+            issues.append(TaskGraphValidationIssue(code="edge_result_delivery_policy_invalid", message="边 result_delivery_policy 不受支持", edge_id=edge.edge_id))
+        if (edge.wait_policy == "wait_handoff_ack" or edge.ack_required) and not edge.ack_policy:
+            issues.append(TaskGraphValidationIssue(code="edge_ack_policy_missing", message="要求 ack 的边必须配置 ack_policy", edge_id=edge.edge_id))
+        if edge.working_memory_handoff_policy and not _listish_policy(edge.working_memory_handoff_policy, ("carry_kinds", "carry_scopes", "working_memory_refs")):
+            issues.append(TaskGraphValidationIssue(code="edge_working_memory_handoff_policy_shape", message="边工作记忆交接策略缺少 carry_kinds、carry_scopes 或 working_memory_refs", severity="warning", edge_id=edge.edge_id))
     return tuple(issues)
 
 
@@ -233,3 +334,20 @@ def _first_terminal_node(nodes: tuple[TaskGraphNodeDefinition, ...], edges: tupl
     sources = {edge.source_node_id for edge in edges}
     explicit = next((node.node_id for node in nodes if node.node_type == "output"), "")
     return explicit or next((node.node_id for node in nodes if node.node_id not in sources), "")
+
+
+def _listish_policy(policy: dict[str, Any], keys: tuple[str, ...]) -> bool:
+    for key in keys:
+        value = policy.get(key)
+        if isinstance(value, (list, tuple)) and any(str(item).strip() for item in value):
+            return True
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
+
+
+def _positive_int_policy(policy: dict[str, Any], key: str) -> bool:
+    try:
+        return int(policy.get(key) or 0) > 0
+    except (TypeError, ValueError):
+        return False

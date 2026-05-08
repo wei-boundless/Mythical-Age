@@ -21,11 +21,14 @@ const RUNTIME_AGENT_SELECTION_OPTIONS = ["orchestration_default", "fixed_agent",
 const TASK_LEVEL_OPTIONS = ["standard", "long_running", "critical"];
 const TASK_PRIVILEGE_OPTIONS = ["bounded"];
 const AGENT_CATEGORY_OPTIONS = ["main_agent", "system_management_agent", "worker_sub_agent"];
-const MEMORY_LAYER_OPTIONS = ["conversation", "state", "long_term"];
+const DEFAULT_AGENT_OPTIONS = ["agent:0", "agent:1", "agent:2", "agent:3", "agent:4", "agent:5"];
+const MEMORY_LAYER_OPTIONS = ["conversation", "state", "working", "long_term"];
 const MEMORY_PRIORITY_OPTIONS = ["normal", "high"];
 const MEMORY_WRITEBACK_OPTIONS = ["task_default", "task_summary_only", "session_and_durable"];
 const SHARED_CONTEXT_POLICIES = ["explicit_refs_only", "shared_task_context"];
 const MEMORY_SHARING_POLICIES = ["isolated_by_default", "shared_readonly"];
+const WORKING_MEMORY_SCOPE_OPTIONS = ["node_scope", "graph_scope", "task_scope", "artifact_scope"];
+const WORKING_MEMORY_VISIBILITY_OPTIONS = ["private_to_node", "shared_in_graph", "handoff_only", "coordinator_only", "human_review_only"];
 
 function label(value: string) {
   const labels: Record<string, string> = {
@@ -42,8 +45,15 @@ function label(value: string) {
     main_agent: "主 Agent",
     system_management_agent: "系统管理 Agent",
     worker_sub_agent: "工作子 Agent",
+    "agent:0": "主 Agent",
+    "agent:1": "记忆管理 Agent",
+    "agent:2": "任务管理 Agent",
+    "agent:3": "健康管理 Agent",
+    "agent:4": "能力管理 Agent",
+    "agent:5": "权限管理 Agent",
     conversation: "会话记忆",
     state: "状态记忆",
+    working: "工作记忆",
     long_term: "长期记忆",
     normal: "普通优先级",
     high: "高优先级",
@@ -54,6 +64,15 @@ function label(value: string) {
     shared_task_context: "共享任务上下文",
     isolated_by_default: "默认隔离",
     shared_readonly: "只读共享",
+    node_scope: "节点范围",
+    graph_scope: "图范围",
+    task_scope: "任务范围",
+    artifact_scope: "产物范围",
+    private_to_node: "节点私有",
+    shared_in_graph: "图内共享",
+    handoff_only: "仅交接",
+    coordinator_only: "仅协调者",
+    human_review_only: "仅人工审查",
   };
   return labels[value] ?? value;
 }
@@ -81,12 +100,14 @@ function readinessRows({
   const hasGraphLoop = Boolean(selectedCoordination?.coordination_task_id) || executionDraft.execution_chain_type === "graph_run_loop";
   const hasLongTermRead = includes(memoryDraft.requested_memory_layers, "long_term") && memoryDraft.allow_long_term_memory;
   const hasState = includes(memoryDraft.requested_memory_layers, "state");
+  const hasWorking = includes(memoryDraft.requested_memory_layers, "working") && Boolean(memoryDraft.allow_working_memory);
   const hasWriteback = memoryDraft.writeback_policy !== "task_default" || memoryDraft.allow_long_term_memory;
   const hasAssembly = Boolean(workflowAssembly || nodeAssembly);
   return [
     { label: "任务入口", value: selectedTask?.task_title || selectedTask?.task_id || "未选择任务", ready: hasTask },
     { label: "图级循环", value: hasGraphLoop ? "已纳入图/协调任务" : "单节点运行", ready: hasGraphLoop },
     { label: "状态记忆", value: hasState ? "已请求 state" : "缺 state", ready: hasState },
+    { label: "工作记忆", value: hasWorking ? "任务运行期生产状态已启用" : "未启用 Working Memory", ready: hasWorking },
     { label: "长期记忆", value: hasLongTermRead ? "允许读取长期记忆" : "未启用长期连续性", ready: hasLongTermRead },
     { label: "记忆写回", value: hasWriteback ? label(memoryDraft.writeback_policy) : "任务默认", ready: hasWriteback },
     { label: "装配快照", value: hasAssembly ? "已有 Assembly" : "请先预检装配", ready: hasAssembly },
@@ -135,6 +156,13 @@ export function TaskRunLoopWorkbenchPanel({
     nodeAssembly,
   });
   const chapterContinuityReady = rows.filter((row) => row.ready).length;
+  const workingPolicy = {
+    ...(memoryDraft.working_memory_policy ?? {}),
+    enabled: Boolean(memoryDraft.allow_working_memory),
+    default_scope: memoryDraft.working_memory_default_scope || String(memoryDraft.working_memory_policy?.default_scope ?? "node_scope"),
+    default_visibility: memoryDraft.working_memory_default_visibility || String(memoryDraft.working_memory_policy?.default_visibility ?? "private_to_node"),
+    allow_dynamic_read: Boolean(memoryDraft.allow_dynamic_working_memory_read),
+  };
 
   return (
     <section className="boundary-layer-stack task-runloop-workbench">
@@ -155,10 +183,10 @@ export function TaskRunLoopWorkbenchPanel({
           </div>
         </header>
         <div className="boundary-metric-grid">
-          <ReadinessTile label="连续运行就绪" value={`${chapterContinuityReady}/${rows.length}`} ready={chapterContinuityReady >= 5} />
+          <ReadinessTile label="连续运行就绪" value={`${chapterContinuityReady}/${rows.length}`} ready={chapterContinuityReady >= 6} />
           <ReadinessTile label="执行链" value={label(executionDraft.execution_chain_type)} ready={Boolean(executionDraft.execution_chain_type)} />
           <ReadinessTile label="记忆优先级" value={label(memoryDraft.memory_priority)} ready={Boolean(memoryDraft.memory_priority)} />
-          <ReadinessTile label="长期记忆" value={memoryDraft.allow_long_term_memory ? "允许" : "关闭"} ready={memoryDraft.allow_long_term_memory} />
+          <ReadinessTile label="工作记忆" value={memoryDraft.allow_working_memory ? label(workingPolicy.default_scope) : "关闭"} ready={Boolean(memoryDraft.allow_working_memory)} />
         </div>
       </section>
 
@@ -178,6 +206,13 @@ export function TaskRunLoopWorkbenchPanel({
               value={executionDraft.runtime_agent_selection_policy || "orchestration_default"}
               options={RUNTIME_AGENT_SELECTION_OPTIONS}
               onChange={(value) => setExecutionDraft({ ...executionDraft, runtime_agent_selection_policy: value })}
+              formatOption={label}
+            />
+            <TaskSystemSelectField
+              label="默认 Agent"
+              value={executionDraft.default_agent_id || "agent:0"}
+              options={DEFAULT_AGENT_OPTIONS}
+              onChange={(value) => setExecutionDraft({ ...executionDraft, default_agent_id: value })}
               formatOption={label}
             />
             <TaskSystemSelectField
@@ -249,6 +284,47 @@ export function TaskRunLoopWorkbenchPanel({
               />
               允许长期记忆参与连续执行
             </label>
+            <label className="boundary-check">
+              <input
+                checked={Boolean(memoryDraft.allow_working_memory)}
+                onChange={(event) => {
+                  const enabled = event.target.checked;
+                  const layers = new Set(memoryDraft.requested_memory_layers ?? []);
+                  if (enabled) {
+                    layers.add("working");
+                  } else {
+                    layers.delete("working");
+                  }
+                  setMemoryDraft({
+                    ...memoryDraft,
+                    requested_memory_layers: Array.from(layers),
+                    allow_working_memory: enabled,
+                    working_memory_policy: {
+                      ...workingPolicy,
+                      enabled,
+                    },
+                  });
+                }}
+                type="checkbox"
+              />
+              启用任务工作记忆层
+            </label>
+            <label className="boundary-check">
+              <input
+                checked={Boolean(memoryDraft.allow_dynamic_working_memory_read)}
+                disabled={!memoryDraft.allow_working_memory}
+                onChange={(event) => setMemoryDraft({
+                  ...memoryDraft,
+                  allow_dynamic_working_memory_read: event.target.checked,
+                  working_memory_policy: {
+                    ...workingPolicy,
+                    allow_dynamic_read: event.target.checked,
+                  },
+                })}
+                type="checkbox"
+              />
+              允许子 Agent 申请动态读取
+            </label>
             <TaskSystemField label="记忆主题" wide>
               <textarea
                 value={(memoryDraft.requested_topics ?? []).join("\n")}
@@ -263,6 +339,87 @@ export function TaskRunLoopWorkbenchPanel({
             </TaskSystemField>
           </div>
         </section>
+      </section>
+
+      <section className="boundary-card">
+        <header><strong>工作记忆策略</strong><span>Working Memory Policy</span></header>
+        <div className="boundary-form">
+          <TaskSystemField label="策略画像 ID">
+            <input
+              value={memoryDraft.working_memory_policy_profile_id ?? ""}
+              onChange={(event) => setMemoryDraft({
+                ...memoryDraft,
+                working_memory_policy_profile_id: event.target.value,
+                working_memory_policy: {
+                  ...workingPolicy,
+                  profile_id: event.target.value,
+                },
+              })}
+            />
+          </TaskSystemField>
+          <TaskSystemSelectField
+            label="默认 Scope"
+            value={String(workingPolicy.default_scope)}
+            options={WORKING_MEMORY_SCOPE_OPTIONS}
+            onChange={(value) => setMemoryDraft({
+              ...memoryDraft,
+              working_memory_default_scope: value,
+              working_memory_policy: {
+                ...workingPolicy,
+                default_scope: value,
+              },
+            })}
+            formatOption={label}
+          />
+          <TaskSystemSelectField
+            label="默认可见性"
+            value={String(workingPolicy.default_visibility)}
+            options={WORKING_MEMORY_VISIBILITY_OPTIONS}
+            onChange={(value) => setMemoryDraft({
+              ...memoryDraft,
+              working_memory_default_visibility: value,
+              working_memory_policy: {
+                ...workingPolicy,
+                default_visibility: value,
+              },
+            })}
+            formatOption={label}
+          />
+          <label className="boundary-check">
+            <input
+              checked={Boolean(workingPolicy.finalize_requires_human_review ?? true)}
+              onChange={(event) => setMemoryDraft({
+                ...memoryDraft,
+                working_memory_policy: {
+                  ...workingPolicy,
+                  finalize_requires_human_review: event.target.checked,
+                },
+              })}
+              type="checkbox"
+            />
+            任务收束需要人工复核
+          </label>
+          <label className="boundary-check">
+            <input
+              checked={Boolean(workingPolicy.promotion_requires_human_review ?? true)}
+              onChange={(event) => setMemoryDraft({
+                ...memoryDraft,
+                working_memory_policy: {
+                  ...workingPolicy,
+                  promotion_requires_human_review: event.target.checked,
+                },
+              })}
+              type="checkbox"
+            />
+            晋升任务长期记忆需要人工确认
+          </label>
+        </div>
+        <div className="boundary-kv">
+          <p><span>隔离原则</span><strong>任务工作记忆不自动写全局长期记忆</strong></p>
+          <p><span>主归属</span><strong>任务图节点 owner_node_id</strong></p>
+          <p><span>动态读取</span><strong>{memoryDraft.allow_dynamic_working_memory_read ? "RunLoop 审批" : "关闭"}</strong></p>
+          <p><span>收束去向</span><strong>归档 / 晋升候选 / 废弃 / 冲突队列</strong></p>
+        </div>
       </section>
 
       <section className="task-runloop-workbench__grid task-runloop-workbench__grid--wide">

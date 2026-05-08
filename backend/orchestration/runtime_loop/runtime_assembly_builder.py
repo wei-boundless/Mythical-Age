@@ -24,6 +24,8 @@ def build_single_agent_runtime_assembly(
     agent_profile: AgentRuntimeProfile | None,
     explicit_inputs: dict[str, Any] | None = None,
     runtime_lane: str = "",
+    working_memory_context: dict[str, Any] | None = None,
+    task_durable_memory_context: dict[str, Any] | None = None,
 ) -> SingleAgentRuntimeAssembly:
     agent_id = str(getattr(agent_profile, "agent_id", "") or "agent:0")
     agent_profile_id = str(getattr(agent_profile, "agent_profile_id", "") or "main_interactive_agent")
@@ -55,8 +57,12 @@ def build_single_agent_runtime_assembly(
             model_visible=True,
             metadata={"profile_context_section": "runtime_contracts"},
         ),
+        *_working_memory_sections(working_memory_context),
+        *_task_durable_memory_sections(task_durable_memory_context),
     )
     visible_sections, hidden_sections = _filter_context_sections_by_profile(sections, agent_profile)
+    working_diag = _working_memory_diagnostics(working_memory_context)
+    task_durable_diag = _task_durable_memory_diagnostics(task_durable_memory_context)
     return SingleAgentRuntimeAssembly(
         assembly_id=_stable_assembly_id("single", manifest.manifest_id, agent_id, explicit_inputs or {}),
         manifest_ref=manifest.manifest_id,
@@ -75,6 +81,8 @@ def build_single_agent_runtime_assembly(
             "manifest_issue_count": len(manifest.issues),
             "full_history_included": False,
             "explicit_input_keys": sorted(str(key) for key in dict(explicit_inputs or {}).keys()),
+            **working_diag,
+            **task_durable_diag,
             "context_sections_requested": [item.section_id for item in sections],
             "context_sections_visible": [item.section_id for item in visible_sections],
             "context_sections_hidden_by_profile": hidden_sections,
@@ -88,6 +96,8 @@ def build_node_runtime_assembly(
     node_id: str,
     agent_profile: AgentRuntimeProfile | None = None,
     explicit_inputs: dict[str, Any] | None = None,
+    working_memory_context: dict[str, Any] | None = None,
+    task_durable_memory_context: dict[str, Any] | None = None,
 ) -> NodeRuntimeAssembly:
     node = next((item for item in manifest.node_contracts if item.node_id == node_id), None)
     if node is None:
@@ -119,6 +129,8 @@ def build_node_runtime_assembly(
             model_visible=True,
             metadata={"profile_context_section": "artifact_refs"},
         ),
+        *_working_memory_sections(working_memory_context),
+        *_task_durable_memory_sections(task_durable_memory_context),
     )
     visible_sections, hidden_sections = _filter_context_sections_by_profile(sections, agent_profile)
     handoff_packets = tuple(
@@ -126,6 +138,8 @@ def build_node_runtime_assembly(
         for edge in manifest.edge_handoff_contracts
         if edge.target_node_id == node_id
     )
+    working_diag = _working_memory_diagnostics(working_memory_context)
+    task_durable_diag = _task_durable_memory_diagnostics(task_durable_memory_context)
     return NodeRuntimeAssembly(
         assembly_id=_stable_assembly_id("node", manifest.manifest_id, node_id, explicit_inputs or {}),
         manifest_ref=manifest.manifest_id,
@@ -153,6 +167,8 @@ def build_node_runtime_assembly(
             "full_main_session_history_included": False,
             "handoff_packet_count": len(handoff_packets),
             "explicit_input_keys": sorted(str(key) for key in dict(explicit_inputs or {}).keys()),
+            **working_diag,
+            **task_durable_diag,
             "context_sections_requested": [item.section_id for item in sections],
             "context_sections_visible": [item.section_id for item in visible_sections],
             "context_sections_hidden_by_profile": hidden_sections,
@@ -256,6 +272,13 @@ def _context_section_aliases(section_id: str, profile_key: str) -> set[str]:
         "runtime_contracts": {"runtime_contracts"},
         "upstream_outputs": {"upstream_outputs", "handoff", "task"},
         "artifact_refs": {"artifact_refs", "tool"},
+        "working_memory.required": {"working_memory", "memory_runtime_view", "task"},
+        "working_memory.preferred": {"working_memory", "memory_runtime_view", "task"},
+        "working_memory.artifact_refs": {"working_memory", "artifact_refs", "tool"},
+        "working_memory.conflict_warnings": {"working_memory", "memory_runtime_view", "runtime_trace"},
+        "task_durable_memory.required": {"task_durable", "task_durable_memory", "memory_runtime_view", "task"},
+        "task_durable_memory.preferred": {"task_durable", "task_durable_memory", "memory_runtime_view", "task"},
+        "task_durable_memory.refs": {"task_durable", "task_durable_memory", "artifact_refs"},
     }
     aliases.update(alias_map.get(str(section_id or "").strip(), set()))
     aliases.discard("")
@@ -265,3 +288,115 @@ def _context_section_aliases(section_id: str, profile_key: str) -> set[str]:
 def _stable_assembly_id(kind: str, manifest_ref: str, subject: str, payload: dict[str, Any]) -> str:
     raw = repr((kind, manifest_ref, subject, sorted((str(k), str(v)) for k, v in dict(payload or {}).items())))
     return f"runtime-assembly:{kind}:{hashlib.sha1(raw.encode('utf-8')).hexdigest()[:12]}"
+
+
+def _working_memory_sections(working_memory_context: dict[str, Any] | None) -> tuple[RuntimeContextSection, ...]:
+    payload = dict(working_memory_context or {})
+    task_run_id = str(payload.get("task_run_id") or "").strip()
+    if not task_run_id:
+        return ()
+    sections: list[RuntimeContextSection] = []
+    for section_id, title in (
+        ("working_memory.required", "工作记忆必需切片"),
+        ("working_memory.preferred", "工作记忆优先切片"),
+        ("working_memory.artifact_refs", "工作记忆产物引用"),
+        ("working_memory.conflict_warnings", "工作记忆冲突提示"),
+    ):
+        section_payload = dict(payload.get(section_id) or {})
+        item_count = int(section_payload.get("item_count") or 0)
+        if item_count <= 0 and not section_payload.get("refs"):
+            continue
+        sections.append(
+            RuntimeContextSection(
+                section_id=section_id,
+                title=title,
+                content_mode=str(section_payload.get("content_mode") or "summary").strip() or "summary",
+                source_ref=f"working_memory:{task_run_id}",
+                model_visible=section_id != "working_memory.conflict_warnings" or bool(section_payload.get("model_visible", True)),
+                metadata={
+                    "profile_context_section": "working_memory",
+                    "task_run_id": task_run_id,
+                    "graph_id": str(payload.get("graph_id") or ""),
+                    "owner_node_id": str(payload.get("owner_node_id") or ""),
+                    "node_run_id": str(payload.get("node_run_id") or ""),
+                    "run_attempt_id": str(payload.get("run_attempt_id") or ""),
+                    "item_count": item_count,
+                    "refs": list(section_payload.get("refs") or []),
+                },
+            )
+        )
+    return tuple(sections)
+
+
+def _working_memory_diagnostics(working_memory_context: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(working_memory_context or {})
+    task_run_id = str(payload.get("task_run_id") or "").strip()
+    return {
+        "working_memory_enabled": bool(task_run_id),
+        "working_memory_task_run_id": task_run_id,
+        "working_memory_graph_id": str(payload.get("graph_id") or ""),
+        "working_memory_owner_node_id": str(payload.get("owner_node_id") or ""),
+        "working_memory_node_run_id": str(payload.get("node_run_id") or ""),
+        "working_memory_run_attempt_id": str(payload.get("run_attempt_id") or ""),
+        "working_memory_required_count": int(dict(payload.get("working_memory.required") or {}).get("item_count") or 0),
+        "working_memory_preferred_count": int(dict(payload.get("working_memory.preferred") or {}).get("item_count") or 0),
+        "working_memory_conflict_count": int(dict(payload.get("working_memory.conflict_warnings") or {}).get("item_count") or 0),
+    }
+
+
+def _task_durable_memory_sections(task_durable_context: dict[str, Any] | None) -> tuple[RuntimeContextSection, ...]:
+    payload = dict(task_durable_context or {})
+    namespace_id = str(payload.get("namespace_id") or "").strip()
+    task_id = str(payload.get("task_id") or "").strip()
+    graph_id = str(payload.get("graph_id") or "").strip()
+    if not namespace_id and not task_id and not graph_id:
+        return ()
+    source_ref = f"task_durable_memory:{namespace_id or task_id or graph_id}"
+    sections: list[RuntimeContextSection] = []
+    for section_id, title in (
+        ("task_durable_memory.required", "任务长期记忆必需切片"),
+        ("task_durable_memory.preferred", "任务长期记忆优先切片"),
+        ("task_durable_memory.refs", "任务长期记忆引用"),
+    ):
+        section_payload = dict(payload.get(section_id) or {})
+        item_count = int(section_payload.get("item_count") or 0)
+        refs = list(section_payload.get("refs") or [])
+        if item_count <= 0 and not refs:
+            continue
+        sections.append(
+            RuntimeContextSection(
+                section_id=section_id,
+                title=title,
+                content_mode=str(section_payload.get("content_mode") or "summary").strip() or "summary",
+                source_ref=source_ref,
+                model_visible=bool(section_payload.get("model_visible", True)),
+                metadata={
+                    "profile_context_section": "task_durable_memory",
+                    "namespace_id": namespace_id,
+                    "task_family": str(payload.get("task_family") or ""),
+                    "domain_id": str(payload.get("domain_id") or ""),
+                    "task_id": task_id,
+                    "graph_id": graph_id,
+                    "project_id": str(payload.get("project_id") or ""),
+                    "artifact_namespace": str(payload.get("artifact_namespace") or ""),
+                    "item_count": item_count,
+                    "refs": refs,
+                },
+            )
+        )
+    return tuple(sections)
+
+
+def _task_durable_memory_diagnostics(task_durable_context: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(task_durable_context or {})
+    namespace_id = str(payload.get("namespace_id") or "").strip()
+    task_id = str(payload.get("task_id") or "").strip()
+    graph_id = str(payload.get("graph_id") or "").strip()
+    return {
+        "task_durable_memory_enabled": bool(namespace_id or task_id or graph_id),
+        "task_durable_memory_namespace_id": namespace_id,
+        "task_durable_memory_task_id": task_id,
+        "task_durable_memory_graph_id": graph_id,
+        "task_durable_memory_required_count": int(dict(payload.get("task_durable_memory.required") or {}).get("item_count") or 0),
+        "task_durable_memory_preferred_count": int(dict(payload.get("task_durable_memory.preferred") or {}).get("item_count") or 0),
+    }

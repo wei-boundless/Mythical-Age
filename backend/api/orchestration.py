@@ -41,6 +41,7 @@ class AgentRuntimeProfileRequest(BaseModel):
     blocked_operations: list[str] = Field(default_factory=list)
     allowed_memory_scopes: list[str] = Field(default_factory=list)
     allowed_context_sections: list[str] = Field(default_factory=list)
+    use_shared_contract: bool = True
     output_contracts: list[str] = Field(default_factory=list)
     approval_policy: str = Field(default="default", max_length=80)
     trace_policy: str = Field(default="runtime_event_log", max_length=120)
@@ -58,7 +59,6 @@ class OrchestrationAgentUpsertRequest(BaseModel):
     editable: bool = True
     default_soul_id: str = Field(default="", max_length=160)
     default_projection_id: str = Field(default="", max_length=160)
-    task_scope: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -390,7 +390,6 @@ async def upsert_orchestration_agent(
             editable=payload.editable,
             default_soul_id=payload.default_soul_id,
             default_projection_id=payload.default_projection_id,
-            task_scope=tuple(payload.task_scope),
             metadata={**payload.metadata, "managed_by": "orchestration_console"},
         )
     except PermissionError as exc:
@@ -519,7 +518,8 @@ async def upsert_orchestration_agent_runtime_profile(
             blocked_operations=tuple(payload.blocked_operations),
             allowed_memory_scopes=tuple(payload.allowed_memory_scopes),
             allowed_context_sections=tuple(payload.allowed_context_sections),
-            output_contracts=(),
+            use_shared_contract=payload.use_shared_contract,
+            output_contracts=tuple(payload.output_contracts),
             approval_policy=payload.approval_policy,
             trace_policy=payload.trace_policy,
             lifecycle_policy=payload.lifecycle_policy,
