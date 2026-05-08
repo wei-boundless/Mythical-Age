@@ -1,0 +1,346 @@
+"use client";
+
+import { Save } from "lucide-react";
+
+import {
+  TaskSystemField,
+  TaskSystemMultiSelectField,
+  TaskSystemSelectField,
+  TaskSystemToolbarButton,
+} from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
+import type {
+  CoordinationTask,
+  RuntimeAssembly,
+  SpecificTaskRecord,
+  TaskExecutionPolicy,
+  TaskMemoryRequestProfile,
+} from "@/lib/api";
+
+const EXECUTION_CHAIN_OPTIONS = ["single_agent_chain", "coordination_chain", "graph_run_loop"];
+const RUNTIME_AGENT_SELECTION_OPTIONS = ["orchestration_default", "fixed_agent", "graph_node_binding"];
+const TASK_LEVEL_OPTIONS = ["standard", "long_running", "critical"];
+const TASK_PRIVILEGE_OPTIONS = ["bounded"];
+const AGENT_CATEGORY_OPTIONS = ["main_agent", "system_management_agent", "worker_sub_agent"];
+const MEMORY_LAYER_OPTIONS = ["conversation", "state", "long_term"];
+const MEMORY_PRIORITY_OPTIONS = ["normal", "high"];
+const MEMORY_WRITEBACK_OPTIONS = ["task_default", "task_summary_only", "session_and_durable"];
+const SHARED_CONTEXT_POLICIES = ["explicit_refs_only", "shared_task_context"];
+const MEMORY_SHARING_POLICIES = ["isolated_by_default", "shared_readonly"];
+
+function label(value: string) {
+  const labels: Record<string, string> = {
+    single_agent_chain: "单 Agent 循环",
+    coordination_chain: "协调链",
+    graph_run_loop: "图运行循环",
+    orchestration_default: "按编排默认选择",
+    fixed_agent: "固定 Agent",
+    graph_node_binding: "按图节点绑定",
+    standard: "标准任务",
+    long_running: "长周期任务",
+    critical: "关键任务",
+    bounded: "受限权限",
+    main_agent: "主 Agent",
+    system_management_agent: "系统管理 Agent",
+    worker_sub_agent: "工作子 Agent",
+    conversation: "会话记忆",
+    state: "状态记忆",
+    long_term: "长期记忆",
+    normal: "普通优先级",
+    high: "高优先级",
+    task_default: "任务默认写回",
+    task_summary_only: "仅写回任务摘要",
+    session_and_durable: "会话与长期写回",
+    explicit_refs_only: "仅显式引用",
+    shared_task_context: "共享任务上下文",
+    isolated_by_default: "默认隔离",
+    shared_readonly: "只读共享",
+  };
+  return labels[value] ?? value;
+}
+
+function includes(value: string[] | undefined, item: string) {
+  return Boolean(value?.includes(item));
+}
+
+function readinessRows({
+  selectedTask,
+  selectedCoordination,
+  executionDraft,
+  memoryDraft,
+  workflowAssembly,
+  nodeAssembly,
+}: {
+  selectedTask: SpecificTaskRecord | null;
+  selectedCoordination: CoordinationTask | null;
+  executionDraft: TaskExecutionPolicy;
+  memoryDraft: TaskMemoryRequestProfile;
+  workflowAssembly: RuntimeAssembly | null;
+  nodeAssembly: RuntimeAssembly | null;
+}) {
+  const hasTask = Boolean(selectedTask?.task_id);
+  const hasGraphLoop = Boolean(selectedCoordination?.coordination_task_id) || executionDraft.execution_chain_type === "graph_run_loop";
+  const hasLongTermRead = includes(memoryDraft.requested_memory_layers, "long_term") && memoryDraft.allow_long_term_memory;
+  const hasState = includes(memoryDraft.requested_memory_layers, "state");
+  const hasWriteback = memoryDraft.writeback_policy !== "task_default" || memoryDraft.allow_long_term_memory;
+  const hasAssembly = Boolean(workflowAssembly || nodeAssembly);
+  return [
+    { label: "任务入口", value: selectedTask?.task_title || selectedTask?.task_id || "未选择任务", ready: hasTask },
+    { label: "图级循环", value: hasGraphLoop ? "已纳入图/协调任务" : "单节点运行", ready: hasGraphLoop },
+    { label: "状态记忆", value: hasState ? "已请求 state" : "缺 state", ready: hasState },
+    { label: "长期记忆", value: hasLongTermRead ? "允许读取长期记忆" : "未启用长期连续性", ready: hasLongTermRead },
+    { label: "记忆写回", value: hasWriteback ? label(memoryDraft.writeback_policy) : "任务默认", ready: hasWriteback },
+    { label: "装配快照", value: hasAssembly ? "已有 Assembly" : "请先预检装配", ready: hasAssembly },
+  ];
+}
+
+export function TaskRunLoopWorkbenchPanel({
+  selectedTask,
+  selectedCoordination,
+  executionDraft,
+  setExecutionDraft,
+  memoryDraft,
+  setMemoryDraft,
+  coordinationMemorySharingPolicy,
+  setCoordinationMemorySharingPolicy,
+  coordinationSharedContextPolicy,
+  setCoordinationSharedContextPolicy,
+  workflowAssembly,
+  nodeAssembly,
+  saveTaskStack,
+  saveCoordinationStack,
+  saving,
+}: {
+  selectedTask: SpecificTaskRecord | null;
+  selectedCoordination: CoordinationTask | null;
+  executionDraft: TaskExecutionPolicy;
+  setExecutionDraft: (next: TaskExecutionPolicy) => void;
+  memoryDraft: TaskMemoryRequestProfile;
+  setMemoryDraft: (next: TaskMemoryRequestProfile) => void;
+  coordinationMemorySharingPolicy: string;
+  setCoordinationMemorySharingPolicy: (value: string) => void;
+  coordinationSharedContextPolicy: string;
+  setCoordinationSharedContextPolicy: (value: string) => void;
+  workflowAssembly: RuntimeAssembly | null;
+  nodeAssembly: RuntimeAssembly | null;
+  saveTaskStack: () => Promise<void>;
+  saveCoordinationStack: (published?: boolean) => Promise<void>;
+  saving: string;
+}) {
+  const rows = readinessRows({
+    selectedTask,
+    selectedCoordination,
+    executionDraft,
+    memoryDraft,
+    workflowAssembly,
+    nodeAssembly,
+  });
+  const chapterContinuityReady = rows.filter((row) => row.ready).length;
+
+  return (
+    <section className="boundary-layer-stack task-runloop-workbench">
+      <section className="boundary-card boundary-card--summary">
+        <header>
+          <div className="boundary-identity-stack">
+            <span>运行循环 / Memory 支持</span>
+            <strong>{selectedCoordination?.title || selectedTask?.task_title || "未选择任务"}</strong>
+            <small>RunLoop 定义、记忆请求、上下文连续性与写回策略</small>
+          </div>
+          <div className="boundary-actions">
+            <TaskSystemToolbarButton disabled={saving === "task-stack"} onClick={() => { void saveTaskStack(); }} variant="primary">
+              <Save size={15} />保存任务运行配置
+            </TaskSystemToolbarButton>
+            <TaskSystemToolbarButton disabled={saving === "coordination" || !selectedCoordination} onClick={() => { void saveCoordinationStack(false); }}>
+              <Save size={15} />保存图上下文策略
+            </TaskSystemToolbarButton>
+          </div>
+        </header>
+        <div className="boundary-metric-grid">
+          <ReadinessTile label="连续运行就绪" value={`${chapterContinuityReady}/${rows.length}`} ready={chapterContinuityReady >= 5} />
+          <ReadinessTile label="执行链" value={label(executionDraft.execution_chain_type)} ready={Boolean(executionDraft.execution_chain_type)} />
+          <ReadinessTile label="记忆优先级" value={label(memoryDraft.memory_priority)} ready={Boolean(memoryDraft.memory_priority)} />
+          <ReadinessTile label="长期记忆" value={memoryDraft.allow_long_term_memory ? "允许" : "关闭"} ready={memoryDraft.allow_long_term_memory} />
+        </div>
+      </section>
+
+      <section className="task-runloop-workbench__grid">
+        <section className="boundary-card">
+          <header><strong>执行循环定义</strong><span>AgentLoop / GraphRunLoop</span></header>
+          <div className="boundary-form">
+            <TaskSystemSelectField
+              label="执行链类型"
+              value={executionDraft.execution_chain_type}
+              options={EXECUTION_CHAIN_OPTIONS}
+              onChange={(value) => setExecutionDraft({ ...executionDraft, execution_chain_type: value })}
+              formatOption={label}
+            />
+            <TaskSystemSelectField
+              label="Agent 选择"
+              value={executionDraft.runtime_agent_selection_policy || "orchestration_default"}
+              options={RUNTIME_AGENT_SELECTION_OPTIONS}
+              onChange={(value) => setExecutionDraft({ ...executionDraft, runtime_agent_selection_policy: value })}
+              formatOption={label}
+            />
+            <TaskSystemSelectField
+              label="任务等级"
+              value={executionDraft.task_level || "standard"}
+              options={TASK_LEVEL_OPTIONS}
+              onChange={(value) => setExecutionDraft({ ...executionDraft, task_level: value })}
+              formatOption={label}
+            />
+            <TaskSystemSelectField
+              label="权限口径"
+              value={executionDraft.task_privilege || "bounded"}
+              options={TASK_PRIVILEGE_OPTIONS}
+              onChange={(value) => setExecutionDraft({ ...executionDraft, task_privilege: value })}
+              formatOption={label}
+            />
+            <TaskSystemMultiSelectField
+              label="允许 Agent"
+              value={executionDraft.allowed_agent_categories ?? []}
+              options={AGENT_CATEGORY_OPTIONS}
+              onChange={(value) => setExecutionDraft({ ...executionDraft, allowed_agent_categories: value })}
+              formatOption={label}
+              wide
+            />
+            <label className="boundary-check">
+              <input
+                checked={executionDraft.allow_worker_agent_spawn}
+                onChange={(event) => setExecutionDraft({ ...executionDraft, allow_worker_agent_spawn: event.target.checked })}
+                type="checkbox"
+              />
+              允许运行时生成工作子 Agent
+            </label>
+            <TaskSystemField label="运行备注" wide>
+              <textarea value={executionDraft.notes} onChange={(event) => setExecutionDraft({ ...executionDraft, notes: event.target.value })} />
+            </TaskSystemField>
+          </div>
+        </section>
+
+        <section className="boundary-card">
+          <header><strong>记忆与连续性</strong><span>Memory Request</span></header>
+          <div className="boundary-form">
+            <TaskSystemMultiSelectField
+              label="请求记忆层"
+              value={memoryDraft.requested_memory_layers ?? []}
+              options={MEMORY_LAYER_OPTIONS}
+              onChange={(value) => setMemoryDraft({ ...memoryDraft, requested_memory_layers: value })}
+              formatOption={label}
+              wide
+            />
+            <TaskSystemSelectField
+              label="记忆优先级"
+              value={memoryDraft.memory_priority}
+              options={MEMORY_PRIORITY_OPTIONS}
+              onChange={(value) => setMemoryDraft({ ...memoryDraft, memory_priority: value })}
+              formatOption={label}
+            />
+            <TaskSystemSelectField
+              label="写回策略"
+              value={memoryDraft.writeback_policy}
+              options={MEMORY_WRITEBACK_OPTIONS}
+              onChange={(value) => setMemoryDraft({ ...memoryDraft, writeback_policy: value })}
+              formatOption={label}
+            />
+            <label className="boundary-check">
+              <input
+                checked={memoryDraft.allow_long_term_memory}
+                onChange={(event) => setMemoryDraft({ ...memoryDraft, allow_long_term_memory: event.target.checked })}
+                type="checkbox"
+              />
+              允许长期记忆参与连续执行
+            </label>
+            <TaskSystemField label="记忆主题" wide>
+              <textarea
+                value={(memoryDraft.requested_topics ?? []).join("\n")}
+                onChange={(event) => setMemoryDraft({
+                  ...memoryDraft,
+                  requested_topics: event.target.value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean),
+                })}
+              />
+            </TaskSystemField>
+            <TaskSystemField label="记忆范围提示" wide>
+              <input value={memoryDraft.memory_scope_hint} onChange={(event) => setMemoryDraft({ ...memoryDraft, memory_scope_hint: event.target.value })} />
+            </TaskSystemField>
+          </div>
+        </section>
+      </section>
+
+      <section className="task-runloop-workbench__grid task-runloop-workbench__grid--wide">
+        <section className="boundary-card">
+          <header><strong>多 Agent 上下文策略</strong><span>{selectedCoordination?.coordination_task_id || "未选择协调任务"}</span></header>
+          <div className="boundary-form">
+            <TaskSystemSelectField
+              label="共享上下文"
+              value={coordinationSharedContextPolicy}
+              options={SHARED_CONTEXT_POLICIES}
+              onChange={setCoordinationSharedContextPolicy}
+              formatOption={label}
+            />
+            <TaskSystemSelectField
+              label="记忆共享"
+              value={coordinationMemorySharingPolicy}
+              options={MEMORY_SHARING_POLICIES}
+              onChange={setCoordinationMemorySharingPolicy}
+              formatOption={label}
+            />
+          </div>
+          <div className="boundary-kv">
+            <p><span>协调模式</span><strong>{selectedCoordination?.coordination_mode ? label(selectedCoordination.coordination_mode) : "未选择"}</strong></p>
+            <p><span>节点数</span><strong>{selectedCoordination?.graph_nodes?.length ?? 0}</strong></p>
+            <p><span>交接策略</span><strong>{selectedCoordination?.handoff_policy || "未配置"}</strong></p>
+            <p><span>汇总策略</span><strong>{selectedCoordination?.output_merge_policy || "未配置"}</strong></p>
+          </div>
+        </section>
+
+        <section className="boundary-card">
+          <header><strong>章节/长任务循环就绪度</strong><span>Readiness</span></header>
+          <div className="boundary-task-table">
+            {rows.map((row) => (
+              <article className={row.ready ? "task-runloop-workbench__ready-row" : ""} key={row.label}>
+                <strong>{row.label}</strong>
+                <span>{row.ready ? "已就绪" : "待处理"}</span>
+                <small>{row.value}</small>
+              </article>
+            ))}
+          </div>
+        </section>
+      </section>
+
+      <section className="boundary-card">
+        <header><strong>当前 Assembly 对 RunLoop 的可见输入</strong><span>Context / Loop Policy</span></header>
+        <div className="task-runloop-workbench__assembly">
+          <RuntimeAssemblySummary title="单任务 Assembly" assembly={workflowAssembly} />
+          <RuntimeAssemblySummary title="节点 Assembly" assembly={nodeAssembly} />
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function RuntimeAssemblySummary({ title, assembly }: { title: string; assembly: RuntimeAssembly | null }) {
+  return (
+    <article>
+      <header>
+        <strong>{title}</strong>
+        <span>{assembly?.assembly_id || "未生成"}</span>
+      </header>
+      <div className="boundary-kv">
+        <p><span>Agent</span><strong>{assembly?.agent_id || "未装配"}</strong></p>
+        <p><span>运行 lane</span><strong>{assembly?.runtime_lane || "未装配"}</strong></p>
+        <p><span>上下文段</span><strong>{assembly?.context_sections?.length ?? 0}</strong></p>
+        <p><span>输出契约</span><strong>{assembly?.output_contracts?.length ?? 0}</strong></p>
+        <p><span>Loop Policy</span><strong>{Object.keys(assembly?.loop_policy ?? {}).length}</strong></p>
+      </div>
+    </article>
+  );
+}
+
+function ReadinessTile({ label, value, ready }: { label: string; value: string; ready: boolean }) {
+  return (
+    <article className={ready ? "boundary-readiness boundary-readiness--ready" : "boundary-readiness"}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{ready ? "已就绪" : "待处理"}</small>
+    </article>
+  );
+}

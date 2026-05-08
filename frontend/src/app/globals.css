@@ -14609,6 +14609,142 @@ html[data-soul="xuannv"] .soul-portrait__label {
   align-items: start;
 }
 
+.task-assembly-preflight {
+  min-width: 0;
+}
+
+.task-assembly-preflight > .boundary-card--summary header {
+  align-items: flex-start;
+}
+
+.task-assembly-preflight__grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.58fr) minmax(260px, 0.42fr);
+  gap: 0.8rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.task-assembly-preflight__grid--wide {
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 0.58fr);
+}
+
+.task-assembly-preflight .boundary-list--scroll {
+  max-height: 360px;
+  padding-right: 0.12rem;
+}
+
+.task-assembly-preflight .boundary-list-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.task-assembly-preflight .boundary-list-row small {
+  color: var(--color-text-mute);
+  font-size: 0.66rem;
+}
+
+.task-assembly-preflight .boundary-actions--wrap {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.task-assembly-preflight .boundary-kv {
+  margin-top: 0.72rem;
+}
+
+.task-assembly-preflight .boundary-task-table {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.task-assembly-preflight .boundary-task-table article {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.task-assembly-preflight .boundary-task-table article small {
+  grid-column: 1 / -1;
+}
+
+.task-assembly-preflight__json {
+  width: 100%;
+  min-height: 320px;
+  resize: vertical;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(3, 7, 18, 0.5);
+  color: var(--color-text-soft);
+  font-family: var(--font-mono, "SFMono-Regular", Consolas, "Liberation Mono", monospace);
+  font-size: 0.72rem;
+  line-height: 1.55;
+  padding: 0.72rem;
+}
+
+.task-runloop-workbench {
+  min-width: 0;
+}
+
+.task-runloop-workbench > .boundary-card--summary header {
+  align-items: flex-start;
+}
+
+.task-runloop-workbench__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 0.8rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.task-runloop-workbench__grid--wide {
+  grid-template-columns: minmax(300px, 0.42fr) minmax(0, 0.58fr);
+}
+
+.task-runloop-workbench .boundary-form textarea {
+  min-height: 86px;
+}
+
+.task-runloop-workbench .boundary-kv {
+  margin-top: 0.72rem;
+}
+
+.task-runloop-workbench__ready-row {
+  border-color: rgba(103, 220, 154, 0.28);
+  background: rgba(103, 220, 154, 0.04);
+}
+
+.task-runloop-workbench__assembly {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 0.7rem;
+}
+
+.task-runloop-workbench__assembly > article {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+  padding: 0.72rem;
+}
+
+.task-runloop-workbench__assembly > article > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.62rem;
+}
+
+.task-runloop-workbench__assembly > article > header strong {
+  color: var(--color-text);
+  font-size: 0.84rem;
+}
+
+.task-runloop-workbench__assembly > article > header span {
+  color: var(--color-text-soft);
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 .boundary-assembly-directory {
   max-height: 100%;
 }
@@ -16707,6 +16843,11 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .boundary-workbench,
   .orchestration-workbench,
   .boundary-assembly-layout,
+  .task-assembly-preflight__grid,
+  .task-assembly-preflight__grid--wide,
+  .task-runloop-workbench__grid,
+  .task-runloop-workbench__grid--wide,
+  .task-runloop-workbench__assembly,
   .boundary-layer-grid,
   .boundary-layer-grid--wide,
   .boundary-split,

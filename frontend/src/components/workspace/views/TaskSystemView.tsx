@@ -24,7 +24,9 @@ import {
 import { ContractLibraryPanel, contractSpecTitle } from "@/components/workspace/views/task-system/ContractLibraryPanel";
 import { ContractOverviewPanel } from "@/components/workspace/views/task-system/ContractOverviewPanel";
 import { TaskContractPanel } from "@/components/workspace/views/task-system/TaskContractPanel";
+import { TaskAssemblyPreflightPanel } from "@/components/workspace/views/task-system/TaskAssemblyPreflightPanel";
 import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
+import { TaskRunLoopWorkbenchPanel } from "@/components/workspace/views/task-system/TaskRunLoopWorkbenchPanel";
 import { buildTaskGraphDraft } from "@/components/workspace/views/task-system/taskGraphDraft";
 import {
   TaskSystemDomainTaskSelectField as DomainTaskSelectField,
@@ -72,7 +74,7 @@ import {
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 
-type TaskLayer = "domain" | "graph" | "contracts" | "preflight";
+type TaskLayer = "domain" | "graph" | "contracts" | "preflight" | "runloop";
 type DomainPanel = "taskDetail" | "entry" | "eligibility";
 
 type WorkflowDraft = TaskWorkflowRecord & {
@@ -525,11 +527,6 @@ const PROJECTION_SELECTION_MODE_CHOICES = ["task_default"];
 const FLOW_OVERRIDE_POLICY_CHOICES = ["task_default"];
 const FLOW_FALLBACK_POLICY_CHOICES = ["fail_closed"];
 const RUNTIME_SELECTION_POLICY_CHOICES = ["orchestration_default"];
-const TASK_LEVEL_CHOICES = ["standard"];
-const TASK_PRIVILEGE_CHOICES = ["bounded"];
-const MEMORY_PRIORITY_CHOICES = ["normal"];
-const MEMORY_WRITEBACK_POLICY_CHOICES = ["task_default"];
-const AGENT_CATEGORY_CHOICES = ["main_agent", "system_management_agent", "worker_sub_agent"];
 const COMMON_CONTRACT_CHOICES = ["UserMessage", "WorkspaceTaskInput", "AssistantFinalAnswer", "LightWebGameResult"];
 const COORDINATION_MODE_CHOICES = ["review_merge", "pipeline", "parallel_review"];
 const GRAPH_EDGE_MODE_CHOICES = ["structured_handoff", "review_feedback", "draft_request", "audit_request", "merge_signal"];
@@ -2037,6 +2034,12 @@ export function TaskSystemView() {
       meta: editorValid ? "图校验通过" : `${editorIssueCount} 个问题`,
       detail: "预览 ContractManifest、RuntimeAssembly 与 A2A 通信结果",
     },
+    {
+      value: "runloop",
+      label: "运行循环",
+      meta: memoryDraft.allow_long_term_memory ? "长期记忆已启用" : "配置 RunLoop / Memory",
+      detail: "管理执行循环、记忆请求、上下文连续性与写回策略",
+    },
   ];
   const domainPanelItems: Array<LayerNavItem<DomainPanel>> = [
     {
@@ -2064,7 +2067,7 @@ export function TaskSystemView() {
         <div>
           <span>任务边界工作台</span>
           <h2>任务系统工作台</h2>
-          <p>任务域治理、任务图设计、契约边界与运行预检</p>
+          <p>任务域治理、任务图设计、契约边界、运行预检与 RunLoop / Memory 配置</p>
         </div>
         <div className="boundary-actions">
           <ToolbarButton onClick={() => void load()}><RefreshCw size={15} />刷新</ToolbarButton>
@@ -2079,6 +2082,9 @@ export function TaskSystemView() {
           ) : null}
           {taskLayer === "preflight" ? (
             <ToolbarButton onClick={() => setTaskLayer("graph")}><Network size={15} />返回任务图</ToolbarButton>
+          ) : null}
+          {taskLayer === "runloop" ? (
+            <ToolbarButton disabled={saving === "task-stack"} onClick={() => void saveTaskStack()}><Save size={15} />保存运行配置</ToolbarButton>
           ) : null}
         </div>
       </header>
@@ -2363,35 +2369,42 @@ export function TaskSystemView() {
           ) : null}
 
           {taskLayer === "preflight" ? (
-            <section className="boundary-layer-stack">
-              <section className="boundary-card boundary-card--summary">
-                <header>
-                  <div className="boundary-identity-stack">
-                    <span>预检发布 / 统一任务图</span>
-                    <strong>{coordinationDraft.title || selectedCoordination?.title || taskDraft.task_title || "任务图草稿"}</strong>
-                    <small>{activeGraphNodes.length} 节点 / {activeGraphEdges.length} 边</small>
-                  </div>
-                  <div className="boundary-actions">
-                    <ToolbarButton onClick={() => setTaskLayer("graph")}><Network size={15} />返回任务图</ToolbarButton>
-                    <ToolbarButton onClick={saveTopologyDraftIntoCoordination}><Save size={15} />保存拓扑</ToolbarButton>
-                    <ToolbarButton disabled={saving === "coordination"} onClick={() => { void saveCoordinationStack(false); }}><Save size={15} />保存草稿</ToolbarButton>
-                    <ToolbarButton disabled={saving === "coordination" || !editorValid} onClick={() => { void saveCoordinationStack(true); }} variant="primary"><Send size={15} />发布可运行</ToolbarButton>
-                  </div>
-                </header>
-                <div className="boundary-metric-grid">
-                  <ReadinessCard label="图校验" value={editorValid ? "通过" : `${editorIssueCount} 个问题`} ready={editorValid} />
-                  <ReadinessCard label="拓扑草稿" value={topologyDirty ? "未保存" : "已同步"} ready={!topologyDirty} />
-                  <ReadinessCard label="发布状态" value={editorPublished ? "已发布" : "草稿"} ready={editorPublished} />
-                  <ReadinessCard label="A2A 通信" value={`${a2aCatalog?.transport || "JSONRPC"} · ${a2aCatalog?.protocol_version || "0.3.0"}`} ready={Boolean(a2aCatalog?.protocol_locked)} />
-                </div>
-              </section>
-              <ContractOverviewPanel
-                contractSpecs={contractSpecs}
-                selectedCoordination={selectedCoordination}
-                selectedNodeId={selectedGraphNodeId}
-                selectedTask={selectedTask}
-              />
-            </section>
+            <TaskAssemblyPreflightPanel
+              a2aCatalog={a2aCatalog}
+              editorIssueCount={editorIssueCount}
+              editorPublished={editorPublished}
+              editorValid={editorValid}
+              onBackToGraph={() => setTaskLayer("graph")}
+              saveCoordinationStack={saveCoordinationStack}
+              saveTopologyDraftIntoCoordination={saveTopologyDraftIntoCoordination}
+              saving={saving}
+              selectedCoordination={selectedCoordination}
+              selectedGraphSpec={editorGraphSpec}
+              selectedNodeId={selectedGraphNodeId}
+              selectedTask={selectedTask}
+              setSelectedNodeId={setSelectedGraphNodeId}
+              topologyDirty={topologyDirty}
+            />
+          ) : null}
+
+          {taskLayer === "runloop" ? (
+            <TaskRunLoopWorkbenchPanel
+              coordinationMemorySharingPolicy={coordinationDraft.memory_sharing_policy}
+              coordinationSharedContextPolicy={coordinationDraft.shared_context_policy}
+              executionDraft={executionDraft}
+              memoryDraft={memoryDraft}
+              nodeAssembly={null}
+              saveCoordinationStack={saveCoordinationStack}
+              saveTaskStack={saveTaskStack}
+              saving={saving}
+              selectedCoordination={selectedCoordination}
+              selectedTask={selectedTask}
+              setCoordinationMemorySharingPolicy={(value) => setCoordinationDraft((current) => ({ ...current, memory_sharing_policy: value }))}
+              setCoordinationSharedContextPolicy={(value) => setCoordinationDraft((current) => ({ ...current, shared_context_policy: value }))}
+              setExecutionDraft={setExecutionDraft}
+              setMemoryDraft={setMemoryDraft}
+              workflowAssembly={null}
+            />
           ) : null}
         </main>
       </section>
