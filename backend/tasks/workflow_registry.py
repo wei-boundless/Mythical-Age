@@ -88,44 +88,6 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
             metadata={"managed_by": "task_system", "task_resource": "light_web_game"},
         ),
         TaskWorkflowBinding(
-            workflow_id="workflow.writing.short_story",
-            title="短篇小说协作工作流",
-            task_mode="short_story",
-            compatible_projection_ids=(),
-            visible_skill_ids=("skill.writing", "skill.review"),
-            steps=(
-                {"step_id": "scope_story_goal", "title": "收束题材、篇幅与验收要求"},
-                {"step_id": "propose_story_idea", "title": "提出故事创意"},
-                {"step_id": "review_story_idea", "title": "审核创意方向"},
-                {"step_id": "draft_story_content", "title": "正式编写小说正文"},
-                {"step_id": "inspect_story_content", "title": "执行内容纠察"},
-                {"step_id": "revise_story_if_needed", "title": "必要时进入修正循环"},
-                {"step_id": "accept_story_delivery", "title": "完成最终验收与交付"},
-            ),
-            input_boundary="Story goal, optional style constraints, optional acceptance requirements.",
-            output_boundary=(
-                "Accepted short story text plus internal coordination evidence. "
-                "The final answer must include: coordination process summary, complete story body, "
-                "content inspection result, revision result, and final acceptance conclusion. "
-                "Do not stop after asking the user to approve an idea; complete the whole pipeline in this run."
-            ),
-            stop_conditions=("story_accepted", "revision_budget_exhausted", "result_reported"),
-            required_evidence_refs=("story_goal",),
-            output_contract_id="ShortStoryResult",
-            prompt=(
-                "这是正式的短篇小说协作任务。"
-                "先收束创作目标，再经过创意审核、正文编写、内容纠察与验收；"
-                "若审校未通过，必须按修正循环回到可验收状态。"
-                "所有协调步骤都在本次任务内部完成，不向用户请求中途确认；"
-                "最终必须直接交付完整小说正文、修正说明和验收通过结论。"
-                "正文控制在约 1200 到 1800 字，不要展开成长篇。"
-                "输出结构固定为：协调摘要、小说正文、修正说明、验收结论。"
-                "不要把中间协商过程写成等待用户回复的对话。"
-            ),
-            enabled=True,
-            metadata={"managed_by": "task_system", "task_resource": "short_story"},
-        ),
-        TaskWorkflowBinding(
             workflow_id="workflow.dev.arcade_game_bundle",
             title="复合网页小游戏包工作流",
             task_mode="arcade_game_bundle",

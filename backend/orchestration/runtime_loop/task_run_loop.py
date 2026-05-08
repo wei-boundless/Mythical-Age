@@ -219,9 +219,13 @@ class TaskRunLoop:
         handoff_policy: str = "",
         failure_policy: str = "",
         merge_policy: str = "",
+        runtime_assembly: dict[str, Any] | None = None,
         diagnostics: dict[str, Any] | None = None,
     ) -> TaskRunLoopStartResult:
         now = time.time()
+        assembly_payload = dict(runtime_assembly or {})
+        assembly_ref = str(assembly_payload.get("assembly_id") or "")
+        manifest_ref = str(assembly_payload.get("manifest_ref") or "")
         task_run_id = f"taskrun:{session_id}:{task_id}:{uuid.uuid4().hex[:8]}"
         agent_run_id = f"agrun:{task_run_id}:main"
         coordination_run = (
@@ -263,8 +267,14 @@ class TaskRunLoop:
                 "multi_agent_enabled": coordination_run is not None,
                 "coordination_task_ref": coordination_task_ref,
                 "adoption_mode": adoption_mode,
+                "runtime_assembly_ref": assembly_ref,
+                "contract_manifest_ref": manifest_ref,
             },
-            refs={"task_contract_ref": task_contract_ref},
+            refs={
+                "task_contract_ref": task_contract_ref,
+                "runtime_assembly_ref": assembly_ref,
+                "contract_manifest_ref": manifest_ref,
+            },
         )
         agent_run = AgentRun(
             agent_run_id=agent_run_id,
@@ -326,6 +336,8 @@ class TaskRunLoop:
                 "loop_phase": "event_checkpoint_spine",
                 "query_runtime_role": "adapter_only",
                 "loop_limits": self.limits.to_dict(),
+                "runtime_assembly_ref": assembly_ref,
+                "contract_manifest_ref": manifest_ref,
                 **dict(diagnostics or {}),
             },
         )
@@ -377,6 +389,8 @@ class TaskRunLoop:
                 "coordination_task_ref": coordination_task_ref,
                 "multi_agent_enabled": coordination_run is not None,
                 "loop_limits": self.limits.to_dict(),
+                "runtime_assembly_ref": assembly_ref,
+                "contract_manifest_ref": manifest_ref,
                 **dict(diagnostics or {}),
             },
         )
@@ -1887,41 +1901,6 @@ class TaskRunLoop:
                 refs={"task_contract_ref": task_contract_ref},
             )
             yield {"type": "runtime_loop_event", "event": recovery_event.to_dict()}
-
-        if (
-            terminal_reason == "completed"
-            and str(selected_template_payload.get("task_mode") or "").strip() == "longform_novel_project"
-            and artifact_validation["passed"]
-        ):
-            current_flow = (
-                dict(start.coordination_run.diagnostics.get("coordination_flow") or {})
-                if start.coordination_run is not None
-                else {}
-            )
-            final_content = _build_longform_continuous_delivery_progress_answer(
-                selected_template_payload=selected_template_payload,
-                artifact_validation=artifact_validation,
-                coordination_flow=current_flow,
-            )
-            final_answer_metadata = {
-                "answer_channel": "tool_visible_summary",
-                "answer_source": "runtime_loop.longform_progress_summary",
-                "answer_canonical_state": "stable_answer",
-                "answer_persist_policy": "persist_canonical",
-                "answer_finalization_policy": "none",
-                "answer_fallback_reason": "",
-            }
-            progress_event = self.event_log.append(
-                state.task_run_id,
-                "longform_progress_summary_finalized",
-                payload={
-                    "artifact_validation": artifact_validation,
-                    "coordination_flow": current_flow,
-                    "final_content_chars": len(final_content),
-                },
-                refs={"task_contract_ref": task_contract_ref},
-            )
-            yield {"type": "runtime_loop_event", "event": progress_event.to_dict()}
 
         if not artifact_validation["passed"] and terminal_reason == "completed":
             terminal_reason = "artifact_validation_failed"
@@ -3548,95 +3527,6 @@ class TaskRunLoop:
         explicit_inputs.setdefault("upstream_task_ref", str(current_task_ref or ""))
         explicit_inputs.setdefault("upstream_output_refs", output_refs)
         explicit_inputs.setdefault("upstream_final_content", str(final_content or ""))
-        if current_task_ref == "task.writing.longform_novel_project":
-            if output_refs:
-                explicit_inputs["project_spec_ref"] = output_refs[0]
-        elif current_task_ref == "task.writing.novel_bible_build":
-            if output_refs:
-                explicit_inputs["novel_bible_ref"] = output_refs[0]
-            explicit_inputs.setdefault("volume_index", 1)
-        elif current_task_ref == "task.writing.volume_planning":
-            if output_refs:
-                explicit_inputs["volume_plan_ref"] = output_refs[0]
-            explicit_inputs.setdefault("chapter_index", 1)
-            explicit_inputs.setdefault("run_request", self._default_chapter_batch_request())
-            explicit_inputs.setdefault("context_refs", self._dedupe_refs([
-                explicit_inputs.get("novel_bible_ref"),
-                explicit_inputs.get("volume_plan_ref"),
-            ]))
-            explicit_inputs.setdefault("chapter_batch_ref", output_refs[0] if output_refs else "")
-        elif current_task_ref == "task.writing.chapter_planning":
-            if output_refs:
-                explicit_inputs["chapter_plan_ref"] = output_refs[0]
-                explicit_inputs.setdefault("context_refs", self._dedupe_refs([
-                    explicit_inputs.get("novel_bible_ref"),
-                    explicit_inputs.get("volume_plan_ref"),
-                    output_refs[0],
-                ]))
-        elif current_task_ref == "task.writing.chapter_drafting":
-            if output_refs:
-                explicit_inputs["chapter_range_refs"] = output_refs
-                explicit_inputs["chapter_refs"] = output_refs
-                explicit_inputs["accepted_chapter_refs"] = output_refs
-        elif current_task_ref == "task.writing.continuity_audit":
-            if output_refs:
-                explicit_inputs["final_audit_refs"] = output_refs
-        if next_task_ref == "task.writing.continuity_audit":
-            if "chapter_range_refs" not in explicit_inputs and output_refs:
-                explicit_inputs["chapter_range_refs"] = output_refs
-            if not str(explicit_inputs.get("novel_bible_ref") or "").strip():
-                novel_bible_ref = self._latest_output_ref_for_task(task_ref="task.writing.novel_bible_build")
-                if novel_bible_ref:
-                    explicit_inputs["novel_bible_ref"] = novel_bible_ref
-            if "chapter_refs" not in explicit_inputs:
-                explicit_inputs["chapter_refs"] = list(explicit_inputs.get("chapter_range_refs") or output_refs)
-        if next_task_ref == "task.writing.final_compilation":
-            if "accepted_chapter_refs" not in explicit_inputs:
-                accepted_refs = self._latest_output_refs_for_task(task_ref="task.writing.chapter_drafting")
-                if accepted_refs:
-                    explicit_inputs["accepted_chapter_refs"] = accepted_refs
-            if "final_audit_refs" not in explicit_inputs:
-                audit_refs = self._latest_output_refs_for_task(task_ref="task.writing.continuity_audit")
-                if audit_refs:
-                    explicit_inputs["final_audit_refs"] = audit_refs
-        if next_task_ref == "task.writing.novel_bible_build":
-            if not str(explicit_inputs.get("project_spec_ref") or "").strip():
-                project_spec_ref = self._latest_output_ref_for_task(task_ref="task.writing.longform_novel_project")
-                if project_spec_ref:
-                    explicit_inputs["project_spec_ref"] = project_spec_ref
-        elif next_task_ref == "task.writing.volume_planning":
-            if not str(explicit_inputs.get("novel_bible_ref") or "").strip():
-                novel_bible_ref = self._latest_output_ref_for_task(task_ref="task.writing.novel_bible_build")
-                if novel_bible_ref:
-                    explicit_inputs["novel_bible_ref"] = novel_bible_ref
-            explicit_inputs.setdefault("volume_index", 1)
-        elif next_task_ref == "task.writing.chapter_planning":
-            if not str(explicit_inputs.get("volume_plan_ref") or "").strip():
-                volume_plan_ref = self._latest_output_ref_for_task(task_ref="task.writing.volume_planning")
-                if volume_plan_ref:
-                    explicit_inputs["volume_plan_ref"] = volume_plan_ref
-            if not str(explicit_inputs.get("novel_bible_ref") or "").strip():
-                novel_bible_ref = self._latest_output_ref_for_task(task_ref="task.writing.novel_bible_build")
-                if novel_bible_ref:
-                    explicit_inputs["novel_bible_ref"] = novel_bible_ref
-            explicit_inputs.setdefault("chapter_index", 1)
-            explicit_inputs.setdefault("run_request", self._default_chapter_batch_request())
-            explicit_inputs["context_refs"] = self._dedupe_refs([
-                explicit_inputs.get("novel_bible_ref"),
-                explicit_inputs.get("volume_plan_ref"),
-            ])
-        elif next_task_ref == "task.writing.chapter_drafting":
-            if not str(explicit_inputs.get("chapter_plan_ref") or "").strip():
-                chapter_plan_ref = self._latest_output_ref_for_task(task_ref="task.writing.chapter_planning")
-                if chapter_plan_ref:
-                    explicit_inputs["chapter_plan_ref"] = chapter_plan_ref
-            if not list(explicit_inputs.get("context_refs") or []):
-                explicit_inputs["context_refs"] = self._dedupe_refs([
-                    explicit_inputs.get("novel_bible_ref"),
-                    explicit_inputs.get("volume_plan_ref"),
-                    explicit_inputs.get("chapter_plan_ref"),
-                ])
-            explicit_inputs.setdefault("run_request", self._default_chapter_batch_request())
         explicit_inputs["upstream_output_refs"] = self._dedupe_refs(explicit_inputs.get("upstream_output_refs") or [])
         return explicit_inputs
 
@@ -3747,10 +3637,6 @@ class TaskRunLoop:
     @staticmethod
     def _dedupe_refs(refs: Any) -> list[str]:
         return dedupe_artifact_refs(refs)
-
-    @staticmethod
-    def _default_chapter_batch_request() -> str:
-        return "按持续交付流程生成当前批次章节正文，单轮目标约一万字、约五章，最多两轮轻审，不等待用户再次确认。"
 
     @staticmethod
     def _render_worker_agent_name(*, naming_rule: str, blueprint_template: str, index: int) -> str:
@@ -5253,36 +5139,6 @@ def _build_artifact_success_fallback_answer(
     else:
         lines.append("本轮所需 artifact 已通过 write_file 写入并通过存在性校验。")
     lines.append("模型后续收口阶段中断，但正式产物已经落盘，可基于现有产物继续下一阶段。")
-    return "\n".join(lines)
-
-
-def _build_longform_continuous_delivery_progress_answer(
-    *,
-    selected_template_payload: dict[str, Any],
-    artifact_validation: dict[str, Any],
-    coordination_flow: dict[str, Any],
-) -> str:
-    task_title = str(
-        selected_template_payload.get("title")
-        or selected_template_payload.get("task_mode")
-        or selected_template_payload.get("template_id")
-        or "长篇小说持续交付任务"
-    ).strip()
-    artifact_items = [
-        str(dict(item).get("path") or "").strip()
-        for item in list(artifact_validation.get("artifacts") or [])
-        if str(dict(item).get("path") or "").strip()
-    ]
-    next_stage_title = str(coordination_flow.get("next_stage_title") or coordination_flow.get("current_stage_id") or "").strip()
-    next_task_ref = str(coordination_flow.get("next_task_ref") or "").strip()
-    lines = [f"{task_title}已启动，并已完成首轮项目规格落盘。"]
-    if artifact_items:
-        lines.append(f"项目规格文件：{artifact_items[0]}")
-    if next_stage_title:
-        lines.append(f"当前已自动进入下一阶段：{next_stage_title}。")
-    if next_task_ref:
-        lines.append(f"续跑任务：{next_task_ref}")
-    lines.append("系统会基于已生成产物继续推进后续长篇流程，不需要重新发送启动指令。")
     return "\n".join(lines)
 
 

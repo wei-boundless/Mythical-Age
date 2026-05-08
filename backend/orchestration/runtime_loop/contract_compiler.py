@@ -158,6 +158,21 @@ def compile_coordination_contract_manifest(
         task = task_by_id.get(node.task_id)
         input_contract_id = str(getattr(task, "input_contract_id", "") or "").strip()
         output_contract_id = str(getattr(task, "output_contract_id", "") or "").strip()
+        node_metadata = dict(node.metadata or {})
+        explicit_node_contract_refs = tuple(
+            ref
+            for ref in dict.fromkeys(
+                [
+                    str(node_metadata.get("node_contract_id") or node_metadata.get("contract_id") or "").strip(),
+                    *[
+                        str(item).strip()
+                        for item in list(node_metadata.get("contract_refs") or [])
+                        if str(item).strip()
+                    ],
+                ]
+            )
+            if ref
+        )
         if task is not None:
             for contract_id, purpose in (
                 (input_contract_id, "node_input_contract"),
@@ -184,6 +199,17 @@ def compile_coordination_contract_manifest(
                     contract_id=node.task_id,
                 )
             )
+        for contract_id in explicit_node_contract_refs:
+            _collect_contract(
+                registry=contract_registry,
+                contract_id=contract_id,
+                source_ref=f"{coordination_task.coordination_task_id}:{node.node_id}",
+                purpose="node_execution_contract",
+                global_contracts=global_contracts,
+                acceptance_contracts=acceptance_contracts,
+                issues=issues,
+                node_id=node.node_id,
+            )
         node_contracts.append(
             CompiledNodeContract(
                 node_id=node.node_id,
@@ -194,9 +220,9 @@ def compile_coordination_contract_manifest(
                 runtime_lane=node.runtime_lane,
                 input_contract_id=input_contract_id,
                 output_contract_id=output_contract_id,
-                contract_refs=tuple(ref for ref in (input_contract_id, output_contract_id) if ref),
+                contract_refs=tuple(ref for ref in (input_contract_id, output_contract_id, *explicit_node_contract_refs) if ref),
                 source_refs=(coordination_task.coordination_task_id, node.task_id),
-                metadata={"role": node.role},
+                metadata={"role": node.role, "explicit_node_contract_refs": explicit_node_contract_refs},
             )
         )
         profile = profiles_by_agent.get(node.agent_id)

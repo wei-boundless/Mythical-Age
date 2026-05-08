@@ -2,7 +2,7 @@
 
 日期：2026-05-08
 
-范围：任务契约、单 Agent workflow、协调任务 topology、Agent runtime 组装、A2A 通信、LangGraph 协调 loop、运行监控。
+范围：任务契约、单 Agent workflow、协调任务 topology、Agent runtime 组装、A2A 通信、LangGraph 协调 loop、失败策略、人工门控、运行监控。
 
 说明：本文是重新编写的设计书。它只以当前代码和刚刚确定的新原则为依据，不恢复旧具体任务契约，不执行旧计划，不把 A2A 扩展为业务契约系统。
 
@@ -18,6 +18,7 @@ workflow 是单 Agent 的契约图。
 topology 是多 Agent 的契约图。
 A2A 是 Agent 间通信协议，不是业务契约本身。
 RuntimeAssembly 是契约真正送入 Agent loop 的执行包。
+FailurePolicy / HumanGatePolicy 是契约运行失败后的状态机规则。
 ```
 
 系统最终应形成四个稳定对象：
@@ -45,6 +46,7 @@ ContractStatus
   -> RuntimeAssembly
   -> Agent Loop / Coordination Loop
   -> ContractStatus
+  -> FailurePolicy / HumanGatePolicy / AcceptanceResult
   -> 监控与验收
 ```
 
@@ -217,6 +219,12 @@ RuntimeContract
 
 AcceptanceContract
   描述结果如何验收，失败如何返回，是否需要人工 gate。
+
+FailureContract
+  描述验收失败、运行异常、缺失输入后的 retry、blocked、human_gate 或 fail_closed 路由。
+
+HumanGateContract
+  描述哪些节点需要人工确认、人工确认后允许 approve / retry / reject 哪些决策。
 ```
 
 注意：这些契约不是都需要用户从零填写。系统应提供通用模板，具体任务只绑定和覆盖必要部分。
@@ -328,6 +336,7 @@ a2a_payload
 expected_outputs
 acceptance_contract
 failure_contract
+human_gate_contract
 ```
 
 约束：
@@ -497,6 +506,8 @@ completed_nodes
 failed_nodes
 handoff_packets
 acceptance_results
+human_gate
+retry_counts
 stage_execution_request
 a2a_payload
 ```
@@ -509,8 +520,61 @@ a2a_payload
 4. 通过边契约生成 handoff packet。
 5. 下游 required inputs 满足后进入 ready。
 6. terminal node 或 final contract 满足后 complete。
+7. 验收失败后按 failure contract 进入 retry、human_gate、blocked 或 failed。
+8. human_gate resume 后必须重新进入同一套路由，不允许绕过 ContractStatus。
 
 第一阶段可以仍串行执行 ready nodes；后续再引入 LangGraph `Send` 并行 fan-out。
+
+### 6.5 失败策略与人工门控
+
+协调 runtime 中，失败不是简单异常，而是契约状态机的一部分。
+
+标准语义：
+
+```text
+accepted=true
+  -> ContractStatus.node_status = satisfied
+  -> node_statuses = completed
+  -> route_next
+
+accepted=false + retry policy remaining
+  -> ContractStatus.node_status = pending_retry
+  -> node_statuses = pending
+  -> route_next 指回原节点
+
+accepted=false + human gate policy
+  -> ContractStatus.node_status = human_gate
+  -> node_statuses = waiting_for_human
+  -> terminal_status = waiting_for_human
+  -> checkpoint 保存 human_gate
+  -> resume_human_gate 决定 approve / retry / reject
+
+accepted=false + fail closed
+  -> ContractStatus.node_status = failed
+  -> node_statuses = failed
+  -> terminal_status = failed
+```
+
+`resume_human_gate` 的决策语义：
+
+```text
+approve
+  当前节点视为验收通过，继续下游路由。
+
+retry
+  当前节点进入 pending_retry，回到原节点重新执行。
+
+reject
+  当前节点进入 failed，协调任务 fail closed。
+```
+
+约束：
+
+1. human gate 只改变运行状态，不修改用户编辑的 ContractSpec。
+2. human gate 决策必须写入 checkpoint、trace diagnostics 和 ContractStatus。
+3. `approve` 不能跳过下游 required input 检查。
+4. `retry` 不能绕过 retry count / failure diagnostics。
+5. `reject` 必须 fail closed，不能继续执行下一节点。
 
 ---
 
@@ -650,12 +714,16 @@ backend/orchestration/runtime_loop/a2a_stage_payload.py
 4. `_stage_execute()` 生成 `NodeRuntimeAssembly` 和 A2A payload。
 5. `_stage_accept()` 更新 ContractStatus。
 6. 生成 handoff packets。
+7. `_stage_accept()` 根据 failure / human gate policy 分流 retry、human_gate、failed。
+8. `resume_human_gate()` 通过 checkpoint 恢复并重新进入协调路由。
 
 完成标准：
 
 1. 非线性拓扑不再退化为 stage index。
 2. 下游节点只在输入契约满足后运行。
 3. A2A payload 与 edge handoff contract 可追踪。
+4. 失败节点不会继续误入下一阶段。
+5. human gate approve / retry / reject 都能更新 ContractStatus。
 
 ### 阶段 5：前端编辑和监控
 
@@ -684,6 +752,7 @@ frontend/src/components/workspace/views/task-system/TaskContractPanel.tsx
 4. 协调拓扑节点绑定 NodeContract。
 5. 协调拓扑边绑定 EdgeHandoffContract。
 6. 监控展示 ContractStatus。
+7. 监控展示 waiting_for_human、pending_retry、failed 等契约运行状态。
 
 完成标准：
 
@@ -691,6 +760,35 @@ frontend/src/components/workspace/views/task-system/TaskContractPanel.tsx
 2. 用户能在拓扑节点和边上绑定契约。
 3. 保存前有编译预检。
 4. 运行监控显示节点状态和契约满足度。
+5. human gate 和失败重试状态可被用户识别。
+
+### 阶段 6：失败策略、人工门控与验收闭环
+
+修改文件：
+
+```text
+backend/orchestration/runtime_loop/langgraph_coordination_runtime.py
+backend/orchestration/runtime_loop/coordination_trace_adapter.py
+frontend/src/components/chat/CoordinationRunPanel.tsx
+frontend/src/app/globals.css
+```
+
+工作：
+
+1. 将验收失败分为 retry、human_gate、fail_closed。
+2. 将 retry 写入 `pending_retry`，并指回原节点。
+3. 将 human gate 写入 checkpoint、ContractStatus、trace diagnostics。
+4. `resume_human_gate()` 支持 approve、retry、reject。
+5. 前端监控展示 waiting、pending_retry、failed。
+
+完成标准：
+
+1. retry 策略会真实重跑原节点。
+2. human gate waiting 不会继续执行下游节点。
+3. approve 后继续下游。
+4. retry 后回到原节点。
+5. reject 后 fail closed。
+6. 运行监控能显示 human_gate 和 pending_retry。
 
 ---
 
@@ -715,7 +813,7 @@ backend/tests/task_contract_registry_test.py
 backend/tests/contract_compiler_workflow_test.py
 backend/tests/contract_compiler_coordination_test.py
 backend/tests/runtime_assembly_builder_test.py
-backend/tests/langgraph_contract_runtime_test.py
+backend/tests/langgraph_coordination_runtime_regression.py
 ```
 
 测试点：
@@ -729,6 +827,8 @@ backend/tests/langgraph_contract_runtime_test.py
 7. AgentRuntimeProfile 不匹配时编译失败。
 8. A2A handoff payload 与 edge contract 对齐。
 9. 断点恢复后不重复执行已满足节点。
+10. retry 策略会回到原节点。
+11. human gate approve / retry / reject 均进入正确状态。
 
 前端验证：
 
@@ -742,7 +842,7 @@ npm run build
 
 ```powershell
 $env:PYTHONPATH='backend'
-pytest backend\tests\task_contract_registry_test.py backend\tests\contract_compiler_workflow_test.py backend\tests\contract_compiler_coordination_test.py backend\tests\runtime_assembly_builder_test.py backend\tests\langgraph_contract_runtime_test.py
+pytest backend\tests\task_contract_registry_test.py backend\tests\contract_compiler_workflow_test.py backend\tests\contract_compiler_coordination_test.py backend\tests\runtime_assembly_builder_test.py backend\tests\langgraph_coordination_runtime_regression.py
 ```
 
 ---
@@ -771,4 +871,5 @@ pytest backend\tests\task_contract_registry_test.py backend\tests\contract_compi
 5. LangGraph coordination loop 根据契约满足度推进。
 6. 子 Agent 只接收自己的节点执行包。
 7. 监控界面实时展示拓扑、契约满足度、输出和产物。
-8. 所有契约、能力、runtime lane 都有中文名称和稳定 ID。
+8. 失败、重试、人工门控和验收结果都进入 ContractStatus。
+9. 所有契约、能力、runtime lane 都有中文名称和稳定 ID。

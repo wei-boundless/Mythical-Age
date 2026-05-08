@@ -430,10 +430,6 @@ def _output_section(
                 + "; ".join(forbidden_final_states)
                 + "."
             ) if forbidden_final_states else "",
-            (
-                "Do not stop at proposal, outline, or request-for-approval stage. "
-                "Finish the task and deliver the final accepted result in this run."
-            ) if task_mode == "short_story" else "",
         )
         if line
     )

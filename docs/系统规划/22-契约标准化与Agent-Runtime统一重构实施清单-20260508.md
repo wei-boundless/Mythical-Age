@@ -628,6 +628,33 @@ ContractManifest + ContractStatus + active node
 4. 节点 assembly 默认不包含完整主会话 history。
 5. A2A payload 与 NodeRuntimeAssembly 可互相追踪。
 
+### 3.8 当前实施状态
+
+状态：已完成第一版 builder 与只读接入。
+
+已落地：
+
+1. 新增 `backend/orchestration/runtime_loop/runtime_assembly_models.py`，定义 `SingleAgentRuntimeAssembly`、`NodeRuntimeAssembly`、`RuntimeContextSection`、输出/验收/失败契约、loop policy 与 `HandoffPacket`。
+2. 新增 `backend/orchestration/runtime_loop/runtime_assembly_builder.py`，支持从 `ContractManifest` 生成单 Agent assembly 和节点 assembly。
+3. 新增 `/tasks/runtime-assemblies/workflows/{workflow_id}` 与 `/tasks/runtime-assemblies/coordination/{coordination_task_id}/nodes/{node_id}` 预览接口。
+4. `StageExecutionRequest` 已能携带 `runtime_assembly`。
+5. `RuntimeContextManager` 已支持根据 assembly 的 `context_sections` 控制模型可见历史；节点 assembly 默认不含完整主会话历史。
+6. `TaskRunLoop.start` 已把 `runtime_assembly_ref` 与 `contract_manifest_ref` 写入 started event、loop state 和 task run diagnostics。
+7. `frontend/src/lib/api.ts` 已补齐 `RuntimeAssembly` 类型和 assembly 预览 API。
+
+边界说明：
+
+1. 本阶段未把 assembly 全量接管模型 prompt，只增加可见性控制与诊断追踪。
+2. 本阶段未改变协调 runtime 的推进顺序。
+3. 节点 handoff packet 保留 A2A trace，但业务契约仍来自 manifest/assembly。
+
+验证：
+
+```text
+$env:PYTHONPATH='backend'; pytest backend\tests\task_contract_registry_test.py backend\tests\contract_compiler_workflow_test.py backend\tests\contract_compiler_coordination_test.py backend\tests\runtime_assembly_builder_test.py backend\tests\task_system_api_regression.py
+npx tsc --noEmit
+```
+
 ---
 
 ## 4. 阶段四：前端契约库和任务契约入口
@@ -702,6 +729,34 @@ Coordination edge inspector
 5. 保存前可显示编译预检结果。
 6. 按钮和页面切换符合现有任务系统层级，不混页。
 
+### 4.7 当前实施状态
+
+状态：已完成第一版前端契约入口与拓扑契约绑定。
+
+已落地：
+
+1. 任务系统层级已从 `contracts` 拆为 `contract_overview` 与 `contract_library`。
+2. 新增 `ContractLibraryPanel`，支持新建、编辑、删除 `ContractSpec`，并以中文名称作为选择主显示。
+3. 新增 `ContractOverviewPanel`，支持按当前单任务生成 workflow manifest、single-agent runtime assembly，并支持按当前协调任务生成 coordination manifest、选中节点 runtime assembly。
+4. 新增 `TaskContractPanel`，把具体任务的默认输入契约、默认输出契约、workflow 输出契约集中成任务契约入口。
+5. 协调任务节点检查器已支持绑定节点契约和 runtime lane。
+6. 协调任务边检查器已支持绑定 edge handoff 契约，并继续保持 A2A 只作为通信层预览。
+7. 后端 `contract_compiler` 已识别节点 `node_contract_id` / `contract_refs` 覆盖，并将其编入 `CompiledNodeContract.contract_refs`。
+
+边界说明：
+
+1. `ContractSpec` 的字段、验收、上下文策略第一版使用 JSON 编辑区，后续可继续细化为结构化字段编辑器。
+2. 前端已提供 manifest / assembly 预览入口，但阶段四不改变协调 runtime 推进逻辑。
+3. 节点契约覆盖已进入 manifest；真正参与多 Agent loop 的状态推进仍留到阶段五。
+
+验证：
+
+```text
+$env:PYTHONPATH='backend'; python -m compileall backend\orchestration\runtime_loop backend\tasks backend\api\tasks.py
+$env:PYTHONPATH='backend'; pytest backend\tests\task_contract_registry_test.py backend\tests\contract_compiler_workflow_test.py backend\tests\contract_compiler_coordination_test.py backend\tests\runtime_assembly_builder_test.py backend\tests\task_system_api_regression.py
+npx tsc --noEmit
+```
+
 ---
 
 ## 5. 阶段五：LangGraph 协调 Loop
@@ -753,6 +808,35 @@ acceptance_results
 5. 已 satisfied 节点恢复后不重复执行。
 6. 失败节点按 failure policy 进入 retry、blocked 或 failed。
 
+### 5.5 当前实施状态
+
+状态：已完成第一版 ContractManifest / RuntimeAssembly 接入 LangGraph 协调 loop。
+
+已落地：
+
+1. `CoordinationRuntimeState` 已扩展 `contract_manifest`、`contract_status`、`node_contracts`、`edge_contracts`、`ready_nodes`、`blocked_nodes`、`running_nodes`、`completed_nodes`、`failed_nodes`、`handoff_packets`、`acceptance_results`。
+2. `_bootstrap_state()` 已编译 `ContractManifest`，并把 node / edge contract 索引写入 runtime state。
+3. `_route_next()` 已从线性 `stage_order + index` 改为基于拓扑边的 ready / blocked 计算；汇聚节点会等待所有上游完成。
+4. `_stage_accept()` 已写入 `contract_status.node_status` 与 `acceptance_results`；失败结果会按 stage retry policy 重试或进入 failed 终态。
+5. `_stage_prepare()` 在缺少必需输入时写入 blocked 状态和 contract status。
+6. `_stage_execute()` 已为当前节点生成 `NodeRuntimeAssembly`，并随 `StageExecutionRequest.runtime_assembly` 进入后续 Agent loop。
+7. A2A payload 已携带 `runtime_assembly_ref`、`contract_manifest_ref` 和 handoff packets，但 A2A 仍只作为通信承载，不承担业务契约定义。
+8. `CoordinationTraceAdapter` 已把 manifest ref、contract status、ready/blocked/running/completed/failed 节点集合写入运行诊断。
+
+边界说明：
+
+1. 旧 `stage_contracts` 仍作为输入绑定的过渡来源；业务契约来源已经转为 `ContractManifest` / `RuntimeAssembly`。
+2. 第一版 failure policy 已支持 stage 级 `retry_once` / `retry_limit`；更细的 contract `failure_policy`、`human_gate_policy` 仍需在后续运行状态里继续展开。
+3. 本阶段先保证 topology route、assembly 注入、handoff trace 和 blocked 可观测；复杂并发执行仍按一次返回一个 `StageExecutionRequest` 推进。
+
+验证：
+
+```text
+$env:PYTHONPATH='backend'; pytest backend\tests\task_contract_registry_test.py backend\tests\contract_compiler_workflow_test.py backend\tests\contract_compiler_coordination_test.py backend\tests\runtime_assembly_builder_test.py backend\tests\langgraph_coordination_runtime_regression.py backend\tests\task_system_api_regression.py
+$env:PYTHONPATH='backend'; python -m compileall backend\tasks backend\orchestration\runtime_loop backend\api\tasks.py
+npx tsc --noEmit
+```
+
 ---
 
 ## 6. 阶段六：监控与可视化
@@ -788,9 +872,114 @@ a2a message preview
 4. 点击边可看 handoff packet 和 A2A payload。
 5. 复杂拓扑节点尺寸不挤占画布。
 
+### 6.4 当前实施状态
+
+状态：已完成第一版运行监控可视化。
+
+已落地：
+
+1. `CoordinationTraceAdapter` 已在 `coordination_flow_*` 事件中直接输出 `langgraph_runtime_state`，包含 manifest ref、contract status、ready/blocked/running/completed/failed 节点集合和最近 handoff packets。
+2. `CoordinationRunPanel` 已从运行事件提取 `ContractStatus`，并将 ready、blocked、running、completed、failed 合并进拓扑节点状态。
+3. 协调监控面板新增“契约运行状态”，显示 manifest、节点集合计数、节点契约 refs、缺失 required inputs 和 manifest issues。
+4. 协调监控面板新增“A2A Handoff”预览，显示最近 handoff packet 的 source/target、message type、契约 refs 与 runtime/manifest ref。
+5. 拓扑节点点击后可切换节点契约摘要；拓扑边点击后可筛选对应 source/target 的 handoff packet。
+6. `CoordinationTopologyGraph` 已支持 `ready`、`blocked`、`waiting/human_gate`、`satisfied` 等运行状态映射。
+7. `globals.css` 已补齐对应视觉样式，并在移动端保持契约监控卡片单列布局。
+
+边界说明：
+
+1. 本阶段先在现有聊天协调监控面板中展示运行态，不把监控入口搬到编排系统页，避免页面层级混乱。
+2. 节点/边点击当前先联动运行卡片；更完整的 inspector 级展开仍可在后续阶段细化。
+3. A2A 仍只作为通信承载，前端展示的是 handoff packet 的运行摘要，不把 A2A payload 当作业务契约源。
+
+验证：
+
+```text
+$env:PYTHONPATH='backend'; pytest backend\tests\langgraph_coordination_runtime_regression.py backend\tests\runtime_assembly_builder_test.py
+$env:PYTHONPATH='backend'; python -m compileall backend\orchestration\runtime_loop
+cd frontend; npx tsc --noEmit
+cd frontend; npm run build
+```
+
 ---
 
-## 7. 分阶段验证命令
+## 7. 阶段七：失败策略、人工门控与验收状态闭环
+
+### 7.1 修改文件
+
+```text
+backend/orchestration/runtime_loop/langgraph_coordination_runtime.py
+backend/orchestration/runtime_loop/coordination_trace_adapter.py
+backend/tests/langgraph_coordination_runtime_regression.py
+frontend/src/components/chat/CoordinationRunPanel.tsx
+frontend/src/app/globals.css
+```
+
+### 7.2 Runtime 语义
+
+```text
+accepted=true
+  -> ContractStatus.node_status = satisfied
+  -> node_statuses = completed
+  -> route_next
+
+accepted=false + retry policy remaining
+  -> ContractStatus.node_status = pending_retry
+  -> node_statuses = pending
+  -> route_next 指回原节点
+
+accepted=false + human gate policy
+  -> ContractStatus.node_status = human_gate
+  -> node_statuses = waiting_for_human
+  -> terminal_status = waiting_for_human
+  -> resume_human_gate 决定 approve / retry / reject
+
+accepted=false + fail closed
+  -> ContractStatus.node_status = failed
+  -> node_statuses = failed
+  -> terminal_status = failed
+```
+
+### 7.3 完成标准
+
+1. 失败节点按策略进入 retry、human_gate 或 failed。
+2. human_gate 状态可写入 checkpoint、trace diagnostics 和 ContractStatus。
+3. resume_human_gate 支持 approve、retry、reject 三类决策。
+4. 前端监控可显示 human_gate/pending_retry/failed 的契约节点状态。
+5. 测试覆盖 retry、human_gate approve、human_gate retry、human_gate reject。
+
+### 7.4 当前实施状态
+
+状态：已完成第一版失败策略、人工门控与验收状态闭环。
+
+已落地：
+
+1. `LangGraphCoordinationRuntime._stage_accept()` 已将 `accepted=false` 分流为 retry、human_gate 或 failed。
+2. retry 分支会写入 `ContractStatus.node_status = pending_retry`，并通过 `retry_stage_id` 指回原节点重新执行。
+3. human gate 分支会写入 `node_statuses = waiting_for_human`、`terminal_status = waiting_for_human`、`ContractStatus.node_status = human_gate` 和 checkpoint 中的 `human_gate` 对象。
+4. `resume_human_gate()` 已支持 `approve`、`retry`、`reject` 三类决策：批准后继续下游，重试后回到原节点，拒绝后 fail closed。
+5. `CoordinationTraceAdapter` 已输出 `waiting_nodes` 与 `human_gate`，供前端监控读取。
+6. 前端协调监控已显示 `waiting_nodes` 计数，并支持 `human_gate`、`pending_retry` 的节点契约状态样式。
+7. `langgraph_coordination_runtime_regression.py` 已覆盖 retry、human_gate waiting、approve、retry、reject。
+
+边界说明：
+
+1. 第一版 human gate 先以 runtime resume API 为准，尚未做完整人工审批表单。
+2. ContractSpec 中更细的 `human_gate_policy` 和 `failure_policy` 后续可继续编译进节点 contract；本阶段先把 runtime 状态闭环打通。
+3. human gate 批准目前视为该节点验收通过；如果后续要支持“人工补产物”，需要在 resume payload 中补充 artifact/result 写入规则。
+
+验证：
+
+```text
+$env:PYTHONPATH='backend'; pytest backend\tests\task_contract_registry_test.py backend\tests\contract_compiler_workflow_test.py backend\tests\contract_compiler_coordination_test.py backend\tests\runtime_assembly_builder_test.py backend\tests\langgraph_coordination_runtime_regression.py backend\tests\task_system_api_regression.py
+$env:PYTHONPATH='backend'; python -m compileall backend\tasks backend\orchestration\runtime_loop backend\api\tasks.py
+cd frontend; npx tsc --noEmit
+cd frontend; npm run build
+```
+
+---
+
+## 8. 分阶段验证命令
 
 ### 后端基础
 
@@ -818,7 +1007,7 @@ npm run build
 
 ---
 
-## 8. 禁止清单
+## 9. 禁止清单
 
 1. 禁止只添加字段、不接 runtime。
 2. 禁止让 `ContractSpec` 直接混入运行状态。
@@ -831,7 +1020,7 @@ npm run build
 
 ---
 
-## 9. 建议执行顺序
+## 10. 建议执行顺序
 
 ```text
 1. ContractSpec 主数据
@@ -840,6 +1029,7 @@ npm run build
 4. 前端契约库、任务契约入口、拓扑绑定
 5. LangGraph coordination loop
 6. 监控与可视化
+7. 失败策略、人工门控与验收状态闭环
 ```
 
 每阶段完成后再进入下一阶段。阶段五之前不改协调 runtime 的推进逻辑；阶段三只让 `RuntimeContextManager` 支持 assembly 可见上下文，不在此阶段启用复杂多 Agent 上下文模式。

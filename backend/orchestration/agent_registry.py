@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             description="系统主会话入口，承接通用任务并负责最终整合输出。",
             enabled=True,
             builtin=True,
-            editable=True,
+            editable=False,
             default_soul_id="",
             default_projection_id="",
             task_scope=("general_task", "final_integration"),
@@ -59,7 +60,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             description="对接权限系统会话窗口，负责权限系统相关管理任务。",
             enabled=True,
             builtin=True,
-            editable=True,
+            editable=False,
             default_soul_id="siyue",
             default_projection_id="siyue__primary",
             task_scope=("permission_management",),
@@ -75,7 +76,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             description="对接记忆系统会话窗口，负责记忆系统相关管理任务。",
             enabled=True,
             builtin=True,
-            editable=True,
+            editable=False,
             default_soul_id="hebo",
             default_projection_id="hebo__primary",
             task_scope=("memory_management",),
@@ -91,7 +92,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             description="对接健康系统会话窗口，负责健康维护和健康分析类任务。",
             enabled=True,
             builtin=True,
-            editable=True,
+            editable=False,
             default_soul_id="xuannv",
             default_projection_id="xuannv__primary",
             task_scope=("health_management", "health_issue_triage"),
@@ -107,7 +108,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             description="对接能力系统会话窗口，负责工具、skills 与执行能力相关管理任务。",
             enabled=True,
             builtin=True,
-            editable=True,
+            editable=False,
             default_soul_id="zhurong",
             default_projection_id="zhurong__primary",
             task_scope=("capability_management", "execution_management"),
@@ -123,7 +124,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             description="对接灵魂系统会话窗口，负责人格设定、上下文组织风格与投影相关任务。",
             enabled=True,
             builtin=True,
-            editable=True,
+            editable=False,
             default_soul_id="goumang",
             default_projection_id="goumang__primary",
             task_scope=("soul_management", "projection_management"),
@@ -148,7 +149,11 @@ class AgentRegistry:
             [item for item in list(payload.get("agents") or []) if isinstance(item, dict)],
             key="agent_id",
         )
-        migrated = [_migrate_agent_payload(item) for item in raw_agents]
+        default_by_id = {str(item.get("agent_id") or ""): item for item in default_payload}
+        migrated = [
+            _enforce_system_builtin_payload(_migrate_agent_payload(item), default_by_id=default_by_id)
+            for item in raw_agents
+        ]
         migrated = [self._hydrate_main_agent_defaults(item) for item in migrated]
         if payload.get("agents") != migrated:
             _write_json(self.agents_path, {"agents": migrated})
@@ -181,13 +186,7 @@ class AgentRegistry:
             raise KeyError(agent_id)
         if current.builtin and not enabled:
             raise PermissionError("system builtin agent cannot be disabled")
-        updated = AgentDescriptor(
-            **{
-                **current.__dict__,
-                "enabled": bool(enabled),
-                "updated_at": time.time(),
-            }
-        )
+        updated = replace(current, enabled=bool(enabled), updated_at=time.time())
         agents = [updated if item.agent_id == updated.agent_id else item for item in self.list_agents()]
         _write_json(self.agents_path, {"agents": [item.to_dict() for item in agents]})
         return updated
@@ -222,6 +221,23 @@ class AgentRegistry:
             raise ValueError("unsupported agent_category")
         current = self.get_agent(target)
         timestamp = time.time()
+        if current is not None and current.builtin:
+            if _builtin_mutation_attempted(
+                current,
+                agent_name=agent_name,
+                display_name=display_name,
+                agent_category=agent_category,
+                profile_type=profile_type,
+                interface_target=interface_target,
+                description=description,
+                enabled=enabled,
+                lifecycle_state=lifecycle_state,
+                editable=editable,
+                task_scope=task_scope,
+                metadata=metadata,
+            ):
+                raise PermissionError("system builtin agent is locked")
+            return current
         current_projection_id = current.default_projection_id if current is not None else ""
         current_soul_id = current.default_soul_id if current is not None else ""
         current_description = current.description if current is not None else ""
@@ -397,6 +413,14 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
             **dict(payload.get("metadata") or {}),
             **(
                 {
+                    "definition_source": "system_builtin",
+                    "lifecycle_policy": "system_locked",
+                }
+                if bool(payload.get("builtin", str(payload.get("lifecycle_state") or "") == "system_builtin"))
+                else {}
+            ),
+            **(
+                {
                     "system_key": owner_system
                 }
                 if owner_system
@@ -422,4 +446,73 @@ def _agent_from_dict(payload: dict[str, Any]) -> AgentDescriptor:
         created_at=float(payload.get("created_at") or 0.0),
         updated_at=float(payload.get("updated_at") or 0.0),
         metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def _enforce_system_builtin_payload(
+    payload: dict[str, Any],
+    *,
+    default_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    agent_id = str(payload.get("agent_id") or "").strip()
+    default_payload = default_by_id.get(agent_id)
+    if not default_payload or not bool(default_payload.get("builtin")):
+        return payload
+    enforced = dict(default_payload)
+    enforced["created_at"] = float(payload.get("created_at") or default_payload.get("created_at") or 0.0)
+    enforced["updated_at"] = float(payload.get("updated_at") or default_payload.get("updated_at") or 0.0)
+    enforced["metadata"] = {
+        **dict(default_payload.get("metadata") or {}),
+        "definition_source": "system_builtin",
+        "lifecycle_policy": "system_locked",
+    }
+    enforced["editable"] = False
+    enforced["enabled"] = True
+    enforced["builtin"] = True
+    return enforced
+
+
+def _builtin_mutation_attempted(
+    current: AgentDescriptor,
+    *,
+    agent_name: str | None,
+    display_name: str | None,
+    agent_category: str | None,
+    profile_type: str | None,
+    interface_target: str,
+    description: str,
+    enabled: bool | None,
+    lifecycle_state: str | None,
+    editable: bool | None,
+    task_scope: tuple[str, ...] | list[str] | None,
+    metadata: dict[str, Any] | None,
+) -> bool:
+    requested_name = str(agent_name or display_name or current.agent_name).strip()
+    requested_category = _normalize_agent_category(agent_category or profile_type or current.agent_category)
+    requested_interface = str(interface_target or current.interface_target).strip()
+    requested_description = str(description or current.description).strip()
+    requested_enabled = bool(enabled if enabled is not None else lifecycle_state != "disabled")
+    requested_editable = bool(editable if editable is not None else current.editable)
+    requested_scope = (
+        tuple(str(item).strip() for item in task_scope if str(item).strip())
+        if task_scope is not None
+        else current.task_scope
+    )
+    protected_metadata = dict(metadata or current.metadata)
+    protected_keys = ("role", "system_key", "slot_index")
+    metadata_changed = any(
+        str(protected_metadata.get(key) or "") != str(current.metadata.get(key) or "")
+        for key in protected_keys
+    )
+    return any(
+        (
+            requested_name != current.agent_name,
+            requested_category != current.agent_category,
+            requested_interface != current.interface_target,
+            requested_description != current.description,
+            requested_enabled is not True,
+            requested_editable is not False,
+            requested_scope != current.task_scope,
+            metadata_changed,
+        )
     )

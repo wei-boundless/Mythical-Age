@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  GitBranch,
   FileText,
   Network,
+  PackageCheck,
   Sparkles,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import {
   CoordinationTopologyGraph,
@@ -53,6 +55,44 @@ type CoordinationStage = {
   status: string;
 };
 
+type CoordinationContractNode = {
+  nodeId: string;
+  title: string;
+  status: string;
+  contractRefs: string[];
+  missingRequiredInputs: string[];
+  accepted: boolean;
+  artifactRefs: string[];
+  taskResultRef: string;
+};
+
+type CoordinationHandoffPreview = {
+  key: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  messageType: string;
+  status: string;
+  contractRefs: string[];
+  artifactRefs: string[];
+  resultRefs: string[];
+  runtimeAssemblyRef: string;
+  contractManifestRef: string;
+};
+
+type CoordinationContractRuntime = {
+  manifestRef: string;
+  valid: boolean;
+  issues: string[];
+  readyNodes: string[];
+  blockedNodes: string[];
+  runningNodes: string[];
+  waitingNodes: string[];
+  completedNodes: string[];
+  failedNodes: string[];
+  nodeSummaries: CoordinationContractNode[];
+  handoffs: CoordinationHandoffPreview[];
+};
+
 type CoordinationModel = {
   hasSignal: boolean;
   title: string;
@@ -64,6 +104,7 @@ type CoordinationModel = {
   agents: CoordinationAgent[];
   artifacts: CoordinationArtifact[];
   outputs: CoordinationOutput[];
+  contractRuntime: CoordinationContractRuntime;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -74,6 +115,13 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function stringArray(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim() ? [value.trim()] : [];
+  }
+  return asArray(value).map((item) => text(item)).filter(Boolean);
 }
 
 function text(value: unknown, fallback = "") {
@@ -248,21 +296,51 @@ function collectHandoffs(events: OrchestrationEvent[]) {
   return Array.from(byId.values());
 }
 
+function collectHandoffPackets(events: OrchestrationEvent[]) {
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const event of events) {
+    walk(event.data, (record) => {
+      const packets = asArray(record.handoff_packets).map((item) => asRecord(item));
+      for (const packet of packets) {
+        const sourceNodeId = text(packet.source_node_id);
+        const targetNodeId = text(packet.target_node_id);
+        const a2aTrace = asRecord(packet.a2a_trace);
+        const key =
+          text(packet.handoff_id)
+          || (sourceNodeId && targetNodeId ? `${sourceNodeId}->${targetNodeId}:${text(packet.edge_contract_ref) || text(a2aTrace.message_type)}` : "");
+        if (!key) {
+          continue;
+        }
+        byId.set(key, packet);
+      }
+    });
+  }
+  return Array.from(byId.entries()).map(([key, packet]): CoordinationHandoffPreview => {
+    const a2aTrace = asRecord(packet.a2a_trace);
+    return {
+      key,
+      sourceNodeId: text(packet.source_node_id),
+      targetNodeId: text(packet.target_node_id),
+      messageType: text(packet.message_type) || text(a2aTrace.message_type, "message/send"),
+      status: text(packet.status, "pending"),
+      contractRefs: stringArray(packet.contract_refs || packet.contract_ref || packet.edge_contract_ref),
+      artifactRefs: stringArray(packet.artifact_refs),
+      resultRefs: stringArray(packet.result_refs),
+      runtimeAssemblyRef: text(packet.runtime_assembly_ref),
+      contractManifestRef: text(packet.contract_manifest_ref)
+    };
+  });
+}
+
 function agentLabel(profileId: string, agentId = "") {
   const labels: Record<string, string> = {
     main_interactive_agent: "主 Agent",
-    longform_plot_agent: "情节规划 Agent",
-    longform_drafting_agent: "创作起草 Agent",
-    longform_review_agent: "审查 Agent",
-    longform_continuity_agent: "连贯性 Agent",
-    longform_editor_agent: "编辑验收 Agent"
   };
   if (labels[profileId]) {
     return labels[profileId];
   }
   if (profileId) {
     return profileId
-      .replace(/^longform_/, "")
       .replace(/_agent$/, "")
       .replace(/_/g, " ");
   }
@@ -272,7 +350,6 @@ function agentLabel(profileId: string, agentId = "") {
 function nodeTitle(nodeId: string, fallback = "") {
   const labels: Record<string, string> = {
     project_scope: "项目规格锁定",
-    chapter_pipeline: "章节批次交付",
     batch_plan: "批次规划",
     batch_draft: "批次起草",
     sampling_review: "抽样审查",
@@ -303,7 +380,7 @@ function roleLabel(role: string) {
 }
 
 function statusLabel(status: string) {
-  if (status === "completed" || status === "success") {
+  if (status === "completed" || status === "success" || status === "satisfied") {
     return "完成";
   }
   if (status === "running") {
@@ -311,6 +388,18 @@ function statusLabel(status: string) {
   }
   if (status === "failed") {
     return "失败";
+  }
+  if (status === "blocked") {
+    return "阻塞";
+  }
+  if (status === "waiting" || status === "waiting_for_human" || status === "human_gate") {
+    return "等待确认";
+  }
+  if (status === "pending_retry") {
+    return "等待重试";
+  }
+  if (status === "ready") {
+    return "就绪";
   }
   return status || "待执行";
 }
@@ -354,6 +443,59 @@ function pushOutput(bucket: CoordinationOutput[], seen: Set<string>, label: stri
   });
 }
 
+function buildContractRuntime(
+  events: OrchestrationEvent[],
+  nodes: CoordinationNode[],
+  fallbackCurrentNodeId: string,
+): CoordinationContractRuntime {
+  const runtimeState = findRecord(events, ["langgraph_runtime_state"]);
+  const contractStatus = asRecord(runtimeState.contract_status);
+  const nodeStatus = asRecord(contractStatus.node_status);
+  const issues = asArray(contractStatus.issues)
+    .map((item) => {
+      const issue = asRecord(item);
+      return text(issue.message) || text(issue.issue) || text(item);
+    })
+    .filter(Boolean);
+  const nodeTitleById = new Map(nodes.map((node) => [node.id, node.title]));
+  const nodeSummaries = Object.entries(nodeStatus)
+    .map(([nodeId, raw]): CoordinationContractNode => {
+      const item = asRecord(raw);
+      return {
+        nodeId,
+        title: nodeTitleById.get(nodeId) || nodeTitle(nodeId),
+        status: text(item.status, "pending"),
+        contractRefs: stringArray(item.contract_refs),
+        missingRequiredInputs: stringArray(item.missing_required_inputs),
+        accepted: item.accepted === true,
+        artifactRefs: stringArray(item.artifact_refs),
+        taskResultRef: text(item.task_result_ref)
+      };
+    })
+    .sort((left, right) => {
+      if (left.nodeId === fallbackCurrentNodeId) {
+        return -1;
+      }
+      if (right.nodeId === fallbackCurrentNodeId) {
+        return 1;
+      }
+      return left.nodeId.localeCompare(right.nodeId);
+    });
+  return {
+    manifestRef: text(runtimeState.contract_manifest_ref) || text(contractStatus.manifest_ref),
+    valid: contractStatus.valid === true || runtimeState.valid === true,
+    issues,
+    readyNodes: stringArray(runtimeState.ready_nodes),
+    blockedNodes: stringArray(runtimeState.blocked_nodes),
+    runningNodes: stringArray(runtimeState.running_nodes),
+    waitingNodes: stringArray(runtimeState.waiting_nodes),
+    completedNodes: stringArray(runtimeState.completed_nodes),
+    failedNodes: stringArray(runtimeState.failed_nodes),
+    nodeSummaries,
+    handoffs: collectHandoffPackets(events).slice(-6)
+  };
+}
+
 function buildModel(snapshot: OrchestrationSnapshot | null): CoordinationModel {
   const events = snapshot?.events ?? [];
   const coordinationTaskRef = firstString(events, ["coordination_task_ref", "coordination_task_id"]);
@@ -362,6 +504,7 @@ function buildModel(snapshot: OrchestrationSnapshot | null): CoordinationModel {
   const agentRuns = collectAgentRuns(events);
   const nodeRuns = collectCoordinationNodeRuns(events);
   const handoffs = collectHandoffs(events);
+  const runtimeState = findRecord(events, ["langgraph_runtime_state"]);
   const { flow: flowState, stages: flowStages } = collectCoordinationStages(events);
   const statusByNode = new Map<string, string>();
   const agentByNode = new Map<string, string>();
@@ -386,6 +529,47 @@ function buildModel(snapshot: OrchestrationSnapshot | null): CoordinationModel {
   for (const stage of flowStages) {
     if (!statusByNode.has(stage.nodeId) || stage.status === "running") {
       statusByNode.set(stage.nodeId, stage.status);
+    }
+  }
+
+  for (const nodeId of stringArray(runtimeState.ready_nodes)) {
+    if (!statusByNode.has(nodeId)) {
+      statusByNode.set(nodeId, "ready");
+    }
+  }
+  for (const nodeId of stringArray(runtimeState.blocked_nodes)) {
+    statusByNode.set(nodeId, "blocked");
+  }
+  for (const nodeId of stringArray(runtimeState.running_nodes)) {
+    statusByNode.set(nodeId, "running");
+  }
+  for (const nodeId of stringArray(runtimeState.waiting_nodes)) {
+    statusByNode.set(nodeId, "waiting_for_human");
+  }
+  for (const nodeId of stringArray(runtimeState.completed_nodes)) {
+    if (statusByNode.get(nodeId) !== "running") {
+      statusByNode.set(nodeId, "completed");
+    }
+  }
+  for (const nodeId of stringArray(runtimeState.failed_nodes)) {
+    statusByNode.set(nodeId, "failed");
+  }
+
+  const contractStatus = asRecord(runtimeState.contract_status);
+  const contractNodeStatus = asRecord(contractStatus.node_status);
+  for (const [nodeId, raw] of Object.entries(contractNodeStatus)) {
+    const contractNode = asRecord(raw);
+    const contractState = text(contractNode.status);
+    if (contractState === "satisfied") {
+      if (statusByNode.get(nodeId) !== "running") {
+        statusByNode.set(nodeId, "completed");
+      }
+    } else if (contractState === "failed" || contractState === "blocked") {
+      statusByNode.set(nodeId, contractState);
+    } else if (contractState === "human_gate") {
+      statusByNode.set(nodeId, "waiting_for_human");
+    } else if (contractState === "pending_retry") {
+      statusByNode.set(nodeId, "ready");
     }
   }
 
@@ -478,6 +662,8 @@ function buildModel(snapshot: OrchestrationSnapshot | null): CoordinationModel {
   const currentNodeId =
     flowCurrentNodeId ||
     allNodes.find((node) => node.status === "running")?.id ||
+    stringArray(runtimeState.running_nodes)[0] ||
+    stringArray(runtimeState.blocked_nodes)[0] ||
     text(events[events.length - 1]?.node_id) ||
     "";
   if (!currentAgentKey && currentNodeId) {
@@ -656,7 +842,8 @@ function buildModel(snapshot: OrchestrationSnapshot | null): CoordinationModel {
     edges,
     agents,
     artifacts,
-    outputs: outputs.slice(-6)
+    outputs: outputs.slice(-6),
+    contractRuntime: buildContractRuntime(events, allNodes, currentNodeId)
   };
 }
 
@@ -670,13 +857,35 @@ export function CoordinationRunPanel({
   snapshot: OrchestrationSnapshot | null;
 }) {
   const model = useMemo(() => buildModel(snapshot), [snapshot]);
+  const [selectedNodeId, setSelectedNodeId] = useState("");
+  const [selectedEdgeId, setSelectedEdgeId] = useState("");
   const currentNode = model.nodes.find((node) => node.id === model.currentNodeId) ?? null;
+  const selectedNode = model.nodes.find((node) => node.id === selectedNodeId) ?? currentNode;
+  const selectedEdge = model.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
   const currentAgent = model.agents.find((agent) => agent.key === model.currentAgentKey) ?? null;
   const activeLabel = currentAgent ? currentAgent.label : currentNode ? (currentNode.agentLabel || currentNode.title) : "等待分派";
   const activeStatus = currentNode ? statusLabel(currentNode.status) : "待启动";
   const runStateLabel = currentNode?.status === "failed" ? "协调异常" : currentNode ? "协调运行中" : "等待启动";
   const outputCountLabel = model.outputs.length ? `${model.outputs.length} 条输出` : "暂无输出";
   const artifactCountLabel = model.artifacts.length ? `${model.artifacts.length} 个产物` : "暂无产物";
+  const contractRuntime = model.contractRuntime;
+  const contractStatusLabel = contractRuntime.manifestRef
+    ? contractRuntime.valid ? "Manifest 有效" : "Manifest 有问题"
+    : "未接入契约";
+  const displayHandoffs = selectedEdge
+    ? contractRuntime.handoffs.filter((handoff) => handoff.sourceNodeId === selectedEdge.from && handoff.targetNodeId === selectedEdge.to)
+    : selectedNode
+      ? contractRuntime.handoffs.filter((handoff) => handoff.sourceNodeId === selectedNode.id || handoff.targetNodeId === selectedNode.id)
+      : contractRuntime.handoffs;
+  const activeContractNode =
+    contractRuntime.nodeSummaries.find((node) => node.nodeId === selectedNode?.id)
+    ?? contractRuntime.nodeSummaries.find((node) => node.nodeId === model.currentNodeId)
+    ?? contractRuntime.nodeSummaries.find((node) => node.status === "blocked")
+    ?? contractRuntime.nodeSummaries[0]
+    ?? null;
+  const contractNodeList = activeContractNode
+    ? [activeContractNode, ...contractRuntime.nodeSummaries.filter((node) => node.nodeId !== activeContractNode.nodeId)].slice(0, 8)
+    : contractRuntime.nodeSummaries.slice(0, 8);
 
   if (!model.hasSignal) {
     return (
@@ -724,8 +933,95 @@ export function CoordinationRunPanel({
             emptyDescription="当前会话已经进入协调态，节点与交接关系会在后续运行事件到达后显示。"
             emptyTitle="协调任务已启动，正在等待拓扑数据"
             nodes={model.nodes}
+            onSelectEdge={(edgeId) => {
+              setSelectedEdgeId(edgeId);
+              setSelectedNodeId("");
+            }}
+            onSelectNode={(nodeId) => {
+              setSelectedNodeId(nodeId);
+              setSelectedEdgeId("");
+            }}
+            selectedEdgeId={selectedEdgeId}
+            selectedNodeId={selectedNode?.id || ""}
           />
         </div>
+      </section>
+
+      <section className="coordination-contract-board" aria-label="契约运行状态">
+        <article className="coordination-output-card coordination-contract-card">
+          <div className="coordination-output-card__head">
+            <span><PackageCheck size={14} /> 契约运行状态</span>
+            <strong>{contractStatusLabel}</strong>
+          </div>
+          <div className="coordination-contract-summary">
+            <div>
+              <span>Manifest</span>
+              <strong>{contractRuntime.manifestRef || "等待编译快照"}</strong>
+            </div>
+            <div>
+              <span>Ready</span>
+              <strong>{contractRuntime.readyNodes.length}</strong>
+            </div>
+            <div>
+              <span>Blocked</span>
+              <strong>{contractRuntime.blockedNodes.length}</strong>
+            </div>
+            <div>
+              <span>Waiting</span>
+              <strong>{contractRuntime.waitingNodes.length}</strong>
+            </div>
+            <div>
+              <span>Completed</span>
+              <strong>{contractRuntime.completedNodes.length}</strong>
+            </div>
+            <div>
+              <span>Failed</span>
+              <strong>{contractRuntime.failedNodes.length}</strong>
+            </div>
+          </div>
+          <div className="coordination-contract-node-list">
+            {contractNodeList.length ? contractNodeList.map((node) => (
+              <article className={`coordination-contract-node coordination-contract-node--${node.status}`} key={node.nodeId}>
+                <div>
+                  <strong>{node.title}</strong>
+                  <span>{statusLabel(node.status)}</span>
+                </div>
+                <em>{node.contractRefs.length ? node.contractRefs.join(" / ") : "未绑定节点契约"}</em>
+                {node.missingRequiredInputs.length ? (
+                  <p>缺失输入：{node.missingRequiredInputs.join("、")}</p>
+                ) : null}
+              </article>
+            )) : <p className="coordination-contract-empty">当前运行事件里还没有契约状态。</p>}
+          </div>
+          {contractRuntime.issues.length ? (
+            <div className="coordination-contract-issues">
+              {contractRuntime.issues.slice(0, 4).map((issue) => <span key={issue}>{issue}</span>)}
+            </div>
+          ) : null}
+        </article>
+
+        <article className="coordination-output-card coordination-contract-card">
+          <div className="coordination-output-card__head">
+            <span><GitBranch size={14} /> A2A Handoff</span>
+            <strong>{displayHandoffs.length ? `${displayHandoffs.length} 个交接包` : "暂无交接"}</strong>
+          </div>
+          <div className="coordination-handoff-list">
+            {displayHandoffs.length ? displayHandoffs.map((handoff) => (
+              <article className="coordination-handoff-item" key={handoff.key}>
+                <div>
+                  <strong>{handoff.sourceNodeId || "上游"} {"->"} {handoff.targetNodeId || "下游"}</strong>
+                  <span>{handoff.messageType}</span>
+                </div>
+                <em>{handoff.contractRefs.length ? handoff.contractRefs.join(" / ") : "默认交接契约"}</em>
+                <small>{handoff.runtimeAssemblyRef || handoff.contractManifestRef || "等待 runtime ref"}</small>
+              </article>
+            )) : (
+              <p className="coordination-contract-empty">
+                {activeContractNode ? `${activeContractNode.title} 还没有产生下游 handoff。` : "节点完成后会显示最新 A2A 交接包。"}
+              </p>
+            )}
+          </div>
+        </article>
       </section>
 
       <section className="coordination-output-board">

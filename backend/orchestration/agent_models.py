@@ -49,6 +49,32 @@ class AgentDescriptor:
         return "enabled" if self.enabled else "disabled"
 
     @property
+    def definition_source(self) -> str:
+        if self.builtin:
+            return "system_builtin"
+        return str(self.metadata.get("definition_source") or "user_created")
+
+    @property
+    def lifecycle_policy(self) -> str:
+        if self.builtin:
+            return "system_locked"
+        return str(self.metadata.get("lifecycle_policy") or "user_managed")
+
+    @property
+    def mutable_fields(self) -> tuple[str, ...]:
+        if self.builtin:
+            return ()
+        return (
+            "agent_name",
+            "description",
+            "enabled",
+            "default_soul_id",
+            "default_projection_id",
+            "task_scope",
+            "metadata",
+        )
+
+    @property
     def governance_status(self) -> str:
         return "system_builtin" if self.builtin else "task_managed"
 
@@ -66,6 +92,9 @@ class AgentDescriptor:
         payload["profile_type"] = self.profile_type
         payload["owner_system"] = self.owner_system
         payload["lifecycle_state"] = self.lifecycle_state
+        payload["definition_source"] = self.definition_source
+        payload["lifecycle_policy"] = self.lifecycle_policy
+        payload["mutable_fields"] = list(self.mutable_fields)
         payload["governance_status"] = self.governance_status
         payload["deletable"] = self.deletable
         payload["disable_allowed"] = self.disable_allowed

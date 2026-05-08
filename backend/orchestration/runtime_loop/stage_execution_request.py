@@ -19,6 +19,7 @@ class StageExecutionRequest:
     agent_profile_id: str = ""
     runtime_lane: str = ""
     explicit_inputs: dict[str, Any] = field(default_factory=dict)
+    runtime_assembly: dict[str, Any] = field(default_factory=dict)
     a2a_payload: dict[str, Any] = field(default_factory=dict)
     message: str = ""
     artifact_root: str = ""
@@ -60,6 +61,7 @@ class StageExecutionRequest:
         payload = asdict(self)
         payload["expected_outputs"] = [dict(item) for item in self.expected_outputs]
         payload["a2a_payload"] = dict(self.a2a_payload)
+        payload["runtime_assembly"] = dict(self.runtime_assembly)
         return payload
 
     @classmethod
@@ -76,6 +78,7 @@ class StageExecutionRequest:
             agent_profile_id=str(payload.get("agent_profile_id") or ""),
             runtime_lane=str(payload.get("runtime_lane") or ""),
             explicit_inputs=dict(payload.get("explicit_inputs") or {}),
+            runtime_assembly=dict(payload.get("runtime_assembly") or {}),
             a2a_payload=dict(payload.get("a2a_payload") or {}),
             message=str(payload.get("message") or ""),
             artifact_root=str(payload.get("artifact_root") or ""),

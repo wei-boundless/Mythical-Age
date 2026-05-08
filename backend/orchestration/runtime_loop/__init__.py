@@ -32,6 +32,17 @@ from .contract_compiler_models import (
     ContractCompileIssue,
     ContractManifest,
 )
+from .runtime_assembly_builder import build_node_runtime_assembly, build_single_agent_runtime_assembly
+from .runtime_assembly_models import (
+    HandoffPacket,
+    NodeRuntimeAssembly,
+    RuntimeAcceptanceContract,
+    RuntimeContextSection,
+    RuntimeFailureContract,
+    RuntimeLoopPolicy,
+    RuntimeOutputContract,
+    SingleAgentRuntimeAssembly,
+)
 from .event_log import RuntimeEventLog
 from .events import RuntimeEvent, RuntimeEventType
 from .execution_record import (
@@ -92,6 +103,14 @@ __all__ = [
     "CompiledEdgeHandoffContract",
     "CompiledRuntimeContract",
     "CompiledAcceptanceContract",
+    "SingleAgentRuntimeAssembly",
+    "NodeRuntimeAssembly",
+    "RuntimeContextSection",
+    "RuntimeOutputContract",
+    "RuntimeAcceptanceContract",
+    "RuntimeFailureContract",
+    "RuntimeLoopPolicy",
+    "HandoffPacket",
     "RuntimeEventLog",
     "RuntimeEventType",
     "RuntimeLoopState",
@@ -119,6 +138,8 @@ __all__ = [
     "build_executor_error_observation",
     "compile_workflow_contract_manifest",
     "compile_coordination_contract_manifest",
+    "build_single_agent_runtime_assembly",
+    "build_node_runtime_assembly",
     "build_coordination_flow_state",
     "build_execution_receipt",
     "build_idempotency_token",

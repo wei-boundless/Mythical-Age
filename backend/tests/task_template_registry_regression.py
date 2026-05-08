@@ -7,12 +7,52 @@ def test_task_template_registry_lists_core_templates() -> None:
     templates = TaskTemplateRegistry().list_templates()
     template_ids = {item.template_id for item in templates}
 
+    assert "template.general.main_conversation" in template_ids
     assert "template.chat.general_response" in template_ids
     assert "template.rag.knowledge_answer" in template_ids
     assert "template.pdf.document_analysis" in template_ids
     assert "template.data.structured_analysis" in template_ids
     assert "template.dev.workspace_patch" in template_ids
     assert "template.dev.light_web_game" in template_ids
+
+
+def test_task_template_registry_fallback_uses_canonical_general_template() -> None:
+    registry = TaskTemplateRegistry()
+    template = registry.select_template(
+        user_goal="给我一个简短结论",
+        query_understanding={},
+        current_turn_context={"authority": "context.current_turn", "execution_mode": "single"},
+        definitions=[],
+    )
+
+    assert template.template_id == "template.general.main_conversation"
+
+
+def test_task_template_registry_never_returns_unregistered_template() -> None:
+    registry = TaskTemplateRegistry()
+    template_ids = {item.template_id for item in registry.list_templates()}
+    scenarios = [
+        ({}, {"authority": "context.current_turn"}),
+        ({"route_hint": "rag", "execution_posture": "direct_rag"}, {"authority": "context.current_turn"}),
+        ({"route_hint": "pdf", "preferred_skill": "pdf-analysis"}, {"authority": "context.current_turn"}),
+        ({"route_hint": "structured_data", "preferred_skill": "structured-data-analysis"}, {"authority": "context.current_turn"}),
+        ({"route_hint": "workspace_read", "execution_posture": "builtin_tool_lane"}, {"authority": "context.current_turn"}),
+    ]
+    for query_understanding, current_turn_context in scenarios:
+        task_intent = registry.build_task_intent_contract(
+            session_id="session-template-registered",
+            task_id="task-template-registered",
+            user_goal="测试任务模板选择",
+            query_understanding=query_understanding,
+            current_turn_context=current_turn_context,
+        )
+        match = registry.match_template(
+            task_intent_contract=task_intent,
+            query_understanding=query_understanding,
+            current_turn_context=current_turn_context,
+            definitions=[],
+        )
+        assert match.template_id in template_ids
 
 
 def test_task_template_registry_selects_game_template_for_light_web_game_request() -> None:
@@ -72,17 +112,11 @@ def test_task_system_overview_exposes_templates_and_validation_matrix(tmp_path) 
     payload = TaskFlowRegistry(tmp_path).build_overview()
 
     assert payload["summary"]["task_template_count"] >= 6
-    assert payload["summary"]["projection_binding_count"] >= 1
-    assert payload["summary"]["flow_contract_binding_count"] >= 1
-    assert payload["summary"]["adoption_plan_count"] >= 1
-    assert payload["summary"]["memory_request_profile_count"] >= 1
-    assert payload["summary"]["communication_protocol_count"] >= 1
+    assert payload["summary"]["projection_binding_count"] == 0
+    assert payload["summary"]["flow_contract_binding_count"] == 0
+    assert payload["summary"]["adoption_plan_count"] == 0
+    assert payload["summary"]["memory_request_profile_count"] == 0
+    assert payload["summary"]["communication_protocol_count"] == 0
     assert payload["templates"]
-    assert payload["specific_task_records"]
-    assert payload["projection_bindings"]
-    assert payload["flow_contract_bindings"]
-    assert payload["agent_adoption_plans"]
-    assert payload["memory_request_profiles"]
-    assert payload["communication_protocols"]
     assert payload["template_validation_matrix"]["authority"] == "task_system.template_validation_matrix"
     assert all("template_id" in row for row in payload["template_validation_matrix"]["rows"])

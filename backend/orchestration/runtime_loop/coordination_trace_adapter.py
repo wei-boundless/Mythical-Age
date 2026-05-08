@@ -49,6 +49,12 @@ class CoordinationTraceAdapter:
             "blocked": str(state.get("terminal_status") or "") == "blocked",
             "waiting_for_human": str(state.get("terminal_status") or "") == "waiting_for_human",
             "missing_required_inputs": list(state.get("missing_required_inputs") or []),
+            "ready_nodes": list(state.get("ready_nodes") or []),
+            "blocked_nodes": list(state.get("blocked_nodes") or []),
+            "running_nodes": list(state.get("running_nodes") or []),
+            "waiting_nodes": list(state.get("waiting_nodes") or []),
+            "completed_nodes": list(state.get("completed_nodes") or []),
+            "failed_nodes": list(state.get("failed_nodes") or []),
             "completed_stage_ids": [
                 str(stage.get("stage_id") or "")
                 for stage in stages
@@ -78,6 +84,21 @@ class CoordinationTraceAdapter:
                 "active_task_ref": str(state.get("active_task_ref") or ""),
                 "terminal_status": str(state.get("terminal_status") or ""),
                 "missing_required_inputs": list(state.get("missing_required_inputs") or []),
+                "contract_manifest_ref": str(dict(state.get("contract_manifest") or {}).get("manifest_id") or ""),
+                "contract_status": dict(state.get("contract_status") or {}),
+                "ready_nodes": list(state.get("ready_nodes") or []),
+                "blocked_nodes": list(state.get("blocked_nodes") or []),
+                "running_nodes": list(state.get("running_nodes") or []),
+                "waiting_nodes": list(state.get("waiting_nodes") or []),
+                "completed_nodes": list(state.get("completed_nodes") or []),
+                "failed_nodes": list(state.get("failed_nodes") or []),
+                "human_gate": dict(state.get("human_gate") or {}),
+                "handoff_packet_count": len(list(state.get("handoff_packets") or [])),
+                "handoff_packets": [
+                    dict(item)
+                    for item in list(state.get("handoff_packets") or [])[-10:]
+                    if isinstance(item, dict)
+                ],
             },
         }
         updated_run = CoordinationRun(
@@ -109,7 +130,10 @@ class CoordinationTraceAdapter:
             self.event_log.append(
                 event_owner,
                 flow_event_type,
-                payload={"coordination_flow": flow},
+                payload={
+                    "coordination_flow": flow,
+                    "langgraph_runtime_state": dict(diagnostics.get("langgraph_runtime_state") or {}),
+                },
                 refs={"coordination_run_ref": coordination_run.coordination_run_id},
             )
         )

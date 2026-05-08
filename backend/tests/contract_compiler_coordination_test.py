@@ -12,6 +12,7 @@ def _seed_coordination_contracts(registry: TaskContractRegistry) -> None:
     for contract_id, title_zh, kind in (
         ("contract.test.node_input", "测试节点输入", "node_execution"),
         ("contract.test.node_output", "测试节点输出", "node_execution"),
+        ("contract.test.node_override", "测试节点覆盖契约", "node_execution"),
         ("contract.test.edge_handoff", "测试边交接", "edge_handoff"),
     ):
         registry.upsert_contract_spec(
@@ -52,7 +53,7 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         task_family="test",
         graph_nodes=(
             {"node_id": "coordinator", "node_type": "coordinator", "agent_id": "agent:0", "role": "coordinator"},
-            {"node_id": "worker", "node_type": "subtask", "task_id": task.task_id, "agent_id": "agent:test", "runtime_lane": "node_lane"},
+            {"node_id": "worker", "node_type": "subtask", "task_id": task.task_id, "agent_id": "agent:test", "runtime_lane": "node_lane", "node_contract_id": "contract.test.node_override"},
         ),
         graph_edges=(
             {"edge_id": "coordinator_to_worker", "from": "coordinator", "to": "worker", "mode": "dispatch"},
@@ -101,9 +102,15 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
     assert [item.node_id for item in manifest.node_contracts] == ["coordinator", "worker"]
     assert manifest.edge_handoff_contracts[0].contract_refs == ("contract.test.edge_handoff",)
     assert manifest.edge_handoff_contracts[0].message_type == "message/send"
+    assert manifest.node_contracts[1].contract_refs == (
+        "contract.test.node_input",
+        "contract.test.node_output",
+        "contract.test.node_override",
+    )
     assert {item.contract_id for item in manifest.global_contracts} == {
         "contract.test.node_input",
         "contract.test.node_output",
+        "contract.test.node_override",
         "contract.test.edge_handoff",
     }
 

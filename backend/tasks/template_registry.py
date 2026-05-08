@@ -13,42 +13,286 @@ from .definitions import TaskDefinition
 from .step_models import TaskStepBlueprint
 from .template_models import TaskTemplate, TaskValidationRule
 
-
-_LONGFORM_WRITING_SAFETY_POLICY = {
-    "safety_class": "S1_bounded_artifact_write",
-    "write_mode": "bounded_create",
-    "default_write_roots": ["docs/系统规划/任务系统实测记录/artifacts"],
-    "forbidden_paths": [".env", ".env.local", "backend", "storage", "node_modules", ".git"],
-}
-
-_LONGFORM_RUNTIME_LIMITS = {
-    "authority": "task_system.runtime_limits",
-    "limit_mode": "unlimited",
-    "max_turns": 24,
-    "max_model_calls": 24,
-    "max_runtime_seconds": None,
-    "max_events": 1200,
-}
-
-_LONGFORM_ARTIFACT_RULE = {
-    "requires_write_file": True,
-    "required_tool": "write_file",
-    "artifact_contract": "target_path_must_exist",
-}
-
-_LONGFORM_WRITE_FIRST_METADATA = {
-    "runtime_tool_policy": "write_first_artifact",
-    "artifact_generation_mode": "direct_write",
-    "read_before_write": "discouraged_unless_explicit_input_ref_required",
-}
-
 _PDF_TEMPLATE_ID = get_local_mcp_primary_template("pdf") or "template.pdf.document_analysis"
 _STRUCTURED_DATA_TEMPLATE_ID = get_local_mcp_primary_template("structured_data") or "template.data.structured_analysis"
 _RAG_TEMPLATE_ID = get_local_mcp_primary_template("retrieval") or "template.rag.knowledge_answer"
 
 
 def default_task_templates() -> tuple[TaskTemplate, ...]:
-    return ()
+    general_steps = (
+        _step("understand_request", "理解当前请求", "understand"),
+        _step("respond", "生成主会话回答", "finalize"),
+    )
+    return (
+        TaskTemplate(
+            template_id="template.general.main_conversation",
+            title="主会话通用任务",
+            description="承接没有命中特定工具、文件或注册任务的普通对话与最终回答。",
+            task_family="general",
+            task_mode="general_task",
+            output_schema={"final_answer": {"type": "string", "required": True}},
+            required_operations=("op.model_response",),
+            step_blueprints=general_steps,
+            metadata={
+                "canonical_template": True,
+                "legacy_template_ids": ("template.chat.general_response",),
+                "workflow_id": "workflow.general.main_conversation",
+                "final_answer_requirements": ("直接回答用户当前问题。",),
+            },
+        ),
+        TaskTemplate(
+            template_id="template.chat.general_response",
+            title="主会话通用任务（迁移别名）",
+            description="旧 template id 的迁移别名；运行语义与 template.general.main_conversation 相同。",
+            task_family="general",
+            task_mode="general_task",
+            output_schema={"final_answer": {"type": "string", "required": True}},
+            required_operations=("op.model_response",),
+            step_blueprints=general_steps,
+            metadata={
+                "canonical_template_id": "template.general.main_conversation",
+                "migration_alias": True,
+                "workflow_id": "workflow.general.main_conversation",
+            },
+        ),
+        TaskTemplate(
+            template_id=_RAG_TEMPLATE_ID,
+            title="知识检索回答",
+            description="通过检索能力获取证据并生成有依据的回答。",
+            task_family="retrieval",
+            task_mode="knowledge_retrieval",
+            output_schema={
+                "final_answer": {"type": "string", "required": True},
+                "task_summary_refs": {"type": "array", "required": False},
+            },
+            required_capability_tags=("retrieval",),
+            required_operations=("op.model_response", "op.mcp_retrieval"),
+            step_blueprints=(
+                _step("retrieve_evidence", "检索相关证据", "execute", required_operations=("op.mcp_retrieval",)),
+                _step("synthesize_answer", "综合检索结果", "finalize"),
+            ),
+            metadata={"source_kind": "retrieval", "workflow_id": "workflow.general.main_conversation"},
+        ),
+        TaskTemplate(
+            template_id=_PDF_TEMPLATE_ID,
+            title="PDF 文档分析",
+            description="通过 PDF 能力读取指定文档并回答问题。",
+            task_family="document",
+            task_mode="capability_execution",
+            output_schema={
+                "final_answer": {"type": "string", "required": True},
+                "task_summary_refs": {"type": "array", "required": False},
+            },
+            required_capability_tags=("pdf", "document_analysis"),
+            required_operations=("op.model_response", "op.mcp_pdf"),
+            step_blueprints=(
+                _step("analyze_pdf", "分析 PDF", "analyze", required_operations=("op.mcp_pdf",)),
+                _step("finalize_pdf_answer", "输出文档回答", "finalize"),
+            ),
+            metadata={"source_kind": "pdf", "workflow_id": "workflow.general.main_conversation"},
+        ),
+        TaskTemplate(
+            template_id=_STRUCTURED_DATA_TEMPLATE_ID,
+            title="结构化数据分析",
+            description="通过结构化数据能力读取表格或数据集并回答问题。",
+            task_family="data",
+            task_mode="capability_execution",
+            output_schema={
+                "final_answer": {"type": "string", "required": True},
+                "task_summary_refs": {"type": "array", "required": False},
+            },
+            required_capability_tags=("structured_data", "dataset_analysis"),
+            required_operations=("op.model_response", "op.mcp_structured_data"),
+            step_blueprints=(
+                _step("analyze_dataset", "分析数据集", "analyze", required_operations=("op.mcp_structured_data",)),
+                _step("finalize_dataset_answer", "输出数据回答", "finalize"),
+            ),
+            metadata={"source_kind": "dataset", "workflow_id": "workflow.general.main_conversation"},
+        ),
+        TaskTemplate(
+            template_id="template.search.information_search",
+            title="信息搜索",
+            description="搜索外部或实时信息，并汇总可追踪结果。",
+            task_family="search",
+            task_mode="information_search",
+            output_schema={"final_answer": {"type": "string", "required": True}},
+            required_operations=("op.model_response", "op.web_search", "op.fetch_url"),
+            step_blueprints=(
+                _step("search_information", "搜索信息", "execute", required_operations=("op.web_search",)),
+                _step("summarize_sources", "汇总来源", "finalize"),
+            ),
+            metadata={"workflow_id": "workflow.general.main_conversation"},
+        ),
+        TaskTemplate(
+            template_id="template.capability.builtin_tool_lane",
+            title="内置工具直达通道",
+            description="用于文件读取、路径搜索、实时工具等明确能力的单步执行。",
+            task_family="capability",
+            task_mode="capability_execution",
+            output_schema={
+                "final_answer": {"type": "string", "required": True},
+                "task_summary_refs": {"type": "array", "required": False},
+            },
+            required_operations=("op.model_response",),
+            optional_operations=(
+                "op.read_file",
+                "op.list_dir",
+                "op.stat_path",
+                "op.path_exists",
+                "op.glob_paths",
+                "op.search_files",
+                "op.search_text",
+                "op.web_search",
+                "op.fetch_url",
+            ),
+            step_blueprints=(
+                _step("execute_capability", "执行已授权能力", "execute"),
+                _step("finalize_tool_answer", "输出能力结果", "finalize"),
+            ),
+            metadata={"workflow_id": "workflow.general.main_conversation"},
+        ),
+        TaskTemplate(
+            template_id="template.bundle.multi_capability",
+            title="多能力组合任务",
+            description="将多个已绑定子任务按顺序执行，并汇总为主回答。",
+            task_family="bundle",
+            task_mode="capability_execution",
+            output_schema={
+                "final_answer": {"type": "string", "required": True},
+                "bundle_result_refs": {"type": "array", "required": False},
+            },
+            required_operations=("op.model_response",),
+            step_blueprints=(
+                _step("plan_bundle", "整理组合任务", "understand"),
+                _step("execute_bundle_items", "执行组合项", "execute"),
+                _step("finalize_bundle", "汇总组合结果", "finalize"),
+            ),
+            metadata={"workflow_id": "workflow.general.main_conversation"},
+        ),
+        TaskTemplate(
+            template_id="template.dev.workspace_patch",
+            title="工作区受限补丁",
+            description="读取工作区、实施受限补丁并汇报验证状态。",
+            task_family="development",
+            task_mode="bounded_patch",
+            output_schema={
+                "final_answer": {"type": "string", "required": True},
+                "artifact_refs": {"type": "array", "required": False},
+            },
+            required_operations=("op.model_response", "op.read_file", "op.search_text", "op.edit_file"),
+            optional_operations=("op.search_files", "op.git_diff"),
+            step_blueprints=(
+                _step("scope_patch", "锁定补丁范围", "understand"),
+                _step("inspect_code", "阅读相关代码", "analyze", required_operations=("op.read_file", "op.search_text")),
+                _step("apply_patch", "实施受限补丁", "write", required_operations=("op.edit_file",)),
+                _step("verify_patch", "验证变更", "verify"),
+                _step("finalize_patch", "汇报补丁结果", "finalize"),
+            ),
+            safety_policy={
+                "safety_class": "S1_bounded_patch",
+                "write_mode": "scoped_patch",
+                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
+            },
+            metadata={"workflow_id": "workflow.dev.bounded_patch", "default_artifact_name": ""},
+        ),
+        TaskTemplate(
+            template_id="template.dev.light_web_game",
+            title="轻量网页小游戏",
+            description="生成一个可运行、可验证的轻量网页小游戏产物。",
+            task_family="development",
+            task_mode="light_web_game",
+            output_schema={
+                "final_answer": {"type": "string", "required": True},
+                "artifact_refs": {"type": "array", "required": False},
+            },
+            required_operations=("op.model_response", "op.write_file", "op.edit_file"),
+            optional_operations=("op.read_file", "op.search_files"),
+            step_blueprints=(
+                _step("scope_game", "收束玩法目标", "understand"),
+                _step("design_game", "设计状态与渲染结构", "analyze"),
+                _step("write_game", "写入游戏产物", "write", required_operations=("op.write_file",)),
+                _step("verify_game", "验证可运行性", "verify"),
+                _step("finalize_game", "输出产物说明", "finalize"),
+            ),
+            safety_policy={
+                "safety_class": "S1_bounded_artifact_write",
+                "write_mode": "bounded_create",
+                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"],
+                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
+            },
+            metadata={
+                "workflow_id": "workflow.dev.light_web_game",
+                "default_artifact_name": "game.html",
+                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"],
+            },
+        ),
+        TaskTemplate(
+            template_id="template.dev.arcade_game_bundle",
+            title="复合网页小游戏包",
+            description="生成多文件网页小游戏包，并明确入口文件和资源关系。",
+            task_family="development",
+            task_mode="arcade_game_bundle",
+            output_schema={
+                "final_answer": {"type": "string", "required": True},
+                "artifact_refs": {"type": "array", "required": False},
+            },
+            required_operations=("op.model_response", "op.write_file", "op.edit_file"),
+            optional_operations=("op.read_file", "op.search_files"),
+            step_blueprints=(
+                _step("scope_bundle", "锁定目标目录", "understand"),
+                _step("design_bundle", "设计文件结构", "analyze"),
+                _step("write_bundle", "写入游戏包", "write", required_operations=("op.write_file",)),
+                _step("verify_bundle", "验证入口关系", "verify"),
+                _step("finalize_bundle_delivery", "输出交付结果", "finalize"),
+            ),
+            safety_policy={
+                "safety_class": "S1_bounded_artifact_write",
+                "write_mode": "bounded_create",
+                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"],
+                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
+            },
+            metadata={"workflow_id": "workflow.dev.arcade_game_bundle", "default_artifact_name": "index.html"},
+        ),
+        TaskTemplate(
+            template_id="template.health.issue_triage",
+            title="健康问题分诊",
+            description="读取健康问题和追踪引用，输出归属与分诊建议。",
+            task_family="health",
+            task_mode="issue_triage",
+            default_agent_id="agent:3",
+            allowed_agent_ids=("agent:3",),
+            output_schema={"triage_result": {"type": "object", "required": True}},
+            required_operations=("op.model_response", "op.read_file", "op.search_text"),
+            step_blueprints=(
+                _step("collect_health_refs", "收集健康证据", "analyze", required_operations=("op.read_file",)),
+                _step("finalize_triage", "输出分诊结论", "finalize"),
+            ),
+            metadata={"workflow_id": "workflow.health.issue_triage"},
+        ),
+    )
+
+
+def _step(
+    step_id: str,
+    title: str,
+    step_kind: str,
+    *,
+    executor_type: str = "model",
+    required_operations: tuple[str, ...] = (),
+    optional_operations: tuple[str, ...] = (),
+    input_refs: tuple[str, ...] = (),
+    output_contract_id: str = "",
+) -> TaskStepBlueprint:
+    return TaskStepBlueprint(
+        step_id=step_id,
+        title=title,
+        step_kind=step_kind,
+        executor_type=executor_type,
+        required_operations=required_operations,
+        optional_operations=optional_operations,
+        input_refs=input_refs,
+        output_contract_id=output_contract_id,
+    )
 
 class TaskTemplateRegistry:
     def __init__(self, base_dir: Path | None = None) -> None:
@@ -266,9 +510,10 @@ class TaskTemplateRegistry:
                 match_reasons.append("dataset_binding")
 
         if not template_id:
-            template_id = "template.chat.general_response"
+            template_id = "template.general.main_conversation"
             match_reasons.append("fallback_general_response")
 
+        template_id = _select_existing_template_id(template_id, templates)
         selected_template = templates[template_id]
         return TemplateMatchResult(
             match_id=f"template-match:{task_intent_contract.task_id}",
@@ -374,6 +619,26 @@ class TaskTemplateRegistry:
 
 def _looks_like_light_web_game(text: str) -> bool:
     return any(token in text for token in ("贪吃蛇", "小游戏", "game", "snake", "html5 game", "web game"))
+
+
+def _select_existing_template_id(template_id: str, templates: dict[str, TaskTemplate]) -> str:
+    target = str(template_id or "").strip()
+    if target in templates:
+        return target
+    aliases = {
+        "template.chat.general_response": "template.general.main_conversation",
+        "template.general.response": "template.general.main_conversation",
+        "template.local.workspace_read": "template.capability.builtin_tool_lane",
+    }
+    alias_target = aliases.get(target, "")
+    if alias_target and alias_target in templates:
+        return alias_target
+    fallback = "template.general.main_conversation"
+    if fallback in templates:
+        return fallback
+    if templates:
+        return next(iter(templates))
+    raise ValueError("no task templates registered")
 
 
 def _execution_intent_from_context(

@@ -10,7 +10,7 @@
       "description": "系统主会话入口，承接通用任务并负责最终整合输出。",
       "enabled": true,
       "builtin": true,
-      "editable": true,
+      "editable": false,
       "default_soul_id": "goumang",
       "default_projection_id": "goumang__primary",
       "task_scope": [
@@ -22,7 +22,9 @@
       "metadata": {
         "role": "main_conversation_entry",
         "system_key": "task_system",
-        "slot_index": 0
+        "slot_index": 0,
+        "definition_source": "system_builtin",
+        "lifecycle_policy": "system_locked"
       }
     },
     {
@@ -35,7 +37,7 @@
       "description": "对接权限系统会话窗口，负责权限系统相关管理任务。",
       "enabled": true,
       "builtin": true,
-      "editable": true,
+      "editable": false,
       "default_soul_id": "siyue",
       "default_projection_id": "siyue__primary",
       "task_scope": [
@@ -46,7 +48,9 @@
       "metadata": {
         "role": "system_manager",
         "system_key": "permission_system",
-        "slot_index": 1
+        "slot_index": 1,
+        "definition_source": "system_builtin",
+        "lifecycle_policy": "system_locked"
       }
     },
     {
@@ -59,7 +63,7 @@
       "description": "对接记忆系统会话窗口，负责记忆系统相关管理任务。",
       "enabled": true,
       "builtin": true,
-      "editable": true,
+      "editable": false,
       "default_soul_id": "hebo",
       "default_projection_id": "hebo__primary",
       "task_scope": [
@@ -70,7 +74,9 @@
       "metadata": {
         "role": "system_manager",
         "system_key": "memory_system",
-        "slot_index": 2
+        "slot_index": 2,
+        "definition_source": "system_builtin",
+        "lifecycle_policy": "system_locked"
       }
     },
     {
@@ -83,7 +89,7 @@
       "description": "对接健康系统会话窗口，负责健康维护和健康分析类任务。",
       "enabled": true,
       "builtin": true,
-      "editable": true,
+      "editable": false,
       "default_soul_id": "xuannv",
       "default_projection_id": "xuannv__primary",
       "task_scope": [
@@ -95,7 +101,9 @@
       "metadata": {
         "role": "system_manager",
         "system_key": "health_system",
-        "slot_index": 3
+        "slot_index": 3,
+        "definition_source": "system_builtin",
+        "lifecycle_policy": "system_locked"
       }
     },
     {
@@ -108,7 +116,7 @@
       "description": "对接能力系统会话窗口，负责工具、skills 与执行能力相关管理任务。",
       "enabled": true,
       "builtin": true,
-      "editable": true,
+      "editable": false,
       "default_soul_id": "zhurong",
       "default_projection_id": "zhurong__primary",
       "task_scope": [
@@ -120,7 +128,9 @@
       "metadata": {
         "role": "system_manager",
         "system_key": "capability_system",
-        "slot_index": 4
+        "slot_index": 4,
+        "definition_source": "system_builtin",
+        "lifecycle_policy": "system_locked"
       }
     },
     {
@@ -133,7 +143,7 @@
       "description": "对接灵魂系统会话窗口，负责人格设定、上下文组织风格与投影相关任务。",
       "enabled": true,
       "builtin": true,
-      "editable": true,
+      "editable": false,
       "default_soul_id": "goumang",
       "default_projection_id": "goumang__primary",
       "task_scope": [
@@ -145,7 +155,9 @@
       "metadata": {
         "role": "system_manager",
         "system_key": "soul_system",
-        "slot_index": 5
+        "slot_index": 5,
+        "definition_source": "system_builtin",
+        "lifecycle_policy": "system_locked"
       }
     },
     {

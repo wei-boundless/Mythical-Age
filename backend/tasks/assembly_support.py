@@ -418,12 +418,6 @@ def _align_runtime_definitions(
             definition_catalog["task.task_execution"],
             definition_catalog["task.inspection_and_correction"],
         ]
-    if template_id == "template.writing.short_story" or task_mode == "short_story":
-        return [
-            definition_catalog["task.information_synthesis"],
-            definition_catalog["task.inspection_and_correction"],
-            definition_catalog["task.final_response"],
-        ]
     return definitions
 
 
@@ -675,4 +669,4 @@ def _template_id_for_capability(capability: str) -> str:
         return template_id
     if capability in {"weather", "gold_price"}:
         return "template.search.information_search"
-    return "template.chat.general_response"
+    return "template.general.main_conversation"

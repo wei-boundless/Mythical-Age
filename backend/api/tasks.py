@@ -10,6 +10,10 @@ from orchestration.runtime_loop.contract_compiler import (
     compile_coordination_contract_manifest,
     compile_workflow_contract_manifest,
 )
+from orchestration.runtime_loop.runtime_assembly_builder import (
+    build_node_runtime_assembly,
+    build_single_agent_runtime_assembly,
+)
 from tasks import TaskContractRegistry, TaskFlowRegistry, TaskWorkflowRegistry, compile_coordination_graph_spec
 
 router = APIRouter()
@@ -447,6 +451,96 @@ async def compile_task_system_coordination_contract_manifest(coordination_task_i
         agent_profiles=agent_profiles,
     )
     return manifest.to_dict()
+
+
+@router.get("/tasks/runtime-assemblies/workflows/{workflow_id}")
+async def build_task_system_workflow_runtime_assembly(
+    workflow_id: str,
+    task_id: str = "",
+) -> dict[str, object]:
+    runtime = require_runtime()
+    flow_registry = TaskFlowRegistry(runtime.base_dir)
+    workflow_registry = TaskWorkflowRegistry(runtime.base_dir)
+    workflow = workflow_registry.get_workflow(workflow_id)
+    task = flow_registry.get_specific_task_record(task_id)
+    if workflow is None or task is None:
+        from fastapi import HTTPException
+
+        missing = "workflow" if workflow is None else "task"
+        raise HTTPException(status_code=404, detail=f"{missing} not found")
+    task_policy = dict(task.task_policy or {})
+    task_structure = dict(task_policy.get("task_structure") or {})
+    metadata = dict(task.metadata or {})
+    agent_id = str(metadata.get("agent_id") or "agent:0").strip() or "agent:0"
+    runtime_lane = str(task_structure.get("runtime_lane") or metadata.get("runtime_lane") or "").strip()
+    agent_profile = AgentRuntimeRegistry(runtime.base_dir).get_profile(agent_id)
+    manifest = compile_workflow_contract_manifest(
+        contract_registry=TaskContractRegistry(runtime.base_dir),
+        task=task,
+        workflow=workflow,
+        agent_profile=agent_profile,
+        agent_id=agent_id,
+        runtime_lane=runtime_lane,
+    )
+    assembly = build_single_agent_runtime_assembly(
+        manifest=manifest,
+        agent_profile=agent_profile,
+        explicit_inputs={},
+        runtime_lane=runtime_lane,
+    )
+    return assembly.to_dict()
+
+
+@router.get("/tasks/runtime-assemblies/coordination/{coordination_task_id}/nodes/{node_id}")
+async def build_task_system_node_runtime_assembly(
+    coordination_task_id: str,
+    node_id: str,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    registry = TaskFlowRegistry(runtime.base_dir)
+    coordination_task = registry.get_coordination_task(coordination_task_id)
+    if coordination_task is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="coordination task not found")
+    specific_tasks = tuple(registry.list_specific_task_records())
+    protocol = registry.get_task_communication_protocol(str(dict(coordination_task.metadata or {}).get("protocol_id") or ""))
+    graph_spec = compile_coordination_graph_spec(
+        coordination_task=coordination_task,
+        specific_tasks=specific_tasks,
+        topology_template=registry.get_topology_template(coordination_task.topology_template_id),
+        communication_protocol=protocol,
+    )
+    runtime_registry = AgentRuntimeRegistry(runtime.base_dir)
+    agent_profiles = tuple(
+        profile
+        for profile in (
+            runtime_registry.get_profile(str(node.agent_id or "").strip())
+            for node in graph_spec.nodes
+            if str(node.agent_id or "").strip()
+        )
+        if profile is not None
+    )
+    manifest = compile_coordination_contract_manifest(
+        contract_registry=TaskContractRegistry(runtime.base_dir),
+        coordination_task=coordination_task,
+        graph_spec=graph_spec,
+        specific_tasks=specific_tasks,
+        communication_protocol=protocol,
+        agent_profiles=agent_profiles,
+    )
+    graph_node = next((node for node in graph_spec.nodes if node.node_id == node_id), None)
+    if graph_node is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="node not found")
+    assembly = build_node_runtime_assembly(
+        manifest=manifest,
+        node_id=node_id,
+        agent_profile=runtime_registry.get_profile(graph_node.agent_id),
+        explicit_inputs={},
+    )
+    return assembly.to_dict()
 
 
 @router.put("/tasks/workflows/{workflow_id}")

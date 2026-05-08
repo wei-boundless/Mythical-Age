@@ -63,7 +63,8 @@
         "state",
         "task",
         "projection",
-        "tool"
+        "tool",
+        "runtime_contracts"
       ],
       "output_contracts": [
         "AssistantFinalAnswer",
@@ -112,11 +113,13 @@
         "health_trace_readonly"
       ],
       "allowed_context_sections": [
+        "task",
         "health_issue",
         "runtime_trace",
         "prompt_manifest",
         "memory_runtime_view",
-        "assertions"
+        "assertions",
+        "runtime_contracts"
       ],
       "output_contracts": [
         "HealthTriageResult",
@@ -126,8 +129,219 @@
       ],
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
-      "lifecycle_policy": "orchestration_managed",
-      "metadata": {}
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "system_key": "health_system",
+        "manager_kind": "health"
+      }
+    },
+    {
+      "agent_profile_id": "permission_manager_agent",
+      "agent_id": "agent:1",
+      "allowed_task_modes": [
+        "permission_management",
+        "policy_review",
+        "access_triage"
+      ],
+      "allowed_runtime_lanes": [
+        "permission_policy_read",
+        "permission_trace_read",
+        "access_review"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "permission_policy_readonly",
+        "issue_local_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_trace",
+        "prompt_manifest",
+        "runtime_contracts"
+      ],
+      "output_contracts": [
+        "PermissionPolicyReview",
+        "PermissionTriageResult",
+        "AssistantFinalAnswer"
+      ],
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "system_key": "permission_system",
+        "manager_kind": "permission"
+      }
+    },
+    {
+      "agent_profile_id": "memory_manager_agent",
+      "agent_id": "agent:2",
+      "allowed_task_modes": [
+        "memory_management",
+        "memory_trace_analysis",
+        "memory_policy_review"
+      ],
+      "allowed_runtime_lanes": [
+        "memory_trace_read",
+        "memory_policy_read",
+        "memory_context_review"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "memory_trace_readonly",
+        "state_readonly",
+        "issue_local_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "memory_runtime_view",
+        "runtime_trace",
+        "prompt_manifest",
+        "runtime_contracts"
+      ],
+      "output_contracts": [
+        "MemoryTraceAnalysis",
+        "MemoryPolicyReview",
+        "AssistantFinalAnswer"
+      ],
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "system_key": "memory_system",
+        "manager_kind": "memory"
+      }
+    },
+    {
+      "agent_profile_id": "capability_manager_agent",
+      "agent_id": "agent:4",
+      "allowed_task_modes": [
+        "capability_management",
+        "execution_management",
+        "tool_policy_review"
+      ],
+      "allowed_runtime_lanes": [
+        "capability_catalog_read",
+        "tool_policy_read",
+        "runtime_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "capability_catalog_readonly",
+        "issue_local_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "tool",
+        "runtime_trace",
+        "prompt_manifest",
+        "runtime_contracts"
+      ],
+      "output_contracts": [
+        "CapabilityPolicyReview",
+        "ToolBoundaryReport",
+        "AssistantFinalAnswer"
+      ],
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "system_key": "capability_system",
+        "manager_kind": "capability"
+      }
+    },
+    {
+      "agent_profile_id": "soul_manager_agent",
+      "agent_id": "agent:5",
+      "allowed_task_modes": [
+        "soul_management",
+        "projection_management",
+        "prompt_style_review"
+      ],
+      "allowed_runtime_lanes": [
+        "soul_projection_read",
+        "prompt_structure_read",
+        "runtime_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "projection_readonly",
+        "state_readonly",
+        "issue_local_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "prompt_manifest",
+        "runtime_trace",
+        "runtime_contracts"
+      ],
+      "output_contracts": [
+        "SoulProjectionReview",
+        "PromptStyleReview",
+        "AssistantFinalAnswer"
+      ],
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "system_key": "soul_system",
+        "manager_kind": "soul"
+      }
     }
   ]
 }

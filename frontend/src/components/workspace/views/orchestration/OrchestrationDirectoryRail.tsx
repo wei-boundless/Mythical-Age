@@ -71,7 +71,7 @@ export function OrchestrationDirectoryRail({
   selectAgent: (agentId: string) => void;
   activeGroupItems: Array<Record<string, unknown>>;
   saving: "" | "agent" | "runtime" | "group" | "create" | "delete";
-  startBlankAgentDraft: () => void;
+  startBlankAgentDraft: () => void | Promise<void>;
   startBlankGroupDraft: () => void;
   removeAgentById: (agentId: string, agentName: string) => void;
   removeSelectedGroup: () => void;

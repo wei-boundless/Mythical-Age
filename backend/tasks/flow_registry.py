@@ -25,7 +25,7 @@ from .flow_models import (
     TopologyTemplate,
 )
 from .contract_models import TaskContractDescriptor
-from .template_registry import TaskTemplateRegistry
+from .template_registry import TaskTemplateRegistry, default_task_templates
 from .workflow_registry import TaskWorkflowRegistry
 
 
@@ -70,6 +70,96 @@ def normalize_task_agent_adoption_mode(value: str) -> str:
 
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
     return ()
+
+
+def _input_contract_for_task_mode(task_mode: str) -> str:
+    return {
+        "bounded_patch": "WorkspacePatchTaskInput",
+        "light_web_game": "LightWebGameTaskInput",
+        "arcade_game_bundle": "ArcadeGameBundleTaskInput",
+        "issue_triage": "HealthIssue",
+    }.get(str(task_mode or "").strip(), "UserMessage")
+
+
+def _output_contract_for_template(template: Any) -> str:
+    task_mode = str(getattr(template, "task_mode", "") or "").strip()
+    return {
+        "light_web_game": "LightWebGameResult",
+        "arcade_game_bundle": "LightWebGameResult",
+        "issue_triage": "HealthTriageResult",
+    }.get(task_mode, "AssistantFinalAnswer")
+
+
+def _runtime_lane_for_task_mode(task_mode: str) -> str:
+    return {
+        "bounded_patch": "workspace_patch",
+        "light_web_game": "game_delivery",
+        "arcade_game_bundle": "game_delivery",
+        "issue_triage": "health_triage",
+        "knowledge_retrieval": "retrieval",
+        "information_search": "search",
+        "capability_execution": "capability_execution",
+    }.get(str(task_mode or "").strip(), "main_conversation")
+
+
+def _memory_scope_for_family(task_family: str) -> str:
+    return {
+        "development": "workspace_state",
+        "writing": "story_project",
+        "health": "health_issue",
+        "retrieval": "knowledge_context",
+        "document": "source_document",
+        "data": "source_dataset",
+        "search": "search_context",
+        "capability": "tool_context",
+        "bundle": "bundle_context",
+    }.get(str(task_family or "").strip(), "conversation")
+
+
+def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRecord | None:
+    target = str(task_id or "").strip()
+    task_template_ids = {
+        "task.dev.workspace_patch": "template.dev.workspace_patch",
+        "task.dev.light_web_game": "template.dev.light_web_game",
+        "task.dev.arcade_game_bundle": "template.dev.arcade_game_bundle",
+        "task.health.issue_triage": "template.health.issue_triage",
+    }
+    template_id = task_template_ids.get(target)
+    if not template_id:
+        return None
+    template = next((item for item in default_task_templates() if item.template_id == template_id), None)
+    if template is None:
+        return None
+    workflow_id = str(dict(template.metadata or {}).get("workflow_id") or "").strip()
+    task_mode = str(template.task_mode or "").strip()
+    task_family = str(template.task_family or "").strip()
+    return SpecificTaskRecord(
+        task_id=target,
+        task_title=str(template.title or target),
+        task_family=task_family,
+        task_mode=task_mode,
+        description=str(template.description or template.title or target),
+        enabled=True,
+        input_contract_id=_input_contract_for_task_mode(task_mode),
+        output_contract_id=_output_contract_for_template(template),
+        acceptance_profile_id="",
+        default_flow_contract_id=workflow_id.replace("workflow.", "flow.", 1) if workflow_id else f"flow.{target.removeprefix('task.')}",
+        default_workflow_id=workflow_id,
+        default_projection_policy="workflow_compatible_or_task_default",
+        task_policy={
+            "safety_policy": dict(getattr(template, "safety_policy", {}) or {}),
+            "task_structure": {
+                "runtime_lane_hint": _runtime_lane_for_task_mode(task_mode),
+                "memory_scope_hint": _memory_scope_for_family(task_family),
+                "task_resource_kind": task_mode or task_family,
+            },
+        },
+        metadata={
+            "managed_by": "task_system",
+            "source": "task_template_registry_runtime_projection",
+            "template_id": template_id,
+        },
+    )
 
 def _storage_root(base_dir: Path) -> Path:
     return ProjectLayout.from_backend_dir(base_dir).tasks_dir
@@ -726,7 +816,13 @@ class TaskFlowRegistry:
 
     def get_task_assignment(self, task_id: str) -> TaskAssignment | None:
         target = str(task_id or "").strip()
-        return next((item for item in self.list_task_assignments() if item.task_id == target), None)
+        stored_assignment = next((item for item in self.list_task_assignments() if item.task_id == target), None)
+        if stored_assignment is not None:
+            return stored_assignment
+        synthetic_record = _synthetic_specific_task_record_for_runtime(target)
+        if synthetic_record is None:
+            return None
+        return self._assignment_from_specific_task_record(synthetic_record)
 
     def next_specific_task_id(self) -> str:
         ids = [item.task_id for item in self.list_task_assignments()]
@@ -1011,7 +1107,10 @@ class TaskFlowRegistry:
 
     def get_specific_task_record(self, task_id: str) -> SpecificTaskRecord | None:
         target = str(task_id or "").strip()
-        return next((item for item in self.list_specific_task_records() if item.task_id == target), None)
+        stored_record = next((item for item in self.list_specific_task_records() if item.task_id == target), None)
+        if stored_record is not None:
+            return stored_record
+        return _synthetic_specific_task_record_for_runtime(target)
 
     def upsert_task_assignment(
         self,

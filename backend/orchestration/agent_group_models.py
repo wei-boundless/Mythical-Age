@@ -24,8 +24,6 @@ class AgentGroup:
             raise ValueError("AgentGroup authority must be orchestration.agent_group")
         if not self.group_id:
             raise ValueError("AgentGroup requires group_id")
-        if not self.coordinator_agent_id:
-            raise ValueError("AgentGroup requires coordinator_agent_id")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

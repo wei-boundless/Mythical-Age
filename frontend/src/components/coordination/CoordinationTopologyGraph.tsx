@@ -48,7 +48,7 @@ function shortNodeGlyph(label: string) {
 }
 
 function statusClass(status = "") {
-  if (status === "completed" || status === "success") {
+  if (status === "completed" || status === "success" || status === "satisfied") {
     return "is-complete";
   }
   if (status === "running") {
@@ -56,6 +56,18 @@ function statusClass(status = "") {
   }
   if (status === "failed") {
     return "is-failed";
+  }
+  if (status === "blocked") {
+    return "is-blocked";
+  }
+  if (status === "waiting" || status === "waiting_for_human" || status === "human_gate") {
+    return "is-waiting";
+  }
+  if (status === "ready") {
+    return "is-ready";
+  }
+  if (status === "pending_retry") {
+    return "is-ready";
   }
   return "is-idle";
 }

@@ -14,6 +14,7 @@ from orchestration import (
     AgentRuntimeRegistry,
     ControlKernel,
     TaskContract,
+    default_worker_agent_blueprints,
     build_base_unit_catalog,
 )
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
@@ -67,7 +68,7 @@ class OrchestrationAgentGroupUpsertRequest(BaseModel):
     group_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
     group_kind: str = Field(default="coordination_team", max_length=120)
-    coordinator_agent_id: str = Field(..., min_length=3, max_length=160)
+    coordinator_agent_id: str = Field(default="", max_length=160)
     member_agent_ids: list[str] = Field(default_factory=list)
     description: str = Field(default="", max_length=1000)
     default_topology_template_ids: list[str] = Field(default_factory=list)
@@ -272,7 +273,6 @@ async def orchestration_agents() -> dict[str, Any]:
         "session_read": "会话只读记忆",
         "session_working_set": "会话工作记忆",
         "workspace_context": "工作区上下文",
-        "project_longform": "长篇项目记忆",
         "health_case_memory": "健康案例记忆",
     }
     memory_scopes = sorted({item.default_memory_scope for item in flow_items if item.default_memory_scope})
@@ -326,6 +326,7 @@ async def orchestration_agents() -> dict[str, Any]:
             "output_contract_options": [_option(item, label=_choice_label_from_map(item, contract_labels)) for item in output_contracts],
             "approval_policy_options": [_option(item) for item in approval_policies],
             "trace_policy_options": [_option(item) for item in trace_policies],
+            "worker_blueprints": [item.to_dict() for item in default_worker_agent_blueprints()],
         },
     }
 
@@ -361,6 +362,8 @@ async def upsert_orchestration_agent(
             task_scope=tuple(payload.task_scope),
             metadata={**payload.metadata, "managed_by": "orchestration_console"},
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await orchestration_agents()
@@ -400,6 +403,8 @@ async def upsert_orchestration_agent_group(
             lifecycle_state=payload.lifecycle_state,
             metadata={**payload.metadata, "managed_by": "orchestration_console"},
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await orchestration_agents()
@@ -489,6 +494,8 @@ async def upsert_orchestration_agent_runtime_profile(
             lifecycle_policy=payload.lifecycle_policy,
             metadata=payload.metadata,
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await orchestration_agents()

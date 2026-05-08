@@ -19,6 +19,7 @@ import {
   deleteOrchestrationAgent,
   getSoulProjectionCards,
   getOrchestrationAgents,
+  getNextOrchestrationWorkerAgentId,
   upsertOrchestrationAgent,
   upsertOrchestrationAgentGroup,
   updateOrchestrationAgentRuntimeProfile,
@@ -115,10 +116,10 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
 };
 
 const EMPTY_GROUP_DRAFT: AgentGroupDraft = {
-  group_id: "group.writing.longform_novel_core",
-  title: "长篇小说常态协调组",
+  group_id: "group.custom.worker_group_01",
+  title: "新子 Agent 组",
   group_kind: "coordination_team",
-  coordinator_agent_id: "agent:20",
+  coordinator_agent_id: "",
   member_agent_ids: [],
   description: "",
   default_topology_template_ids: [],
@@ -200,11 +201,11 @@ function listText(value: unknown) {
 
 function makeCustomGroupId(existingGroups: OrchestrationAgentGroup[]) {
   let index = existingGroups.length + 1;
-  let groupId = `group.custom.sub_agent_group_${String(index).padStart(2, "0")}`;
+  let groupId = `group.custom.worker_group_${String(index).padStart(2, "0")}`;
   const existingIds = new Set(existingGroups.map((group) => group.group_id));
   while (existingIds.has(groupId)) {
     index += 1;
-    groupId = `group.custom.sub_agent_group_${String(index).padStart(2, "0")}`;
+    groupId = `group.custom.worker_group_${String(index).padStart(2, "0")}`;
   }
   return groupId;
 }
@@ -330,7 +331,7 @@ function groupPayloadFromDraft(draft: AgentGroupDraft): OrchestrationAgentGroup 
     group_id: draft.group_id,
     title: draft.title,
     group_kind: draft.group_kind,
-    coordinator_agent_id: draft.coordinator_agent_id || memberAgentIds[0] || "agent:20",
+    coordinator_agent_id: draft.coordinator_agent_id || "",
     member_agent_ids: memberAgentIds,
     description: draft.description,
     default_topology_template_ids: draft.default_topology_template_ids ?? [],
@@ -641,19 +642,19 @@ export function OrchestrationView() {
     }));
   }
 
-  function startBlankAgentDraft() {
-    const numericIds = agents
-      .map((agent) => /^agent:(\d+)$/.exec(String(agent.agent_id || "")))
-      .filter((match): match is RegExpExecArray => Boolean(match))
-      .map((match) => Number.parseInt(match[1], 10))
-      .filter((value) => Number.isFinite(value));
-    let nextIndex = numericIds.length ? Math.max(...numericIds) + 1 : 1;
-    let draftAgentId = `agent:${nextIndex}`;
-    const existingIds = new Set(agents.map((agent) => String(agent.agent_id)));
-    while (existingIds.has(draftAgentId)) {
-      nextIndex += 1;
-      draftAgentId = `agent:${nextIndex}`;
+  async function startBlankAgentDraft() {
+    setSaving("create");
+    setError("");
+    let draftAgentId = "";
+    try {
+      const nextId = await getNextOrchestrationWorkerAgentId();
+      draftAgentId = nextId.agent_id;
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "获取新 Agent 标识失败");
+      setSaving("");
+      return;
     }
+    setSaving("");
     setAgentMode("new");
     setGroupMode("existing");
     setSelectedAgentId("");

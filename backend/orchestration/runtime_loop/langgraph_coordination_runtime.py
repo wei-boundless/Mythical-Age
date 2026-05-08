@@ -5,12 +5,24 @@ import time
 from dataclasses import dataclass, field
 from typing import Annotated, Any, TypedDict
 
+from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from langgraph.graph import END, START, StateGraph
 
+from tasks import TaskContractRegistry
 from tasks.coordination_graph_compiler import compile_coordination_graph_spec
 
 from .a2a_stage_payload import build_stage_execution_a2a_payload
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs
+from .contract_compiler import compile_coordination_contract_manifest
+from .contract_compiler_models import (
+    CompiledAcceptanceContract,
+    CompiledEdgeHandoffContract,
+    CompiledGlobalContract,
+    CompiledNodeContract,
+    CompiledRuntimeContract,
+    ContractCompileIssue,
+    ContractManifest,
+)
 from .continuation_inputs import ContinuationInputBinder
 from .continuation_policy import (
     CoordinationContinuationPolicy,
@@ -22,6 +34,7 @@ from .continuation_policy import (
 from .coordination_trace_adapter import CoordinationTraceAdapter
 from .langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .models import CoordinationRun
+from .runtime_assembly_builder import build_node_runtime_assembly
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
 
 
@@ -35,6 +48,18 @@ class CoordinationRuntimeState(TypedDict, total=False):
     active_task_run_id: str
     stage_order: list[str]
     stage_contracts: dict[str, dict[str, Any]]
+    contract_manifest: dict[str, Any]
+    contract_status: dict[str, Any]
+    node_contracts: dict[str, dict[str, Any]]
+    edge_contracts: dict[str, dict[str, Any]]
+    ready_nodes: list[str]
+    blocked_nodes: list[str]
+    running_nodes: list[str]
+    waiting_nodes: list[str]
+    completed_nodes: list[str]
+    failed_nodes: list[str]
+    handoff_packets: list[dict[str, Any]]
+    acceptance_results: dict[str, Any]
     node_statuses: dict[str, str]
     stage_results: dict[str, dict[str, Any]]
     artifact_refs: Annotated[list[dict[str, Any]], operator.add]
@@ -198,13 +223,17 @@ class LangGraphCoordinationRuntime:
         state = self.checkpoints.get_state(thread_id=coordination_run_id)
         if not state:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_checkpoint"})
+        human_gate = dict(state.get("human_gate") or {})
+        pending_stage_id = str(resume_payload.get("stage_id") or human_gate.get("stage_id") or human_gate.get("pending_stage_id") or state.get("active_stage_id") or "").strip()
         state["human_gate"] = {
-            **dict(state.get("human_gate") or {}),
+            **human_gate,
             "resume": dict(resume_payload or {}),
+            "status": "resuming",
         }
         state["terminal_status"] = ""
         state["current_event"] = {
             "event_type": "human_gate_resumed",
+            "stage_id": pending_stage_id,
             **dict(resume_payload or {}),
         }
         graph_result = self._app.invoke(state, config={"configurable": {"thread_id": coordination_run_id}})
@@ -265,6 +294,8 @@ class LangGraphCoordinationRuntime:
     @staticmethod
     def _stage_accept(state: CoordinationRuntimeState) -> dict[str, Any]:
         event = dict(state.get("current_event") or {})
+        if str(event.get("event_type") or "") == "human_gate_resumed":
+            return _resume_human_gate_state(state=state, event=event)
         stage_id = str(event.get("stage_id") or state.get("active_stage_id") or "").strip()
         if not stage_id:
             return {"diagnostics": {**dict(state.get("diagnostics") or {}), "accept_warning": "missing_stage_id"}}
@@ -292,42 +323,146 @@ class LangGraphCoordinationRuntime:
             "accepted": bool(event.get("accepted") is True),
         }
         node_statuses = dict(state.get("node_statuses") or {})
-        node_statuses[stage_id] = "completed" if event.get("accepted") is True else "failed"
+        accepted = bool(event.get("accepted") is True)
+        retry_counts = dict(state.get("retry_counts") or {})
+        retry_stage_id = ""
+        terminal_status = ""
+        if accepted:
+            node_statuses[stage_id] = "completed"
+        elif _retry_allowed(contract=contract, retry_counts=retry_counts, stage_id=stage_id):
+            retry_counts[stage_id] = int(retry_counts.get(stage_id) or 0) + 1
+            node_statuses[stage_id] = "pending"
+            retry_stage_id = stage_id
+        elif _human_gate_required(contract):
+            node_statuses[stage_id] = "waiting_for_human"
+            terminal_status = "waiting_for_human"
+        else:
+            node_statuses[stage_id] = "failed"
+            terminal_status = "failed"
+        if terminal_status == "waiting_for_human":
+            contract_status = _set_contract_node_status(
+                dict(state.get("contract_status") or {}),
+                stage_id=stage_id,
+                node_status_value="human_gate",
+                accepted=False,
+                task_result_ref=str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
+                artifact_refs=artifact_refs,
+                missing_required_inputs=[],
+                diagnostics={"reason": "acceptance_failed_waiting_for_human"},
+            )
+        elif retry_stage_id:
+            contract_status = _set_contract_node_status(
+                dict(state.get("contract_status") or {}),
+                stage_id=stage_id,
+                node_status_value="pending_retry",
+                accepted=False,
+                task_result_ref=str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
+                artifact_refs=artifact_refs,
+                missing_required_inputs=[],
+                diagnostics={"retry_count": retry_counts.get(stage_id), "reason": "acceptance_failed_retry"},
+            )
+        else:
+            contract_status = _accept_contract_status(
+                dict(state.get("contract_status") or {}),
+                stage_id=stage_id,
+                accepted=accepted,
+                task_result_ref=str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
+                artifact_refs=artifact_refs,
+                missing_required_inputs=[],
+            )
+        diagnostics = {**dict(state.get("diagnostics") or {}), "last_accepted_stage_id": stage_id}
+        if retry_stage_id:
+            diagnostics["retry_stage_id"] = retry_stage_id
+            diagnostics["retry_counts"] = retry_counts
+        else:
+            diagnostics.pop("retry_stage_id", None)
+        human_gate = dict(state.get("human_gate") or {})
+        if terminal_status == "waiting_for_human":
+            human_gate = {
+                **human_gate,
+                "status": "waiting",
+                "stage_id": stage_id,
+                "pending_stage_id": stage_id,
+                "task_ref": str(contract.get("task_ref") or event.get("task_ref") or ""),
+                "reason": "acceptance_failed",
+                "original_event": dict(event),
+                "created_at": time.time(),
+            }
+            diagnostics["human_gate"] = {key: value for key, value in human_gate.items() if key != "original_event"}
+        elif accepted or retry_stage_id or terminal_status == "failed":
+            human_gate = {**human_gate, "status": "cleared"} if human_gate else {}
         artifact_payloads = [{"stage_id": stage_id, "ref": ref, "ref_kind": "artifact"} for ref in artifact_refs]
         return {
             "stage_results": stage_results,
             "node_statuses": node_statuses,
+            "retry_counts": retry_counts,
+            "contract_status": contract_status,
+            "human_gate": human_gate,
             "artifact_refs": artifact_payloads,
             "final_result_ref": str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
             "stage_execution_request": {},
             "a2a_payload": {},
-            "diagnostics": {**dict(state.get("diagnostics") or {}), "last_accepted_stage_id": stage_id},
+            "terminal_status": terminal_status,
+            "diagnostics": diagnostics,
         }
 
     @staticmethod
     def _route_next(state: CoordinationRuntimeState) -> dict[str, Any]:
         order = [str(item) for item in list(state.get("stage_order") or []) if str(item)]
-        active = str(state.get("active_stage_id") or "").strip()
         if not order:
             return {"terminal_status": "blocked", "missing_required_inputs": ["stage_order"]}
-        next_stage = ""
-        if active in order:
-            index = order.index(active)
-            if index + 1 < len(order):
-                next_stage = order[index + 1]
-        elif not active:
-            next_stage = order[0]
-        if not next_stage:
+        if str(state.get("terminal_status") or "") == "waiting_for_human":
+            return _runtime_node_sets(
+                order=order,
+                node_statuses=dict(state.get("node_statuses") or {}),
+                edge_contracts=dict(state.get("edge_contracts") or {}),
+                terminal_status="waiting_for_human",
+            )
+        if str(state.get("terminal_status") or "") == "failed":
+            return _runtime_node_sets(
+                order=order,
+                node_statuses=dict(state.get("node_statuses") or {}),
+                edge_contracts=dict(state.get("edge_contracts") or {}),
+                terminal_status="failed",
+            )
+        node_statuses = dict(state.get("node_statuses") or {})
+        retry_stage_id = str(dict(state.get("diagnostics") or {}).get("retry_stage_id") or "").strip()
+        if retry_stage_id and retry_stage_id in order and node_statuses.get(retry_stage_id) not in {"completed", "failed"}:
+            contracts = dict(state.get("stage_contracts") or {})
+            contract = dict(contracts.get(retry_stage_id) or {})
+            node_statuses[retry_stage_id] = "running"
+            next_sets = _runtime_node_sets(order=order, node_statuses=node_statuses, edge_contracts=dict(state.get("edge_contracts") or {}))
+            diagnostics = dict(state.get("diagnostics") or {})
+            diagnostics.pop("retry_stage_id", None)
             return {
-                "active_stage_id": "",
-                "active_task_ref": "",
-                "terminal_status": "completed",
+                **next_sets,
+                "active_stage_id": retry_stage_id,
+                "active_node_id": str(contract.get("node_id") or retry_stage_id),
+                "active_task_ref": str(contract.get("task_ref") or ""),
+                "node_statuses": node_statuses,
+                "terminal_status": "",
+                "missing_required_inputs": [],
+                "diagnostics": diagnostics,
             }
+        sets = _runtime_node_sets(order=order, node_statuses=node_statuses, edge_contracts=dict(state.get("edge_contracts") or {}))
+        ready = list(sets.get("ready_nodes") or [])
+        if not ready and sets.get("terminal_status"):
+            return sets
+        if not ready:
+            blocked_nodes = [node for node in order if node_statuses.get(node) not in {"completed", "failed"}]
+            return {
+                **sets,
+                "terminal_status": "blocked",
+                "blocked_nodes": blocked_nodes,
+                "missing_required_inputs": [f"upstream:{node}" for node in blocked_nodes],
+            }
+        next_stage = ready[0]
         contracts = dict(state.get("stage_contracts") or {})
         contract = dict(contracts.get(next_stage) or {})
-        node_statuses = dict(state.get("node_statuses") or {})
         node_statuses[next_stage] = "running"
+        next_sets = _runtime_node_sets(order=order, node_statuses=node_statuses, edge_contracts=dict(state.get("edge_contracts") or {}))
         return {
+            **next_sets,
             "active_stage_id": next_stage,
             "active_node_id": str(contract.get("node_id") or next_stage),
             "active_task_ref": str(contract.get("task_ref") or ""),
@@ -362,11 +497,26 @@ class LangGraphCoordinationRuntime:
         if binding.blocked:
             node_statuses = dict(state.get("node_statuses") or {})
             node_statuses[stage_id] = "blocked"
+            contract_status = _accept_contract_status(
+                dict(state.get("contract_status") or {}),
+                stage_id=stage_id,
+                accepted=False,
+                task_result_ref="",
+                artifact_refs=[],
+                missing_required_inputs=list(binding.missing_required_inputs),
+            )
             return {
                 "pending_inputs": dict(binding.explicit_inputs),
                 "missing_required_inputs": list(binding.missing_required_inputs),
                 "terminal_status": "blocked",
                 "node_statuses": node_statuses,
+                "contract_status": contract_status,
+                **_runtime_node_sets(
+                    order=[str(item) for item in list(state.get("stage_order") or []) if str(item)],
+                    node_statuses=node_statuses,
+                    edge_contracts=dict(state.get("edge_contracts") or {}),
+                    terminal_status="blocked",
+                ),
                 "diagnostics": {**dict(state.get("diagnostics") or {}), "binding": dict(binding.diagnostics)},
             }
         return {
@@ -375,8 +525,7 @@ class LangGraphCoordinationRuntime:
             "diagnostics": {**dict(state.get("diagnostics") or {}), "binding": dict(binding.diagnostics)},
         }
 
-    @staticmethod
-    def _stage_execute(state: CoordinationRuntimeState) -> dict[str, Any]:
+    def _stage_execute(self, state: CoordinationRuntimeState) -> dict[str, Any]:
         stage_id = str(state.get("active_stage_id") or "").strip()
         contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
         explicit_inputs = dict(state.get("pending_inputs") or {})
@@ -391,11 +540,28 @@ class LangGraphCoordinationRuntime:
             for item in list(contract.get("payload_contracts") or a2a_runtime.get("payload_contracts") or [])
             if str(item)
         ]
+        manifest = _manifest_from_payload(dict(state.get("contract_manifest") or {}))
+        node_id = str(contract.get("node_id") or stage_id)
+        agent_profile = self._agent_profile_for(str(contract.get("agent_id") or ""))
+        runtime_assembly_payload: dict[str, Any] = {}
+        handoff_packets: list[dict[str, Any]] = []
+        if manifest is not None:
+            try:
+                assembly = build_node_runtime_assembly(
+                    manifest=manifest,
+                    node_id=node_id,
+                    agent_profile=agent_profile,
+                    explicit_inputs=explicit_inputs,
+                )
+                runtime_assembly_payload = assembly.to_dict()
+                handoff_packets = [dict(item) for item in runtime_assembly_payload.get("handoff_packets") or []]
+            except ValueError:
+                runtime_assembly_payload = {}
         a2a_payload = build_stage_execution_a2a_payload(
             coordination_run_id=str(state.get("coordination_run_id") or ""),
             root_task_run_id=str(state.get("root_task_run_id") or ""),
             stage_id=stage_id,
-            node_id=str(contract.get("node_id") or stage_id),
+            node_id=node_id,
             task_ref=str(contract.get("task_ref") or state.get("active_task_ref") or ""),
             agent_id=str(contract.get("agent_id") or ""),
             source_stage_id=source_stage_id,
@@ -404,6 +570,9 @@ class LangGraphCoordinationRuntime:
             message_type=message_type,
             explicit_inputs=explicit_inputs,
             payload_contracts=payload_contracts,
+            handoff_packets=handoff_packets,
+            runtime_assembly_ref=str(runtime_assembly_payload.get("assembly_id") or ""),
+            contract_manifest_ref=str((state.get("contract_manifest") or {}).get("manifest_id") or ""),
             ack_policy=str(a2a_runtime.get("ack_policy") or "explicit_ack"),
             handoff_policy=str(a2a_runtime.get("handoff_policy") or ""),
         )
@@ -416,21 +585,26 @@ class LangGraphCoordinationRuntime:
             node_id=str(contract.get("node_id") or stage_id),
             task_ref=str(contract.get("task_ref") or state.get("active_task_ref") or ""),
             agent_id=str(contract.get("agent_id") or ""),
+            agent_profile_id=str(runtime_assembly_payload.get("agent_profile_id") or getattr(agent_profile, "agent_profile_id", "") or ""),
             runtime_lane=str(contract.get("runtime_lane") or ""),
             explicit_inputs=explicit_inputs,
+            runtime_assembly=runtime_assembly_payload,
             a2a_payload=a2a_payload,
             artifact_root=str(explicit_inputs.get("artifact_root") or ""),
             expected_outputs=tuple(dict(item) for item in list(contract.get("output_mappings") or []) if isinstance(item, dict)),
         )
+        next_handoff_packets = list(state.get("handoff_packets") or [])
+        next_handoff_packets.extend(handoff_packets)
         return {
             "stage_execution_request": request.to_dict(),
             "a2a_payload": a2a_payload,
+            "handoff_packets": next_handoff_packets,
             "terminal_status": "",
         }
 
     @staticmethod
     def _blocked(state: CoordinationRuntimeState) -> dict[str, Any]:
-        return {"terminal_status": "blocked", "stage_execution_request": {}, "a2a_payload": {}}
+        return {"terminal_status": str(state.get("terminal_status") or "blocked"), "stage_execution_request": {}, "a2a_payload": {}}
 
     @staticmethod
     def _complete(state: CoordinationRuntimeState) -> dict[str, Any]:
@@ -440,6 +614,10 @@ class LangGraphCoordinationRuntime:
     def _route_after_next(state: CoordinationRuntimeState) -> str:
         terminal = str(state.get("terminal_status") or "")
         if terminal == "blocked":
+            return "blocked"
+        if terminal == "waiting_for_human":
+            return "blocked"
+        if terminal == "failed":
             return "blocked"
         if terminal == "completed":
             return "complete"
@@ -460,9 +638,10 @@ class LangGraphCoordinationRuntime:
     def _bootstrap_state(self, *, coordination_run: CoordinationRun, coordination_task: Any) -> dict[str, Any]:
         topology_template = self.task_flow_registry.get_topology_template(coordination_run.topology_template_id)
         communication_protocol = self.task_flow_registry.get_task_communication_protocol(coordination_run.communication_protocol_id)
+        specific_tasks = tuple(self.task_flow_registry.list_specific_task_records())
         graph_spec = compile_coordination_graph_spec(
             coordination_task=coordination_task,
-            specific_tasks=tuple(self.task_flow_registry.list_specific_task_records()),
+            specific_tasks=specific_tasks,
             topology_template=topology_template,
             communication_protocol=communication_protocol,
         )
@@ -477,12 +656,47 @@ class LangGraphCoordinationRuntime:
         if current_stage and current_stage not in order:
             current_stage = order[0] if order else ""
         contract_map = {contract.stage_id: _contract_payload(contract, topology_nodes=topology_nodes) for contract in contracts}
+        for node in topology_nodes:
+            node_id = str(node.get("node_id") or "").strip()
+            if node_id and node_id not in contract_map:
+                contract_map[node_id] = _contract_payload(
+                    CoordinationStageContract(
+                        stage_id=node_id,
+                        task_ref=str(node.get("task_id") or ""),
+                        node_id=node_id,
+                    ),
+                    topology_nodes=topology_nodes,
+                )
+        if not order:
+            order = _topological_stage_order(topology_nodes, [edge.to_dict() for edge in graph_spec.edges])
+        if not current_stage and order:
+            current_stage = order[0]
+        manifest = compile_coordination_contract_manifest(
+            contract_registry=TaskContractRegistry(self.root_dir),
+            coordination_task=coordination_task,
+            graph_spec=graph_spec,
+            specific_tasks=specific_tasks,
+            communication_protocol=communication_protocol,
+            agent_profiles=tuple(AgentRuntimeRegistry(self.root_dir).list_profiles()),
+        )
+        manifest_payload = manifest.to_dict()
+        node_contracts = {
+            str(item.get("node_id") or ""): dict(item)
+            for item in list(manifest_payload.get("node_contracts") or [])
+            if str(item.get("node_id") or "")
+        }
+        edge_contracts = {
+            str(item.get("edge_id") or f"{item.get('source_node_id', '')}->{item.get('target_node_id', '')}"): dict(item)
+            for item in list(manifest_payload.get("edge_handoff_contracts") or [])
+            if str(item.get("source_node_id") or "") and str(item.get("target_node_id") or "")
+        }
         node_statuses: dict[str, str] = {}
         for stage_id in order:
             if stage_id == current_stage:
                 node_statuses[stage_id] = "running"
             else:
                 node_statuses[stage_id] = "pending"
+        runtime_sets = _runtime_node_sets(order=order, node_statuses=node_statuses, edge_contracts=edge_contracts)
         return {
             "coordination_run_id": coordination_run.coordination_run_id,
             "root_task_run_id": coordination_run.task_run_id,
@@ -492,6 +706,17 @@ class LangGraphCoordinationRuntime:
             "active_task_ref": str(contract_map.get(current_stage, {}).get("task_ref") or ""),
             "stage_order": order,
             "stage_contracts": contract_map,
+            "contract_manifest": manifest_payload,
+            "contract_status": _initial_contract_status(manifest_payload),
+            "node_contracts": node_contracts,
+            "edge_contracts": edge_contracts,
+            "ready_nodes": list(runtime_sets.get("ready_nodes") or []),
+            "blocked_nodes": list(runtime_sets.get("blocked_nodes") or []),
+            "running_nodes": list(runtime_sets.get("running_nodes") or []),
+            "completed_nodes": list(runtime_sets.get("completed_nodes") or []),
+            "failed_nodes": list(runtime_sets.get("failed_nodes") or []),
+            "handoff_packets": [],
+            "acceptance_results": {},
             "node_statuses": node_statuses,
             "stage_results": {},
             "artifact_refs": [],
@@ -518,6 +743,9 @@ class LangGraphCoordinationRuntime:
                     "handoff_policy": str(coordination_run.handoff_policy or ""),
                 },
                 "coordination_graph_spec": graph_spec.to_dict(),
+                "contract_manifest_ref": manifest.manifest_id,
+                "contract_manifest_valid": manifest.valid,
+                "contract_manifest_issue_count": len(manifest.issues),
                 "stage_contract_issues": issues,
                 "continuation_policy": CoordinationContinuationPolicy.from_metadata(
                     dict(getattr(coordination_task, "metadata", {}) or {})
@@ -529,6 +757,9 @@ class LangGraphCoordinationRuntime:
         topology_template = self.task_flow_registry.get_topology_template(coordination_run.topology_template_id)
         topology_nodes = [dict(item) for item in list(getattr(topology_template, "nodes", ()) or [])]
         return parse_stage_contracts(coordination_task=coordination_task, topology_nodes=topology_nodes)
+
+    def _agent_profile_for(self, agent_id: str) -> Any:
+        return AgentRuntimeRegistry(self.root_dir).get_profile(agent_id)
 
 
 def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -573,3 +804,427 @@ def _collect_stage_outputs(stage_results: dict[str, Any]) -> dict[str, Any]:
             if str(key):
                 outputs[str(key)] = value
     return outputs
+
+
+def _retry_allowed(*, contract: dict[str, Any], retry_counts: dict[str, Any], stage_id: str) -> bool:
+    on_failure = str(contract.get("on_failure") or "").strip()
+    retry_policy = dict(contract.get("retry_policy") or {})
+    limit = int(retry_policy.get("retry_limit") or retry_policy.get("max_attempts") or 0)
+    if on_failure == "retry_once" and limit <= 0:
+        limit = 1
+    if str(retry_policy.get("mode") or "").strip() in {"retry", "retry_once"} and limit <= 0:
+        limit = 1
+    if limit <= 0:
+        return False
+    return int(retry_counts.get(stage_id) or 0) < limit
+
+
+def _human_gate_required(contract: dict[str, Any]) -> bool:
+    gate_policy = str(contract.get("gate_policy") or "").strip()
+    on_failure = str(contract.get("on_failure") or "").strip()
+    human_gate_policy = dict(contract.get("human_gate_policy") or {})
+    return (
+        gate_policy in {"human_gate", "manual_review", "human_review", "wait_for_human"}
+        or on_failure in {"human_gate", "manual_review", "human_review", "wait_for_human"}
+        or human_gate_policy.get("enabled") is True
+    )
+
+
+def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str, Any]) -> dict[str, Any]:
+    human_gate = dict(state.get("human_gate") or {})
+    stage_id = str(event.get("stage_id") or human_gate.get("stage_id") or human_gate.get("pending_stage_id") or state.get("active_stage_id") or "").strip()
+    if not stage_id:
+        return {"diagnostics": {**dict(state.get("diagnostics") or {}), "human_gate_warning": "missing_stage_id"}}
+    decision = str(
+        event.get("decision")
+        or event.get("action")
+        or event.get("status")
+        or ("approve" if event.get("accepted") is True else "")
+    ).strip().lower()
+    node_statuses = dict(state.get("node_statuses") or {})
+    retry_counts = dict(state.get("retry_counts") or {})
+    diagnostics = dict(state.get("diagnostics") or {})
+    contract_status = dict(state.get("contract_status") or {})
+    if decision in {"approve", "approved", "accept", "accepted", "continue"}:
+        original_event = dict(human_gate.get("original_event") or {})
+        artifact_refs = [
+            str(item)
+            for item in list(event.get("artifact_refs") or original_event.get("artifact_refs") or [])
+            if str(item)
+        ]
+        node_statuses[stage_id] = "completed"
+        contract_status = _set_contract_node_status(
+            contract_status,
+            stage_id=stage_id,
+            node_status_value="satisfied",
+            accepted=True,
+            task_result_ref=str(event.get("task_result_ref") or original_event.get("task_result_ref") or original_event.get("agent_run_result_ref") or ""),
+            artifact_refs=artifact_refs,
+            missing_required_inputs=[],
+            diagnostics={"reason": "human_gate_approved"},
+        )
+        diagnostics["human_gate"] = {"status": "approved", "stage_id": stage_id}
+        return {
+            "node_statuses": node_statuses,
+            "contract_status": contract_status,
+            "human_gate": {**human_gate, "status": "approved", "stage_id": stage_id, "resume": dict(event)},
+            "terminal_status": "",
+            "missing_required_inputs": [],
+            "stage_execution_request": {},
+            "a2a_payload": {},
+            "diagnostics": diagnostics,
+        }
+    if decision in {"retry", "rework", "revise", "rerun"}:
+        retry_counts[stage_id] = int(retry_counts.get(stage_id) or 0) + 1
+        node_statuses[stage_id] = "pending"
+        contract_status = _set_contract_node_status(
+            contract_status,
+            stage_id=stage_id,
+            node_status_value="pending_retry",
+            accepted=False,
+            task_result_ref="",
+            artifact_refs=[],
+            missing_required_inputs=[],
+            diagnostics={"reason": "human_gate_retry", "retry_count": retry_counts.get(stage_id)},
+        )
+        diagnostics["retry_stage_id"] = stage_id
+        diagnostics["retry_counts"] = retry_counts
+        diagnostics["human_gate"] = {"status": "retry", "stage_id": stage_id}
+        return {
+            "node_statuses": node_statuses,
+            "retry_counts": retry_counts,
+            "contract_status": contract_status,
+            "human_gate": {**human_gate, "status": "retry", "stage_id": stage_id, "resume": dict(event)},
+            "terminal_status": "",
+            "missing_required_inputs": [],
+            "stage_execution_request": {},
+            "a2a_payload": {},
+            "diagnostics": diagnostics,
+        }
+    if decision in {"reject", "rejected", "fail", "failed"}:
+        node_statuses[stage_id] = "failed"
+        contract_status = _set_contract_node_status(
+            contract_status,
+            stage_id=stage_id,
+            node_status_value="failed",
+            accepted=False,
+            task_result_ref="",
+            artifact_refs=[],
+            missing_required_inputs=[],
+            diagnostics={"reason": "human_gate_rejected"},
+        )
+        diagnostics["human_gate"] = {"status": "rejected", "stage_id": stage_id}
+        return {
+            "node_statuses": node_statuses,
+            "contract_status": contract_status,
+            "human_gate": {**human_gate, "status": "rejected", "stage_id": stage_id, "resume": dict(event)},
+            "terminal_status": "failed",
+            "missing_required_inputs": [],
+            "stage_execution_request": {},
+            "a2a_payload": {},
+            "diagnostics": diagnostics,
+        }
+    node_statuses[stage_id] = "waiting_for_human"
+    contract_status = _set_contract_node_status(
+        contract_status,
+        stage_id=stage_id,
+        node_status_value="human_gate",
+        accepted=False,
+        task_result_ref="",
+        artifact_refs=[],
+        missing_required_inputs=[],
+        diagnostics={"reason": "human_gate_waiting_for_decision"},
+    )
+    diagnostics["human_gate"] = {"status": "waiting", "stage_id": stage_id}
+    return {
+        "node_statuses": node_statuses,
+        "contract_status": contract_status,
+        "human_gate": {**human_gate, "status": "waiting", "stage_id": stage_id, "resume": dict(event)},
+        "terminal_status": "waiting_for_human",
+        "stage_execution_request": {},
+        "a2a_payload": {},
+        "diagnostics": diagnostics,
+    }
+
+
+def _topological_stage_order(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> list[str]:
+    node_ids = [str(item.get("node_id") or item.get("id") or "").strip() for item in nodes]
+    node_ids = [item for item in node_ids if item]
+    incoming_count = {node_id: 0 for node_id in node_ids}
+    outgoing: dict[str, list[str]] = {node_id: [] for node_id in node_ids}
+    for edge in edges:
+        source = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
+        target = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+        if source in incoming_count and target in incoming_count:
+            incoming_count[target] += 1
+            outgoing[source].append(target)
+    queue = [node_id for node_id in node_ids if incoming_count[node_id] == 0]
+    resolved: list[str] = []
+    while queue:
+        node_id = queue.pop(0)
+        if node_id in resolved:
+            continue
+        resolved.append(node_id)
+        for target in outgoing.get(node_id, []):
+            incoming_count[target] -= 1
+            if incoming_count[target] == 0:
+                queue.append(target)
+    return resolved if len(resolved) == len(node_ids) else node_ids
+
+
+def _runtime_node_sets(
+    *,
+    order: list[str],
+    node_statuses: dict[str, str],
+    edge_contracts: dict[str, dict[str, Any]],
+    terminal_status: str = "",
+) -> dict[str, Any]:
+    completed = [node for node in order if node_statuses.get(node) == "completed"]
+    failed = [node for node in order if node_statuses.get(node) == "failed"]
+    running = [node for node in order if node_statuses.get(node) == "running"]
+    waiting = [node for node in order if node_statuses.get(node) in {"waiting_for_human", "human_gate"}]
+    completed_set = set(completed)
+    failed_set = set(failed)
+    running_set = set(running)
+    waiting_set = set(waiting)
+    incoming: dict[str, list[str]] = {node: [] for node in order}
+    for edge in edge_contracts.values():
+        source = str(edge.get("source_node_id") or "").strip()
+        target = str(edge.get("target_node_id") or "").strip()
+        if source and target and target in incoming:
+            incoming[target].append(source)
+    ready: list[str] = []
+    blocked: list[str] = []
+    for node in order:
+        status = str(node_statuses.get(node) or "pending")
+        if node in completed_set or node in failed_set or node in running_set or node in waiting_set:
+            continue
+        required_sources = incoming.get(node) or []
+        if all(source in completed_set for source in required_sources):
+            ready.append(node)
+        else:
+            blocked.append(node)
+    resolved_terminal = terminal_status
+    if not resolved_terminal:
+        if failed:
+            resolved_terminal = "failed"
+        elif waiting:
+            resolved_terminal = "waiting_for_human"
+        elif order and len(completed) == len(order):
+            resolved_terminal = "completed"
+    return {
+        "ready_nodes": ready,
+        "blocked_nodes": blocked,
+        "running_nodes": running,
+        "waiting_nodes": waiting,
+        "completed_nodes": completed,
+        "failed_nodes": failed,
+        "terminal_status": resolved_terminal,
+    }
+
+
+def _initial_contract_status(manifest: dict[str, Any]) -> dict[str, Any]:
+    node_status = {
+        str(item.get("node_id") or ""): {
+            "status": "pending",
+            "contract_refs": list(item.get("contract_refs") or []),
+            "missing_required_inputs": [],
+            "accepted": False,
+        }
+        for item in list(manifest.get("node_contracts") or [])
+        if str(item.get("node_id") or "")
+    }
+    edge_status = {
+        str(item.get("edge_id") or ""): {
+            "status": "pending",
+            "contract_refs": list(item.get("contract_refs") or []),
+            "source_node_id": str(item.get("source_node_id") or ""),
+            "target_node_id": str(item.get("target_node_id") or ""),
+        }
+        for item in list(manifest.get("edge_handoff_contracts") or [])
+        if str(item.get("edge_id") or "")
+    }
+    return {
+        "authority": "task_system.contract_status",
+        "manifest_ref": str(manifest.get("manifest_id") or ""),
+        "valid": bool(manifest.get("valid") is True),
+        "issues": list(manifest.get("issues") or []),
+        "node_status": node_status,
+        "edge_status": edge_status,
+        "acceptance_results": {},
+    }
+
+
+def _set_contract_node_status(
+    contract_status: dict[str, Any],
+    *,
+    stage_id: str,
+    node_status_value: str,
+    accepted: bool,
+    task_result_ref: str,
+    artifact_refs: list[str],
+    missing_required_inputs: list[str],
+    diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    next_status = dict(contract_status or {})
+    node_status = {
+        str(key): dict(value)
+        for key, value in dict(next_status.get("node_status") or {}).items()
+    }
+    node_payload = dict(node_status.get(stage_id) or {})
+    node_payload.update(
+        {
+            "status": node_status_value,
+            "accepted": accepted,
+            "task_result_ref": task_result_ref,
+            "artifact_refs": list(artifact_refs),
+            "missing_required_inputs": list(missing_required_inputs),
+            "updated_at": time.time(),
+            "diagnostics": dict(diagnostics or {}),
+        }
+    )
+    node_status[stage_id] = node_payload
+    acceptance_results = dict(next_status.get("acceptance_results") or {})
+    acceptance_results[stage_id] = {
+        "accepted": accepted,
+        "status": node_status_value,
+        "task_result_ref": task_result_ref,
+        "artifact_refs": list(artifact_refs),
+        "missing_required_inputs": list(missing_required_inputs),
+        "diagnostics": dict(diagnostics or {}),
+    }
+    next_status["node_status"] = node_status
+    next_status["acceptance_results"] = acceptance_results
+    return next_status
+
+
+def _accept_contract_status(
+    status: dict[str, Any],
+    *,
+    stage_id: str,
+    accepted: bool,
+    task_result_ref: str,
+    artifact_refs: list[str],
+    missing_required_inputs: list[str],
+) -> dict[str, Any]:
+    next_status = dict(status or {})
+    node_status = {
+        str(key): dict(value)
+        for key, value in dict(next_status.get("node_status") or {}).items()
+    }
+    node_payload = dict(node_status.get(stage_id) or {})
+    node_payload.update(
+        {
+            "status": "satisfied" if accepted else "failed",
+            "accepted": accepted,
+            "task_result_ref": task_result_ref,
+            "artifact_refs": list(artifact_refs),
+            "missing_required_inputs": list(missing_required_inputs),
+            "updated_at": time.time(),
+        }
+    )
+    node_status[stage_id] = node_payload
+    acceptance_results = dict(next_status.get("acceptance_results") or {})
+    acceptance_results[stage_id] = {
+        "accepted": accepted,
+        "task_result_ref": task_result_ref,
+        "artifact_refs": list(artifact_refs),
+        "missing_required_inputs": list(missing_required_inputs),
+    }
+    next_status["node_status"] = node_status
+    next_status["acceptance_results"] = acceptance_results
+    return next_status
+
+
+def _manifest_from_payload(payload: dict[str, Any]) -> ContractManifest | None:
+    if not payload:
+        return None
+    return ContractManifest(
+        manifest_id=str(payload.get("manifest_id") or ""),
+        manifest_kind=str(payload.get("manifest_kind") or ""),
+        task_ref=str(payload.get("task_ref") or ""),
+        workflow_id=str(payload.get("workflow_id") or ""),
+        coordination_task_id=str(payload.get("coordination_task_id") or ""),
+        graph_id=str(payload.get("graph_id") or ""),
+        global_contracts=tuple(_global_contract_from_payload(item) for item in list(payload.get("global_contracts") or []) if isinstance(item, dict)),
+        node_contracts=tuple(_node_contract_from_payload(item) for item in list(payload.get("node_contracts") or []) if isinstance(item, dict)),
+        edge_handoff_contracts=tuple(_edge_contract_from_payload(item) for item in list(payload.get("edge_handoff_contracts") or []) if isinstance(item, dict)),
+        runtime_contracts=tuple(_runtime_contract_from_payload(item) for item in list(payload.get("runtime_contracts") or []) if isinstance(item, dict)),
+        acceptance_contracts=tuple(_acceptance_contract_from_payload(item) for item in list(payload.get("acceptance_contracts") or []) if isinstance(item, dict)),
+        issues=tuple(_compile_issue_from_payload(item) for item in list(payload.get("issues") or []) if isinstance(item, dict)),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def _global_contract_from_payload(payload: dict[str, Any]) -> CompiledGlobalContract:
+    return CompiledGlobalContract(
+        contract_id=str(payload.get("contract_id") or ""),
+        title_zh=str(payload.get("title_zh") or ""),
+        contract_kind=str(payload.get("contract_kind") or ""),
+        source_ref=str(payload.get("source_ref") or ""),
+        input_fields=tuple(dict(item) for item in list(payload.get("input_fields") or []) if isinstance(item, dict)),
+        output_fields=tuple(dict(item) for item in list(payload.get("output_fields") or []) if isinstance(item, dict)),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def _node_contract_from_payload(payload: dict[str, Any]) -> CompiledNodeContract:
+    return CompiledNodeContract(
+        node_id=str(payload.get("node_id") or ""),
+        title=str(payload.get("title") or ""),
+        node_type=str(payload.get("node_type") or ""),
+        task_id=str(payload.get("task_id") or ""),
+        agent_id=str(payload.get("agent_id") or ""),
+        runtime_lane=str(payload.get("runtime_lane") or ""),
+        input_contract_id=str(payload.get("input_contract_id") or ""),
+        output_contract_id=str(payload.get("output_contract_id") or ""),
+        contract_refs=tuple(str(item) for item in list(payload.get("contract_refs") or []) if str(item)),
+        source_refs=tuple(str(item) for item in list(payload.get("source_refs") or []) if str(item)),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def _edge_contract_from_payload(payload: dict[str, Any]) -> CompiledEdgeHandoffContract:
+    return CompiledEdgeHandoffContract(
+        edge_id=str(payload.get("edge_id") or ""),
+        source_node_id=str(payload.get("source_node_id") or ""),
+        target_node_id=str(payload.get("target_node_id") or ""),
+        message_type=str(payload.get("message_type") or ""),
+        contract_refs=tuple(str(item) for item in list(payload.get("contract_refs") or []) if str(item)),
+        handoff_policy=str(payload.get("handoff_policy") or "structured_packet"),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def _runtime_contract_from_payload(payload: dict[str, Any]) -> CompiledRuntimeContract:
+    return CompiledRuntimeContract(
+        agent_id=str(payload.get("agent_id") or ""),
+        agent_profile_id=str(payload.get("agent_profile_id") or ""),
+        allowed_runtime_lanes=tuple(str(item) for item in list(payload.get("allowed_runtime_lanes") or []) if str(item)),
+        allowed_operations=tuple(str(item) for item in list(payload.get("allowed_operations") or []) if str(item)),
+        allowed_memory_scopes=tuple(str(item) for item in list(payload.get("allowed_memory_scopes") or []) if str(item)),
+        validation_state=str(payload.get("validation_state") or "unchecked"),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def _acceptance_contract_from_payload(payload: dict[str, Any]) -> CompiledAcceptanceContract:
+    return CompiledAcceptanceContract(
+        contract_id=str(payload.get("contract_id") or ""),
+        rule_count=int(payload.get("rule_count") or 0),
+        rule_refs=tuple(str(item) for item in list(payload.get("rule_refs") or []) if str(item)),
+        source_ref=str(payload.get("source_ref") or ""),
+    )
+
+
+def _compile_issue_from_payload(payload: dict[str, Any]) -> ContractCompileIssue:
+    return ContractCompileIssue(
+        code=str(payload.get("code") or ""),
+        message=str(payload.get("message") or ""),
+        severity=str(payload.get("severity") or "error"),
+        source_ref=str(payload.get("source_ref") or ""),
+        contract_id=str(payload.get("contract_id") or ""),
+        node_id=str(payload.get("node_id") or ""),
+        edge_id=str(payload.get("edge_id") or ""),
+        agent_id=str(payload.get("agent_id") or ""),
+    )

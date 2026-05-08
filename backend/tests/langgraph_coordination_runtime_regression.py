@@ -7,7 +7,8 @@ from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphC
 from orchestration.runtime_loop.models import CoordinationRun, TaskRun
 from orchestration.runtime_loop.stage_execution_request import TaskResultReadyEvent
 from orchestration.runtime_loop.state_index import RuntimeStateIndex
-from tasks.flow_models import CoordinationTaskDefinition, TaskCommunicationProtocol, TopologyTemplate
+from tasks import TaskContractRegistry
+from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
 
 
 class _Trace:
@@ -101,7 +102,7 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
             task_run_id="taskrun:project",
             session_id="session",
             task_id="taskinst:project",
-            task_contract_ref="task.writing.longform_novel_project",
+            task_contract_ref="task.dev.light_web_game",
             status="completed",
             updated_at=10,
         )
@@ -160,7 +161,387 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
     continuation = result.continuation_payload(session_id="session")
     assert continuation["a2a_payload"]["message"]["metadata"]["target_task_ref"] == "task.test.novel_bible"
     assert continuation["current_turn_context"]["a2a_payload"]["message"]["metadata"]["target_stage_id"] == "novel_bible"
+    assert result.stage_execution_request.runtime_assembly["authority"] == "orchestration.node_runtime_assembly"
+    assert result.stage_execution_request.a2a_payload["message"]["metadata"]["runtime_assembly_ref"]
     updated = state_index.get_coordination_run("coordrun:test")
     assert updated is not None
     flow = dict(updated.diagnostics.get("coordination_flow") or {})
     assert flow["current_stage_id"] == "novel_bible"
+    runtime_state = dict(updated.diagnostics.get("langgraph_runtime_state") or {})
+    assert runtime_state["contract_manifest_ref"].startswith("contract-manifest:coordination:")
+    assert "project_scope" in runtime_state["completed_nodes"]
+
+
+class _DiamondRegistry:
+    def __init__(self) -> None:
+        self.tasks = (
+            SpecificTaskRecord(
+                task_id="task.test.a",
+                task_title="A",
+                task_family="test",
+                task_mode="task_execution",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.artifact_refs.bundle",
+            ),
+            SpecificTaskRecord(
+                task_id="task.test.b",
+                task_title="B",
+                task_family="test",
+                task_mode="task_execution",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.artifact_refs.bundle",
+            ),
+            SpecificTaskRecord(
+                task_id="task.test.c",
+                task_title="C",
+                task_family="test",
+                task_mode="task_execution",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.artifact_refs.bundle",
+            ),
+            SpecificTaskRecord(
+                task_id="task.test.d",
+                task_title="D",
+                task_family="test",
+                task_mode="task_execution",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.agent_output.markdown",
+            ),
+        )
+        self.coordination = CoordinationTaskDefinition(
+            coordination_task_id="coord.test.diamond",
+            title="测试汇聚拓扑",
+            coordination_mode="pipeline",
+            coordinator_agent_id="agent:0",
+            task_family="test",
+            topology_template_id="topology.test.diamond",
+            graph_nodes=(
+                {"node_id": "a", "agent_id": "agent:0", "task_id": "task.test.a", "role": "coordinator", "runtime_lane": "task_dispatch"},
+                {"node_id": "b", "agent_id": "agent:0", "task_id": "task.test.b", "role": "participant", "runtime_lane": "task_dispatch"},
+                {"node_id": "c", "agent_id": "agent:0", "task_id": "task.test.c", "role": "participant", "runtime_lane": "task_dispatch"},
+                {"node_id": "d", "agent_id": "agent:0", "task_id": "task.test.d", "role": "acceptance", "runtime_lane": "final_integration"},
+            ),
+            graph_edges=(
+                {"edge_id": "a_b", "from": "a", "to": "b", "contract_id": "contract.artifact_refs.bundle"},
+                {"edge_id": "a_c", "from": "a", "to": "c", "contract_id": "contract.artifact_refs.bundle"},
+                {"edge_id": "b_d", "from": "b", "to": "d", "contract_id": "contract.artifact_refs.bundle"},
+                {"edge_id": "c_d", "from": "c", "to": "d", "contract_id": "contract.artifact_refs.bundle"},
+            ),
+            metadata={
+                "stage_contracts": [
+                    {
+                        "stage_id": "a",
+                        "task_ref": "task.test.a",
+                        "node_id": "a",
+                        "output_mappings": [{"output_key": "a_ref", "required": True}],
+                        "on_failure": "retry_once",
+                        "retry_policy": {"retry_limit": 1},
+                    },
+                    {
+                        "stage_id": "b",
+                        "task_ref": "task.test.b",
+                        "node_id": "b",
+                        "required_inputs": ["a_ref"],
+                        "input_bindings": [{"source": "stage_output", "output_key": "a_ref", "input_key": "a_ref", "required": True}],
+                        "output_mappings": [{"output_key": "b_ref", "required": True}],
+                    },
+                    {
+                        "stage_id": "c",
+                        "task_ref": "task.test.c",
+                        "node_id": "c",
+                        "required_inputs": ["a_ref"],
+                        "input_bindings": [{"source": "stage_output", "output_key": "a_ref", "input_key": "a_ref", "required": True}],
+                        "output_mappings": [{"output_key": "c_ref", "required": True}],
+                    },
+                    {
+                        "stage_id": "d",
+                        "task_ref": "task.test.d",
+                        "node_id": "d",
+                        "required_inputs": ["b_ref", "c_ref"],
+                        "input_bindings": [
+                            {"source": "stage_output", "output_key": "b_ref", "input_key": "b_ref", "required": True},
+                            {"source": "stage_output", "output_key": "c_ref", "input_key": "c_ref", "required": True},
+                        ],
+                    },
+                ],
+            },
+        )
+        self.topology = TopologyTemplate(
+            template_id="topology.test.diamond",
+            title="测试汇聚拓扑",
+            nodes=self.coordination.graph_nodes,
+            edges=self.coordination.graph_edges,
+            enabled=True,
+        )
+        self.protocol = TaskCommunicationProtocol(
+            protocol_id="protocol.test.diamond",
+            title="官方 A2A 汇聚测试协议",
+            message_types=("message/send", "message/stream", "task/status", "task/artifact"),
+            payload_contracts=("contract.artifact_refs.bundle",),
+            enabled=True,
+        )
+
+    def get_coordination_task(self, coordination_task_id: str):
+        return self.coordination if coordination_task_id == self.coordination.coordination_task_id else None
+
+    def get_topology_template(self, template_id: str):
+        return self.topology if template_id == self.topology.template_id else None
+
+    def get_task_communication_protocol(self, protocol_id: str):
+        return self.protocol if protocol_id == self.protocol.protocol_id else None
+
+    def list_specific_task_records(self):
+        return list(self.tasks)
+
+
+def _diamond_runtime(tmp_path):
+    registry = _DiamondRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:diamond",
+        task_run_id="taskrun:a",
+        coordination_task_ref="coord.test.diamond",
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.diamond",
+        communication_protocol_id="protocol.test.diamond",
+        status="running",
+        diagnostics={"coordination_flow": {"current_stage_id": "a"}},
+    )
+    state_index.upsert_coordination_run(coordination_run)
+    TaskContractRegistry(tmp_path)
+    return runtime, state_index, coordination_run
+
+
+def test_langgraph_coordination_runtime_routes_ready_nodes_before_join(tmp_path) -> None:
+    runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
+
+    result_a = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            artifact_refs=("ref:a",),
+            accepted=True,
+        ),
+    )
+    assert result_a.stage_execution_request is not None
+    assert result_a.stage_execution_request.stage_id == "b"
+    assert result_a.state["running_nodes"] == ["b"]
+    assert result_a.state["ready_nodes"] == ["c"]
+    assert result_a.state["blocked_nodes"] == ["d"]
+
+    result_b = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:b",
+            stage_id="b",
+            task_ref="task.test.b",
+            task_result_ref="taskresult:b",
+            artifact_refs=("ref:b",),
+            accepted=True,
+        ),
+    )
+    assert result_b.stage_execution_request is not None
+    assert result_b.stage_execution_request.stage_id == "c"
+    assert "d" in result_b.state["blocked_nodes"]
+
+    result_c = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:c",
+            stage_id="c",
+            task_ref="task.test.c",
+            task_result_ref="taskresult:c",
+            artifact_refs=("ref:c",),
+            accepted=True,
+        ),
+    )
+    assert result_c.stage_execution_request is not None
+    assert result_c.stage_execution_request.stage_id == "d"
+    assert result_c.stage_execution_request.runtime_assembly["node_id"] == "d"
+    assert result_c.stage_execution_request.a2a_payload["message"]["metadata"]["contract_manifest_ref"]
+    assert len(result_c.stage_execution_request.a2a_payload["message"]["parts"][-1]["data"]["handoff_packets"]) == 2
+
+    updated = state_index.get_coordination_run("coordrun:diamond")
+    assert updated is not None
+    runtime_state = dict(updated.diagnostics.get("langgraph_runtime_state") or {})
+    assert runtime_state["completed_nodes"] == ["a", "b", "c"]
+    assert runtime_state["running_nodes"] == ["d"]
+
+
+def test_langgraph_coordination_runtime_blocks_when_required_input_missing(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            artifact_refs=(),
+            accepted=True,
+        ),
+    )
+
+    assert result.stage_execution_request is None
+    assert result.state["terminal_status"] == "blocked"
+    assert result.state["missing_required_inputs"] == ["a_ref"]
+    assert result.state["contract_status"]["node_status"]["b"]["missing_required_inputs"] == ["a_ref"]
+
+
+def test_langgraph_coordination_runtime_retries_failed_stage_when_policy_allows(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            accepted=False,
+        ),
+    )
+
+    assert result.stage_execution_request is not None
+    assert result.stage_execution_request.stage_id == "a"
+    assert result.state["retry_counts"]["a"] == 1
+    assert result.state["running_nodes"] == ["a"]
+
+
+def test_langgraph_coordination_runtime_enters_human_gate_when_policy_requires(tmp_path) -> None:
+    runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
+    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
+    stage_contracts[0]["on_failure"] = "human_gate"
+    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            accepted=False,
+        ),
+    )
+
+    assert result.stage_execution_request is None
+    assert result.state["terminal_status"] == "waiting_for_human"
+    assert result.state["waiting_nodes"] == ["a"]
+    assert result.state["contract_status"]["node_status"]["a"]["status"] == "human_gate"
+    updated = state_index.get_coordination_run("coordrun:diamond")
+    assert updated is not None
+    runtime_state = dict(updated.diagnostics.get("langgraph_runtime_state") or {})
+    assert runtime_state["human_gate"]["status"] == "waiting"
+
+
+def test_langgraph_coordination_runtime_human_gate_approve_routes_next(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
+    stage_contracts[0]["on_failure"] = "human_gate"
+    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+    runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            artifact_refs=("ref:a",),
+            accepted=False,
+        ),
+    )
+
+    result = runtime.resume_human_gate(
+        coordination_run_id="coordrun:diamond",
+        resume_payload={"decision": "approve", "task_result_ref": "taskresult:a:approved", "artifact_refs": ["ref:a"]},
+    )
+
+    assert result.stage_execution_request is not None
+    assert result.stage_execution_request.stage_id in {"b", "c"}
+    assert result.state["contract_status"]["node_status"]["a"]["status"] == "satisfied"
+    assert result.state["completed_nodes"] == ["a"]
+
+
+def test_langgraph_coordination_runtime_human_gate_retry_routes_same_stage(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
+    stage_contracts[0]["on_failure"] = "human_gate"
+    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+    runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            accepted=False,
+        ),
+    )
+
+    result = runtime.resume_human_gate(
+        coordination_run_id="coordrun:diamond",
+        resume_payload={"decision": "retry"},
+    )
+
+    assert result.stage_execution_request is not None
+    assert result.stage_execution_request.stage_id == "a"
+    assert result.state["retry_counts"]["a"] == 1
+    assert result.state["contract_status"]["node_status"]["a"]["status"] == "pending_retry"
+
+
+def test_langgraph_coordination_runtime_human_gate_reject_fails_closed(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
+    stage_contracts[0]["on_failure"] = "human_gate"
+    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+    runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            accepted=False,
+        ),
+    )
+
+    result = runtime.resume_human_gate(
+        coordination_run_id="coordrun:diamond",
+        resume_payload={"decision": "reject"},
+    )
+
+    assert result.stage_execution_request is None
+    assert result.state["terminal_status"] == "failed"
+    assert result.state["failed_nodes"] == ["a"]
+    assert result.state["contract_status"]["node_status"]["a"]["status"] == "failed"

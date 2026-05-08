@@ -13,7 +13,7 @@ class _RuntimeStub:
         self.base_dir = Path(base_dir)
 
 
-def test_orchestration_agents_payload_keeps_legacy_task_groups_cleared(tmp_path: Path) -> None:
+def test_orchestration_agents_payload_keeps_removed_legacy_groups_absent(tmp_path: Path) -> None:
     original = orchestration_api.require_runtime
     orchestration_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
     try:
@@ -24,7 +24,8 @@ def test_orchestration_agents_payload_keeps_legacy_task_groups_cleared(tmp_path:
     groups = payload["agent_groups"]
 
     assert payload["authority"] == "orchestration.agent_runtime_registry"
-    assert all(item["group_id"] != "group.writing.longform_novel_core" for item in groups)
+    removed_group_ids = {"group.writing.longform_novel_core"}
+    assert all(item["group_id"] not in removed_group_ids for item in groups)
 
 
 def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Path) -> None:
@@ -375,54 +376,54 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
     try:
         asyncio.run(
             tasks_api.upsert_task_system_specific_record(
-                "task.writing.chapter_planning",
+                "task.research.plan",
                 tasks_api.SpecificTaskRecordUpsertRequest(
-                    task_id="task.writing.chapter_planning",
-                    task_title="章节规划",
-                    task_family="writing",
-                    task_mode="chapter_planning",
-                    description="测试用章节规划子任务。",
+                    task_id="task.research.plan",
+                    task_title="研究规划",
+                    task_family="research",
+                    task_mode="analysis_plan",
+                    description="测试用规划子任务。",
                 ),
             )
         )
         asyncio.run(
             tasks_api.upsert_task_system_specific_record(
-                "task.writing.chapter_drafting",
+                "task.research.report",
                 tasks_api.SpecificTaskRecordUpsertRequest(
-                    task_id="task.writing.chapter_drafting",
-                    task_title="章节起草",
-                    task_family="writing",
-                    task_mode="chapter_drafting",
-                    description="测试用章节起草子任务。",
+                    task_id="task.research.report",
+                    task_title="研究报告",
+                    task_family="research",
+                    task_mode="analysis_report",
+                    description="测试用报告子任务。",
                 ),
             )
         )
         payload = asyncio.run(
             tasks_api.upsert_task_system_coordination_task(
-                "coord.writing.test_parent",
+                "coord.research.test_parent",
                 tasks_api.CoordinationTaskUpsertRequest(
-                    coordination_task_id="coord.writing.test_parent",
-                    title="写作父级协调任务",
-                    coordination_mode="chapter_review_loop",
+                    coordination_task_id="coord.research.test_parent",
+                    title="研究父级协调任务",
+                    coordination_mode="review_merge",
                     coordinator_agent_id="agent:20",
-                    task_family="writing",
-                    domain_id="domain.writing",
-                    agent_group_id="group.writing.longform_novel_core",
+                    task_family="research",
+                    domain_id="domain.research",
+                    agent_group_id="group.research.test_parent",
                     participant_agent_ids=["agent:23", "agent:24"],
-                    topology_template_id="topology.writing.test_parent",
-                    subtask_refs=["task.writing.chapter_planning", "task.writing.chapter_drafting"],
+                    topology_template_id="topology.research.test_parent",
+                    subtask_refs=["task.research.plan", "task.research.report"],
                     graph_nodes=[
                         {"node_id": "coordinator", "node_type": "coordinator", "agent_id": "agent:20", "role": "coordinator"},
-                        {"node_id": "plan", "node_type": "subtask", "task_id": "task.writing.chapter_planning", "agent_id": "agent:23", "role": "participant"},
-                        {"node_id": "draft", "node_type": "subtask", "task_id": "task.writing.chapter_drafting", "agent_id": "agent:24", "role": "participant"},
+                        {"node_id": "plan", "node_type": "subtask", "task_id": "task.research.plan", "agent_id": "agent:23", "role": "participant"},
+                        {"node_id": "report", "node_type": "subtask", "task_id": "task.research.report", "agent_id": "agent:24", "role": "participant"},
                     ],
                     graph_edges=[
                         {"edge_id": "e1", "from": "coordinator", "to": "plan", "mode": "draft_request"},
-                        {"edge_id": "e2", "from": "plan", "to": "draft", "mode": "structured_handoff"},
+                        {"edge_id": "e2", "from": "plan", "to": "report", "mode": "structured_handoff"},
                     ],
                     communication_modes=["draft_request", "structured_handoff"],
                     enabled=True,
-                    metadata={"protocol_id": "protocol.writing.chapter_pipeline"},
+                    metadata={"protocol_id": "protocol.research.review_pipeline"},
                 ),
             )
         )
@@ -432,19 +433,19 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
     coordination = next(
         item
         for item in payload["coordination_management"]["coordination_tasks"]
-        if item["coordination_task_id"] == "coord.writing.test_parent"
+        if item["coordination_task_id"] == "coord.research.test_parent"
     )
     graph_spec = next(
         item
         for item in payload["coordination_management"]["coordination_graph_specs"]
-        if item["coordination_task_id"] == "coord.writing.test_parent"
+        if item["coordination_task_id"] == "coord.research.test_parent"
     )
-    assert coordination["domain_id"] == "domain.writing"
-    assert coordination["task_family"] == "writing"
-    assert coordination["subtask_refs"] == ["task.writing.chapter_planning", "task.writing.chapter_drafting"]
+    assert coordination["domain_id"] == "domain.research"
+    assert coordination["task_family"] == "research"
+    assert coordination["subtask_refs"] == ["task.research.plan", "task.research.report"]
     assert {node["task_id"] for node in coordination["graph_nodes"] if node.get("task_id")} == set(coordination["subtask_refs"])
     assert graph_spec["valid"] is True
-    assert graph_spec["domain_id"] == "domain.writing"
+    assert graph_spec["domain_id"] == "domain.research"
     assert graph_spec["start_node_ids"]
     assert graph_spec["terminal_node_ids"]
 
@@ -500,14 +501,36 @@ def test_task_system_specific_record_is_canonical_and_assignment_becomes_compat_
 def test_task_system_no_longer_seeds_concrete_writing_task_objects(tmp_path: Path) -> None:
     registry = TaskFlowRegistry(tmp_path)
 
-    assert registry.get_flow("flow.writing.short_story") is None
-    assert registry.get_specific_task_record("task.writing.short_story") is None
-    assert registry.get_task_assignment("task.writing.short_story") is None
-    assert registry.get_task_communication_protocol("protocol.writing.short_story_pipeline") is None
-    assert registry.get_coordination_task("coord.writing.short_story_pipeline") is None
+    removed_refs = {
+        "flows": [
+            "flow.writing.short_story",
+            "flow.writing.longform_novel_project",
+        ],
+        "records": [
+            "task.writing.short_story",
+            "task.writing.longform_novel_project",
+        ],
+        "protocols": [
+            "protocol.writing.short_story_pipeline",
+            "protocol.writing.longform_project_bootstrap",
+        ],
+        "coordination_tasks": [
+            "coord.writing.short_story_pipeline",
+            "coord.writing.longform_project_bootstrap",
+        ],
+        "adoption_plans": [
+            "task.writing.longform_novel_project",
+        ],
+    }
 
-    assert registry.get_flow("flow.writing.longform_novel_project") is None
-    assert registry.get_specific_task_record("task.writing.longform_novel_project") is None
-    assert registry.get_task_communication_protocol("protocol.writing.longform_project_bootstrap") is None
-    assert registry.get_coordination_task("coord.writing.longform_project_bootstrap") is None
-    assert registry.get_task_agent_adoption_plan("task.writing.longform_novel_project") is None
+    for flow_id in removed_refs["flows"]:
+        assert registry.get_flow(flow_id) is None
+    for task_id in removed_refs["records"]:
+        assert registry.get_specific_task_record(task_id) is None
+        assert registry.get_task_assignment(task_id) is None
+    for protocol_id in removed_refs["protocols"]:
+        assert registry.get_task_communication_protocol(protocol_id) is None
+    for coordination_task_id in removed_refs["coordination_tasks"]:
+        assert registry.get_coordination_task(coordination_task_id) is None
+    for task_id in removed_refs["adoption_plans"]:
+        assert registry.get_task_agent_adoption_plan(task_id) is None

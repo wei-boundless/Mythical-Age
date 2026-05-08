@@ -115,13 +115,17 @@ class RuntimeContextManager:
         context_policy_result: dict[str, Any] | None = None,
         stage_projection_snapshot: Any | None = None,
         runtime_execution_facts: dict[str, Any] | None = None,
+        runtime_assembly: dict[str, Any] | None = None,
     ) -> RuntimeContextSnapshot:
         system_prompt = self.system_prompt_builder(
             session_id=session_id,
             pending_user_message=user_message,
             memory_intent=memory_intent,
         )
+        assembly_policy = _runtime_assembly_context_policy(runtime_assembly)
         normalized_history = tuple(_normalize_history(history))
+        if assembly_policy.get("main_session_history") != "full":
+            normalized_history = ()
         pending = str(user_message or "")
         context_policy_ref = _context_policy_ref(context_policy_result)
         memory_view_ref = str((memory_runtime_view or {}).get("view_id") or "")
@@ -132,6 +136,7 @@ class RuntimeContextManager:
             stage_projection_snapshot=stage_projection_snapshot,
             context_policy_result=context_policy_result,
             runtime_execution_facts=runtime_execution_facts,
+            runtime_assembly=runtime_assembly,
         )
         model_messages = (
             {"role": "system", "content": runtime_prompt},
@@ -178,6 +183,9 @@ class RuntimeContextManager:
                 "prompt_manifest_bound": bool(prompt_manifest_ref),
                 "prompt_source_report_built": True,
                 "runtime_prompt_assembly_applied": True,
+                "runtime_assembly_ref": str((runtime_assembly or {}).get("assembly_id") or ""),
+                "runtime_assembly_context_applied": bool(runtime_assembly),
+                "assembly_main_session_history": str(assembly_policy.get("main_session_history") or ""),
             },
         )
 
@@ -342,6 +350,7 @@ def _build_runtime_system_prompt(
     stage_projection_snapshot: Any | None,
     context_policy_result: dict[str, Any] | None,
     runtime_execution_facts: dict[str, Any] | None = None,
+    runtime_assembly: dict[str, Any] | None = None,
 ) -> str:
     parts = [str(legacy_system_prompt or "").strip()]
     projection_block = _render_projection_block(stage_projection_snapshot)
@@ -353,7 +362,49 @@ def _build_runtime_system_prompt(
     runtime_execution_block = _render_runtime_execution_block(runtime_execution_facts)
     if runtime_execution_block:
         parts.append(runtime_execution_block)
+    runtime_assembly_block = _render_runtime_assembly_block(runtime_assembly)
+    if runtime_assembly_block:
+        parts.append(runtime_assembly_block)
     return "\n\n".join(part for part in parts if part)
+
+
+def _runtime_assembly_context_policy(runtime_assembly: dict[str, Any] | None) -> dict[str, str]:
+    assembly = dict(runtime_assembly or {})
+    if not assembly:
+        return {"main_session_history": "full"}
+    sections = [dict(item or {}) for item in list(assembly.get("context_sections") or []) if isinstance(item, dict)]
+    main_history = next((item for item in sections if str(item.get("section_id") or "") == "main_session_history"), None)
+    if main_history is None:
+        return {"main_session_history": "hidden"}
+    return {"main_session_history": str(main_history.get("content_mode") or "summary").strip() or "summary"}
+
+
+def _render_runtime_assembly_block(runtime_assembly: dict[str, Any] | None) -> str:
+    assembly = dict(runtime_assembly or {})
+    if not assembly:
+        return ""
+    sections = [
+        dict(item or {})
+        for item in list(assembly.get("context_sections") or [])
+        if isinstance(item, dict) and dict(item).get("model_visible") is not False
+    ]
+    output_contracts = [dict(item or {}) for item in list(assembly.get("output_contracts") or []) if isinstance(item, dict)]
+    lines = [
+        "## Runtime Assembly",
+        f"assembly_id: {assembly.get('assembly_id') or ''}",
+        f"manifest_ref: {assembly.get('manifest_ref') or ''}",
+        "Context sections:",
+    ]
+    for section in sections:
+        lines.append(
+            f"- {section.get('section_id')}: {section.get('content_mode') or 'summary'}"
+        )
+    if output_contracts:
+        lines.append("Output contracts:")
+        for contract in output_contracts:
+            required = ", ".join(str(item) for item in list(contract.get("required_fields") or [])) or "none"
+            lines.append(f"- {contract.get('contract_id')}: required_fields={required}")
+    return "\n".join(lines)
 
 
 def _render_projection_block(stage_projection_snapshot: Any | None) -> str:

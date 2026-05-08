@@ -6,6 +6,7 @@ from typing import Any
 
 from project_layout import ProjectLayout
 
+from .agent_registry import AgentRegistry
 from .agent_group_models import AgentGroup
 
 
@@ -80,6 +81,7 @@ class AgentGroupRegistry:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
         self.path = _groups_path(self.base_dir)
+        self.agent_registry = AgentRegistry(self.base_dir)
 
     def list_groups(self) -> list[AgentGroup]:
         default_payload = [item.to_dict() for item in default_agent_groups()]
@@ -118,12 +120,16 @@ class AgentGroupRegistry:
         target = str(group_id or "").strip()
         if not target.startswith("group."):
             raise ValueError("group_id must start with group.")
+        normalized_coordinator = str(coordinator_agent_id or "").strip()
+        self._validate_coordinator(normalized_coordinator)
+        normalized_members = tuple(str(item).strip() for item in member_agent_ids if str(item).strip())
+        self._validate_member_agents(normalized_members)
         group = AgentGroup(
             group_id=target,
             title=str(title or target).strip(),
             group_kind=str(group_kind or "coordination_team").strip(),
-            coordinator_agent_id=str(coordinator_agent_id or "").strip(),
-            member_agent_ids=tuple(str(item).strip() for item in member_agent_ids if str(item).strip()),
+            coordinator_agent_id=normalized_coordinator,
+            member_agent_ids=normalized_members,
             description=str(description or "").strip(),
             default_topology_template_ids=tuple(str(item).strip() for item in default_topology_template_ids if str(item).strip()),
             default_communication_protocol_ids=tuple(
@@ -137,6 +143,31 @@ class AgentGroupRegistry:
         groups.append(group)
         _write_json(self.path, {"groups": [item.to_dict() for item in groups]})
         return group
+
+    def _validate_coordinator(self, agent_id: str) -> None:
+        if not agent_id:
+            return
+        agent = self.agent_registry.get_agent(agent_id)
+        if agent is None:
+            raise ValueError(f"unknown coordinator_agent_id: {agent_id}")
+        if not agent.enabled:
+            raise PermissionError(f"disabled coordinator agent cannot own group: {agent_id}")
+
+    def _validate_member_agents(self, member_agent_ids: tuple[str, ...]) -> None:
+        seen: set[str] = set()
+        for agent_id in member_agent_ids:
+            if agent_id in seen:
+                continue
+            seen.add(agent_id)
+            agent = self.agent_registry.get_agent(agent_id)
+            if agent is None:
+                raise ValueError(f"unknown member_agent_id: {agent_id}")
+            if agent.builtin:
+                raise PermissionError(f"system builtin agent cannot be a group member: {agent_id}")
+            if agent.agent_category != "worker_sub_agent":
+                raise PermissionError(f"agent group members must be worker_sub_agent: {agent_id}")
+            if not agent.enabled:
+                raise PermissionError(f"disabled agent cannot be a group member: {agent_id}")
 
     def delete_group(self, group_id: str) -> None:
         target = str(group_id or "").strip()

@@ -455,8 +455,6 @@ def _select_communication_protocol(
             return protocol
     if task_id.startswith("task.health.") or task_family == "health":
         return flow_registry.get_task_communication_protocol("protocol.health.repair_review")
-    if task_id == "task.writing.short_story":
-        return flow_registry.get_task_communication_protocol("protocol.writing.short_story_pipeline")
     return None
 
 
@@ -503,15 +501,6 @@ def _select_coordination_task(
                 item
                 for item in flow_registry.list_coordination_tasks()
                 if item.topology_template_id == "topology.health.repair_review"
-            ),
-            None,
-        )
-    if task_id == "task.writing.short_story":
-        return next(
-            (
-                item
-                for item in flow_registry.list_coordination_tasks()
-                if item.coordination_task_id == "coord.writing.short_story_pipeline"
             ),
             None,
         )

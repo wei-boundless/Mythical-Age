@@ -24,6 +24,9 @@ def build_stage_execution_a2a_payload(
     message_type: str = DEFAULT_A2A_MESSAGE_TYPE,
     explicit_inputs: dict[str, Any] | None = None,
     payload_contracts: list[str] | tuple[str, ...] = (),
+    handoff_packets: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    runtime_assembly_ref: str = "",
+    contract_manifest_ref: str = "",
     ack_policy: str = "explicit_ack",
     handoff_policy: str = "",
 ) -> dict[str, Any]:
@@ -47,6 +50,8 @@ def build_stage_execution_a2a_payload(
             "target_stage_id": stage_id,
             "target_node_id": node_id,
             "target_task_ref": task_ref,
+            "runtime_assembly_ref": runtime_assembly_ref,
+            "contract_manifest_ref": contract_manifest_ref,
         }
     )
     message["metadata"] = metadata
@@ -59,6 +64,9 @@ def build_stage_execution_a2a_payload(
                 "stage_id": stage_id,
                 "node_id": node_id,
                 "task_ref": task_ref,
+                "handoff_packets": [dict(item) for item in handoff_packets],
+                "runtime_assembly_ref": runtime_assembly_ref,
+                "contract_manifest_ref": contract_manifest_ref,
             },
         }
     )
@@ -70,4 +78,3 @@ def build_stage_execution_a2a_payload(
     payload["target_node_id"] = node_id
     payload["target_task_ref"] = task_ref
     return payload
-

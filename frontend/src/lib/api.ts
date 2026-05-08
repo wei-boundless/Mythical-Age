@@ -535,7 +535,11 @@ export type ContextVisibilityPolicy = {
   upstream_outputs: string;
   sibling_nodes: string;
   artifact_access: string;
-  notes: string;
+  memory_scopes: string[];
+  model_visible_sections: string[];
+  hidden_sections: string[];
+  notes?: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type HandoffPolicy = {
@@ -622,6 +626,37 @@ export type ContractManifest = {
   issues: ContractCompileIssue[];
   metadata: Record<string, unknown>;
   valid: boolean;
+};
+
+export type RuntimeContextSection = {
+  section_id: string;
+  title: string;
+  visibility: string;
+  content_mode: string;
+  source_ref: string;
+  model_visible: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type RuntimeAssembly = {
+  authority: string;
+  assembly_id: string;
+  manifest_ref: string;
+  task_ref?: string;
+  workflow_id?: string;
+  coordination_task_ref?: string;
+  graph_id?: string;
+  node_id?: string;
+  agent_id: string;
+  agent_profile_id: string;
+  runtime_lane: string;
+  context_sections: RuntimeContextSection[];
+  output_contracts: Array<Record<string, unknown>>;
+  acceptance_contracts: Array<Record<string, unknown>>;
+  handoff_packets?: Array<Record<string, unknown>>;
+  failure_contract: Record<string, unknown>;
+  loop_policy: Record<string, unknown>;
+  diagnostics: Record<string, unknown>;
 };
 
 export type CoordinationTask = {
@@ -857,6 +892,7 @@ export type OrchestrationAgentRuntimeCatalog = {
     output_contract_options?: OrchestrationOption[];
     approval_policy_options?: OrchestrationOption[];
     trace_policy_options?: OrchestrationOption[];
+    worker_blueprints?: Array<Record<string, unknown>>;
   };
 };
 
@@ -2571,6 +2607,19 @@ export async function compileTaskSystemWorkflowContractManifest(workflowId: stri
 export async function compileTaskSystemCoordinationContractManifest(coordinationTaskId: string) {
   return request<ContractManifest>(
     `/tasks/contract-manifests/coordination/${encodeURIComponent(coordinationTaskId)}`
+  );
+}
+
+export async function buildTaskSystemWorkflowRuntimeAssembly(workflowId: string, taskId: string) {
+  const params = new URLSearchParams({ task_id: taskId });
+  return request<RuntimeAssembly>(
+    `/tasks/runtime-assemblies/workflows/${encodeURIComponent(workflowId)}?${params.toString()}`
+  );
+}
+
+export async function buildTaskSystemNodeRuntimeAssembly(coordinationTaskId: string, nodeId: string) {
+  return request<RuntimeAssembly>(
+    `/tasks/runtime-assemblies/coordination/${encodeURIComponent(coordinationTaskId)}/nodes/${encodeURIComponent(nodeId)}`
   );
 }
 

@@ -287,72 +287,8 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
     assert trace["coordination_runs"][0]["latest_merge_result"] is not None
 
 
-def test_runtime_registers_coordination_flow_for_story_pipeline() -> None:
+def test_runtime_does_not_register_removed_story_pipeline() -> None:
     base_dir = _isolated_backend_root()
-    registry = TaskFlowRegistry(base_dir)
-    registry.upsert_coordination_task(
-        coordination_task_id="coord.writing.short_story_pipeline",
-        title="短篇小说协作流水线",
-        coordination_mode="staged_review_loop",
-        coordinator_agent_id="agent:0",
-        participant_agent_ids=("agent:4", "agent:5"),
-        topology_template_id="topology.writing.short_story_pipeline",
-        handoff_policy="stage_contract_handoff",
-        output_merge_policy="acceptance_then_final_merge",
-        enabled=True,
-        metadata={
-            "max_revision_cycles": 1,
-            "required_revision_cycles": 1,
-            "stage_sequence": [
-                {"stage_id": "idea_proposal", "node_id": "idea_worker", "role": "participant", "message_type": "idea_proposal"},
-                {"stage_id": "idea_review", "node_id": "idea_review", "role": "participant", "message_type": "idea_review"},
-                {"stage_id": "approval_signal", "node_id": "approval_gate", "role": "coordinator", "message_type": "approval_signal"},
-                {"stage_id": "draft_submission", "node_id": "draft_writer", "role": "participant", "message_type": "draft_submission"},
-                {"stage_id": "content_issue", "node_id": "content_check", "role": "participant", "message_type": "content_issue"},
-                {"stage_id": "revision_request", "node_id": "revision_loop", "role": "participant", "message_type": "revision_request", "loop_kind": "revision_loop"},
-                {"stage_id": "acceptance_result", "node_id": "acceptance", "role": "coordinator", "message_type": "acceptance_result"},
-            ],
-        },
-    )
-    registry.upsert_topology_template(
-        template_id="topology.writing.short_story_pipeline",
-        title="短篇小说协作拓扑",
-        nodes=(
-            {"node_id": "idea_worker", "agent_id": "agent:5", "lane": "creative_ideation", "role": "participant"},
-            {"node_id": "idea_review", "agent_id": "agent:4", "lane": "content_review", "role": "participant"},
-            {"node_id": "approval_gate", "agent_id": "agent:0", "lane": "coordination_gate", "role": "coordinator"},
-            {"node_id": "draft_writer", "agent_id": "agent:5", "lane": "story_drafting", "role": "participant"},
-            {"node_id": "content_check", "agent_id": "agent:4", "lane": "content_inspection", "role": "participant"},
-            {"node_id": "revision_loop", "agent_id": "agent:5", "lane": "story_revision", "role": "participant"},
-            {"node_id": "acceptance", "agent_id": "agent:0", "lane": "final_acceptance", "role": "coordinator"},
-        ),
-        edges=(
-            {"from": "idea_worker", "to": "idea_review", "policy": "stage_contract_handoff"},
-            {"from": "idea_review", "to": "approval_gate", "policy": "stage_contract_handoff"},
-            {"from": "approval_gate", "to": "draft_writer", "policy": "stage_contract_handoff"},
-            {"from": "draft_writer", "to": "content_check", "policy": "stage_contract_handoff"},
-            {"from": "content_check", "to": "revision_loop", "policy": "stage_contract_handoff"},
-            {"from": "revision_loop", "to": "acceptance", "policy": "stage_contract_handoff"},
-        ),
-        enabled=True,
-    )
-    registry.upsert_task_communication_protocol(
-        protocol_id="protocol.writing.short_story_pipeline",
-        title="短篇小说协作协议",
-        message_types=(
-            "idea_proposal",
-            "idea_review",
-            "approval_signal",
-            "draft_submission",
-            "content_issue",
-            "revision_request",
-            "acceptance_result",
-        ),
-        payload_contracts=("StoryIdeaProposal", "StoryAcceptanceResult"),
-        signal_rules=("participant_report_to_coordinator", "coordinator_stage_gate"),
-        handoff_rules=("stage_refs_only",),
-        enabled=True,
-    )
     runtime = QueryRuntime(
         base_dir=base_dir,
         settings_service=_SettingsStub(),
@@ -378,8 +314,6 @@ def test_runtime_registers_coordination_flow_for_story_pipeline() -> None:
                     "selected_task_id": "task.writing.short_story",
                     "task_id": "task.writing.short_story",
                     "task_mode": "short_story",
-                    "coordination_task_id": "coord.writing.short_story_pipeline",
-                    "communication_protocol_id": "protocol.writing.short_story_pipeline",
                 },
             )
         ):
@@ -397,20 +331,11 @@ def test_runtime_registers_coordination_flow_for_story_pipeline() -> None:
     trace_event_types = [str(item.get("event_type") or "") for item in list(trace.get("events") or [])] if trace is not None else []
 
     assert trace is not None
-    assert "coordination_flow_registered" in runtime_event_types
-    assert "coordination_stage_updated" in runtime_event_types
-    assert "coordination_flow_finalized" in trace_event_types
+    assert "coordination_flow_registered" not in runtime_event_types
+    assert "coordination_stage_updated" not in runtime_event_types
+    assert "coordination_flow_finalized" not in trace_event_types
     assert trace["agent_run_results"]
-    coordination_run = trace["coordination_runs"][0]
-    assert coordination_run["diagnostics"]["coordination_engine"] == "langgraph"
-    assert coordination_run["diagnostics"]["coordination_graph_spec"]["valid"] is True
-    flow = dict(coordination_run["diagnostics"].get("coordination_flow") or {})
-    assert flow["revision_loop_enabled"] is True
-    assert flow["required_revision_cycles"] == 1
-    assert len(list(flow.get("stages") or [])) >= 7
-    assert any(str(node.get("diagnostics", {}).get("stage_id") or "") == "idea_proposal" for node in coordination_run["node_runs"])
-    assert coordination_run["latest_merge_result"] is not None
-    assert coordination_run["latest_merge_result"]["unresolved_issue_refs"] == []
+    assert trace["coordination_runs"] == []
 
 
 def test_agent_registry_upsert_preserves_explicit_task_scope_for_new_agent() -> None:

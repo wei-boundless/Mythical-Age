@@ -1,3 +1,184 @@
 {
-  "adoption_plans": []
+  "adoption_plans": [
+    {
+      "plan_id": "taskadopt:task.dev.workspace_patch",
+      "task_id": "task.dev.workspace_patch",
+      "adoption_mode": "adopt_existing",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Derived from task assignment defaults.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
+        "coordination_task_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": ""
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.dev.workspace_patch",
+      "execution_chain_type": "single_agent_chain",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.dev.light_web_game",
+      "task_id": "task.dev.light_web_game",
+      "adoption_mode": "adopt_existing",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Derived from task assignment defaults.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
+        "coordination_task_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": ""
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.dev.light_web_game",
+      "execution_chain_type": "single_agent_chain",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.dev.arcade_game_bundle",
+      "task_id": "task.dev.arcade_game_bundle",
+      "adoption_mode": "adopt_existing",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Derived from task assignment defaults.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
+        "coordination_task_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": ""
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.dev.arcade_game_bundle",
+      "execution_chain_type": "single_agent_chain",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing.short_story",
+      "task_id": "task.writing.short_story",
+      "adoption_mode": "adopt_existing",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Derived from task assignment defaults.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
+        "coordination_task_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": ""
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing.short_story",
+      "execution_chain_type": "single_agent_chain",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.health.issue_triage",
+      "task_id": "task.health.issue_triage",
+      "adoption_mode": "adopt_existing",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Derived from task assignment defaults.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
+        "coordination_task_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": ""
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.health.issue_triage",
+      "execution_chain_type": "single_agent_chain",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:general.main_conversation",
+      "task_id": "general.main_conversation",
+      "adoption_mode": "adopt_existing",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Derived from task assignment defaults.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "single_agent_chain",
+        "coordination_task_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": ""
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:general.main_conversation",
+      "execution_chain_type": "single_agent_chain",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    }
+  ]
 }

@@ -81,9 +81,51 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             ),
             blocked_operations=("op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_read_write", "state_read_write", "long_term_candidate"),
-            allowed_context_sections=("conversation", "state", "task", "projection", "tool"),
+            allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts"),
             output_contracts=("AssistantFinalAnswer", "LightWebGameResult"),
             lifecycle_policy="system_builtin",
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="permission_manager_agent",
+            agent_id="agent:1",
+            allowed_task_modes=("permission_management", "policy_review", "access_triage"),
+            allowed_runtime_lanes=("permission_policy_read", "permission_trace_read", "access_review"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.memory_read"),
+            blocked_operations=(
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.memory_write_candidate",
+                "op.agent_bounded",
+            ),
+            allowed_memory_scopes=("permission_policy_readonly", "issue_local_readonly"),
+            allowed_context_sections=("task", "projection", "runtime_trace", "prompt_manifest", "runtime_contracts"),
+            output_contracts=("PermissionPolicyReview", "PermissionTriageResult", "AssistantFinalAnswer"),
+            approval_policy="read_only_first",
+            lifecycle_policy="system_builtin",
+            metadata={"system_key": "permission_system", "manager_kind": "permission"},
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="memory_manager_agent",
+            agent_id="agent:2",
+            allowed_task_modes=("memory_management", "memory_trace_analysis", "memory_policy_review"),
+            allowed_runtime_lanes=("memory_trace_read", "memory_policy_read", "memory_context_review"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.memory_read"),
+            blocked_operations=(
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.memory_write_candidate",
+                "op.agent_bounded",
+            ),
+            allowed_memory_scopes=("memory_trace_readonly", "state_readonly", "issue_local_readonly"),
+            allowed_context_sections=("task", "projection", "memory_runtime_view", "runtime_trace", "prompt_manifest", "runtime_contracts"),
+            output_contracts=("MemoryTraceAnalysis", "MemoryPolicyReview", "AssistantFinalAnswer"),
+            approval_policy="read_only_first",
+            lifecycle_policy="system_builtin",
+            metadata={"system_key": "memory_system", "manager_kind": "memory"},
         ),
         AgentRuntimeProfile(
             agent_profile_id="health_maintainer_agent",
@@ -109,7 +151,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.agent_bounded",
             ),
             allowed_memory_scopes=("issue_local_readonly", "health_trace_readonly"),
-            allowed_context_sections=("health_issue", "runtime_trace", "prompt_manifest", "memory_runtime_view", "assertions"),
+            allowed_context_sections=("task", "health_issue", "runtime_trace", "prompt_manifest", "memory_runtime_view", "assertions", "runtime_contracts"),
             output_contracts=(
                 "HealthTriageResult",
                 "HealthTraceAnalysis",
@@ -117,6 +159,50 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "HealthFixVerificationProposal",
             ),
             approval_policy="read_only_first",
+            lifecycle_policy="system_builtin",
+            metadata={"system_key": "health_system", "manager_kind": "health"},
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="capability_manager_agent",
+            agent_id="agent:4",
+            allowed_task_modes=("capability_management", "execution_management", "tool_policy_review"),
+            allowed_runtime_lanes=("capability_catalog_read", "tool_policy_read", "runtime_trace_read"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.memory_read"),
+            blocked_operations=(
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.memory_write_candidate",
+                "op.agent_bounded",
+            ),
+            allowed_memory_scopes=("capability_catalog_readonly", "issue_local_readonly"),
+            allowed_context_sections=("task", "projection", "tool", "runtime_trace", "prompt_manifest", "runtime_contracts"),
+            output_contracts=("CapabilityPolicyReview", "ToolBoundaryReport", "AssistantFinalAnswer"),
+            approval_policy="read_only_first",
+            lifecycle_policy="system_builtin",
+            metadata={"system_key": "capability_system", "manager_kind": "capability"},
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="soul_manager_agent",
+            agent_id="agent:5",
+            allowed_task_modes=("soul_management", "projection_management", "prompt_style_review"),
+            allowed_runtime_lanes=("soul_projection_read", "prompt_structure_read", "runtime_trace_read"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.memory_read"),
+            blocked_operations=(
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.memory_write_candidate",
+                "op.agent_bounded",
+            ),
+            allowed_memory_scopes=("projection_readonly", "state_readonly", "issue_local_readonly"),
+            allowed_context_sections=("task", "projection", "prompt_manifest", "runtime_trace", "runtime_contracts"),
+            output_contracts=("SoulProjectionReview", "PromptStyleReview", "AssistantFinalAnswer"),
+            approval_policy="read_only_first",
+            lifecycle_policy="system_builtin",
+            metadata={"system_key": "soul_system", "manager_kind": "soul"},
         ),
     )
 
@@ -147,6 +233,7 @@ class AgentRuntimeRegistry:
 
     def list_profiles(self) -> list[AgentRuntimeProfile]:
         default_payload = [item.to_dict() for item in default_agent_runtime_profiles()]
+        default_by_agent = {str(item.get("agent_id") or ""): item for item in default_payload}
         payload = _read_json(
             self.path,
             {"profiles": default_payload},
@@ -156,7 +243,10 @@ class AgentRuntimeRegistry:
             [item for item in list(payload.get("profiles") or []) if isinstance(item, dict)],
             key="agent_id",
         )
-        profiles = [_profile_from_dict(item) for item in merged_payload]
+        profiles = [
+            _profile_from_dict(_enforce_system_builtin_profile_payload(item, default_by_agent=default_by_agent))
+            for item in merged_payload
+        ]
         normalized = [item.to_dict() for item in profiles]
         if payload.get("profiles") != normalized:
             _write_json(self.path, {"profiles": normalized})
@@ -191,6 +281,9 @@ class AgentRuntimeRegistry:
             raise ValueError("agent_id must start with agent:")
         if self.agent_registry.get_agent(target) is None:
             raise ValueError("unknown agent")
+        current_agent = self.agent_registry.get_agent(target)
+        if current_agent is not None and current_agent.builtin:
+            raise PermissionError("system builtin agent runtime profile is locked")
         current = self.get_profile(target)
         profile = AgentRuntimeProfile(
             agent_profile_id=str(agent_profile_id or (current.agent_profile_id if current else f"{target.removeprefix('agent:').replace(':', '_')}_runtime")).strip(),
@@ -253,3 +346,15 @@ def _merge_items_by_key(
         if item_key:
             merged[item_key] = dict(item)
     return list(merged.values())
+
+
+def _enforce_system_builtin_profile_payload(
+    payload: dict[str, Any],
+    *,
+    default_by_agent: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    agent_id = str(payload.get("agent_id") or "").strip()
+    default_payload = default_by_agent.get(agent_id)
+    if not default_payload:
+        return payload
+    return dict(default_payload)
