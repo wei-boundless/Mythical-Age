@@ -231,9 +231,7 @@ function CoordinationGraph({
   onSelectNode?: (nodeId: string) => void;
   onSelectEdge?: (edgeId: string) => void;
 }) {
-  const safeNodes = nodes.length
-    ? nodes
-    : [{ node_id: "coordinator", role: "coordinator", agent_id: "agent:0" }];
+  const safeNodes = nodes;
   const ids = safeNodes.map((node, index) => text(node.node_id || node.id || node.role || node.agent_id, `node_${index + 1}`));
   const resolvedEdges = edges.length
     ? edges
@@ -956,7 +954,7 @@ export function CoordinationEditorWorkbench({
           <article className="coordination-editor-meta-card">
             <span>图规模</span>
             <strong>{activeGraphNodes.length} 节点 / {activeGraphEdges.length} 边</strong>
-            <small>{editorValid ? "当前拓扑可发布运行。" : `仍有 ${editorIssueCount} 个问题待处理。`}</small>
+            <small>{editorValid ? "当前拓扑可发布运行。" : activeGraphNodes.length ? `仍有 ${editorIssueCount} 个问题待处理。` : "空图不能发布，先创建任务节点。"}</small>
           </article>
         </div>
       </div>

@@ -18,8 +18,6 @@ from orchestration import (
     build_base_unit_catalog,
 )
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
-from tasks.definitions import default_task_definitions
-from tasks.flow_registry import CONTRACT_TITLE_MAP
 
 router = APIRouter()
 
@@ -138,7 +136,6 @@ OPTION_LABELS: dict[str, str] = {
     "prompt_manifest": "提示结构",
     "memory_runtime_view": "记忆视图",
     "assertions": "验收断言",
-    "AssistantFinalAnswer": "最终回答",
 }
 
 
@@ -178,6 +175,73 @@ def _choice_label_from_map(value: str, labels: dict[str, str]) -> str:
     if not normalized:
         return "未配置"
     return str(labels.get(normalized) or _option_label(normalized, normalized)).strip()
+
+
+def _task_scope_option(value: str, *, label: str, description: str = "", source: str = "") -> dict[str, str]:
+    option = _option(value, label=label, description=description)
+    option["source"] = str(source or "").strip()
+    return option
+
+
+def _build_task_scope_options(task_registry: TaskFlowRegistry, workflows: list[Any]) -> tuple[list[str], list[dict[str, str]]]:
+    options_by_value: dict[str, dict[str, str]] = {}
+
+    def add(value: str, *, label: str, description: str = "", source: str = "") -> None:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in options_by_value:
+            return
+        options_by_value[normalized] = _task_scope_option(
+            normalized,
+            label=label,
+            description=description,
+            source=source,
+        )
+
+    for domain in task_registry.list_task_domains():
+        if not domain.enabled:
+            continue
+        add(
+            domain.task_family,
+            label=f"{domain.title} · 任务域",
+            description=domain.description or domain.domain_id,
+            source="task_domain",
+        )
+
+    for record in task_registry.list_specific_task_records():
+        if not record.enabled:
+            continue
+        add(
+            record.task_mode,
+            label=f"{record.task_title} · 具体任务",
+            description=record.task_id,
+            source="specific_task",
+        )
+
+    for graph in task_registry.list_task_graphs():
+        if not graph.enabled and graph.publish_state == "archived":
+            continue
+        add(
+            graph.graph_id,
+            label=f"{graph.title} · 任务图",
+            description=f"{graph.graph_kind} / {graph.publish_state}",
+            source="task_graph",
+        )
+
+    for workflow in workflows:
+        if not getattr(workflow, "enabled", True):
+            continue
+        task_mode = str(getattr(workflow, "task_mode", "") or "").strip()
+        if not task_mode:
+            continue
+        add(
+            task_mode,
+            label=f"{getattr(workflow, 'title', task_mode)} · 工作流",
+            description=str(getattr(workflow, "workflow_id", "") or ""),
+            source="workflow",
+        )
+
+    options = sorted(options_by_value.values(), key=lambda item: (item.get("source", ""), item["label"], item["value"]))
+    return [item["value"] for item in options], options
 
 
 @router.post("/orchestration/dry-run")
@@ -245,22 +309,7 @@ async def orchestration_agents() -> dict[str, Any]:
     operations = build_default_operation_registry().list_operations()
     workflows = TaskWorkflowRegistry(runtime.base_dir).list_workflows()
     flow_items = task_registry.list_flows()
-    definition_items = list(default_task_definitions().values())
-    task_mode_labels = {
-        str(item.task_mode): str(item.title)
-        for item in definition_items
-        if str(item.task_mode or "").strip()
-    }
-    task_mode_labels.update({
-        str(item.task_mode): str(item.title)
-        for item in workflows
-        if str(item.task_mode or "").strip() and str(item.title or "").strip()
-    })
-    task_modes = sorted({
-        *[item.task_mode for item in flow_items if item.task_mode],
-        *[item.task_mode for item in workflows if item.task_mode],
-        *[item.task_mode for item in definition_items if item.task_mode],
-    })
+    task_scopes, task_scope_options = _build_task_scope_options(task_registry, workflows)
     runtime_lane_labels = {
         "main_conversation": "主会话通道",
         "general_task": "通用任务通道",
@@ -288,22 +337,6 @@ async def orchestration_agents() -> dict[str, Any]:
         "memory_runtime_view",
         "assertions",
     ]
-    output_contracts = sorted(
-        {
-            *[item.output_contract_id for item in flow_items if item.output_contract_id],
-            *[item.output_contract_id for item in workflows if item.output_contract_id],
-            "AssistantFinalAnswer",
-        }
-    )
-    contract_labels = {
-        **CONTRACT_TITLE_MAP,
-        **OPTION_LABELS,
-    }
-    contract_labels.update({
-        item.contract_id: item.title
-        for item in task_registry.list_contract_descriptors()
-        if str(item.contract_id or "").strip()
-    })
     approval_policies = ["default", "read_only_first", "manual_approval_required", "deny_destructive"]
     trace_policies = ["runtime_event_log", "full_trace", "minimal_trace"]
     return {
@@ -311,19 +344,17 @@ async def orchestration_agents() -> dict[str, Any]:
         "agent_groups": [item.to_dict() for item in groups],
         "options": {
             "operations": [item.to_dict() for item in operations],
-            "task_modes": task_modes,
+            "task_modes": task_scopes,
             "runtime_lanes": runtime_lanes,
             "memory_scopes": memory_scopes,
             "context_sections": context_sections,
-            "output_contracts": output_contracts,
             "approval_policies": approval_policies,
             "trace_policies": trace_policies,
             "operation_options": [_operation_option(item) for item in operations],
-            "task_mode_options": [_option(item, label=_choice_label_from_map(item, task_mode_labels)) for item in task_modes],
+            "task_mode_options": task_scope_options,
             "runtime_lane_options": [_option(item, label=_choice_label_from_map(item, runtime_lane_labels)) for item in runtime_lanes],
             "memory_scope_options": [_option(item, label=_choice_label_from_map(item, memory_scope_labels)) for item in memory_scopes],
             "context_section_options": [_option(item) for item in context_sections],
-            "output_contract_options": [_option(item, label=_choice_label_from_map(item, contract_labels)) for item in output_contracts],
             "approval_policy_options": [_option(item) for item in approval_policies],
             "trace_policy_options": [_option(item) for item in trace_policies],
             "worker_blueprints": [item.to_dict() for item in default_worker_agent_blueprints()],
@@ -488,7 +519,7 @@ async def upsert_orchestration_agent_runtime_profile(
             blocked_operations=tuple(payload.blocked_operations),
             allowed_memory_scopes=tuple(payload.allowed_memory_scopes),
             allowed_context_sections=tuple(payload.allowed_context_sections),
-            output_contracts=tuple(payload.output_contracts),
+            output_contracts=(),
             approval_policy=payload.approval_policy,
             trace_policy=payload.trace_policy,
             lifecycle_policy=payload.lifecycle_policy,

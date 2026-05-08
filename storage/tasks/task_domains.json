@@ -12,12 +12,12 @@
       }
     },
     {
-      "domain_id": "domain.writing",
-      "task_family": "writing",
-      "title": "写作任务",
+      "domain_id": "domain.health",
+      "task_family": "health",
+      "title": "health任务域",
       "description": "",
       "enabled": true,
-      "sort_order": 30,
+      "sort_order": 40,
       "metadata": {
         "derived": true
       }

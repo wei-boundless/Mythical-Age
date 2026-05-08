@@ -4,19 +4,7 @@
       "agent_profile_id": "main_interactive_agent",
       "agent_id": "agent:0",
       "allowed_task_modes": [
-        "request_intake",
-        "task_dispatch",
-        "final_response",
-        "general_qa",
-        "workspace_patch",
-        "light_web_game",
-        "capability_execution",
-        "knowledge_retrieval",
-        "information_search",
-        "local_material_read",
-        "information_synthesis",
-        "task_execution",
-        "inspection_and_correction"
+        "general_task"
       ],
       "allowed_runtime_lanes": [
         "full_interactive",
@@ -66,10 +54,7 @@
         "tool",
         "runtime_contracts"
       ],
-      "output_contracts": [
-        "AssistantFinalAnswer",
-        "LightWebGameResult"
-      ],
+      "output_contracts": [],
       "approval_policy": "default",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -121,12 +106,7 @@
         "assertions",
         "runtime_contracts"
       ],
-      "output_contracts": [
-        "HealthTriageResult",
-        "HealthTraceAnalysis",
-        "HealthCaseDraftProposal",
-        "HealthFixVerificationProposal"
-      ],
+      "output_contracts": [],
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -138,11 +118,7 @@
     {
       "agent_profile_id": "permission_manager_agent",
       "agent_id": "agent:1",
-      "allowed_task_modes": [
-        "permission_management",
-        "policy_review",
-        "access_triage"
-      ],
+      "allowed_task_modes": [],
       "allowed_runtime_lanes": [
         "permission_policy_read",
         "permission_trace_read",
@@ -173,11 +149,7 @@
         "prompt_manifest",
         "runtime_contracts"
       ],
-      "output_contracts": [
-        "PermissionPolicyReview",
-        "PermissionTriageResult",
-        "AssistantFinalAnswer"
-      ],
+      "output_contracts": [],
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -189,11 +161,7 @@
     {
       "agent_profile_id": "memory_manager_agent",
       "agent_id": "agent:2",
-      "allowed_task_modes": [
-        "memory_management",
-        "memory_trace_analysis",
-        "memory_policy_review"
-      ],
+      "allowed_task_modes": [],
       "allowed_runtime_lanes": [
         "memory_trace_read",
         "memory_policy_read",
@@ -226,11 +194,7 @@
         "prompt_manifest",
         "runtime_contracts"
       ],
-      "output_contracts": [
-        "MemoryTraceAnalysis",
-        "MemoryPolicyReview",
-        "AssistantFinalAnswer"
-      ],
+      "output_contracts": [],
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -242,11 +206,7 @@
     {
       "agent_profile_id": "capability_manager_agent",
       "agent_id": "agent:4",
-      "allowed_task_modes": [
-        "capability_management",
-        "execution_management",
-        "tool_policy_review"
-      ],
+      "allowed_task_modes": [],
       "allowed_runtime_lanes": [
         "capability_catalog_read",
         "tool_policy_read",
@@ -278,11 +238,7 @@
         "prompt_manifest",
         "runtime_contracts"
       ],
-      "output_contracts": [
-        "CapabilityPolicyReview",
-        "ToolBoundaryReport",
-        "AssistantFinalAnswer"
-      ],
+      "output_contracts": [],
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -294,11 +250,7 @@
     {
       "agent_profile_id": "soul_manager_agent",
       "agent_id": "agent:5",
-      "allowed_task_modes": [
-        "soul_management",
-        "projection_management",
-        "prompt_style_review"
-      ],
+      "allowed_task_modes": [],
       "allowed_runtime_lanes": [
         "soul_projection_read",
         "prompt_structure_read",
@@ -330,11 +282,7 @@
         "runtime_trace",
         "runtime_contracts"
       ],
-      "output_contracts": [
-        "SoulProjectionReview",
-        "PromptStyleReview",
-        "AssistantFinalAnswer"
-      ],
+      "output_contracts": [],
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",

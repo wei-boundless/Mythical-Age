@@ -4,9 +4,6 @@ from typing import Any
 
 from a2a import types as a2a_types
 
-from capability_system.local_mcp_registry import default_local_mcp_units
-
-
 OFFICIAL_A2A_PROTOCOL_VERSION = "0.3.0"
 OFFICIAL_A2A_TRANSPORT = a2a_types.TransportProtocol.jsonrpc.value
 DEFAULT_A2A_MESSAGE_TYPES = ("message/send", "message/stream", "task/status", "task/artifact")
@@ -21,23 +18,13 @@ EXT_BINDING_OWNER_TASK_ID = "x-langchain-agent.binding_owner_task_id"
 
 
 def build_official_agent_card_catalog(*, base_url: str = "http://localhost/a2a") -> list[dict[str, Any]]:
-    catalog: list[dict[str, Any]] = []
-    for unit in default_local_mcp_units():
-        card = _official_agent_card_for_unit(unit, url=f"{base_url.rstrip('/')}/{unit.agent_id}")
-        payload = card.model_dump(by_alias=True, exclude_none=True)
-        payload["agent_id"] = unit.agent_id
-        payload["source"] = "official_a2a_agent_card"
-        payload["route"] = unit.route
-        catalog.append(payload)
-    return catalog
+    _ = base_url
+    return []
 
 
 def build_official_agent_card_index(*, base_url: str = "http://localhost/a2a") -> dict[str, dict[str, Any]]:
-    return {
-        str(item.get("agent_id") or ""): item
-        for item in build_official_agent_card_catalog(base_url=base_url)
-        if str(item.get("agent_id") or "").strip()
-    }
+    _ = base_url
+    return {}
 
 
 def build_official_task_from_request(request: Any) -> dict[str, Any]:
@@ -176,33 +163,6 @@ def build_a2a_preview_for_coordination(
     }
 
 
-def _official_agent_card_for_unit(unit: Any, *, url: str) -> a2a_types.AgentCard:
-    return a2a_types.AgentCard(
-        name=str(unit.a2a_name or unit.name),
-        description=str(unit.a2a_description or unit.summary),
-        url=url,
-        version="1.0.0",
-        protocol_version=OFFICIAL_A2A_PROTOCOL_VERSION,
-        preferred_transport=OFFICIAL_A2A_TRANSPORT,
-        default_input_modes=list(unit.default_input_modes or ["text/plain"]),
-        default_output_modes=list(unit.default_output_modes or ["text/plain", "application/json"]),
-        capabilities=a2a_types.AgentCapabilities(
-            streaming=True,
-            push_notifications=False,
-        ),
-        skills=[
-            a2a_types.AgentSkill(
-                id=str(unit.a2a_skill_id or unit.route),
-                name=str(unit.a2a_skill_name or unit.a2a_name or unit.name),
-                description=str(unit.a2a_skill_description or unit.summary),
-                tags=list(unit.tags or []),
-                input_modes=list(unit.default_input_modes or ["text/plain"]),
-                output_modes=list(unit.default_output_modes or ["text/plain", "application/json"]),
-            )
-        ],
-    )
-
-
 def _request_parts(request: Any | None) -> list[a2a_types.Part]:
     query = str(getattr(request, "query", "") or "").strip()
     if not query:
@@ -289,10 +249,7 @@ def _request_agent_id(request: Any | None) -> str:
     if agent_id:
         return agent_id
     route = str(getattr(request, "mcp_route", "") or "").strip()
-    for unit in default_local_mcp_units():
-        if route in {str(unit.route or "").strip(), *[str(item or "").strip() for item in list(unit.route_aliases or [])]}:
-            return str(unit.agent_id or "")
-    return "agent:local:unknown"
+    return f"capability_unit:{route}" if route else "capability_unit:unknown"
 
 
 def _result_agent_id(*, request: Any | None, result: Any | None) -> str:

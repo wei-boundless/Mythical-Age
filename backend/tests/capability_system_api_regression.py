@@ -74,7 +74,7 @@ def test_operation_agent_bindings_keep_pdf_tools_off_main_agent() -> None:
 
     assert "web_search" in bindings["agent:0"]
     assert "mcp_pdf" not in bindings["agent:0"]
-    assert bindings["agent:document:pdf"] == []
+    assert set(bindings) == {"agent:0"}
 
 
 def test_skill_prompt_view_updates_frontmatter(tmp_path: Path) -> None:
@@ -233,7 +233,7 @@ def test_capability_supply_package_filters_to_requested_operation_scope() -> Non
                     "mcp_id": "mcp:document:pdf",
                     "operation_id": "op.mcp_pdf",
                     "route": "pdf",
-                    "agent_id": "agent:document:pdf",
+                    "unit_id": "local_mcp:pdf",
                     "transport": "in_process",
                     "model_visibility": "not_direct_model_tool",
                 }

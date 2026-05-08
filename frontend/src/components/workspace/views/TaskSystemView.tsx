@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  CoordinationEditorWorkbench,
   coordinationSubtaskRefs,
   graphEdgeId,
   graphEdgeSource,
@@ -25,6 +24,8 @@ import {
 import { ContractLibraryPanel, contractSpecTitle } from "@/components/workspace/views/task-system/ContractLibraryPanel";
 import { ContractOverviewPanel } from "@/components/workspace/views/task-system/ContractOverviewPanel";
 import { TaskContractPanel } from "@/components/workspace/views/task-system/TaskContractPanel";
+import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
+import { buildTaskGraphDraft } from "@/components/workspace/views/task-system/taskGraphDraft";
 import {
   TaskSystemDomainTaskSelectField as DomainTaskSelectField,
   TaskSystemField as Field,
@@ -53,6 +54,7 @@ import {
   upsertTaskWorkflow,
   type ConversationEntryPolicy,
   type ContractSpec,
+  type CoordinationGraphSpec,
   type CoordinationTask,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
@@ -542,6 +544,80 @@ function contractLabel(value: string, specs: ContractSpec[] = [], legacyContract
   if (spec) return `${contractSpecTitle(spec)} · ${value}`;
   const contract = legacyContracts.find((item) => item.contract_id === value);
   return contract?.title || displayId(value);
+}
+
+function deriveTaskGraphSpec(
+  coordinationTaskId: string,
+  domainId: string,
+  taskFamily: string,
+  nodes: Array<Record<string, unknown>>,
+  edges: Array<Record<string, unknown>>,
+): CoordinationGraphSpec {
+  const nodeIds = nodes
+    .map((node, index) => String(node.node_id ?? node.id ?? `node_${index + 1}`).trim())
+    .filter(Boolean);
+  const uniqueNodeIds = new Set(nodeIds);
+  const startNodeIds = nodeIds.filter((nodeId) => !edges.some((edge) => graphEdgeTarget(edge) === nodeId));
+  const terminalNodeIds = nodeIds.filter((nodeId) => !edges.some((edge) => graphEdgeSource(edge) === nodeId));
+  const issues: Array<Record<string, unknown>> = [];
+
+  if (!nodes.length) {
+    issues.push({
+      code: "empty_task_graph",
+      severity: "blocker",
+      message: "任务图还没有节点，不能预检或发布。",
+    });
+  }
+
+  if (uniqueNodeIds.size !== nodeIds.length) {
+    issues.push({
+      code: "duplicate_node_id",
+      severity: "blocker",
+      message: "任务图中存在重复节点 ID。",
+    });
+  }
+
+  edges.forEach((edge, index) => {
+    const source = graphEdgeSource(edge);
+    const target = graphEdgeTarget(edge);
+    if (!source || !target) {
+      issues.push({
+        code: "edge_endpoint_missing",
+        severity: "blocker",
+        message: `第 ${index + 1} 条边缺少来源或目标节点。`,
+      });
+      return;
+    }
+    if (!uniqueNodeIds.has(source) || !uniqueNodeIds.has(target)) {
+      issues.push({
+        code: "edge_endpoint_unknown",
+        severity: "blocker",
+        message: `第 ${index + 1} 条边连接了不存在的节点。`,
+      });
+    }
+  });
+
+  return {
+    graph_id: coordinationTaskId || "graph.draft",
+    coordination_task_id: coordinationTaskId,
+    domain_id: domainId,
+    task_family: taskFamily,
+    coordinator_agent_id: "",
+    agent_group_id: "",
+    nodes,
+    edges,
+    subtask_refs: uniqueStrings(nodes.map((node) => graphNodeTaskId(node))),
+    communication_modes: uniqueStrings(edges.map((edge) => String(edge.mode ?? "").trim())),
+    start_node_ids: startNodeIds,
+    terminal_node_ids: terminalNodeIds,
+    issues,
+    valid: issues.length === 0,
+    diagnostics: {
+      derived_from: "task_graph_draft",
+      node_count: nodes.length,
+      edge_count: edges.length,
+    },
+  };
 }
 
 function projectionLabel(value: string, cards: SoulProjectionCard[] = []) {
@@ -1891,11 +1967,35 @@ export function TaskSystemView() {
   const taskPolicyError = jsonError(taskPolicyText, "任务策略", "object");
   const activeGraphNodes = topologyDraft.nodes ?? [];
   const activeGraphEdges = topologyDraft.edges ?? [];
+  const taskGraphDraft = buildTaskGraphDraft({
+    coordinationDraft,
+    topologyDraft,
+    protocolDraft,
+  });
   const selectedGraphNode = activeGraphNodes.find((node) => String(node.node_id ?? "") === selectedGraphNodeId) ?? null;
   const selectedGraphEdge = activeGraphEdges.find((edge, index) => graphEdgeId(edge, index) === selectedGraphEdgeId) ?? null;
   const boundCoordinationTaskIds = new Set(activeGraphNodes.map((node) => graphNodeTaskId(node)).filter(Boolean));
-  const editorIssueCount = selectedCoordinationGraphSpec?.issues?.length ?? 0;
-  const editorValid = selectedCoordinationGraphSpec?.valid !== false;
+  const draftGraphSpec = deriveTaskGraphSpec(
+    coordinationDraft.coordination_task_id || selectedCoordination?.coordination_task_id || "",
+    selectedDomain?.domain_id || coordinationDraft.domain_id || "",
+    selectedDomain?.task_family || coordinationDraft.task_family || "",
+    activeGraphNodes,
+    activeGraphEdges,
+  );
+  const editorGraphSpec: CoordinationGraphSpec = {
+    ...(selectedCoordinationGraphSpec ?? draftGraphSpec),
+    ...draftGraphSpec,
+    issues: [
+      ...draftGraphSpec.issues,
+      ...((selectedCoordinationGraphSpec?.issues ?? []).filter((issue) => {
+        const code = String(issue.code ?? "");
+        return code && !draftGraphSpec.issues.some((draftIssue) => String(draftIssue.code ?? "") === code);
+      })),
+    ],
+  };
+  editorGraphSpec.valid = editorGraphSpec.issues.length === 0 && draftGraphSpec.valid;
+  const editorIssueCount = editorGraphSpec.issues.length;
+  const editorValid = editorGraphSpec.valid;
   const editorPublished = Boolean(coordinationDraft.enabled && topologyDraft.enabled && protocolDraft.enabled);
   const topologyDirty = JSON.stringify(topologyDraft.nodes ?? []) !== JSON.stringify(coordinationDraft.graph_nodes ?? [])
     || JSON.stringify(topologyDraft.edges ?? []) !== JSON.stringify(coordinationDraft.graph_edges ?? []);
@@ -2176,40 +2276,38 @@ export function TaskSystemView() {
           ) : null}
 
           {taskLayer === "graph" ? (
-            <CoordinationEditorWorkbench
-              activeGraphEdges={activeGraphEdges}
-              activeGraphNodes={activeGraphNodes}
-              addCoordinationEdge={addCoordinationEdge}
-              addCoordinationNode={addCoordinationNode}
-              addCoordinationRoleNode={addCoordinationRoleNode}
-              addCoordinationSuccessorNode={addCoordinationSuccessorNode}
-              addCoordinationTaskNode={addCoordinationTaskNode}
+            <TaskGraphWorkbench
+              addTaskGraphEdge={addCoordinationEdge}
+              addTaskGraphNode={addCoordinationNode}
+              addTaskGraphRoleNode={addCoordinationRoleNode}
+              addTaskGraphSuccessorNode={addCoordinationSuccessorNode}
+              addTaskGraphTaskNode={addCoordinationTaskNode}
               a2aCatalog={a2aCatalog}
               agentGroupOptions={agentGroupOptions}
-              applyCoordinationGraphTemplate={applyCoordinationGraphTemplate}
+              applyTaskGraphTemplate={applyCoordinationGraphTemplate}
               boundCoordinationTaskIds={boundCoordinationTaskIds}
               connectSelectedNodeTo={connectSelectedNodeTo}
               contractSpecs={contractSpecs}
-              coordinationDraft={coordinationDraft}
               coordinationTasks={coordinationTasks}
-              cycleCoordinationEdgeMode={cycleCoordinationEdgeMode}
-              cycleCoordinationNodeRole={cycleCoordinationNodeRole}
+              cycleTaskGraphEdgeMode={cycleCoordinationEdgeMode}
+              cycleTaskGraphNodeRole={cycleCoordinationNodeRole}
               domainTaskOptions={domainTaskOptions}
-              duplicateCoordinationDraft={duplicateCoordinationDraft}
+              duplicateTaskGraphDraft={duplicateCoordinationDraft}
               editorIssueCount={editorIssueCount}
               editorPublished={editorPublished}
               editorValid={editorValid}
+              activeGraphEdges={activeGraphEdges}
+              activeGraphNodes={activeGraphNodes}
               handleTopologyNodeClick={handleTopologyNodeClick}
+              legacyDrafts={{ coordinationDraft, topologyDraft, protocolDraft }}
               linkingFromNodeId={linkingFromNodeId}
-              protocolDraft={protocolDraft}
-              removeCoordinationEdge={removeCoordinationEdge}
-              removeCoordinationNode={removeCoordinationNode}
-              reverseCoordinationEdge={reverseCoordinationEdge}
-              saveCoordinationStack={saveCoordinationStack}
-              saveTopologyDraftIntoCoordination={saveTopologyDraftIntoCoordination}
+              removeTaskGraphEdge={removeCoordinationEdge}
+              removeTaskGraphNode={removeCoordinationNode}
+              reverseTaskGraphEdge={reverseCoordinationEdge}
+              saveTaskGraphDraft={saveTopologyDraftIntoCoordination}
+              saveTaskGraphStack={saveCoordinationStack}
               saving={saving}
               selectedCoordination={selectedCoordination}
-              selectedCoordinationGraphSpec={selectedCoordinationGraphSpec}
               selectedCoordinationId={selectedCoordinationId}
               selectedDomain={selectedDomain}
               selectedDomainTasks={selectedDomainTasks}
@@ -2217,19 +2315,20 @@ export function TaskSystemView() {
               selectedGraphEdgeId={selectedGraphEdgeId}
               selectedGraphNode={selectedGraphNode}
               selectedGraphNodeId={selectedGraphNodeId}
-              sendCoordinationToChat={sendCoordinationToChat}
+              selectedTaskGraphSpec={editorGraphSpec}
+              sendTaskGraphToChat={sendCoordinationToChat}
               setCoordinationDraft={setCoordinationDraft}
-              setCoordinationPublished={setCoordinationPublished}
               setLinkingFromNodeId={setLinkingFromNodeId}
               setProtocolDraft={setProtocolDraft}
               setSelectedCoordinationId={setSelectedCoordinationId}
               setSelectedGraphEdgeId={setSelectedGraphEdgeId}
               setSelectedGraphNodeId={setSelectedGraphNodeId}
+              setTaskGraphPublished={setCoordinationPublished}
               setTopologyDraft={setTopologyDraft}
-              topologyDirty={topologyDirty}
-              topologyDraft={topologyDraft}
-              updateCoordinationEdge={updateCoordinationEdge}
-              updateCoordinationNode={updateCoordinationNode}
+              taskGraphDirty={topologyDirty}
+              taskGraphDraft={taskGraphDraft}
+              updateTaskGraphEdge={updateCoordinationEdge}
+              updateTaskGraphNode={updateCoordinationNode}
             />
           ) : null}
 

@@ -25,6 +25,10 @@ from .flow_models import (
     TopologyTemplate,
 )
 from .contract_models import TaskContractDescriptor
+from .task_graph_models import (
+    TaskGraphDefinition,
+    task_graph_from_dict,
+)
 from .template_registry import TaskTemplateRegistry, default_task_templates
 from .workflow_registry import TaskWorkflowRegistry
 
@@ -69,7 +73,64 @@ def normalize_task_agent_adoption_mode(value: str) -> str:
 
 
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
-    return ()
+    return (
+        TaskFlowDefinition(
+            flow_id="flow.health.issue_triage",
+            task_mode="issue_triage",
+            task_family="health",
+            title="健康问题分诊流",
+            input_contract_id="HealthIssue",
+            output_contract_id="HealthTriageResult",
+            default_agent_id="agent:3",
+            default_workflow_id="workflow.health.issue_triage",
+            default_runtime_lane="health_issue_read",
+            default_memory_scope="issue_local_readonly",
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "task.health.issue_triage"},
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.health.trace_analysis",
+            task_mode="trace_analysis",
+            task_family="health",
+            title="健康链路分析流",
+            input_contract_id="HealthTrace",
+            output_contract_id="HealthTraceAnalysis",
+            default_agent_id="agent:3",
+            default_workflow_id="workflow.health.trace_analysis",
+            default_runtime_lane="health_trace_read",
+            default_memory_scope="health_trace_readonly",
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "task.health.trace_analysis"},
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.health.case_draft",
+            task_mode="case_draft",
+            task_family="health",
+            title="健康用例草案流",
+            input_contract_id="HealthIssue",
+            output_contract_id="HealthCaseDraftProposal",
+            default_agent_id="agent:3",
+            default_workflow_id="workflow.health.case_draft",
+            default_runtime_lane="case_draft_candidate",
+            default_memory_scope="issue_local_readonly",
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "task.health.case_draft"},
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.health.fix_verification",
+            task_mode="fix_verification",
+            task_family="health",
+            title="健康修复验证流",
+            input_contract_id="HealthIssueWithBeforeAfterTrace",
+            output_contract_id="HealthFixVerificationProposal",
+            default_agent_id="agent:3",
+            default_workflow_id="workflow.health.fix_verification",
+            default_runtime_lane="fix_verification_candidate",
+            default_memory_scope="issue_local_readonly",
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "task.health.fix_verification"},
+        ),
+    )
 
 
 def _input_contract_for_task_mode(task_mode: str) -> str:
@@ -187,6 +248,10 @@ def _task_domains_path(base_dir: Path) -> Path:
 
 def _coordination_tasks_path(base_dir: Path) -> Path:
     return _storage_root(base_dir) / "coordination_tasks.json"
+
+
+def _task_graphs_path(base_dir: Path) -> Path:
+    return _storage_root(base_dir) / "task_graphs.json"
 
 
 def _topology_templates_path(base_dir: Path) -> Path:
@@ -1917,6 +1982,133 @@ class TaskFlowRegistry:
         return _next_prefixed_id(
             [item.coordination_task_id for item in self.list_coordination_tasks()],
             prefix="coord.",
+        )
+
+    def list_task_graphs(self) -> list[TaskGraphDefinition]:
+        payload = _read_json(_task_graphs_path(self.base_dir), {"task_graphs": []})
+        stored_graphs = [
+            task_graph_from_dict(item)
+            for item in list(payload.get("task_graphs") or [])
+            if isinstance(item, dict)
+        ]
+        by_id: dict[str, TaskGraphDefinition] = {item.graph_id: item for item in stored_graphs if item.graph_id}
+        for coordination in self.list_coordination_tasks():
+            graph = self._task_graph_from_coordination_task(coordination)
+            if graph.graph_id and graph.graph_id not in by_id:
+                by_id[graph.graph_id] = graph
+        graphs = sorted(by_id.values(), key=lambda item: (item.domain_id, item.title, item.graph_id))
+        normalized = [item.to_dict() for item in graphs]
+        if payload.get("task_graphs") != normalized:
+            _write_json(_task_graphs_path(self.base_dir), {"task_graphs": normalized})
+        return graphs
+
+    def get_task_graph(self, graph_id: str) -> TaskGraphDefinition | None:
+        target = str(graph_id or "").strip()
+        return next((item for item in self.list_task_graphs() if item.graph_id == target), None)
+
+    def next_task_graph_id(self) -> str:
+        return _next_prefixed_id(
+            [item.graph_id for item in self.list_task_graphs()],
+            prefix="graph.",
+        )
+
+    def upsert_task_graph(
+        self,
+        *,
+        graph_id: str,
+        title: str,
+        domain_id: str = "",
+        task_family: str = "",
+        graph_kind: str = "single_agent",
+        entry_node_id: str = "",
+        output_node_id: str = "",
+        nodes: tuple[dict[str, Any], ...] = (),
+        edges: tuple[dict[str, Any], ...] = (),
+        graph_contract_id: str = "",
+        default_protocol_id: str = "",
+        runtime_policy: dict[str, Any] | None = None,
+        context_policy: dict[str, Any] | None = None,
+        publish_state: str = "draft",
+        enabled: bool = False,
+        metadata: dict[str, Any] | None = None,
+    ) -> TaskGraphDefinition:
+        target = str(graph_id or "").strip()
+        if not target.startswith("graph."):
+            raise ValueError("graph_id must start with graph.")
+        graph = task_graph_from_dict(
+            {
+                "graph_id": target,
+                "title": title,
+                "domain_id": domain_id,
+                "task_family": task_family,
+                "graph_kind": graph_kind,
+                "entry_node_id": entry_node_id,
+                "output_node_id": output_node_id,
+                "nodes": [dict(item) for item in nodes],
+                "edges": [dict(item) for item in edges],
+                "graph_contract_id": graph_contract_id,
+                "default_protocol_id": default_protocol_id,
+                "runtime_policy": dict(runtime_policy or {}),
+                "context_policy": dict(context_policy or {}),
+                "publish_state": publish_state,
+                "enabled": enabled,
+                "metadata": dict(metadata or {}),
+            }
+        )
+        graphs = [item for item in self.list_task_graphs() if item.graph_id != target]
+        graphs.append(graph)
+        _write_json(_task_graphs_path(self.base_dir), {"task_graphs": [item.to_dict() for item in graphs]})
+        return graph
+
+    @staticmethod
+    def _task_graph_from_coordination_task(coordination: CoordinationTaskDefinition) -> TaskGraphDefinition:
+        metadata = {
+            **dict(coordination.metadata or {}),
+            "compatibility_source": "coordination_task",
+            "coordination_task_id": coordination.coordination_task_id,
+            "topology_template_id": coordination.topology_template_id,
+            "handoff_policy": coordination.handoff_policy,
+            "output_merge_policy": coordination.output_merge_policy,
+        }
+        protocol_id = str(metadata.get("protocol_id") or "")
+        nodes = []
+        for node in coordination.graph_nodes:
+            current = dict(node)
+            current.setdefault("node_type", "agent")
+            current.setdefault("title", current.get("label") or current.get("role") or current.get("node_id") or "节点")
+            current.setdefault("work_posture", current.get("role") or "")
+            nodes.append(current)
+        edges = []
+        for edge in coordination.graph_edges:
+            current = dict(edge)
+            current.setdefault("source_node_id", current.get("from") or current.get("source") or "")
+            current.setdefault("target_node_id", current.get("to") or current.get("target") or "")
+            current.setdefault("edge_type", current.get("mode") or "handoff")
+            current.setdefault("a2a_message_type", "message/send")
+            edges.append(current)
+        return task_graph_from_dict(
+            {
+                "graph_id": f"graph.{coordination.coordination_task_id.removeprefix('coord.')}",
+                "title": coordination.title,
+                "domain_id": coordination.domain_id,
+                "task_family": coordination.task_family,
+                "graph_kind": "coordination",
+                "nodes": nodes,
+                "edges": edges,
+                "default_protocol_id": protocol_id,
+                "runtime_policy": {
+                    "coordinator_agent_id": coordination.coordinator_agent_id,
+                    "agent_group_id": coordination.agent_group_id,
+                    "coordination_mode": coordination.coordination_mode,
+                },
+                "context_policy": {
+                    "shared_context_policy": coordination.shared_context_policy,
+                    "memory_sharing_policy": coordination.memory_sharing_policy,
+                },
+                "publish_state": "published" if coordination.enabled else "draft",
+                "enabled": coordination.enabled,
+                "metadata": metadata,
+            }
         )
 
     def get_topology_template(self, template_id: str) -> TopologyTemplate | None:

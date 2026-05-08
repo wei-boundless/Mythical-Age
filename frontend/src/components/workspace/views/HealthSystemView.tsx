@@ -64,6 +64,7 @@ import {
   type TestCaseRegistry,
   type TestProfile,
   type TestRun,
+  type VerificationRun,
 } from "@/lib/api";
 
 type HealthPage = "overview" | "issues" | "verify" | "time";
@@ -325,6 +326,8 @@ function statusLabel(status: string) {
   if (status === "cancelled") return "已取消";
   if (status === "completed") return "完成";
   if (status === "blocked") return "阻断";
+  if (status === "rejected") return "已拒绝";
+  if (status === "stale") return "状态失效";
   if (status === "active") return "正式";
   if (status === "candidate") return "未启用";
   return status || "未知";
@@ -366,7 +369,7 @@ function statusTone(value: string) {
   if (["completed", "passed", "resolved", "closed", "ready", "active"].some((item) => normalized.includes(item))) {
     return "health-pill--success";
   }
-  if (["failed", "blocked", "danger", "critical"].some((item) => normalized.includes(item))) {
+  if (["failed", "blocked", "danger", "critical", "rejected", "stale"].some((item) => normalized.includes(item))) {
     return "health-pill--danger";
   }
   if (["warning", "triage", "running", "sample", "candidate"].some((item) => normalized.includes(item))) {
@@ -396,6 +399,14 @@ function formatDuration(ms?: number) {
   if (value < 1000) return `${Math.round(value)}ms`;
   if (value < 60_000) return `${(value / 1000).toFixed(1)}s`;
   return `${Math.round(value / 60_000)}min`;
+}
+
+function verificationRunId(run: VerificationRun | null | undefined) {
+  return run?.source_run_ref || run?.verification_run_id || "";
+}
+
+function verificationProfile(run: VerificationRun | null | undefined) {
+  return run?.profile_id || "";
 }
 
 function numberValue(value: unknown) {
@@ -595,7 +606,7 @@ export function HealthSystemView() {
   );
 
   const loadTraceReport = useCallback(async (runId: string) => {
-    if (!runId || runId.includes(":sample:")) {
+    if (!runId) {
       setTraceReport(null);
       return;
     }
@@ -803,9 +814,15 @@ export function HealthSystemView() {
       return;
     }
     if (item.subject_type === "verification_run") {
-      const run = testRuns.find((candidate) => candidate.run_id === item.subject_id);
+      const run = (workbench?.recent_runs || []).find((candidate) =>
+        verificationRunId(candidate) === item.subject_id || candidate.verification_run_id === item.subject_id
+      );
       if (run) {
-        void selectTestRun(run, false);
+        const sourceRun = verificationRunId(run);
+        const matchedTestRun = testRuns.find((candidate) => candidate.run_id === sourceRun);
+        if (matchedTestRun) {
+          void selectTestRun(matchedTestRun, false);
+        }
         setProblemReportTab("analysis");
         setNotice("已选中验证失败线索。健康子 Agent 应结合测试报告、测试目标和生成结果语义先做问题判断。");
       } else {

@@ -32,9 +32,9 @@ def main() -> None:
 
     gate = ToolContractGate(mode="enforce")
     denied = gate.evaluate(
-        tool_name="web_search",
-        contract=ToolExecutionContract(required_inputs=["query"]),
-        tool_input={"query": "latest"},
+        tool_name="read_file",
+        contract=ToolExecutionContract(required_inputs=["path"]),
+        tool_input={"path": "docs/example.md"},
         tool_scope=scope,
     )
     assert denied.should_block

@@ -31,11 +31,11 @@ class AgentCapability:
 @dataclass(frozen=True, slots=True)
 class MCPCapability:
     mcp_id: str
+    unit_id: str
     route: str
     name: str
     description: str
     operation_id: str
-    agent_id: str
     transport: str
     model_visibility: str
     tags: list[str] = field(default_factory=list)
@@ -125,7 +125,7 @@ class CapabilitySupplyMCPRef:
     mcp_id: str
     operation_id: str
     route: str
-    agent_id: str
+    unit_id: str
     transport: str
     model_visibility: str
 

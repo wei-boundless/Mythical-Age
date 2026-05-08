@@ -52,13 +52,16 @@ def build_health_agent_execution_plan(
 ) -> HealthAgentExecutionPlan:
     task_mode = str(task_mode or "issue_triage").strip() or "issue_triage"
     task_registry = TaskFlowRegistry(base_dir)
-    flow = next((item for item in task_registry.list_flows() if item.task_mode == task_mode), None)
+    specific_task_id = health_specific_task_id(task_mode)
+    specific_task = task_registry.get_specific_task_record(specific_task_id)
+    if specific_task is None:
+        raise KeyError(specific_task_id)
+    flow = next((item for item in task_registry.list_flows() if item.flow_id == specific_task.default_flow_contract_id), None)
     if flow is None:
-        raise KeyError(task_mode)
+        raise KeyError(specific_task.default_flow_contract_id or task_mode)
 
     binding = task_registry.build_binding_for_flow(flow)
     task_id = f"task.health.{task_mode}:{issue.issue_id}"
-    specific_task_id = health_specific_task_id(task_mode)
     current_turn_context = {
         "authority": "health_system.current_turn_context",
         "selected_task_id": specific_task_id,
@@ -138,6 +141,7 @@ def build_health_agent_execution_plan(
         diagnostics={
             "source": source,
             "specific_task_id": specific_task_id,
+            "specific_task_record": specific_task.to_dict(),
             "task_bundle_status": str(task_bundle.get("status") or ""),
             "runtime_executable": bool(agent_runtime_spec.get("runtime_executable", True)),
             "runtime_profile": runtime_profile.to_dict() if runtime_profile is not None else {},

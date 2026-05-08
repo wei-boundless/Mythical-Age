@@ -701,6 +701,63 @@ export type CoordinationGraphSpec = {
   diagnostics?: Record<string, unknown>;
 };
 
+export type TaskGraphNodeRecord = {
+  node_id: string;
+  node_type: string;
+  title: string;
+  task_id?: string;
+  agent_id?: string;
+  agent_selection_policy?: string;
+  agent_group_id?: string;
+  work_posture?: string;
+  node_contract_id?: string;
+  input_contract_id?: string;
+  output_contract_id?: string;
+  runtime_lane?: string;
+  context_visibility_policy?: Record<string, unknown>;
+  projection_overlay_id?: string;
+  failure_policy?: Record<string, unknown>;
+  human_gate_policy?: Record<string, unknown>;
+  memory_writeback_policy?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskGraphEdgeRecord = {
+  edge_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  edge_type: string;
+  a2a_message_type?: string;
+  payload_contract_id?: string;
+  context_filter_policy?: Record<string, unknown>;
+  artifact_ref_policy?: Record<string, unknown>;
+  ack_policy?: string;
+  timeout_policy?: string;
+  failure_policy?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskGraphRecord = {
+  graph_id: string;
+  title: string;
+  domain_id?: string;
+  task_family?: string;
+  graph_kind: "single_agent" | "multi_agent" | "coordination";
+  entry_node_id: string;
+  output_node_id: string;
+  nodes: TaskGraphNodeRecord[];
+  edges: TaskGraphEdgeRecord[];
+  graph_contract_id?: string;
+  default_protocol_id?: string;
+  runtime_policy?: Record<string, unknown>;
+  context_policy?: Record<string, unknown>;
+  publish_state: "draft" | "published" | "archived";
+  enabled: boolean;
+  metadata?: Record<string, unknown>;
+  issues?: Array<Record<string, unknown>>;
+  valid?: boolean;
+};
+
 export type TaskCommunicationProtocol = {
   protocol_id: string;
   title: string;
@@ -761,6 +818,7 @@ export type TaskMemoryRequestProfileUpsertPayload = TaskMemoryRequestProfile;
 export type ContractSpecUpsertPayload = ContractSpec;
 
 export type CoordinationTaskUpsertPayload = CoordinationTask;
+export type TaskGraphUpsertPayload = TaskGraphRecord;
 
 export type TopologyTemplateUpsertPayload = TopologyTemplate;
 
@@ -807,7 +865,11 @@ export type TaskSystemOverview = {
     validation_issues: ContractValidationIssue[];
     summary: Record<string, number>;
   };
+  task_graph_management?: {
+    task_graphs: TaskGraphRecord[];
+  };
   coordination_management: {
+    task_graphs?: TaskGraphRecord[];
     coordination_tasks: CoordinationTask[];
     coordination_graph_specs?: CoordinationGraphSpec[];
     topology_templates: TopologyTemplate[];
@@ -940,6 +1002,12 @@ export type HealthSystemOverview = {
   commands?: HealthManagementCommand[];
   reports?: HealthReport[];
   health_test_runs?: HealthTestRun[];
+  verification_runs?: VerificationRun[];
+  gate_projection?: {
+    authority: string;
+    decisions: Array<Record<string, unknown>>;
+    summary: Record<string, number>;
+  };
 };
 
 export type HealthWorkbenchInboxItem = {
@@ -965,7 +1033,7 @@ export type HealthWorkbenchOverview = {
   selected_context: HealthWorkbenchInboxItem | Record<string, never>;
   features: HarnessMapFeature[];
   verification_resources: HarnessMapCase[];
-  recent_runs: TestRun[];
+  recent_runs: VerificationRun[];
   evidence_gaps: Array<Record<string, unknown>>;
   efficiency: {
     authority: string;
@@ -1061,6 +1129,7 @@ export type HealthIssue = {
 
 export type HealthAgentRun = {
   run_id: string;
+  request_id?: string;
   issue_id: string;
   task_run_id: string;
   agent_id: string;
@@ -1068,13 +1137,44 @@ export type HealthAgentRun = {
   runtime_lane: string;
   task_mode: string;
   workflow_id: string;
+  admission_status?: string;
   projection_id: string;
   prompt_manifest_id: string;
   status: string;
   terminal_reason: string;
+  blocked_reasons?: string[];
+  report_refs?: string[];
+  trace_refs?: string[];
+  artifact_refs?: string[];
   result_ref?: string;
   created_at?: number;
   metadata?: Record<string, unknown>;
+};
+
+export type VerificationRun = {
+  verification_run_id: string;
+  profile_id: string;
+  status: string;
+  command_ref?: string;
+  source_run_ref?: string;
+  process_ref?: string;
+  output_dir?: string;
+  log_path?: string;
+  artifact_manifest_ref?: string;
+  summary: {
+    total: number;
+    passed: number;
+    failed: number;
+    first_failure: string;
+  };
+  artifact_refs?: string[];
+  issue_refs?: string[];
+  report_refs?: string[];
+  trace_refs?: string[];
+  started_at?: number;
+  ended_at?: number;
+  metadata?: Record<string, unknown>;
+  authority: string;
 };
 
 export type HealthProblemNode = {
@@ -1434,8 +1534,8 @@ export type CapabilityEndpoint = {
   prompt_exposure_policy: string;
   resource_exposure_policy: string;
   source_ref: string;
-  owner_agents: Array<{
-    agent_id: string;
+  owner_units: Array<{
+    unit_id: string;
     name: string;
   }>;
   tags: string[];
@@ -1456,11 +1556,11 @@ export type OperationBindingGraph = {
   }>;
   mcp_nodes?: Array<{
     mcp_id: string;
+    unit_id: string;
     route: string;
     name: string;
     description: string;
     operation_id: string;
-    agent_id: string;
     transport: string;
     model_visibility: string;
     tags: string[];
@@ -1513,7 +1613,7 @@ export type CapabilitySystemCatalog = {
       mcp_id: string;
       operation_id: string;
       route: string;
-      agent_id: string;
+      unit_id: string;
       transport: string;
       model_visibility: string;
     }>;
@@ -2695,6 +2795,13 @@ export async function upsertTaskSystemCoordinationTask(
   return request<TaskSystemOverview>(`/tasks/coordination-tasks/${encodeURIComponent(coordinationTaskId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemTaskGraph(graphId: string, payload: TaskGraphUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/task-graphs/${encodeURIComponent(graphId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
   });
 }
 

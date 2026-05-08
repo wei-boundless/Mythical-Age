@@ -162,6 +162,10 @@ export function OrchestrationRegistryWorkbench({
           <strong>Agent 属性</strong>
           <OrchestrationBadge>{agentMode === "new" ? "草稿" : text(selectedAgentBuiltin ? "内置" : "自定义")}</OrchestrationBadge>
         </header>
+        <div className="orchestration-identity-note">
+          <span>这里定义 Agent 身份本体。</span>
+          <strong>{fixedIdentityAgent ? "主 Agent / 系统管理 Agent 身份锁定，只允许查看。子 Agent 才支持自由定义。" : "子 Agent 可自由定义名称、入口、默认灵魂/投影和职责说明。"}</strong>
+        </div>
         <div className="boundary-form">
           <OrchestrationField label="Agent 标识">
             <input readOnly value={agentDraft.agent_id} />

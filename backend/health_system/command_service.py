@@ -35,6 +35,8 @@ class HealthCommandService:
                 command=command,
                 accepted=False,
                 status="failed",
+                admission_status="accepted",
+                run_status="failed",
                 blocked_reasons=(exc.__class__.__name__,),
                 diagnostics={"error": str(exc)},
             )
@@ -102,11 +104,12 @@ class HealthCommandService:
 
         if command.command_type in {"analyze_trace", "draft_case", "verify_fix"}:
             admission = admit_health_command(self.registry.base_dir, command)
-            if not admission.admitted:
+            if admission.status != "accepted":
                 receipt = self.registry.command_builder.build_receipt(
                     command=command,
                     accepted=False,
-                    status="rejected",
+                    status=admission.status,
+                    admission_status=admission.status,
                     blocked_reasons=admission.blocked_reasons,
                     diagnostics={"admission": admission.to_dict()},
                 )
@@ -116,6 +119,7 @@ class HealthCommandService:
                     command=command,
                     accepted=False,
                     status="rejected",
+                    admission_status="rejected",
                     blocked_reasons=("runtime_dependency_missing",),
                     diagnostics={"admission": admission.to_dict()},
                 )
@@ -128,6 +132,7 @@ class HealthCommandService:
                     command=command,
                     accepted=False,
                     status="rejected",
+                    admission_status="rejected",
                     blocked_reasons=("health_issue_ref_missing",),
                     diagnostics={"admission": admission.to_dict()},
                 )
@@ -160,11 +165,13 @@ class HealthCommandService:
             self.registry.store.append_report(report)
             receipt = self.registry.command_builder.build_receipt(
                 command=command,
-                accepted=str(run_result.get("status") or "") not in {"blocked", "failed"},
+                accepted=str(run_result.get("status") or "") == "completed",
                 status=str(run_result.get("status") or "unknown"),
                 health_issue_ref=issue_id,
                 health_run_ref=str(health_run.get("run_id") or ""),
                 report_ref=report.report_id,
+                admission_status=admission.status,
+                run_status=str(run_result.get("status") or "unknown"),
                 diagnostics={"admission": admission.to_dict(), "run": run_result},
             )
             return self.registry._complete_command(command, receipt=receipt, report=report, run_result=run_result)
@@ -175,6 +182,7 @@ class HealthCommandService:
                     command=command,
                     accepted=False,
                     status="rejected",
+                    admission_status="rejected",
                     blocked_reasons=("test_system_service_missing",),
                 )
                 return self.registry._complete_command(command, receipt=receipt)
@@ -194,11 +202,15 @@ class HealthCommandService:
                 finished_at=float(test_run.get("ended_at") or 0.0),
             )
             self.registry.store.upsert_health_test_run(health_test_run)
+            verification_run = self.registry.verification_service.record_verification_run(
+                test_run,
+                command_ref=command.command_id,
+            )
             report = self.registry.command_builder.build_report(
                 command=command,
                 report_type="health_test_run_report",
-                test_run_ref=health_test_run.test_system_run_ref,
-                evidence_refs=health_test_run.artifact_refs,
+                test_run_ref=verification_run.source_run_ref,
+                evidence_refs=verification_run.artifact_refs,
                 verdict=health_test_run.verdict,
                 summary=f"健康验证已启动：{profile}",
                 recommended_actions=("inspect_test_artifacts", "review_health_readiness"),
@@ -211,7 +223,10 @@ class HealthCommandService:
                 accepted=True,
                 status=health_test_run.status,
                 test_run_ref=health_test_run.test_system_run_ref,
+                verification_run_ref=verification_run.verification_run_id,
                 report_ref=report.report_id,
+                admission_status="accepted",
+                run_status=health_test_run.status,
                 diagnostics={"health_test_run": health_test_run.to_dict(), "test_run": test_run},
             )
             return self.registry._complete_command(command, receipt=receipt, report=report, health_test_run=health_test_run)
@@ -235,6 +250,7 @@ class HealthCommandService:
             command=command,
             accepted=False,
             status="rejected",
+            admission_status="rejected",
             blocked_reasons=("unsupported_command_type",),
             diagnostics={"command_type": command.command_type},
         )

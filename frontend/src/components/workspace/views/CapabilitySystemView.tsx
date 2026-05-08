@@ -5,15 +5,11 @@ import {
   Boxes,
   Code2,
   FilePlus2,
-  Hammer,
   Loader2,
-  Network,
   PlugZap,
   RefreshCw,
-  Route,
   Save,
   Search,
-  ShieldCheck,
   Sparkles,
   Trash2,
   Wrench
@@ -143,6 +139,26 @@ function endpointSearchText(endpoint: CapabilityEndpoint) {
     endpoint.model_visibility,
     endpoint.tags.join(" ")
   ].join(" ").toLowerCase();
+}
+
+function compactList(value: string[], fallback = "未配置") {
+  return value.length ? value.join(" / ") : fallback;
+}
+
+function toolCardSummary(tool: OperationTool) {
+  return [
+    tool.operation_metadata.tool_type,
+    tool.operation_metadata.tool_boundary,
+    tool.operation_metadata.risk_level ? `${tool.operation_metadata.risk_level}风险` : ""
+  ].filter(Boolean).join(" · ");
+}
+
+function endpointCardSummary(endpoint: CapabilityEndpoint) {
+  return [
+    endpoint.kind,
+    endpoint.operation_id,
+    endpoint.runtime_lane
+  ].filter(Boolean).join(" · ");
 }
 
 export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySystemViewProps = {}) {
@@ -363,9 +379,8 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
     <div className="workspace-view capability-system-console">
       <header className="workspace-view__header">
         <div>
-          <p className="workspace-view__eyebrow">能力控制面</p>
           <h2 className="workspace-view__title">能力系统</h2>
-          <p className="workspace-view__subtitle">管理 Skills 提示模板、工具注册目录和能力端点，维护能力说明、工具元数据和治理备注。</p>
+          <p className="workspace-view__subtitle">管理 skills、工具和能力端点。</p>
         </div>
         <div className="workspace-view__actions">
           <button className="action-button action-button--ghost" onClick={() => void loadCatalog(true)} type="button">
@@ -378,34 +393,11 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
       {error ? <div className="workspace-alert workspace-alert--danger">{error}</div> : null}
       {notice ? <div className="workspace-alert">{notice}</div> : null}
 
-      <section className="operation-hero">
-        <article>
-          <span>模型可见 Skills</span>
-          <strong>{catalog?.summary.model_visible_skills ?? "-"}</strong>
-          <p>这些 skill 会被压缩成能力提示，用于描述可复用方法和适用场景。</p>
-        </article>
-        <article>
-          <span>工具目录</span>
-          <strong>{catalog?.summary.tool_count ?? "-"}</strong>
-          <p>这里展示后端已注册工具，便于维护分类、风险、边界和备注。</p>
-        </article>
-        <article>
-          <span>Capability Endpoints</span>
-          <strong>{catalog?.summary.capability_endpoint_count ?? catalog?.capability_endpoints?.length ?? "-"}</strong>
-          <p>这里收纳 local workers 和未来的 MCP 端点，不和工具注册目录重复。</p>
-        </article>
-        <article>
-          <span>调用边界</span>
-          <strong>{Object.keys(catalog?.summary.tool_boundaries ?? {}).length || "-"}</strong>
-          <p>{Object.entries(catalog?.summary.tool_boundaries ?? {}).map(([name, count]) => `${name}${count}`).join(" / ") || "等待加载"}</p>
-        </article>
-      </section>
-
       <nav className="operation-switcher" aria-label="能力系统模块">
         {[
-          { id: "skills", label: "Skills 管理", icon: Boxes },
-          { id: "tools", label: "工具管理", icon: Wrench },
-          { id: "endpoints", label: "能力端点", icon: PlugZap }
+          { id: "skills", label: "Skills", icon: Boxes },
+          { id: "tools", label: "工具", icon: Wrench },
+          { id: "endpoints", label: "端点", icon: PlugZap }
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -426,7 +418,7 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
         <Search size={17} />
         <input
           onChange={(event) => setQuery(event.target.value)}
-          placeholder={activePanel === "skills" ? "搜索 skill、能力标签或模型可见提示" : activePanel === "tools" ? "搜索工具、类型、安全标签或契约字段" : "搜索 endpoint、worker、MCP server、operation 或调用模式"}
+          placeholder={activePanel === "skills" ? "搜索 skill" : activePanel === "tools" ? "搜索工具" : "搜索端点"}
           value={query}
         />
       </div>
@@ -457,10 +449,9 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 }}
                 type="button"
               >
-                <span>{skill.runtime.preferred_route || "route"}</span>
                 <strong>{skill.runtime.title || skill.runtime.name}</strong>
                 <p>{skill.runtime.description}</p>
-                <small>{listText(skill.runtime.capability_tags)}</small>
+                <small>{skill.runtime.preferred_route || skill.runtime.name}</small>
               </button>
             ))}
           </div>
@@ -494,27 +485,21 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
 
                 <div className="operation-skill-meta">
                   <span>路径：{selectedSkill.runtime.path}</span>
-                  <span>激活：{selectedSkill.runtime.activation_policy}</span>
-                  <span>上下文：{selectedSkill.runtime.context_mode}</span>
-                  <span>路由：{selectedSkill.runtime.preferred_route}</span>
-                  <span>能力标签：{listText(selectedSkill.runtime.capability_tags)}</span>
-                  <span>任务类型：{listText(selectedSkill.runtime.supported_task_kinds)}</span>
-                  <span>数据源：{listText(selectedSkill.runtime.supported_source_kinds)}</span>
+                  <span>路由：{selectedSkill.runtime.preferred_route || "未配置"}</span>
+                  <span>任务：{compactList(selectedSkill.runtime.supported_task_kinds)}</span>
+                  <span>来源：{compactList(selectedSkill.runtime.supported_source_kinds)}</span>
                 </div>
 
                 {selectedSkill.validation_errors.length ? (
                   <div className="workspace-alert workspace-alert--danger">
                     统一契约校验未通过：{selectedSkill.validation_errors.join(" / ")}
                   </div>
-                ) : (
-                  <div className="workspace-alert">统一 SkillContract 校验通过。Skill 只维护技能流说明、适用条件和模型可见方法提示。</div>
-                )}
+                ) : null}
 
                 <div className="operation-prompt-panel">
                   <div>
                     <Sparkles size={16} />
-                    <strong>模型可见 Prompt</strong>
-                    <span>由 Prompt 视图字段生成</span>
+                    <strong>模型提示</strong>
                     <button className="action-button action-button--ghost" onClick={() => setPromptEditing((value) => !value)} type="button">
                       <Code2 size={14} />
                       {promptEditing ? "预览" : "编辑"}
@@ -558,8 +543,7 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 <div className="operation-editor-panel">
                   <div>
                     <Code2 size={16} />
-                    <strong>编辑 SKILL.md</strong>
-                    <span>保存后会重新扫描 frontmatter 和提示正文</span>
+                    <strong>SKILL.md</strong>
                     {!skillEditing ? (
                       <button className="action-button action-button--ghost" onClick={() => setSkillEditing(true)} type="button">
                         <Code2 size={14} />
@@ -603,12 +587,8 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 onClick={() => setSelectedToolName(tool.name)}
                 type="button"
               >
-                <span>{tool.operation_metadata.tool_boundary} · {tool.operation_metadata.tool_type}</span>
                 <strong>{tool.name}</strong>
-                <p>{tool.operation_metadata.visibility_label} · {tool.operation_metadata.adapter_type}</p>
-                <small className={RISK_CLASS[tool.operation_metadata.risk_level] ?? ""}>
-                  风险：{tool.operation_metadata.risk_level} · {tool.operation_metadata.runtime_policy}
-                </small>
+                <p>{toolCardSummary(tool)}</p>
               </button>
             ))}
           </div>
@@ -618,7 +598,6 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
               <>
                 <div className="operation-detail__head">
                   <div>
-                    <span>{selectedTool.operation_metadata.tool_boundary}</span>
                     <h3>{selectedTool.name}</h3>
                     <p>{selectedTool.module} · {selectedTool.operation_metadata.editable_policy}</p>
                   </div>
@@ -628,24 +607,11 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                   </div>
                 </div>
 
-                <div className="operation-tool-map" aria-label="工具调用链">
-                  <article>
-                    <Network size={16} />
-                    <span>调用边界</span>
-                    <strong>{selectedTool.operation_metadata.tool_boundary}</strong>
-                  </article>
-                  <i />
-                  <article>
-                    <ShieldCheck size={16} />
-                    <span>契约门</span>
-                    <strong>{selectedTool.operation_metadata.runtime_policy}</strong>
-                  </article>
-                  <i />
-                  <article>
-                    <Route size={16} />
-                    <span>运行适配</span>
-                    <strong>{selectedTool.operation_metadata.adapter_type}</strong>
-                  </article>
+                <div className="operation-skill-meta">
+                  <span>边界：{selectedTool.operation_metadata.tool_boundary}</span>
+                  <span>类型：{selectedTool.operation_metadata.tool_type}</span>
+                  <span>适配：{selectedTool.operation_metadata.adapter_type}</span>
+                  <span>策略：{selectedTool.operation_metadata.runtime_policy}</span>
                 </div>
 
                 <div className="operation-tool-control">
@@ -678,39 +644,25 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                     {saving === `tool-note:${selectedTool.name}` ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
                     保存备注
                   </button>
-                  <div>
-                    <span>{selectedTool.operation_metadata.visibility_label}</span>
-                    <span>{TOOL_VISIBILITY_LABELS[selectedTool.runtime_visibility] ?? selectedTool.runtime_visibility}</span>
-                    <span>{PROMPT_EXPOSURE_LABELS[selectedTool.prompt_exposure_policy] ?? selectedTool.prompt_exposure_policy}</span>
-                    <span>资源策略：{selectedTool.resource_exposure_policy}</span>
-                  </div>
-                </div>
-
-                <div className="operation-tool-flags">
-                  <span>{selectedTool.operation_metadata.runtime_policy}</span>
-                  <span>{selectedTool.is_read_only ? "只读工具" : "写入工具"}</span>
-                  <span>{selectedTool.is_destructive ? "有破坏性风险" : "非破坏性"}</span>
-                  <span>{selectedTool.is_concurrency_safe ? "并发安全" : "需串行谨慎"}</span>
                 </div>
 
                 <div className="operation-tool-linked">
                   <article>
-                    <strong>注册可见性</strong>
-                    <p>{selectedTool.operation_metadata.visibility_label}</p>
+                    <strong>可见性</strong>
+                    <p>{TOOL_VISIBILITY_LABELS[selectedTool.runtime_visibility] ?? selectedTool.runtime_visibility}</p>
                   </article>
                   <article>
-                    <strong>治理提示</strong>
-                    <div className="workspace-chip-row">
-                      {selectedTool.operation_metadata.governance_hints.map((hint) => (
-                        <span className="workspace-mini-chip" key={hint}>{hint}</span>
-                      ))}
-                    </div>
+                    <strong>提示暴露</strong>
+                    <p>{PROMPT_EXPOSURE_LABELS[selectedTool.prompt_exposure_policy] ?? selectedTool.prompt_exposure_policy}</p>
+                  </article>
+                  <article>
+                    <strong>资源策略</strong>
+                    <p>{selectedTool.resource_exposure_policy}</p>
                   </article>
                 </div>
 
                 <div className="operation-contract-grid">
                   <article>
-                    <Hammer size={15} />
                     <strong>执行契约</strong>
                     <pre>{jsonText(selectedTool.contract)}</pre>
                   </article>
@@ -724,12 +676,6 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                     <strong>输出契约</strong>
                     <pre>{jsonText(selectedTool.output_contract)}</pre>
                   </article>
-                </div>
-
-                <div className="workspace-chip-row">
-                  {selectedTool.capability_tags.map((tag) => <span className="workspace-mini-chip" key={tag}>{tag}</span>)}
-                  {selectedTool.safety_tags.map((tag) => <span className="workspace-mini-chip" key={tag}>{tag}</span>)}
-                  {selectedTool.route_hints.map((tag) => <span className="workspace-mini-chip" key={tag}>{tag}</span>)}
                 </div>
               </>
             ) : (
@@ -747,10 +693,8 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 onClick={() => setSelectedEndpointId(endpoint.endpoint_id)}
                 type="button"
               >
-                <span>{endpoint.kind} · {endpoint.server_name}</span>
                 <strong>{endpoint.title || endpoint.name}</strong>
-                <p>{endpoint.operation_id} · {endpoint.invocation_mode}</p>
-                <small>{endpoint.runtime_lane} · {endpoint.model_visibility}</small>
+                <p>{endpointCardSummary(endpoint)}</p>
               </button>
             ))}
           </div>
@@ -760,7 +704,6 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
               <>
                 <div className="operation-detail__head">
                   <div>
-                    <span>{selectedEndpoint.protocol_family}</span>
                     <h3>{selectedEndpoint.title || selectedEndpoint.name}</h3>
                     <p>{selectedEndpoint.description}</p>
                   </div>
@@ -770,59 +713,33 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                   </div>
                 </div>
 
-                <div className="operation-tool-map" aria-label="能力端点调度链">
-                  <article>
-                    <Route size={16} />
-                    <span>Endpoint Kind</span>
-                    <strong>{selectedEndpoint.kind}</strong>
-                  </article>
-                  <i />
-                  <article>
-                    <ShieldCheck size={16} />
-                    <span>Operation</span>
-                    <strong>{selectedEndpoint.operation_id}</strong>
-                  </article>
-                  <i />
-                  <article>
-                    <Network size={16} />
-                    <span>Runtime Lane</span>
-                    <strong>{selectedEndpoint.runtime_lane}</strong>
-                  </article>
-                  <i />
-                  <article>
-                    <PlugZap size={16} />
-                    <span>Transport</span>
-                    <strong>{selectedEndpoint.transport}</strong>
-                  </article>
-                </div>
-
-                <div className="operation-tool-flags">
-                  <span>{selectedEndpoint.invocation_mode}</span>
-                  <span>{selectedEndpoint.model_visibility}</span>
-                  <span>{selectedEndpoint.prompt_exposure_policy}</span>
-                  <span>{selectedEndpoint.resource_exposure_policy}</span>
+                <div className="operation-skill-meta">
+                  <span>类型：{selectedEndpoint.kind}</span>
+                  <span>Operation：{selectedEndpoint.operation_id}</span>
+                  <span>Lane：{selectedEndpoint.runtime_lane}</span>
+                  <span>Transport：{selectedEndpoint.transport}</span>
                 </div>
 
                 <div className="operation-tool-linked">
                   <article>
-                    <strong>宿主 Agent</strong>
-                    {selectedEndpoint.owner_agents.length ? (
+                    <strong>能力单元</strong>
+                    {selectedEndpoint.owner_units.length ? (
                       <div className="workspace-chip-row">
-                        {selectedEndpoint.owner_agents.map((agent) => (
-                          <span className="workspace-mini-chip" key={agent.agent_id}>{agent.name || agent.agent_id}</span>
+                        {selectedEndpoint.owner_units.map((unit) => (
+                          <span className="workspace-mini-chip" key={unit.unit_id}>{unit.name || unit.unit_id}</span>
                         ))}
                       </div>
                     ) : (
-                      <p>当前没有显式宿主 agent。</p>
+                      <p>当前没有显式能力单元归属。</p>
                     )}
                   </article>
                   <article>
-                    <strong>服务名</strong>
-                    <p>{selectedEndpoint.server_name}</p>
+                    <strong>调用模式</strong>
+                    <p>{selectedEndpoint.invocation_mode}</p>
                   </article>
                   <article>
-                    <strong>来源</strong>
-                    <p>{selectedEndpoint.source_ref}</p>
+                    <strong>可见性</strong>
+                    <p>{selectedEndpoint.model_visibility}</p>
                   </article>
                 </div>
 
@@ -833,19 +750,15 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                     <pre>{jsonText(selectedEndpoint.input_schema)}</pre>
                   </article>
                   <article>
-                    <ShieldCheck size={15} />
+                    <Code2 size={15} />
                     <strong>Output Schema</strong>
                     <pre>{jsonText(selectedEndpoint.output_schema)}</pre>
                   </article>
                   <article>
                     <Search size={15} />
-                    <strong>Endpoint Metadata</strong>
+                    <strong>端点元数据</strong>
                     <pre>{jsonText({ annotations: selectedEndpoint.annotations, metadata: selectedEndpoint.metadata })}</pre>
                   </article>
-                </div>
-
-                <div className="workspace-chip-row">
-                  {selectedEndpoint.tags.map((tag) => <span className="workspace-mini-chip" key={tag}>{tag}</span>)}
                 </div>
               </>
             ) : (

@@ -22,7 +22,6 @@ type RuntimeDraftLike = {
   blocked_operations_text?: string;
   allowed_memory_scopes_text?: string;
   allowed_context_sections_text?: string;
-  output_contracts_text?: string;
 };
 
 type AgentDraftLike = {
@@ -134,7 +133,7 @@ export function OrchestrationRuntimeWorkbench({
         <OrchestrationOptionSelection
           displayId={displayId}
           fallbackOptions={taskModeOptions}
-          label="允许任务模式"
+          label="可承接任务范围"
           onChange={(values) => patchRuntimeDraft({ allowed_task_modes_text: serializeList(values) })}
           options={taskModeOptionItems}
           selectedValues={splitList(runtimeDraft.allowed_task_modes_text)}
@@ -151,7 +150,7 @@ export function OrchestrationRuntimeWorkbench({
       <aside className="boundary-card">
         <header><strong>运行摘要</strong></header>
         <div className="boundary-kv">
-          <p><span>任务模式</span><strong>{taskModesSummary}</strong></p>
+          <p><span>任务范围</span><strong>{taskModesSummary}</strong></p>
           <p><span>运行通道</span><strong>{runtimeLanesSummary}</strong></p>
         </div>
       </aside>
@@ -219,34 +218,26 @@ export function OrchestrationContextWorkbench({
   patchRuntimeDraft,
   memoryScopeOptions,
   contextSectionOptions,
-  outputContractOptions,
   memoryScopeOptionItems,
   contextSectionOptionItems,
-  outputContractOptionItems,
   displayId,
   memorySummary,
   contextSummary,
-  outputSummary,
-  outputCount,
 }: {
   runtimeDraft: RuntimeDraftLike;
   patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
   memoryScopeOptions: string[];
   contextSectionOptions: string[];
-  outputContractOptions: string[];
   memoryScopeOptionItems: OrchestrationOption[];
   contextSectionOptionItems: OrchestrationOption[];
-  outputContractOptionItems: OrchestrationOption[];
   displayId: (value: unknown, fallback?: string) => string;
   memorySummary: string;
   contextSummary: string;
-  outputSummary: string;
-  outputCount: number;
 }) {
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide">
       <div className="boundary-card">
-        <header><strong>记忆、上下文、输出边界</strong><OrchestrationBadge>{outputCount} 项输出</OrchestrationBadge></header>
+        <header><strong>记忆与上下文边界</strong><OrchestrationBadge>Agent 静态边界</OrchestrationBadge></header>
         <OrchestrationOptionSelection
           displayId={displayId}
           fallbackOptions={memoryScopeOptions}
@@ -263,21 +254,12 @@ export function OrchestrationContextWorkbench({
           options={contextSectionOptionItems}
           selectedValues={splitList(runtimeDraft.allowed_context_sections_text)}
         />
-        <OrchestrationOptionSelection
-          displayId={displayId}
-          fallbackOptions={outputContractOptions}
-          label="输出契约"
-          onChange={(values) => patchRuntimeDraft({ output_contracts_text: serializeList(values) })}
-          options={outputContractOptionItems}
-          selectedValues={splitList(runtimeDraft.output_contracts_text)}
-        />
       </div>
       <aside className="boundary-card">
         <header><strong>边界摘要</strong></header>
         <div className="boundary-kv">
           <p><span>记忆</span><strong>{memorySummary}</strong></p>
           <p><span>上下文</span><strong>{contextSummary}</strong></p>
-          <p><span>输出</span><strong>{outputSummary}</strong></p>
         </div>
       </aside>
     </section>

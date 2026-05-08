@@ -28,6 +28,7 @@ from .models import (
     HealthManagementCommand,
     HealthManagementReceipt,
     HealthReport,
+    HealthTaskRequest,
     HealthTestRun,
     ProblemNode,
 )
@@ -80,6 +81,7 @@ def default_health_agent_runs(now: float | None = None) -> tuple[HealthAgentRun,
     return (
         HealthAgentRun(
             run_id="health-run:sample:issue-triage",
+            request_id="health-task-request:sample:issue-triage",
             issue_id="health:issue:sample-task-system-chain",
             task_run_id="taskrun:sample:health-issue-triage",
             agent_id=HEALTH_AGENT_ID,
@@ -87,10 +89,15 @@ def default_health_agent_runs(now: float | None = None) -> tuple[HealthAgentRun,
             runtime_lane="health_issue_read",
             task_mode="issue_triage",
             workflow_id="workflow.health.issue_triage",
+            admission_status="accepted",
             projection_id="",
             prompt_manifest_id="",
             status="sample",
             terminal_reason="not_executed_sample",
+            blocked_reasons=(),
+            report_refs=(),
+            trace_refs=("runtime-loop:sample",),
+            artifact_refs=("HealthTriageResult:sample",),
             result_ref="HealthTriageResult:sample",
             created_at=timestamp,
             metadata={"sample": True},
@@ -178,6 +185,9 @@ class HealthRegistry:
 
     def list_health_test_runs(self) -> list[HealthTestRun]:
         return self.store.load_health_test_runs()
+
+    def list_task_requests(self) -> list[HealthTaskRequest]:
+        return self.store.load_task_requests()
 
     def list_health_test_scenarios(self) -> list[dict[str, Any]]:
         return [item.to_dict() for item in default_health_test_scenarios()]
@@ -340,6 +350,28 @@ class HealthRegistry:
         agent_runtime_spec = dict(preview.get("agent_runtime_spec") or {})
         task_id = str(agent_runtime_spec.get("task_id") or f"task.health.{task_mode}:{issue_id}")
         task_contract_ref = str(task_execution_assembly.get("assembly_id") or task_id)
+        task_request = HealthTaskRequest(
+            request_id=f"health-task-request:{task_mode}:{issue_id}",
+            issue_id=issue_id,
+            task_kind=task_mode,
+            task_id=task_id,
+            flow_id=str(flow.get("flow_id") or ""),
+            graph_id=f"graph.health.{task_mode}",
+            entry_node_id="agent",
+            required_evidence_refs=tuple(
+                item
+                for item in (
+                    str(issue.get("conversation_ref") or ""),
+                    *[str(item) for item in list(issue.get("runtime_trace_refs") or []) if str(item)],
+                    *[str(item) for item in list(issue.get("prompt_manifest_refs") or []) if str(item)],
+                )
+                if item
+            ),
+            requested_by=source,
+            created_at=time.time(),
+            metadata={"session_id": session_id or HEALTH_SESSION_ID},
+        )
+        self.store.upsert_task_request(task_request)
         start = task_run_loop.start(
             session_id=session_id or HEALTH_SESSION_ID,
             task_id=task_id,
@@ -368,6 +400,7 @@ class HealthRegistry:
         events = tuple(start.events)
         health_run = HealthAgentRun(
             run_id=f"health-run:{task_run.task_run_id}",
+            request_id=task_request.request_id,
             issue_id=issue_id,
             task_run_id=task_run.task_run_id,
             agent_id=task_run.agent_id,
@@ -375,10 +408,15 @@ class HealthRegistry:
             runtime_lane=task_run.runtime_lane,
             task_mode=task_mode,
             workflow_id=str(binding.get("workflow_id") or ""),
+            admission_status="accepted",
             projection_id=str(task_body_orchestration.get("projection_ref") or ""),
             prompt_manifest_id=str(task_body_orchestration.get("prompt_manifest_ref") or ""),
             status=task_run.status,
             terminal_reason=task_run.terminal_reason,
+            blocked_reasons=(),
+            report_refs=(),
+            trace_refs=(task_run.task_run_id,),
+            artifact_refs=(str(task_execution_assembly.get("assembly_id") or ""), str(task_body_orchestration.get("orchestration_id") or "")),
             result_ref="",
             created_at=task_run.created_at,
             metadata={
@@ -400,6 +438,7 @@ class HealthRegistry:
         return {
             "authority": "health_system.agent_run_start",
             "status": "running",
+            "task_request": task_request.to_dict(),
             "health_agent_run": health_run.to_dict(),
             "task_run": task_run.to_dict(),
             "loop_state": start.loop_state.to_dict(),
@@ -737,6 +776,7 @@ class HealthRegistry:
         task_run_loop.state_index.upsert_task_run(finished_task_run)
         health_run = HealthAgentRun(
             run_id=str(started["health_agent_run"]["run_id"]),
+            request_id=str(started["health_agent_run"].get("request_id") or ""),
             issue_id=issue_id,
             task_run_id=task_run_id,
             agent_id=str(task_run.get("agent_id") or ""),
@@ -744,10 +784,15 @@ class HealthRegistry:
             runtime_lane=str(task_run.get("runtime_lane") or ""),
             task_mode=task_mode,
             workflow_id=str(binding.get("workflow_id") or ""),
+            admission_status="accepted",
             projection_id=str(terminal_state.projection_ref or ""),
             prompt_manifest_id=str(terminal_state.prompt_manifest_ref or ""),
             status=terminal_status,
             terminal_reason=terminal_reason,
+            blocked_reasons=((terminal_reason,) if terminal_status == "blocked" else ()),
+            report_refs=(),
+            trace_refs=(task_run_id,),
+            artifact_refs=(result_ref, checkpoint.checkpoint_id),
             result_ref=result_ref,
             created_at=float(task_run.get("created_at") or time.time()),
             metadata={

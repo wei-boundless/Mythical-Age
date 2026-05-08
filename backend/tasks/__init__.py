@@ -28,6 +28,10 @@ __all__ = [
     "TaskAgentAdoptionPlan",
     "TaskMemoryRequestProfile",
     "TaskCommunicationProtocol",
+    "TaskGraphDefinition",
+    "TaskGraphNodeDefinition",
+    "TaskGraphEdgeDefinition",
+    "TaskGraphValidationIssue",
     "CoordinationGraphSpec",
     "CoordinationGraphNode",
     "CoordinationGraphEdge",
@@ -167,6 +171,25 @@ def __getattr__(name: str) -> Any:
         from tasks.contract_registry import TaskContractRegistry
 
         return TaskContractRegistry
+    if name in {
+        "TaskGraphDefinition",
+        "TaskGraphNodeDefinition",
+        "TaskGraphEdgeDefinition",
+        "TaskGraphValidationIssue",
+    }:
+        from tasks.task_graph_models import (
+            TaskGraphDefinition,
+            TaskGraphEdgeDefinition,
+            TaskGraphNodeDefinition,
+            TaskGraphValidationIssue,
+        )
+
+        return {
+            "TaskGraphDefinition": TaskGraphDefinition,
+            "TaskGraphNodeDefinition": TaskGraphNodeDefinition,
+            "TaskGraphEdgeDefinition": TaskGraphEdgeDefinition,
+            "TaskGraphValidationIssue": TaskGraphValidationIssue,
+        }[name]
     if name in {
         "CoordinationGraphSpec",
         "CoordinationGraphNode",

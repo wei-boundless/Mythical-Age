@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from agents.a2a_official_adapter import OFFICIAL_A2A_PROTOCOL_VERSION
 from capability_system.local_mcp_registry import build_local_mcp_catalog, default_local_mcp_units
 from capability_system.mcp_registry import build_mcp_catalog
 from capability_system.operation_registry import build_default_operation_registry
@@ -126,8 +125,6 @@ def agent_tool_bindings(tools: list[dict[str, Any]]) -> dict[str, list[str]]:
     for tool in tools:
         if str(tool.get("runtime_visibility") or "") == "main_runtime":
             bindings[MAIN_AGENT_ID].append(str(tool.get("name") or ""))
-    for unit in default_local_mcp_units():
-        bindings.setdefault(str(unit.agent_id or ""), [])
     return {agent_id: sorted(set(names)) for agent_id, names in bindings.items()}
 
 
@@ -139,20 +136,9 @@ def agent_binding_nodes(agent_bindings: dict[str, list[str]]) -> list[AgentCapab
             kind="main",
             description="负责理解用户意图、选择路由、收束结果；只保留主运行时可见工具。",
             bound_tools=list(agent_bindings.get(MAIN_AGENT_ID, [])),
-            protocol_version=OFFICIAL_A2A_PROTOCOL_VERSION,
+            protocol_version="0.3.0",
         )
     ]
-    for unit in default_local_mcp_units():
-        nodes.append(
-            AgentCapability(
-                agent_id=str(unit.agent_id or ""),
-                name=str(unit.a2a_name or unit.name),
-                kind=str(unit.route or "sub_agent"),
-                description=str(unit.a2a_description or unit.summary),
-                bound_tools=list(agent_bindings.get(str(unit.agent_id or ""), [])),
-                protocol_version=OFFICIAL_A2A_PROTOCOL_VERSION,
-            )
-        )
     return nodes
 
 
@@ -259,11 +245,11 @@ def build_binding_graph(
     mcp_nodes = [
         MCPCapability(
             mcp_id=str(mcp.get("mcp_id") or ""),
+            unit_id=str(mcp.get("unit_id") or ""),
             route=str(mcp.get("route") or ""),
             name=str(mcp.get("name") or ""),
             description=str(mcp.get("description") or ""),
             operation_id=str(mcp.get("operation_id") or ""),
-            agent_id=str(mcp.get("agent_id") or ""),
             transport=str(mcp.get("transport") or ""),
             model_visibility=str(mcp.get("model_visibility") or ""),
             tags=[str(tag) for tag in list(mcp.get("tags") or [])],
@@ -288,9 +274,9 @@ def build_binding_graph(
         metadata = tool.get("operation_metadata") if isinstance(tool.get("operation_metadata"), dict) else {}
         owner_names = [item["name"] for item in list(metadata.get("bound_agents") or []) if isinstance(item, dict)]
         if classify_tool_source(tool) == "document" and "主会话智能体" in owner_names:
-            recommendations.append(f"{name} 是文档能力，应从主会话下沉到文档智能体。")
+            recommendations.append(f"{name} 是文档能力，建议继续保持在编排内部端点侧执行。")
         if not owner_names:
-            recommendations.append(f"{name} 尚未绑定智能体，建议明确归属后再参与自动路由。")
+            recommendations.append(f"{name} 当前没有主会话绑定，建议确认是否需要暴露给主运行时。")
     return CapabilityBindingGraph(
         agent_nodes=nodes,
         mcp_nodes=mcp_nodes,

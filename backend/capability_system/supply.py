@@ -126,7 +126,7 @@ def build_capability_supply_package_from_catalog(
             mcp_id=str(mcp.get("mcp_id") or ""),
             operation_id=str(mcp.get("operation_id") or ""),
             route=str(mcp.get("route") or ""),
-            agent_id=str(mcp.get("agent_id") or ""),
+            unit_id=str(mcp.get("unit_id") or ""),
             transport=str(mcp.get("transport") or ""),
             model_visibility=str(mcp.get("model_visibility") or ""),
         )

@@ -25,7 +25,7 @@ class CapabilityEndpoint:
     prompt_exposure_policy: str
     resource_exposure_policy: str
     source_ref: str = ""
-    owner_agents: list[dict[str, str]] = field(default_factory=list)
+    owner_units: list[dict[str, str]] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     input_schema: dict[str, Any] = field(default_factory=dict)
     output_schema: dict[str, Any] = field(default_factory=dict)
@@ -49,7 +49,7 @@ def _mcp_endpoint(mcp: dict[str, Any]) -> CapabilityEndpoint:
     route = str(mcp.get("route") or "").strip()
     mcp_name = str(mcp.get("name") or route)
     description = str(mcp.get("description") or mcp_name)
-    agent_id = str(mcp.get("agent_id") or "")
+    unit_id = str(mcp.get("unit_id") or "")
     server_name = str(mcp.get("server_name") or LOCAL_MCP_SERVER_NAME)
     return CapabilityEndpoint(
         endpoint_id=f"endpoint:mcp:{route}",
@@ -68,7 +68,7 @@ def _mcp_endpoint(mcp: dict[str, Any]) -> CapabilityEndpoint:
         prompt_exposure_policy="hidden",
         resource_exposure_policy="handle_only",
         source_ref=str(mcp.get("implementation_module") or ""),
-        owner_agents=[{"agent_id": agent_id, "name": agent_id}] if agent_id else [],
+        owner_units=[{"unit_id": unit_id, "name": mcp_name}] if unit_id else [],
         tags=[str(item) for item in list(mcp.get("tags") or [])],
         input_schema={
             "input_modes": [str(item) for item in list(mcp.get("input_modes") or [])],
@@ -77,7 +77,6 @@ def _mcp_endpoint(mcp: dict[str, Any]) -> CapabilityEndpoint:
             "output_modes": [str(item) for item in list(mcp.get("output_modes") or [])],
         },
         annotations={
-            "a2a_protocol_version": str(mcp.get("a2a_protocol_version") or ""),
             "mcp_server": server_name,
         },
         metadata={

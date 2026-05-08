@@ -1,7 +1,6 @@
 from evidence.adapter import build_evidence_envelope_from_retrieval
 from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
 from evidence.mcp_models import (
-    AGENT_ID_BY_MCP_ROUTE,
     CanonicalResult,
     MCPExecutionPlan,
     MCPRequest,
@@ -37,7 +36,6 @@ from evidence.structured_data_worker import StructuredDataWorker
 from evidence.table_materializer import MaterializedTable, TableMaterializer
 
 __all__ = [
-    "AGENT_ID_BY_MCP_ROUTE",
     "BindingCandidate",
     "BindingCandidateStore",
     "CanonicalResult",

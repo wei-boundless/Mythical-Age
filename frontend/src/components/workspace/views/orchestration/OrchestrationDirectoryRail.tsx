@@ -82,6 +82,12 @@ export function OrchestrationDirectoryRail({
     worker_sub_agent: "子 Agent",
   };
 
+  const categoryDescriptions: Record<AgentCategory, string> = {
+    main_agent: "主会话入口与最终整合输出",
+    system_management_agent: "系统内置治理与维护入口",
+    worker_sub_agent: "可自由定义与复用的工作 Agent",
+  };
+
   function WorkerAgentCard({ agent }: { agent: Record<string, unknown> }) {
     const agentId = String(agent.agent_id);
     const name = displayName(agent);
@@ -117,6 +123,7 @@ export function OrchestrationDirectoryRail({
           <button className={activeCategory === category ? "active" : ""} key={category} onClick={() => selectCategory(category)} type="button">
             <span>{categoryLabels[category]}</span>
             <b>{categoryCounts[category] ?? 0}</b>
+            <small>{categoryDescriptions[category]}</small>
           </button>
         ))}
       </div>
@@ -171,6 +178,7 @@ export function OrchestrationDirectoryRail({
             type="button"
           >
             <strong>{displayName(agent)}</strong>
+            <span>{displayId(agent.agent_id)}</span>
           </button>
         ))}
         {!loading && (

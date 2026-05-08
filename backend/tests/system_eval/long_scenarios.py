@@ -790,6 +790,7 @@ SCENARIO_SETS: dict[str, tuple[str, ...]] = {
     ),
     "task_acceptance": (
         "task-system-light-web-game-acceptance",
+        "task-system-short-story-coordination-acceptance",
     ),
     "mega": ("sixty-turn-real-user-marathon",),
     "extended": tuple(scenario.id for scenario in SCENARIOS),

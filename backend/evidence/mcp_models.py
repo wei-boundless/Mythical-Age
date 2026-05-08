@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from capability_system.local_mcp_registry import build_local_mcp_agent_map
+from capability_system.local_mcp_registry import build_local_mcp_unit_map
 from evidence.models import BindingCandidate, EvidenceArtifact, EvidenceEnvelope
 
 
@@ -13,7 +13,7 @@ MCPTaskStatus = Literal["submitted", "working", "completed", "failed", "requires
 
 OFFICIAL_A2A_PROTOCOL_VERSION = "0.3.0"
 
-AGENT_ID_BY_MCP_ROUTE: dict[str, str] = build_local_mcp_agent_map()
+UNIT_ID_BY_MCP_ROUTE: dict[str, str] = build_local_mcp_unit_map()
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +128,9 @@ class MCPExecutionPlan:
 
 
 def agent_id_for_mcp_route(mcp_route: str | None) -> str:
-    return AGENT_ID_BY_MCP_ROUTE.get(str(mcp_route or "").strip(), "agent:local:unknown")
+    route = str(mcp_route or "").strip()
+    unit_id = UNIT_ID_BY_MCP_ROUTE.get(route, "")
+    return unit_id or (f"capability_unit:{route}" if route else "capability_unit:unknown")
 
 
 def request_agent_id(request: MCPRequest | None, *, fallback_mcp_route: str = "") -> str:

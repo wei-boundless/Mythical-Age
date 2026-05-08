@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from agents.a2a_official_adapter import build_official_agent_card_catalog
 from api.deps import require_runtime
+from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.runtime_loop.contract_compiler import (
     compile_coordination_contract_manifest,
@@ -143,6 +143,25 @@ class CoordinationTaskUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class TaskGraphUpsertRequest(BaseModel):
+    graph_id: str = Field(..., min_length=3, max_length=160)
+    title: str = Field(..., min_length=1, max_length=160)
+    domain_id: str = Field(default="", max_length=160)
+    task_family: str = Field(default="", max_length=80)
+    graph_kind: str = Field(default="single_agent", max_length=80)
+    entry_node_id: str = Field(default="", max_length=160)
+    output_node_id: str = Field(default="", max_length=160)
+    nodes: list[dict[str, object]] = Field(default_factory=list)
+    edges: list[dict[str, object]] = Field(default_factory=list)
+    graph_contract_id: str = Field(default="", max_length=160)
+    default_protocol_id: str = Field(default="", max_length=160)
+    runtime_policy: dict[str, object] = Field(default_factory=dict)
+    context_policy: dict[str, object] = Field(default_factory=dict)
+    publish_state: str = Field(default="draft", max_length=80)
+    enabled: bool = False
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class TopologyTemplateUpsertRequest(BaseModel):
     template_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
@@ -203,6 +222,8 @@ def _display_number(internal_id: str, *, prefix: str, fallback: str) -> str:
 
 def _task_system_payload(base_dir) -> dict[str, object]:
     registry = TaskFlowRegistry(base_dir)
+    agent_registry = AgentRegistry(base_dir)
+    agents = [item.to_dict() for item in agent_registry.list_agents()]
     contract_registry = TaskContractRegistry(base_dir)
     workflows = TaskWorkflowRegistry(base_dir).build_catalog()
     task_flows = [item.to_dict() for item in registry.list_flows()]
@@ -215,6 +236,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     memory_request_profiles = [item.to_dict() for item in registry.list_task_memory_request_profiles()]
     task_domains = [item.to_dict() for item in registry.list_task_domains()]
     coordination_tasks = [item.to_dict() for item in registry.list_coordination_tasks()]
+    task_graphs = [item.to_dict() for item in registry.list_task_graphs()]
     specific_task_records_by_id = {
         item.task_id: item
         for item in registry.list_specific_task_records()
@@ -253,6 +275,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "memory_request_profile_count": len(memory_request_profiles),
             "task_domain_count": len(task_domains),
             "coordination_task_count": len(coordination_tasks),
+            "task_graph_count": len(task_graphs),
             "topology_template_count": len(topology_templates),
             "communication_protocol_count": len(communication_protocols),
             "contract_descriptor_count": len(contract_catalog),
@@ -277,7 +300,11 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             },
         },
         "contract_management": contract_management,
+        "task_graph_management": {
+            "task_graphs": task_graphs,
+        },
         "coordination_management": {
+            "task_graphs": task_graphs,
             "coordination_tasks": coordination_tasks,
             "coordination_graph_specs": coordination_graph_specs,
             "topology_templates": topology_templates,
@@ -286,7 +313,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
                 "protocol_version": "0.3.0",
                 "transport": "JSONRPC",
                 "protocol_locked": True,
-                "agent_cards": build_official_agent_card_catalog(),
+                "agent_cards": agents,
                 "message_types": [
                     "message/send",
                     "message/stream",
@@ -817,6 +844,40 @@ async def upsert_task_system_coordination_task(
             graph_nodes=tuple(dict(item) for item in payload.graph_nodes),
             graph_edges=tuple(dict(item) for item in payload.graph_edges),
             communication_modes=tuple(payload.communication_modes),
+            enabled=payload.enabled,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.put("/tasks/task-graphs/{graph_id}")
+async def upsert_task_system_task_graph(
+    graph_id: str,
+    payload: TaskGraphUpsertRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    if payload.graph_id != graph_id:
+        payload = payload.model_copy(update={"graph_id": graph_id})
+    try:
+        TaskFlowRegistry(runtime.base_dir).upsert_task_graph(
+            graph_id=payload.graph_id,
+            title=payload.title,
+            domain_id=payload.domain_id,
+            task_family=payload.task_family,
+            graph_kind=payload.graph_kind,
+            entry_node_id=payload.entry_node_id,
+            output_node_id=payload.output_node_id,
+            nodes=tuple(dict(item) for item in payload.nodes),
+            edges=tuple(dict(item) for item in payload.edges),
+            graph_contract_id=payload.graph_contract_id,
+            default_protocol_id=payload.default_protocol_id,
+            runtime_policy=payload.runtime_policy,
+            context_policy=payload.context_policy,
+            publish_state=payload.publish_state,
             enabled=payload.enabled,
             metadata=payload.metadata,
         )

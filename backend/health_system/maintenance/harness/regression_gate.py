@@ -47,7 +47,10 @@ PROFILES: tuple[str, ...] = tuple(PROFILE_ORDER)
 
 
 def backend_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "tests").is_dir() and (parent / "health_system").is_dir():
+            return parent
+    return Path(__file__).resolve().parents[3]
 
 
 def detect_runner(path: Path) -> str:

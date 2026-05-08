@@ -23,16 +23,21 @@ class HealthCommandRuntimeAdmission:
     binding_id: str
     runtime_lane: str
     resource_policy_ref: str
-    admitted: bool
+    status: str
     task_execution_assembly_ref: str = ""
     task_body_orchestration_ref: str = ""
     runtime_spec_ref: str = ""
     blocked_reasons: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def admitted(self) -> bool:
+        return self.status == "accepted"
+
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["blocked_reasons"] = list(self.blocked_reasons)
+        payload["admitted"] = self.admitted
         return payload
 
 
@@ -48,7 +53,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
             binding_id="",
             runtime_lane="",
             resource_policy_ref="",
-            admitted=True,
+            status="accepted",
             diagnostics={"reason": "command_does_not_require_agent_runtime"},
         )
 
@@ -68,7 +73,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
             task_execution_assembly_ref="",
             task_body_orchestration_ref="",
             runtime_spec_ref="",
-            admitted=False,
+            status="blocked",
             blocked_reasons=("health_issue_missing",),
             diagnostics={"command_type": command.command_type, "issue_id": issue_id},
         )
@@ -115,6 +120,12 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
             blocked.append("runtime_lane_not_allowed")
 
     unique_blocked = tuple(dict.fromkeys(item for item in blocked if item))
+    status = "accepted"
+    if unique_blocked:
+        if any(item.startswith("operation_blocked:") or item.startswith("operation_not_allowed:") for item in unique_blocked):
+            status = "rejected"
+        else:
+            status = "blocked"
     return HealthCommandRuntimeAdmission(
         command_id=command.command_id,
         agent_id=plan.agent_id,
@@ -127,7 +138,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
         task_execution_assembly_ref=str(plan.task_execution_assembly.get("assembly_id") or ""),
         task_body_orchestration_ref=str(plan.task_body_orchestration.get("orchestration_id") or ""),
         runtime_spec_ref=str(plan.agent_runtime_spec.get("runtime_spec_id") or ""),
-        admitted=not unique_blocked,
+        status=status,
         blocked_reasons=unique_blocked,
         diagnostics=diagnostics,
     )
