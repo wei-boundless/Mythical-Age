@@ -104,6 +104,9 @@ def build_node_runtime_assembly(
         raise ValueError(f"node not found in manifest: {node_id}")
     agent_id = node.agent_id or str(getattr(agent_profile, "agent_id", "") or "")
     agent_profile_id = str(getattr(agent_profile, "agent_profile_id", "") or "")
+    node_projection_id = str(getattr(node, "projection_id", "") or "").strip()
+    agent_default_projection_id = str(getattr(agent_profile, "default_projection_id", "") or "").strip()
+    resolved_projection_id = node_projection_id or agent_default_projection_id
     sections = (
         RuntimeContextSection(
             section_id="coordination_task_state",
@@ -149,6 +152,7 @@ def build_node_runtime_assembly(
         task_ref=node.task_id,
         agent_id=agent_id,
         agent_profile_id=agent_profile_id,
+        projection_id=resolved_projection_id,
         runtime_lane=node.runtime_lane,
         context_sections=visible_sections,
         input_contract_refs=tuple(ref for ref in (node.input_contract_id,) if ref),
@@ -166,6 +170,10 @@ def build_node_runtime_assembly(
             "manifest_issue_count": len(manifest.issues),
             "full_main_session_history_included": False,
             "handoff_packet_count": len(handoff_packets),
+            "node_projection_id": node_projection_id,
+            "agent_default_projection_id": agent_default_projection_id,
+            "projection_resolution_source": "node" if node_projection_id else ("agent_default" if agent_default_projection_id else "none"),
+            "projection_override": bool(node_projection_id and agent_default_projection_id and node_projection_id != agent_default_projection_id),
             "explicit_input_keys": sorted(str(key) for key in dict(explicit_inputs or {}).keys()),
             **working_diag,
             **task_durable_diag,

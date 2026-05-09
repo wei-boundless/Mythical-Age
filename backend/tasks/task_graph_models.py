@@ -42,6 +42,7 @@ class TaskGraphNodeDefinition:
     output_contract_id: str = ""
     runtime_lane: str = ""
     context_visibility_policy: dict[str, Any] = field(default_factory=dict)
+    projection_id: str = ""
     projection_overlay_id: str = ""
     failure_policy: dict[str, Any] = field(default_factory=dict)
     human_gate_policy: dict[str, Any] = field(default_factory=dict)
@@ -157,6 +158,7 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         output_contract_id=str(payload.get("output_contract_id") or "").strip(),
         runtime_lane=str(payload.get("runtime_lane") or "").strip(),
         context_visibility_policy=dict(payload.get("context_visibility_policy") or {}),
+        projection_id=str(payload.get("projection_id") or payload.get("projection_overlay_id") or "").strip(),
         projection_overlay_id=str(payload.get("projection_overlay_id") or "").strip(),
         failure_policy=dict(payload.get("failure_policy") or {}),
         human_gate_policy=dict(payload.get("human_gate_policy") or {}),

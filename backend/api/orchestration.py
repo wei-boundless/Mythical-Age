@@ -90,6 +90,25 @@ class CoordinationRunResumeRequest(BaseModel):
 
 
 OPTION_LABELS: dict[str, str] = {
+    "general": "通用任务域",
+    "development": "开发任务域",
+    "longform_novel_writing": "长篇小说创作域",
+    "writing": "写作任务域",
+    "health": "健康任务域",
+    "capability": "能力调用域",
+    "general_task": "通用任务",
+    "bounded_patch": "受限补丁",
+    "light_web_game": "轻量网页小游戏",
+    "arcade_game_bundle": "复合网页游戏包",
+    "longform_novel_graph": "长篇小说图运行",
+    "knowledge_retrieval": "知识检索",
+    "information_search": "信息搜索",
+    "capability_execution": "能力执行",
+    "main_conversation_entry": "主会话入口",
+    "issue_triage": "健康问题分诊",
+    "trace_analysis": "健康链路分析",
+    "case_draft": "健康用例草案",
+    "fix_verification": "健康修复验证",
     "op.model_response": "模型响应",
     "op.read_file": "读取文件",
     "op.search_files": "搜索文件",
@@ -136,6 +155,13 @@ OPTION_LABELS: dict[str, str] = {
     "prompt_manifest": "提示结构",
     "memory_runtime_view": "记忆视图",
     "assertions": "验收断言",
+}
+
+LEGACY_ORCHESTRATION_TASK_MODES = {
+    "issue_triage",
+    "trace_analysis",
+    "case_draft",
+    "fix_verification",
 }
 
 
@@ -188,7 +214,7 @@ def _build_task_scope_options(task_registry: TaskFlowRegistry, workflows: list[A
 
     def add(value: str, *, label: str, description: str = "", source: str = "") -> None:
         normalized = str(value or "").strip()
-        if not normalized or normalized in options_by_value:
+        if not normalized or normalized in options_by_value or normalized in LEGACY_ORCHESTRATION_TASK_MODES:
             return
         options_by_value[normalized] = _task_scope_option(
             normalized,
@@ -202,7 +228,7 @@ def _build_task_scope_options(task_registry: TaskFlowRegistry, workflows: list[A
             continue
         add(
             domain.task_family,
-            label=f"{domain.title} · 任务域",
+            label=f"{_option_label(domain.task_family, domain.title)} · 任务域",
             description=domain.description or domain.domain_id,
             source="task_domain",
         )
@@ -212,7 +238,7 @@ def _build_task_scope_options(task_registry: TaskFlowRegistry, workflows: list[A
             continue
         add(
             record.task_mode,
-            label=f"{record.task_title} · 具体任务",
+            label=f"{_option_label(record.task_mode, record.task_title)} · 具体任务",
             description=record.task_id,
             source="specific_task",
         )
@@ -235,7 +261,7 @@ def _build_task_scope_options(task_registry: TaskFlowRegistry, workflows: list[A
             continue
         add(
             task_mode,
-            label=f"{getattr(workflow, 'title', task_mode)} · 工作流",
+            label=f"{_option_label(task_mode, str(getattr(workflow, 'title', task_mode) or task_mode))} · 工作流",
             description=str(getattr(workflow, "workflow_id", "") or ""),
             source="workflow",
         )
@@ -404,6 +430,7 @@ async def delete_orchestration_agent(agent_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     try:
         AgentRegistry(runtime.base_dir).delete_agent(agent_id)
+        AgentRuntimeRegistry(runtime.base_dir).delete_profile(agent_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent not found") from exc
     except PermissionError as exc:

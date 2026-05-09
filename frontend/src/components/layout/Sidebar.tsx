@@ -111,7 +111,7 @@ export function Sidebar({ compact = false }: SidebarProps) {
       <section className="archive-block archive-block--ornate workspace-sidebar__sessions">
         <div className="archive-section-head mb-4 flex items-center justify-between gap-3">
           <div className="archive-section-head__copy">
-            <p className="archive-section-head__eyebrow">Sessions</p>
+            <p className="archive-section-head__eyebrow">会话</p>
             <h2 className="archive-section-head__title">
               会话与消息轨迹
             </h2>

@@ -32,8 +32,6 @@ def main() -> None:
     skills = scanner.scan_skills(ROOT)
     by_name = {skill.name: skill for skill in skills}
 
-    assert "get-weather" not in by_name
-
     assert "structured-data-analysis" in by_name
     structured = by_name["structured-data-analysis"]
     assert structured.title == "结构化数据分析"
@@ -60,7 +58,14 @@ def main() -> None:
     assert "knowledge_lookup" in rag.capability_tags
     assert "faq_explanation" in rag.supported_task_kinds
 
-    assert "gold-price" not in by_name
+    assert "skill-creator" in by_name
+    creator = by_name["skill-creator"]
+    assert creator.title == "Skill 创建顾问"
+    assert creator.preferred_route == "rag"
+    assert "skill-authoring" in creator.capability_tags
+    assert "skill_create" in creator.supported_task_kinds
+    assert "skill_update" in creator.supported_task_kinds
+    assert "capability_system" in creator.supported_source_kinds
 
     registry = json.loads(capability_paths.skills_registry_path.read_text(encoding="utf-8"))
     assert registry["version"] == 3
@@ -70,8 +75,7 @@ def main() -> None:
     assert all(item["validation_errors"] == [] for item in registry["skills"])
 
     skill_registry = SkillRegistry(ROOT)
-    assert skill_registry.get_by_name("get-weather") is None
-    assert skill_registry.get_by_name("gold-price") is None
+    assert skill_registry.get_by_name("skill-creator") is not None
 
     snapshot_text = capability_paths.skills_snapshot_path.read_text(encoding="utf-8")
     assert "Skill registry snapshot for admin display" in snapshot_text

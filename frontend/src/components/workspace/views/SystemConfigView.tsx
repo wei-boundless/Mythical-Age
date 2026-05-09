@@ -254,22 +254,22 @@ export function SystemConfigView() {
       <div className="system-config-capabilities">
         <div className="system-config-capability-metrics">
           <article>
-            <span>Tools</span>
+            <span>工具</span>
             <strong>{capabilitySummary?.tool_count ?? capabilityCatalog.tools.length}</strong>
             <em>{mainVisibleTools.length} 个可进入主模型工具面</em>
           </article>
           <article>
-            <span>Endpoints</span>
+            <span>端点</span>
             <strong>{capabilitySummary?.capability_endpoint_count ?? capabilityCatalog.capability_endpoints?.length ?? 0}</strong>
             <em>当前为本地 worker 端点，后续可并入外部 MCP</em>
           </article>
           <article>
-            <span>Operations</span>
+            <span>操作</span>
             <strong>{capabilitySummary?.operation_count ?? capabilityCatalog.operations?.length ?? 0}</strong>
             <em>ResourcePolicy 授权原子</em>
           </article>
           <article>
-            <span>Validation</span>
+            <span>校验</span>
             <strong>{validationIssues.length}</strong>
             <em>{capabilitySummary?.validation_error_count ?? 0} 个错误</em>
           </article>
@@ -334,7 +334,7 @@ export function SystemConfigView() {
     <div className="workspace-view system-config-workbench">
       <header className="workspace-view__header">
         <div>
-          <p className="workspace-view__eyebrow">Runtime Config Workbench</p>
+          <p className="workspace-view__eyebrow">运行配置工作台</p>
           <h2 className="workspace-view__title">系统配置</h2>
           <p className="workspace-view__subtitle">管理模型、上下文、检索、文档解析和运行限制；保存到运行时覆盖配置，`.env` 仍作为底座。</p>
         </div>
@@ -357,17 +357,17 @@ export function SystemConfigView() {
 
       <section className="system-config-overview">
         <article>
-          <span>Active Panel</span>
+          <span>当前面板</span>
           <strong>{activeGroup?.title ?? "未加载"}</strong>
           <em>{activeGroup?.status ?? "等待配置"}</em>
         </article>
         <article>
-          <span>Runtime Overrides</span>
+          <span>运行时覆盖</span>
           <strong>{overriddenCount}</strong>
           <em>当前由前端配置覆盖的字段</em>
         </article>
         <article>
-          <span>Secret Policy</span>
+          <span>密钥策略</span>
           <strong>不回显密钥</strong>
           <em>新密钥只在保存时写入</em>
         </article>

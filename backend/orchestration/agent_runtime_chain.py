@@ -11,6 +11,7 @@ from tasks.flow_registry import TaskFlowRegistry
 from understanding.memory_intent import analyze_memory_intent
 from understanding.query_understanding import analyze_query_understanding
 
+from .agent_runtime_registry import AgentRuntimeRegistry
 from .assembly_builder import build_orchestration_runtime_bundle
 
 
@@ -34,10 +35,16 @@ class AgentRuntimeChainAssembler:
         task_selection: dict[str, Any] | None = None,
         agent_runtime_profile: Any | None = None,
     ) -> dict[str, Any]:
+        task_selection_payload = dict(task_selection or {})
+        effective_agent_runtime_profile = agent_runtime_profile
+        if effective_agent_runtime_profile is None:
+            selected_agent_id = str(task_selection_payload.get("agent_id") or "").strip()
+            if selected_agent_id:
+                effective_agent_runtime_profile = AgentRuntimeRegistry(self.base_dir).get_profile(selected_agent_id)
         memory_intent = analyze_memory_intent(message)
         memory_payload = self.build_memory_runtime_view_payload(
             task_id=task_id,
-            agent_id=str(getattr(agent_runtime_profile, "agent_id", "") or "agent:0"),
+            agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
             session_id=session_id,
             message=message,
             memory_intent=memory_intent,
@@ -53,7 +60,7 @@ class AgentRuntimeChainAssembler:
         query_understanding = _align_understanding_with_explicit_task_selection(
             self.base_dir,
             query_understanding,
-            task_selection=dict(task_selection or {}),
+            task_selection=task_selection_payload,
         )
         current_turn_context = ContextResolver().resolve(
             session_id=session_id,
@@ -94,7 +101,7 @@ class AgentRuntimeChainAssembler:
         memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
         memory_payload = self.build_memory_runtime_view_payload(
             task_id=task_id,
-            agent_id=str(getattr(agent_runtime_profile, "agent_id", "") or "agent:0"),
+            agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
             session_id=session_id,
             message=message,
             memory_intent=memory_intent,
@@ -117,7 +124,7 @@ class AgentRuntimeChainAssembler:
             context_policy_result=context_payload,
             current_turn_context=current_turn_context_payload,
             active_skill=_skill_frame_payload(skill_frame),
-            agent_runtime_profile=agent_runtime_profile,
+            agent_runtime_profile=effective_agent_runtime_profile,
         )
         task_operation.update(
             {

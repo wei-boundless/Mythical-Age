@@ -113,12 +113,13 @@ def _normalize_nodes(
                 role=str(raw.get("role") or ("coordinator" if agent_id == coordination_task.coordinator_agent_id else "participant")).strip(),
                 agent_id=agent_id or coordination_task.coordinator_agent_id,
                 runtime_lane=str(raw.get("lane") or raw.get("runtime_lane") or "").strip(),
+                projection_id=str(raw.get("projection_id") or raw.get("projection_overlay_id") or "").strip(),
                 task_id=task_id,
                 task_family=str(raw.get("task_family") or getattr(task, "task_family", "") or coordination_task.task_family).strip(),
                 metadata={
                     key: value
                     for key, value in raw.items()
-                    if key not in {"node_id", "id", "title", "label", "node_type", "role", "agent_id", "lane", "runtime_lane", "task_id", "subtask_ref", "task_family"}
+                    if key not in {"node_id", "id", "title", "label", "node_type", "role", "agent_id", "lane", "runtime_lane", "projection_id", "projection_overlay_id", "task_id", "subtask_ref", "task_family"}
                 },
             )
         )

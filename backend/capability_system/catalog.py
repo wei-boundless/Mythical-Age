@@ -180,11 +180,13 @@ def operation_tool_metadata(
     if tool_type not in TOOL_TYPE_OPTIONS:
         tool_type = "通用能力"
     tool_name = str(tool.get("name") or "")
+    llm_description = str(metadata.get("llm_description") or tool.get("description") or "").strip()
     bound_agents = list((bound_agents_by_tool or {}).get(tool_name, []))
     source_class = classify_tool_source(tool)
     return {
         "tool_type": tool_type,
         "note": str(metadata.get("note") or ""),
+        "llm_description": llm_description,
         "source_class": source_class,
         "search_policy": search_policy_labels(source_class),
         "tool_boundary": tool_boundary(tool),
@@ -289,7 +291,17 @@ def build_binding_graph(
 def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     overrides = dict(tool_overrides or {})
     skills = [skill_payload(runtime, skill) for skill in runtime.skill_registry.skills]
-    raw_tools = [definition.to_registry_record() for definition in runtime.tool_runtime.definitions]
+    tool_descriptions = {
+        str(getattr(instance, "name", "") or ""): str(getattr(instance, "description", "") or "")
+        for instance in runtime.tool_runtime.instances
+    }
+    raw_tools = [
+        {
+            **definition.to_registry_record(),
+            "description": tool_descriptions.get(definition.name, ""),
+        }
+        for definition in runtime.tool_runtime.definitions
+    ]
     operation_registry = build_default_operation_registry()
     operations = [operation.to_dict() for operation in operation_registry.list_operations()]
     mcps = build_mcp_catalog(operation_registry)

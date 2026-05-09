@@ -55,18 +55,16 @@ class AgentDescriptor:
 
     @property
     def lifecycle_policy(self) -> str:
-        if self.builtin:
-            return "system_locked"
-        return str(self.metadata.get("lifecycle_policy") or "user_managed")
+        return str(self.metadata.get("lifecycle_policy") or ("system_builtin" if self.builtin else "user_managed"))
 
     @property
     def mutable_fields(self) -> tuple[str, ...]:
-        if self.builtin:
-            return ()
         return (
             "agent_name",
+            "interface_target",
             "description",
             "enabled",
+            "editable",
             "default_soul_id",
             "default_projection_id",
             "metadata",
@@ -78,11 +76,11 @@ class AgentDescriptor:
 
     @property
     def deletable(self) -> str:
-        return "never" if self.builtin else "archive_only"
+        return "delete_allowed"
 
     @property
     def disable_allowed(self) -> bool:
-        return not self.builtin
+        return True
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

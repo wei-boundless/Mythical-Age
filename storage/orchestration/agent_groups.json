@@ -1,29 +1,17 @@
 {
   "groups": [
     {
-      "group_id": "group.longform_novel_core_team",
-      "title": "长篇小说核心创作组",
+      "group_id": "group.custom.worker_group_01",
+      "title": "长篇小说组",
       "group_kind": "coordination_team",
-      "coordinator_agent_id": "agent:novel_showrunner",
-      "member_agent_ids": [
-        "agent:novel_story_architect",
-        "agent:novel_chapter_writer",
-        "agent:novel_continuity_editor",
-        "agent:novel_memory_publisher"
-      ],
-      "description": "五人核心长篇小说创作团队，所有成员通过专属投影承载角色 prompt。",
-      "default_topology_template_ids": [
-        "topology.longform_novel.production_graph"
-      ],
-      "default_communication_protocol_ids": [
-        "protocol.longform_novel.a2a_handoff"
-      ],
-      "allowed_coordination_task_ids": [
-        "coord.longform_novel.core_production"
-      ],
+      "coordinator_agent_id": "",
+      "member_agent_ids": [],
+      "description": "撰写长篇小说的成员们，一般是两个创作者，一个审核员，只有审核员通过才行",
+      "default_topology_template_ids": [],
+      "default_communication_protocol_ids": [],
+      "allowed_coordination_task_ids": [],
       "lifecycle_state": "enabled",
       "metadata": {
-        "task_family": "longform_novel_writing",
         "managed_by": "orchestration_console"
       },
       "authority": "orchestration.agent_group"

@@ -39,7 +39,7 @@ export function TaskContractPanel({
     <section className="boundary-inspector-block">
       <header>
         <strong>任务契约</strong>
-        <span>ContractSpec</span>
+        <span>契约规格</span>
       </header>
       <div className="boundary-form">
         <TaskSystemSelectField
@@ -57,14 +57,14 @@ export function TaskContractPanel({
           formatOption={formatter}
         />
         <TaskSystemSelectField
-          label="Workflow 输出契约"
+          label="工作流输出契约"
           value={workflowOutputContractId || ""}
           options={contractOptions(contractSpecs, workflowOutputContractId || "", ["final_output", "workflow", "workflow_step"])}
           onChange={onWorkflowOutputContractChange}
           formatOption={formatter}
           wide
         />
-        <TaskSystemField label="验收 Profile">
+        <TaskSystemField label="验收画像">
           <input value={taskDraft.acceptance_profile_id || ""} onChange={(event) => setTaskDraft((current) => ({ ...current, acceptance_profile_id: event.target.value }))} />
         </TaskSystemField>
       </div>

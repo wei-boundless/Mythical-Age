@@ -18,6 +18,59 @@ from tasks import TaskContractRegistry, TaskFlowRegistry, TaskWorkflowRegistry, 
 
 router = APIRouter()
 
+LEGACY_HEALTH_TASK_MODES = {
+    "issue_triage",
+    "trace_analysis",
+    "case_draft",
+    "fix_verification",
+}
+
+
+def _is_legacy_health_task_mode(value: str) -> bool:
+    return str(value or "").strip() in LEGACY_HEALTH_TASK_MODES
+
+
+def _is_legacy_health_ref(value: str) -> bool:
+    normalized = str(value or "").strip()
+    return any(
+        normalized in {
+            f"task.health.{mode}",
+            f"flow.health.{mode}",
+            f"workflow.health.{mode}",
+        }
+        for mode in LEGACY_HEALTH_TASK_MODES
+    )
+
+
+def _is_legacy_health_payload(payload: dict[str, object]) -> bool:
+    return _is_legacy_health_task_mode(str(payload.get("task_mode") or "")) or any(
+        _is_legacy_health_ref(str(payload.get(key) or ""))
+        for key in (
+            "task_id",
+            "flow_id",
+            "workflow_id",
+            "default_flow_contract_id",
+            "default_workflow_id",
+        )
+    )
+
+
+def _visible_task_payloads(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [item for item in items if not _is_legacy_health_payload(item)]
+
+
+def _visible_contract_payloads(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    result: list[dict[str, object]] = []
+    for item in items:
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict) and _is_legacy_health_task_mode(str(metadata.get("task_mode") or "")):
+            continue
+        source_refs = item.get("source_refs")
+        if isinstance(source_refs, list) and any(_is_legacy_health_ref(str(ref or "")) for ref in source_refs):
+            continue
+        result.append(item)
+    return result
+
 
 def _derived_count(effective_items: list[object], explicit_items: list[object], *, key_attr: str) -> int:
     explicit_keys = {
@@ -134,30 +187,6 @@ class TaskWorkflowUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-class CoordinationTaskUpsertRequest(BaseModel):
-    coordination_task_id: str = Field(..., min_length=3, max_length=160)
-    title: str = Field(..., min_length=1, max_length=160)
-    coordination_mode: str = Field(default="review_merge", max_length=80)
-    coordinator_agent_id: str = Field(default="agent:0", min_length=3, max_length=160)
-    task_family: str = Field(default="", max_length=80)
-    domain_id: str = Field(default="", max_length=160)
-    agent_group_id: str = Field(default="", max_length=160)
-    participant_agent_ids: list[str] = Field(default_factory=list)
-    topology_template_id: str = Field(default="", max_length=160)
-    shared_context_policy: str = Field(default="explicit_refs_only", max_length=120)
-    memory_sharing_policy: str = Field(default="isolated_by_default", max_length=120)
-    handoff_policy: str = Field(default="filtered_handoff", max_length=120)
-    conflict_resolution_policy: str = Field(default="coordinator_review", max_length=120)
-    output_merge_policy: str = Field(default="coordinator_final_merge", max_length=120)
-    stop_conditions: list[str] = Field(default_factory=list)
-    subtask_refs: list[str] = Field(default_factory=list)
-    graph_nodes: list[dict[str, object]] = Field(default_factory=list)
-    graph_edges: list[dict[str, object]] = Field(default_factory=list)
-    communication_modes: list[str] = Field(default_factory=list)
-    enabled: bool = False
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
 class TaskGraphUpsertRequest(BaseModel):
     graph_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
@@ -243,10 +272,11 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     agents = [item.to_dict() for item in agent_registry.list_agents()]
     contract_registry = TaskContractRegistry(base_dir)
     workflows = TaskWorkflowRegistry(base_dir).build_catalog()
-    task_flows = [item.to_dict() for item in registry.list_flows()]
+    visible_workflows = _visible_task_payloads(list(workflows.get("workflows") or []))
+    task_flows = _visible_task_payloads([item.to_dict() for item in registry.list_flows()])
     entry_policies = [item.to_dict() for item in registry.list_general_task_profiles()]
-    compat_specific_tasks = [item.to_dict() for item in registry.list_task_assignments()]
-    specific_task_records = [item.to_dict() for item in registry.list_specific_task_records()]
+    compat_specific_tasks = _visible_task_payloads([item.to_dict() for item in registry.list_task_assignments()])
+    specific_task_records = _visible_task_payloads([item.to_dict() for item in registry.list_specific_task_records()])
     projection_binding_models = registry.list_projection_bindings()
     explicit_projection_binding_models = registry.list_explicit_projection_bindings()
     flow_contract_binding_models = registry.list_flow_contract_bindings()
@@ -255,31 +285,34 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     explicit_execution_policy_models = registry.list_explicit_task_agent_adoption_plans()
     memory_request_profile_models = registry.list_task_memory_request_profiles()
     explicit_memory_request_profile_models = registry.list_explicit_task_memory_request_profiles()
-    projection_bindings = [item.to_dict() for item in projection_binding_models]
-    flow_contract_bindings = [item.to_dict() for item in flow_contract_binding_models]
+    projection_bindings = [
+        item
+        for item in [model.to_dict() for model in projection_binding_models]
+        if not _is_legacy_health_ref(str(item.get("task_id") or ""))
+    ]
+    flow_contract_bindings = [
+        item
+        for item in [model.to_dict() for model in flow_contract_binding_models]
+        if not _is_legacy_health_ref(str(item.get("task_id") or "")) and not _is_legacy_health_ref(str(item.get("flow_id") or ""))
+    ]
     execution_policies = [item.to_dict() for item in execution_policy_models]
-    memory_request_profiles = [item.to_dict() for item in memory_request_profile_models]
+    memory_request_profiles = [
+        item
+        for item in [model.to_dict() for model in memory_request_profile_models]
+        if not _is_legacy_health_ref(str(item.get("task_id") or ""))
+    ]
     task_domains = [item.to_dict() for item in registry.list_task_domains()]
-    coordination_tasks = [item.to_dict() for item in registry.list_coordination_tasks()]
     task_graphs = [item.to_dict() for item in registry.list_task_graphs()]
+    visible_task_ids = {str(item.get("task_id") or "") for item in specific_task_records}
     specific_task_records_by_id = {
         item.task_id: item
         for item in registry.list_specific_task_records()
+        if item.task_id in visible_task_ids
     }
-    coordination_graph_specs = [
-        compile_coordination_graph_spec(
-            coordination_task=item,
-            specific_tasks=tuple(specific_task_records_by_id.values()),
-            topology_template=registry.get_topology_template(item.topology_template_id),
-            communication_protocol=registry.get_task_communication_protocol(
-                str(dict(item.metadata or {}).get("protocol_id") or "")
-            ),
-        ).to_dict()
-        for item in registry.list_coordination_tasks()
-    ]
+    coordination_graph_specs = []
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
-    contract_catalog = [item.to_dict() for item in registry.list_contract_descriptors()]
+    contract_catalog = _visible_contract_payloads([item.to_dict() for item in registry.list_contract_descriptors()])
     contract_management = contract_registry.build_catalog()
     template_validation_matrix = registry.template_registry.build_validation_matrix()
     link_permission_matrix = registry.build_link_permission_matrix()
@@ -293,7 +326,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "specific_task_record_count": len(specific_task_records),
             "specific_task_compat_view_count": len(compat_specific_tasks),
             "task_flow_count": len(task_flows),
-            "workflow_count": workflows["summary"]["workflow_count"],
+            "workflow_count": len(visible_workflows),
             "projection_binding_count": len(explicit_projection_binding_models),
             "derived_projection_binding_count": _derived_count(
                 projection_binding_models,
@@ -323,7 +356,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             ),
             "effective_memory_request_profile_count": len(memory_request_profile_models),
             "task_domain_count": len(task_domains),
-            "coordination_task_count": len(coordination_tasks),
             "task_graph_count": len(task_graphs),
             "topology_template_count": len(topology_templates),
             "communication_protocol_count": len(communication_protocols),
@@ -338,7 +370,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "task_domains": task_domains,
             "specific_task_records": specific_task_records,
             "task_flow_definitions": task_flows,
-            "workflow_resources": workflows["workflows"],
+            "workflow_resources": visible_workflows,
             "projection_bindings": projection_bindings,
             "flow_contract_bindings": flow_contract_bindings,
             "execution_policies": execution_policies,
@@ -354,7 +386,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         },
         "coordination_management": {
             "task_graphs": task_graphs,
-            "coordination_tasks": coordination_tasks,
             "coordination_graph_specs": coordination_graph_specs,
             "topology_templates": topology_templates,
             "communication_protocols": communication_protocols,
@@ -407,20 +438,20 @@ async def task_system_next_ids() -> dict[str, object]:
     task_id = flow_registry.next_specific_task_id()
     flow_id = flow_registry.next_flow_id()
     workflow_id = workflow_registry.next_workflow_id()
-    coordination_task_id = flow_registry.next_coordination_task_id()
+    graph_id = flow_registry.next_task_graph_id()
     topology_template_id = flow_registry.next_topology_template_id()
     return {
         "authority": "task_system.id_registry",
         "task_id": task_id,
         "flow_id": flow_id,
         "workflow_id": workflow_id,
-        "coordination_task_id": coordination_task_id,
+        "graph_id": graph_id,
         "topology_template_id": topology_template_id,
         "display_numbers": {
             "task": _display_number(task_id, prefix="task.", fallback="任务"),
             "flow": _display_number(flow_id, prefix="flow.", fallback="流程"),
             "workflow": _display_number(workflow_id, prefix="workflow.", fallback="流程"),
-            "coordination": _display_number(coordination_task_id, prefix="coord.", fallback="协作"),
+            "graph": _display_number(graph_id, prefix="graph.", fallback="任务图"),
             "topology": _display_number(topology_template_id, prefix="topology.", fallback="拓扑"),
         },
     }
@@ -529,6 +560,23 @@ async def compile_task_system_coordination_contract_manifest(coordination_task_i
     return manifest.to_dict()
 
 
+@router.get("/tasks/contract-manifests/task-graphs/{graph_id}")
+async def compile_task_system_task_graph_contract_manifest(graph_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.get_task_graph(graph_id)
+    if graph is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="task graph not found")
+    coordination_task_id = str(dict(graph.metadata or {}).get("coordination_task_id") or "").strip()
+    if not coordination_task_id:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail="task graph is missing compatibility coordination task binding")
+    return await compile_task_system_coordination_contract_manifest(coordination_task_id)
+
+
 @router.get("/tasks/runtime-assemblies/workflows/{workflow_id}")
 async def build_task_system_workflow_runtime_assembly(
     workflow_id: str,
@@ -617,6 +665,26 @@ async def build_task_system_node_runtime_assembly(
         explicit_inputs={},
     )
     return assembly.to_dict()
+
+
+@router.get("/tasks/runtime-assemblies/task-graphs/{graph_id}/nodes/{node_id}")
+async def build_task_system_task_graph_node_runtime_assembly(
+    graph_id: str,
+    node_id: str,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.get_task_graph(graph_id)
+    if graph is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="task graph not found")
+    coordination_task_id = str(dict(graph.metadata or {}).get("coordination_task_id") or "").strip()
+    if not coordination_task_id:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail="task graph is missing compatibility coordination task binding")
+    return await build_task_system_node_runtime_assembly(coordination_task_id, node_id)
 
 
 @router.put("/tasks/workflows/{workflow_id}")
@@ -855,45 +923,6 @@ async def upsert_task_system_memory_request_profile(
             writeback_policy=payload.writeback_policy,
             allow_long_term_memory=payload.allow_long_term_memory,
             memory_scope_hint=payload.memory_scope_hint,
-            metadata=payload.metadata,
-        )
-    except ValueError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _task_system_payload(runtime.base_dir)
-
-
-@router.put("/tasks/coordination-tasks/{coordination_task_id}")
-async def upsert_task_system_coordination_task(
-    coordination_task_id: str,
-    payload: CoordinationTaskUpsertRequest,
-) -> dict[str, object]:
-    runtime = require_runtime()
-    if payload.coordination_task_id != coordination_task_id:
-        payload = payload.model_copy(update={"coordination_task_id": coordination_task_id})
-    try:
-        TaskFlowRegistry(runtime.base_dir).upsert_coordination_task(
-            coordination_task_id=payload.coordination_task_id,
-            title=payload.title,
-            coordination_mode=payload.coordination_mode,
-            coordinator_agent_id=payload.coordinator_agent_id,
-            task_family=payload.task_family,
-            domain_id=payload.domain_id,
-            agent_group_id=payload.agent_group_id,
-            participant_agent_ids=tuple(payload.participant_agent_ids),
-            topology_template_id=payload.topology_template_id,
-            shared_context_policy=payload.shared_context_policy,
-            memory_sharing_policy=payload.memory_sharing_policy,
-            handoff_policy=payload.handoff_policy,
-            conflict_resolution_policy=payload.conflict_resolution_policy,
-            output_merge_policy=payload.output_merge_policy,
-            stop_conditions=tuple(payload.stop_conditions),
-            subtask_refs=tuple(payload.subtask_refs),
-            graph_nodes=tuple(dict(item) for item in payload.graph_nodes),
-            graph_edges=tuple(dict(item) for item in payload.graph_edges),
-            communication_modes=tuple(payload.communication_modes),
-            enabled=payload.enabled,
             metadata=payload.metadata,
         )
     except ValueError as exc:

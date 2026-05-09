@@ -27,13 +27,13 @@ export function ThoughtChain({ toolCalls }: { toolCalls: ToolCall[] }) {
             <div className="space-y-2 text-xs">
               {toolCall.input ? (
                 <div className="archive-detail-card__io rounded-[18px] p-3">
-                  <div className="archive-detail-card__io-label mb-1 font-medium text-[var(--color-text-soft)]">Input</div>
+                  <div className="archive-detail-card__io-label mb-1 font-medium text-[var(--color-text-soft)]">输入</div>
                   <pre className="mono whitespace-pre-wrap">{toolCall.input}</pre>
                 </div>
               ) : null}
               {toolCall.output ? (
                 <div className="archive-detail-card__io rounded-[18px] p-3">
-                  <div className="archive-detail-card__io-label mb-1 font-medium text-[var(--color-text-soft)]">Output</div>
+                  <div className="archive-detail-card__io-label mb-1 font-medium text-[var(--color-text-soft)]">输出</div>
                   <pre className="mono whitespace-pre-wrap">{toolCall.output}</pre>
                 </div>
               ) : null}

@@ -1,25 +1,26 @@
 {
   "task_domains": [
     {
-      "domain_id": "domain.development",
-      "task_family": "development",
-      "title": "开发任务",
-      "description": "",
-      "enabled": true,
-      "sort_order": 10,
-      "metadata": {
-        "derived": true
-      }
-    },
-    {
       "domain_id": "domain.health",
       "task_family": "health",
-      "title": "health任务域",
+      "title": "健康任务",
       "description": "",
       "enabled": true,
       "sort_order": 40,
       "metadata": {
         "derived": true
+      }
+    },
+    {
+      "domain_id": "domain.custom_4",
+      "task_family": "custom_4",
+      "title": "开发任务",
+      "description": "",
+      "enabled": true,
+      "sort_order": 140,
+      "metadata": {
+        "managed_by": "task_domain_console",
+        "draft_identity_locked": true
       }
     },
     {
@@ -30,12 +31,11 @@
       "enabled": true,
       "sort_order": 260,
       "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
+        "derived": true
       }
     }
   ],
   "deleted_domain_ids": [
-    "domain.health"
+    "domain.development"
   ]
 }

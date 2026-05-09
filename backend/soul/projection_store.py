@@ -384,11 +384,12 @@ def _apply_projection_defaults(
         "name": soul_name,
     }
     defaults = _projection_defaults_from_soul(base_dir, profile)
-    if not isinstance(resolved.get("projection_nodes"), list) or not list(resolved.get("projection_nodes") or []):
+    has_explicit_nodes = isinstance(resolved.get("projection_nodes"), list) and bool(resolved.get("projection_nodes") or [])
+    if not has_explicit_nodes:
         resolved["projection_nodes"] = defaults["projection_nodes"]
     if not str(resolved.get("identity_anchor") or "").strip():
         resolved["identity_anchor"] = defaults["identity_anchor"]
-    if not str(resolved.get("projection_prompt") or "").strip():
+    if not has_explicit_nodes and not str(resolved.get("projection_prompt") or "").strip():
         resolved["projection_prompt"] = defaults["projection_prompt"]
     return resolved
 

@@ -234,9 +234,9 @@ export function MCPSystemView() {
     <div className="workspace-view mcp-system-console">
       <header className="workspace-view__header">
         <div>
-          <p className="workspace-view__eyebrow">External MCP Control Plane</p>
+          <p className="workspace-view__eyebrow">外部 MCP 控制面</p>
           <h2 className="workspace-view__title">MCP 管理</h2>
-          <p className="workspace-view__subtitle">单独管理外部 MCP server 的配置、协议发现、统一工具池和执行权限预检。</p>
+          <p className="workspace-view__subtitle">单独管理外部 MCP 服务器的配置、协议发现、统一工具池和执行权限预检。</p>
         </div>
         <div className="workspace-view__actions">
           <button className="action-button action-button--muted" onClick={() => void loadCatalog("MCP 目录已刷新。")} type="button">
@@ -254,10 +254,10 @@ export function MCPSystemView() {
       {notice ? <div className="workspace-alert">{notice}</div> : null}
 
       <div className="workspace-metrics-grid">
-        <div className="workspace-stat"><span>Servers</span><strong>{catalog?.summary.server_count ?? 0}</strong></div>
-        <div className="workspace-stat"><span>Connected</span><strong>{catalog?.summary.connected_server_count ?? 0}</strong></div>
-        <div className="workspace-stat"><span>Tools</span><strong>{catalog?.summary.tool_count ?? 0}</strong></div>
-        <div className="workspace-stat"><span>Resources</span><strong>{catalog?.summary.resource_count ?? 0}</strong></div>
+        <div className="workspace-stat"><span>服务器</span><strong>{catalog?.summary.server_count ?? 0}</strong></div>
+        <div className="workspace-stat"><span>已连接</span><strong>{catalog?.summary.connected_server_count ?? 0}</strong></div>
+        <div className="workspace-stat"><span>工具</span><strong>{catalog?.summary.tool_count ?? 0}</strong></div>
+        <div className="workspace-stat"><span>资源</span><strong>{catalog?.summary.resource_count ?? 0}</strong></div>
       </div>
 
       <div className="mcp-system-layout">
@@ -277,7 +277,7 @@ export function MCPSystemView() {
             );
           })}
           <div className="workspace-search">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 MCP server / tool" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 MCP 服务器 / 工具" />
           </div>
         </aside>
 
@@ -286,7 +286,7 @@ export function MCPSystemView() {
             <div className="mcp-system-grid">
               <section className="workspace-section">
                 <div className="workspace-section__head">
-                  <div><h3>外部 MCP 列表</h3><p>配置进入统一 MCP 管理面的 server。</p></div>
+                  <div><h3>外部 MCP 列表</h3><p>配置进入统一 MCP 管理面的服务器。</p></div>
                   <button className="action-button action-button--muted" onClick={() => { setSelectedServerId(""); setDraft(EMPTY_SERVER); }} type="button">新建</button>
                 </div>
                 <div className="mcp-server-list">
@@ -310,21 +310,21 @@ export function MCPSystemView() {
 
               <section className="workspace-section">
                 <div className="workspace-section__head">
-                  <div><h3>连接配置</h3><p>stdio server 会用标准 MCP client 实际握手发现。</p></div>
+                  <div><h3>连接配置</h3><p>stdio 服务器会用标准 MCP 客户端实际握手发现。</p></div>
                 </div>
                 <div className="mcp-form-grid">
-                  <label><span>server_id</span><input value={draft.server_id} onChange={(event) => setDraft({ ...draft, server_id: event.target.value })} /></label>
+                  <label><span>服务器 ID</span><input value={draft.server_id} onChange={(event) => setDraft({ ...draft, server_id: event.target.value })} /></label>
                   <label><span>标题</span><input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
-                  <label><span>Transport</span><select value={draft.transport} onChange={(event) => setDraft({ ...draft, transport: event.target.value })}><option value="stdio">stdio</option><option value="streamable_http">streamable_http</option></select></label>
-                  <label><span>Scope</span><input value={draft.scope} onChange={(event) => setDraft({ ...draft, scope: event.target.value })} /></label>
-                  <label className="mcp-form-wide"><span>Command</span><input value={draft.command} onChange={(event) => setDraft({ ...draft, command: event.target.value })} placeholder="python / npx / node" /></label>
+                  <label><span>传输方式</span><select value={draft.transport} onChange={(event) => setDraft({ ...draft, transport: event.target.value })}><option value="stdio">stdio</option><option value="streamable_http">streamable_http</option></select></label>
+                  <label><span>作用域</span><input value={draft.scope} onChange={(event) => setDraft({ ...draft, scope: event.target.value })} /></label>
+                  <label className="mcp-form-wide"><span>启动命令</span><input value={draft.command} onChange={(event) => setDraft({ ...draft, command: event.target.value })} placeholder="python / npx / node" /></label>
                   <label className="mcp-form-wide"><span>URL</span><input value={draft.url} onChange={(event) => setDraft({ ...draft, url: event.target.value })} placeholder="streamable HTTP 预留" /></label>
-                  <label className="mcp-form-wide"><span>Working directory</span><input value={draft.cwd} onChange={(event) => setDraft({ ...draft, cwd: event.target.value })} /></label>
+                  <label className="mcp-form-wide"><span>工作目录</span><input value={draft.cwd} onChange={(event) => setDraft({ ...draft, cwd: event.target.value })} /></label>
                   <label className="mcp-form-wide"><span>描述</span><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={3} /></label>
-                  <label><span>Args，每行一个</span><textarea value={argsDraft} onChange={(event) => setArgsDraft(event.target.value)} rows={7} /></label>
-                  <label><span>Tags，每行一个</span><textarea value={tagsDraft} onChange={(event) => setTagsDraft(event.target.value)} rows={7} /></label>
-                  <label><span>Env JSON</span><textarea value={envDraft} onChange={(event) => setEnvDraft(event.target.value)} rows={7} /></label>
-                  <label><span>Metadata JSON</span><textarea value={metadataDraft} onChange={(event) => setMetadataDraft(event.target.value)} rows={7} /></label>
+                  <label><span>参数，每行一个</span><textarea value={argsDraft} onChange={(event) => setArgsDraft(event.target.value)} rows={7} /></label>
+                  <label><span>标签，每行一个</span><textarea value={tagsDraft} onChange={(event) => setTagsDraft(event.target.value)} rows={7} /></label>
+                  <label><span>环境变量 JSON</span><textarea value={envDraft} onChange={(event) => setEnvDraft(event.target.value)} rows={7} /></label>
+                  <label><span>元数据 JSON</span><textarea value={metadataDraft} onChange={(event) => setMetadataDraft(event.target.value)} rows={7} /></label>
                 </div>
                 <div className="workspace-view__actions">
                   {selectedServerId ? <button className="action-button action-button--danger" onClick={() => void removeServer(selectedServerId)} type="button"><Trash2 size={16} />删除</button> : null}
@@ -340,14 +340,14 @@ export function MCPSystemView() {
           {activePanel === "discovery" ? (
             <section className="workspace-section">
               <div className="workspace-section__head">
-                <div><h3>协议发现快照</h3><p>展示 tools / resources / prompts / skill:// resource。</p></div>
+                <div><h3>协议发现快照</h3><p>展示工具、资源、提示词和 skill:// 资源。</p></div>
               </div>
               {selectedSnapshot ? (
                 <div className="mcp-discovery-grid">
-                  <article><h4>Tools</h4><pre>{jsonText(selectedSnapshot.tools)}</pre></article>
-                  <article><h4>Resources</h4><pre>{jsonText(selectedSnapshot.resources)}</pre></article>
-                  <article><h4>Prompts</h4><pre>{jsonText(selectedSnapshot.prompts)}</pre></article>
-                  <article><h4>Capabilities</h4><pre>{jsonText(selectedSnapshot.capabilities)}</pre></article>
+                  <article><h4>工具</h4><pre>{jsonText(selectedSnapshot.tools)}</pre></article>
+                  <article><h4>资源</h4><pre>{jsonText(selectedSnapshot.resources)}</pre></article>
+                  <article><h4>提示词</h4><pre>{jsonText(selectedSnapshot.prompts)}</pre></article>
+                  <article><h4>能力</h4><pre>{jsonText(selectedSnapshot.capabilities)}</pre></article>
                 </div>
               ) : <div className="workspace-alert">请选择一个 MCP server。</div>}
             </section>

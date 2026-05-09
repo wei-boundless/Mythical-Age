@@ -1,12 +1,13 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type MouseEvent, type ReactNode } from "react";
 
 export type CoordinationTopologyNode = {
   id: string;
   title: string;
   agentLabel?: string;
   role?: string;
+  nodeKind?: string;
   status?: string;
 };
 
@@ -16,6 +17,14 @@ export type CoordinationTopologyEdge = {
   to: string;
   label?: string;
   status?: string;
+};
+
+export type CoordinationTopologyFrame = {
+  id: string;
+  title: string;
+  frameType: string;
+  nodeIds: string[];
+  edgeIds?: string[];
 };
 
 type TopologyNodeLayout = CoordinationTopologyNode & {
@@ -159,34 +168,59 @@ export function buildCoordinationTopologyLayout(
 export function CoordinationTopologyGraph({
   nodes,
   edges,
+  frames = [],
   currentNodeId = "",
   currentHandoffKey = "",
   emptyTitle = "协调任务已启动，正在等待拓扑数据",
   emptyDescription = "节点与交接关系会在后续运行事件到达后显示。",
   onSelectNode,
   onSelectEdge,
+  onSelectFrame,
+  onBoxSelect,
   onConnectNode,
+  onNodeContextMenu,
+  onEdgeContextMenu,
+  onCanvasContextMenu,
   renderNodeTools,
   renderEdgeTools,
   selectedNodeId = "",
   selectedEdgeId = "",
+  selectedNodeIds = [],
+  selectedEdgeIds = [],
+  selectedFrameIds = [],
   linkingFromNodeId = "",
 }: {
   nodes: CoordinationTopologyNode[];
   edges: CoordinationTopologyEdge[];
+  frames?: CoordinationTopologyFrame[];
   currentNodeId?: string;
   currentHandoffKey?: string;
   emptyTitle?: string;
   emptyDescription?: string;
-  onSelectNode?: (nodeId: string) => void;
-  onSelectEdge?: (edgeId: string) => void;
+  onSelectNode?: (nodeId: string, event?: MouseEvent<SVGGElement>) => void;
+  onSelectEdge?: (edgeId: string, event?: MouseEvent<SVGPathElement>) => void;
+  onSelectFrame?: (frameId: string, event?: MouseEvent<SVGGElement>) => void;
+  onBoxSelect?: (selection: { nodeIds: string[]; edgeIds: string[] }) => void;
   onConnectNode?: (nodeId: string) => void;
+  onNodeContextMenu?: (nodeId: string, event: MouseEvent<SVGGElement>) => void;
+  onEdgeContextMenu?: (edgeId: string, event: MouseEvent<SVGPathElement>) => void;
+  onCanvasContextMenu?: (event: MouseEvent<SVGSVGElement>) => void;
   renderNodeTools?: (node: CoordinationTopologyNode) => ReactNode;
   renderEdgeTools?: (edge: CoordinationTopologyEdge) => ReactNode;
   selectedNodeId?: string;
   selectedEdgeId?: string;
+  selectedNodeIds?: string[];
+  selectedEdgeIds?: string[];
+  selectedFrameIds?: string[];
   linkingFromNodeId?: string;
 }) {
+  const [boxSelect, setBoxSelect] = useState<{ active: boolean; startX: number; startY: number; endX: number; endY: number }>({
+    active: false,
+    startX: 0,
+    startY: 0,
+    endX: 0,
+    endY: 0,
+  });
   const topology = buildCoordinationTopologyLayout(nodes, edges, currentNodeId, currentHandoffKey);
   const haloRadius = topology.dense ? 22 : topology.compact ? 26 : 30;
   const surfaceRadius = topology.dense ? 14 : topology.compact ? 17 : 20;
@@ -198,6 +232,45 @@ export function CoordinationTopologyGraph({
   const nodeToolsWidth = topology.dense ? 108 : 132;
   const edgeToolsWidth = topology.dense ? 112 : 132;
   const edgeToolsHalfWidth = edgeToolsWidth / 2;
+  const nodeLayoutById = new Map(topology.nodes.map((node) => [node.id, node]));
+  const frameLayouts = frames
+    .map((frame) => {
+      const frameNodes = frame.nodeIds.map((nodeId) => nodeLayoutById.get(nodeId)).filter((node): node is TopologyNodeLayout => Boolean(node));
+      if (!frameNodes.length) return null;
+      const paddingX = topology.dense ? 54 : topology.compact ? 64 : 78;
+      const paddingY = topology.dense ? 58 : topology.compact ? 70 : 82;
+      const minX = Math.min(...frameNodes.map((node) => node.x)) - paddingX;
+      const maxX = Math.max(...frameNodes.map((node) => node.x)) + paddingX;
+      const minY = Math.min(...frameNodes.map((node) => node.y)) - paddingY;
+      const maxY = Math.max(...frameNodes.map((node) => node.y)) + paddingY;
+      return {
+        ...frame,
+        x: Math.max(12, minX),
+        y: Math.max(12, minY),
+        width: Math.min(topology.width - Math.max(12, minX) - 12, maxX - minX),
+        height: Math.min(topology.height - Math.max(12, minY) - 12, maxY - minY),
+      };
+    })
+    .filter((frame): frame is CoordinationTopologyFrame & { x: number; y: number; width: number; height: number } => Boolean(frame));
+
+  function svgPoint(event: MouseEvent<SVGSVGElement>) {
+    const svg = event.currentTarget;
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    return point.matrixTransform(svg.getScreenCTM()?.inverse());
+  }
+
+  function normalizedBox() {
+    const x = Math.min(boxSelect.startX, boxSelect.endX);
+    const y = Math.min(boxSelect.startY, boxSelect.endY);
+    return {
+      x,
+      y,
+      width: Math.abs(boxSelect.endX - boxSelect.startX),
+      height: Math.abs(boxSelect.endY - boxSelect.startY),
+    };
+  }
 
   if (!topology.nodes.length) {
     return (
@@ -211,7 +284,40 @@ export function CoordinationTopologyGraph({
   }
 
   return (
-    <svg viewBox={`0 0 ${topology.width} ${topology.height}`} aria-label="协调任务拓扑图" role="img">
+    <svg
+      viewBox={`0 0 ${topology.width} ${topology.height}`}
+      aria-label="协调任务拓扑图"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onCanvasContextMenu?.(event);
+      }}
+      onMouseDown={(event) => {
+        if (!onBoxSelect || event.button !== 0) return;
+        const targetElement = event.target as Element;
+        if (targetElement.closest(".coordination-topology-node-group, .coordination-topology-edge, .coordination-topology-frame")) return;
+        const point = svgPoint(event);
+        setBoxSelect({ active: true, startX: point.x, startY: point.y, endX: point.x, endY: point.y });
+      }}
+      onMouseMove={(event) => {
+        if (!boxSelect.active) return;
+        const point = svgPoint(event);
+        setBoxSelect((current) => ({ ...current, endX: point.x, endY: point.y }));
+      }}
+      onMouseUp={() => {
+        if (!boxSelect.active) return;
+        const box = normalizedBox();
+        setBoxSelect((current) => ({ ...current, active: false }));
+        if (box.width < 8 || box.height < 8) return;
+        const nodeIds = topology.nodes
+          .filter((node) => node.x >= box.x && node.x <= box.x + box.width && node.y >= box.y && node.y <= box.y + box.height)
+          .map((node) => node.id);
+        const edgeIds = topology.edges
+          .filter((edge) => edge.toolX >= box.x && edge.toolX <= box.x + box.width && edge.toolY >= box.y && edge.toolY <= box.y + box.height)
+          .map((edge) => edge.id);
+        onBoxSelect?.({ nodeIds, edgeIds });
+      }}
+      role="img"
+    >
       <defs>
         <radialGradient id="coordination-node-core" cx="35%" cy="30%" r="70%">
           <stop offset="0%" stopColor="rgba(255,255,255,0.82)" />
@@ -237,16 +343,53 @@ export function CoordinationTopologyGraph({
           <path d="M 0 0 L 10 5 L 0 10 z" className="coordination-topology-arrowhead" />
         </marker>
       </defs>
+      {frameLayouts.length ? (
+        <g className="coordination-topology-frames">
+          {frameLayouts.map((frame) => {
+            const selected = selectedFrameIds.includes(frame.id);
+            return (
+              <g
+                className={selected ? "coordination-topology-frame coordination-topology-frame--selected" : "coordination-topology-frame"}
+                key={frame.id}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelectFrame?.(frame.id, event);
+                }}
+              >
+                <rect
+                  className={`coordination-topology-frame__rect coordination-topology-frame__rect--${frame.frameType}`}
+                  height={frame.height}
+                  rx="10"
+                  width={frame.width}
+                  x={frame.x}
+                  y={frame.y}
+                />
+                <text className="coordination-topology-frame__label" x={frame.x + 12} y={frame.y + 20}>
+                  {frame.title}
+                </text>
+                <text className="coordination-topology-frame__meta" x={frame.x + 12} y={frame.y + 36}>
+                  {frame.frameType} · {frame.nodeIds.length} nodes
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      ) : null}
       <g>
         {topology.edges.map((edge) => {
-          const selected = edge.id === selectedEdgeId;
+          const selected = edge.id === selectedEdgeId || selectedEdgeIds.includes(edge.id);
           return (
             <g key={edge.id}>
               <path
                 className={`coordination-topology-edge ${statusClass(edge.status)} ${edge.current ? "is-current" : ""} ${selected ? "is-selected" : ""}`}
                 d={edge.path}
                 markerEnd="url(#coordination-topology-arrow)"
-                onClick={() => onSelectEdge?.(edge.id)}
+                onClick={(event) => onSelectEdge?.(edge.id, event)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onEdgeContextMenu?.(edge.id, event);
+                }}
               />
               {renderEdgeTools && selected ? (
                 <foreignObject
@@ -268,34 +411,65 @@ export function CoordinationTopologyGraph({
       <g>
         {topology.nodes.map((node) => {
           const current = node.id === currentNodeId;
-          const selected = node.id === selectedNodeId;
+          const selected = node.id === selectedNodeId || selectedNodeIds.includes(node.id);
           const linking = node.id === linkingFromNodeId;
           const clickable = Boolean(onSelectNode || onConnectNode);
+          const isMemoryNode = node.nodeKind === "memory" || node.role === "memory";
           return (
             <g
               className={clickable ? "coordination-topology-node-group is-clickable" : "coordination-topology-node-group"}
               key={node.id}
-              onClick={() => {
+              onClick={(event) => {
                 if (onConnectNode) {
                   onConnectNode(node.id);
                   return;
                 }
-                onSelectNode?.(node.id);
+                onSelectNode?.(node.id, event);
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onNodeContextMenu?.(node.id, event);
               }}
               transform={`translate(${node.x}, ${node.y})`}
             >
               <text className={`coordination-topology-agent-label ${topology.compact ? "is-compact" : ""} ${current || selected || linking ? "is-current" : ""}`} textAnchor="middle" x="0" y={agentLabelY}>
                 {node.agentLabel || node.title}
               </text>
-              <circle
-                className={`coordination-topology-node-halo ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`}
-                cx="0"
-                cy="0"
-                filter={current ? "url(#coordination-node-glow)" : undefined}
-                r={haloRadius}
-              />
-              <circle className={`coordination-topology-node-surface ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`} cx="0" cy="0" r={surfaceRadius} />
-              <circle className="coordination-topology-node-core" cx="0" cy="0" r={Math.max(7, surfaceRadius * 0.48)} />
+              {isMemoryNode ? (
+                <>
+                  <rect
+                    className={`coordination-topology-node-halo coordination-topology-node-halo--memory ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`}
+                    filter={current ? "url(#coordination-node-glow)" : undefined}
+                    height={haloRadius * 1.62}
+                    rx="8"
+                    width={haloRadius * 1.62}
+                    x={-haloRadius * 0.81}
+                    y={-haloRadius * 0.81}
+                  />
+                  <rect
+                    className={`coordination-topology-node-surface coordination-topology-node-surface--memory ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`}
+                    height={surfaceRadius * 1.72}
+                    rx="6"
+                    width={surfaceRadius * 1.72}
+                    x={-surfaceRadius * 0.86}
+                    y={-surfaceRadius * 0.86}
+                  />
+                  <rect className="coordination-topology-node-core coordination-topology-node-core--memory" height={Math.max(12, surfaceRadius * 0.9)} rx="4" width={Math.max(12, surfaceRadius * 0.9)} x={-Math.max(12, surfaceRadius * 0.9) / 2} y={-Math.max(12, surfaceRadius * 0.9) / 2} />
+                </>
+              ) : (
+                <>
+                  <circle
+                    className={`coordination-topology-node-halo ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`}
+                    cx="0"
+                    cy="0"
+                    filter={current ? "url(#coordination-node-glow)" : undefined}
+                    r={haloRadius}
+                  />
+                  <circle className={`coordination-topology-node-surface ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`} cx="0" cy="0" r={surfaceRadius} />
+                  <circle className="coordination-topology-node-core" cx="0" cy="0" r={Math.max(7, surfaceRadius * 0.48)} />
+                </>
+              )}
               <text className={`coordination-topology-node-glyph ${topology.compact ? "is-compact" : ""}`} textAnchor="middle" x="0" y={glyphY}>
                 {node.shortLabel}
               </text>
@@ -313,6 +487,16 @@ export function CoordinationTopologyGraph({
           );
         })}
       </g>
+      {boxSelect.active ? (
+        <rect
+          className="coordination-topology-box-select"
+          height={normalizedBox().height}
+          rx="6"
+          width={normalizedBox().width}
+          x={normalizedBox().x}
+          y={normalizedBox().y}
+        />
+      ) : null}
     </svg>
   );
 }

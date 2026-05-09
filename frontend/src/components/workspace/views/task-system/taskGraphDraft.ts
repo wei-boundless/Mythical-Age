@@ -1,4 +1,4 @@
-import type { CoordinationTask, TaskCommunicationProtocol, TopologyTemplate } from "@/lib/api";
+import type { TaskCommunicationProtocol, TaskGraphRecord, TopologyTemplate } from "@/lib/api";
 
 import type { LegacyTaskGraphStack, TaskGraphDraft, TaskGraphEdge, TaskGraphKind, TaskGraphNode } from "./taskGraphTypes";
 
@@ -37,12 +37,12 @@ export function buildTaskGraphDraft({
     ?? "";
 
   return {
-    graph_id: coordinationDraft.coordination_task_id || topologyDraft.template_id || "graph.draft",
-    task_id: coordinationDraft.coordination_task_id,
+    graph_id: coordinationDraft.graph_id || topologyDraft.template_id || "graph.draft",
+    task_id: String(coordinationDraft.metadata?.task_id ?? ""),
     domain_id: coordinationDraft.domain_id || String(topologyDraft.metadata?.domain_id ?? ""),
     graph_kind: inferTaskGraphKind(nodes),
     title: coordinationDraft.title || topologyDraft.title || "任务图",
-    coordination_task_id: coordinationDraft.coordination_task_id,
+    coordination_task_id: coordinationDraft.coordination_task_id || coordinationDraft.graph_id || topologyDraft.template_id || "graph.draft",
     topology_template_id: topologyDraft.template_id,
     protocol_id: protocolDraft.protocol_id,
     entry_node_id: String(entryNodeId ?? ""),
@@ -55,6 +55,50 @@ export function buildTaskGraphDraft({
     publish_state: coordinationDraft.enabled && topologyDraft.enabled && protocolDraft.enabled ? "published" : "draft",
     metadata: {
       ...(coordinationDraft.metadata ?? {}),
+      topology_title: topologyDraft.title,
+      protocol_title: protocolDraft.title,
+    },
+  };
+}
+
+export function taskGraphRecordToDraft(
+  graph: TaskGraphRecord,
+  topologyDraft: LegacyTaskGraphStack["topologyDraft"],
+  protocolDraft: LegacyTaskGraphStack["protocolDraft"],
+): TaskGraphDraft {
+  const nodes = (graph.nodes ?? []) as TaskGraphNode[];
+  const edges = (graph.edges ?? []) as TaskGraphEdge[];
+  const firstNodeId = nodes.length ? graphNodeId(nodes[0], 0) : "";
+  const entryNodeId = graph.entry_node_id
+    || nodes.find((node) => String(node.node_type ?? "") === "input")?.node_id
+    || nodes.find((node) => !edges.some((edge) => graphEdgeTarget(edge) === String(node.node_id ?? "")))?.node_id
+    || firstNodeId;
+  const outputNodeId = graph.output_node_id
+    || nodes.find((node) => String(node.node_type ?? "") === "output")?.node_id
+    || nodes.find((node) => !edges.some((edge) => graphEdgeSource(edge) === String(node.node_id ?? "")))?.node_id
+    || "";
+
+  return {
+    graph_id: graph.graph_id,
+    task_id: String(graph.metadata?.task_id ?? ""),
+    domain_id: graph.domain_id || String(topologyDraft.metadata?.domain_id ?? ""),
+    graph_kind: graph.graph_kind ?? inferTaskGraphKind(nodes),
+    title: graph.title || topologyDraft.title || "任务图",
+    coordination_task_id: graph.graph_id,
+    topology_template_id: String(graph.metadata?.topology_template_id ?? topologyDraft.template_id ?? ""),
+    protocol_id: graph.default_protocol_id || String(graph.metadata?.protocol_id ?? protocolDraft.protocol_id ?? ""),
+    entry_node_id: String(entryNodeId ?? ""),
+    output_node_id: String(outputNodeId ?? ""),
+    agent_group_id: String(graph.runtime_policy?.agent_group_id ?? graph.metadata?.agent_group_id ?? ""),
+    coordination_mode: String(graph.runtime_policy?.coordination_mode ?? graph.metadata?.coordination_mode ?? "review_merge"),
+    nodes,
+    edges,
+    communication_modes: Array.isArray(graph.metadata?.business_communication_modes)
+      ? (graph.metadata?.business_communication_modes as string[])
+      : [],
+    publish_state: graph.publish_state === "archived" ? "draft" : (graph.publish_state ?? (graph.enabled ? "published" : "draft")),
+    metadata: {
+      ...(graph.metadata ?? {}),
       topology_title: topologyDraft.title,
       protocol_title: protocolDraft.title,
     },

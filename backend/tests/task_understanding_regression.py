@@ -95,6 +95,24 @@ def main() -> None:
     assert bound_pdf_followup.parameters["path"] == "knowledge/AI Knowledge/report.pdf"
     assert bound_pdf_followup.direct_route_reason == "bound_pdf_followup"
 
+    skill_create = analyze_task_understanding("帮我创建一个用于章节审核的 skill")
+    assert skill_create.source_kind == "capability_system"
+    assert skill_create.task_kind == "skill_create"
+    assert skill_create.route_hint == "rag"
+    assert skill_create.execution_posture == "direct_rag"
+    assert skill_create.preferred_skill == "skill-creator"
+    assert "skill-authoring" in skill_create.capability_requests
+    assert skill_create.parameters == {"query": "帮我创建一个用于章节审核的 skill"}
+    assert skill_create.structural_signals["skill_authoring_request"] is True
+
+    skill_review = analyze_task_understanding("检查这个 SKILL.md 是否适合给 agent 使用")
+    assert skill_review.source_kind == "capability_system"
+    assert skill_review.task_kind == "skill_update"
+    assert skill_review.modality == "markdown"
+    assert skill_review.preferred_skill == "skill-creator"
+    assert "validation" in skill_review.capability_requests
+    assert skill_review.direct_route_reason == "skill_authoring_intent"
+
     faq = analyze_task_understanding("为什么我在我的帐户中找不到我的订单？")
     assert faq.source_kind == "knowledge_base"
     assert faq.task_kind == "faq_explanation"

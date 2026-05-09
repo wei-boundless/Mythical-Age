@@ -162,8 +162,6 @@ class AgentGroupRegistry:
             agent = self.agent_registry.get_agent(agent_id)
             if agent is None:
                 raise ValueError(f"unknown member_agent_id: {agent_id}")
-            if agent.builtin:
-                raise PermissionError(f"system builtin agent cannot be a group member: {agent_id}")
             if agent.agent_category != "worker_sub_agent":
                 raise PermissionError(f"agent group members must be worker_sub_agent: {agent_id}")
             if not agent.enabled:

@@ -15,7 +15,7 @@ function tokenMetricLabel(tokenStats: {
   total_tokens: number;
 } | null) {
   if (!tokenStats) {
-    return "No metrics yet";
+    return "暂无指标";
   }
   return `${tokenStats.total_tokens} tokens`;
 }
@@ -97,7 +97,7 @@ export function ChatPanel() {
                   {activeSoul ? <SoulPortrait compact soul={activeSoul} /> : null}
                 </div>
                 <div className="chat-empty-state__copy flex flex-col justify-center">
-                  <p className="chat-empty-state__eyebrow">Session</p>
+                  <p className="chat-empty-state__eyebrow">会话</p>
                   <h3 className="chat-empty-state__title mt-2">
                     {activeSoul ? `${activeSoul.name}，正等待您的询问。` : "正等待您的询问。"}
                   </h3>

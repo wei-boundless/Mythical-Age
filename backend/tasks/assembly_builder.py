@@ -125,33 +125,62 @@ def build_task_execution_assembly_bundle(
         active_skill=active_skill_payload,
     )
     runtime_operations = _dedupe(list(runtime_required_operations or ()))
+    operation_policy = _resolve_task_operation_policy(
+        selected_template=selected_template,
+        registered_task=registered_task,
+        current_turn_context=current_turn_payload,
+    )
+    allowed_operations = {
+        str(item or "").strip()
+        for item in list(operation_policy.get("allowed_operations") or [])
+        if str(item or "").strip()
+    }
+    policy_denied_operations = _dedupe(
+        [
+            *list(merged_binding.denied_operations),
+            *list(operation_policy.get("denied_operations") or []),
+        ]
+    )
+    default_operations = _dedupe(
+        [
+            "op.model_response",
+            *runtime_operations,
+            *list(selected_template.required_operations),
+            *[
+                operation
+                for definition in definitions
+                for operation in definition.default_operation_requirements
+            ],
+        ]
+    )
+    skill_operations = _dedupe(
+        [
+            *list(selected_template.optional_operations),
+            *[operation for skill in skill_views for operation in skill.required_operations],
+        ]
+    )
+    if allowed_operations:
+        default_operations = [
+            operation
+            for operation in default_operations
+            if operation == "op.model_response" or operation in allowed_operations
+        ]
+        skill_operations = [
+            operation
+            for operation in skill_operations
+            if operation in allowed_operations
+        ]
     operation_requirement = build_operation_requirement(
         task_id=task_contract.task_id,
         source="task_binding",
-        operation_scope=merged_binding.operation_scope,
-        denied_operations=merged_binding.denied_operations,
-        default_operation_requirements=tuple(
-            _dedupe(
-                [
-                    "op.model_response",
-                    *runtime_operations,
-                    *list(selected_template.required_operations),
-                    *[
-                        operation
-                        for definition in definitions
-                        for operation in definition.default_operation_requirements
-                    ],
-                ]
-            )
+        operation_scope=tuple(
+            operation
+            for operation in list(merged_binding.operation_scope)
+            if not allowed_operations or operation in allowed_operations
         ),
-        skill_required_operations=tuple(
-            _dedupe(
-                [
-                    *list(selected_template.optional_operations),
-                    *[operation for skill in skill_views for operation in skill.required_operations],
-                ]
-            )
-        ),
+        denied_operations=tuple(policy_denied_operations),
+        default_operation_requirements=tuple(default_operations),
+        skill_required_operations=tuple(skill_operations),
         approval_policy=_resolve_operation_approval_policy(
             merged_binding=merged_binding,
             selected_template=selected_template,
@@ -163,7 +192,7 @@ def build_task_execution_assembly_bundle(
             registered_task=registered_task,
             current_turn_context=current_turn_payload,
         ),
-        reason="derived from TaskTemplate, TaskDefinition, TaskBinding, and task-side skill scope",
+        reason="derived from TaskTemplate, TaskDefinition, TaskBinding, task-side skill scope, and task operation policy",
     )
     task_spec = _build_task_spec(
         task_id=task_id,
@@ -203,6 +232,10 @@ def build_task_execution_assembly_bundle(
     flow_contract_binding = flow_registry.get_flow_contract_binding(registered_task_id)
     execution_policy = flow_registry.get_task_agent_adoption_plan(registered_task_id)
     memory_request_profile = flow_registry.get_task_memory_request_profile(registered_task_id)
+    projection_selection = _align_projection_selection_with_binding(
+        projection_selection=projection_selection,
+        projection_binding=projection_binding,
+    )
     runtime_limits = dict(task_spec.constraints or {}).get("runtime_limits") or {}
     communication_protocol = _select_communication_protocol(
         flow_registry=flow_registry,
@@ -276,6 +309,7 @@ def build_task_execution_assembly_bundle(
             "memory_topics": list(getattr(memory_request_profile, "requested_topics", ()) or ()),
             "execution_policy_mode": str(getattr(execution_policy, "adoption_mode", "") or ""),
             "runtime_limits": dict(runtime_limits),
+            "operation_policy": dict(operation_policy),
             **({"coordination_request_ref": coordination_request_brief.get("brief_id")} if coordination_request_brief else {}),
             "final_answer_requirements": list(
                 dict(getattr(selected_template, "metadata", {}) or {}).get("final_answer_requirements") or []
@@ -346,6 +380,26 @@ def _build_projection_selection_result(
             selection_reason="selected by current turn context",
             selection_source="current_turn_context",
         )
+    explicit_agent_id = str(current_turn_context.get("agent_id") or "").strip()
+    if explicit_agent_id:
+        return ProjectionSelectionResult(
+            task_id=task_id,
+            selected_projection_id="",
+            role_type=str(merged_binding.projection_selector or "agent_default"),
+            posture_tags=tuple(_projection_tags(task_mode)),
+            selection_reason="agent selected by current turn; use agent default projection",
+            selection_source="agent_default",
+        )
+    projection_mode = str(getattr(merged_binding, "projection_selector", "") or "").strip()
+    if projection_mode == "agent_default_projection":
+        return ProjectionSelectionResult(
+            task_id=task_id,
+            selected_projection_id="",
+            role_type="agent_default",
+            posture_tags=tuple(_projection_tags(task_mode)),
+            selection_reason="task requires projection resolution from the bound agent",
+            selection_source="agent_default",
+        )
     registered_projection_id = str((registered_task or {}).get("projection_id") or "").strip()
     if registered_projection_id:
         return ProjectionSelectionResult(
@@ -377,6 +431,46 @@ def _build_projection_selection_result(
         posture_tags=tuple(_projection_tags(task_mode)),
         selection_reason="derived from task binding role and task mode",
         selection_source="task_binding",
+    )
+
+
+def _resolve_task_operation_policy(
+    *,
+    selected_template: Any,
+    registered_task: dict[str, Any] | None,
+    current_turn_context: dict[str, Any],
+) -> dict[str, Any]:
+    template_policy = dict(dict(getattr(selected_template, "metadata", {}) or {}).get("operation_policy") or {})
+    registered_policy = dict((registered_task or {}).get("task_policy") or {})
+    task_operation_policy = dict(registered_policy.get("operation_policy") or {})
+    context_policy = dict(current_turn_context.get("operation_policy") or {})
+    merged = {**template_policy, **task_operation_policy, **context_policy}
+    allowed = _dedupe(list(merged.get("allowed_operations") or []))
+    denied = _dedupe(list(merged.get("denied_operations") or []))
+    if not allowed and not denied:
+        return {}
+    return {
+        "authority": str(merged.get("authority") or "task_system.operation_policy"),
+        "allowed_operations": allowed,
+        "denied_operations": denied,
+    }
+
+
+def _align_projection_selection_with_binding(
+    *,
+    projection_selection: ProjectionSelectionResult,
+    projection_binding: Any,
+) -> ProjectionSelectionResult:
+    mode = str(getattr(projection_binding, "projection_selection_mode", "") or "").strip()
+    if mode != "agent_default_projection":
+        return projection_selection
+    return ProjectionSelectionResult(
+        task_id=projection_selection.task_id,
+        selected_projection_id="",
+        role_type="agent_default",
+        posture_tags=tuple(projection_selection.posture_tags),
+        selection_reason="task projection binding requires the bound agent default projection",
+        selection_source="agent_default",
     )
 
 

@@ -54,6 +54,7 @@ class SkillPromptViewRequest(BaseModel):
 class ToolMetadataRequest(BaseModel):
     tool_type: str = Field(default="通用能力", max_length=40)
     note: str = Field(default="", max_length=240)
+    llm_description: str = Field(default="", max_length=1200)
 
 
 class ApprovalContextRequest(BaseModel):
@@ -332,6 +333,7 @@ async def update_capability_tool(tool_name: str, payload: ToolMetadataRequest) -
     overrides[tool_name] = {
         "tool_type": tool_type,
         "note": payload.note.strip(),
+        "llm_description": payload.llm_description.strip(),
     }
     _save_capability_config(config)
     return build_capability_catalog_payload()

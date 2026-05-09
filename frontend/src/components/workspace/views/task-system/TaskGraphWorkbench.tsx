@@ -7,7 +7,6 @@ import type { TaskGraphWorkbenchProps } from "./taskGraphTypes";
 export function TaskGraphWorkbench({
   legacyDrafts,
   taskGraphDraft,
-  saveTaskGraphDraft,
   saveTaskGraphStack,
   duplicateTaskGraphDraft,
   sendTaskGraphToChat,
@@ -35,14 +34,13 @@ export function TaskGraphWorkbench({
       {...rest}
       activeGraphNodes={activeGraphNodes}
       activeGraphEdges={activeGraphEdges}
-      coordinationDraft={legacyDrafts.coordinationDraft}
+      coordinationDraft={legacyDrafts.coordinationDraft as never}
       topologyDraft={legacyDrafts.topologyDraft}
       protocolDraft={legacyDrafts.protocolDraft}
-      setCoordinationDraft={rest.setCoordinationDraft}
+      setCoordinationDraft={rest.setCoordinationDraft as never}
       setTopologyDraft={rest.setTopologyDraft}
       setProtocolDraft={rest.setProtocolDraft}
       selectedCoordinationGraphSpec={selectedTaskGraphSpec}
-      saveTopologyDraftIntoCoordination={saveTaskGraphDraft}
       saveCoordinationStack={saveTaskGraphStack}
       duplicateCoordinationDraft={duplicateTaskGraphDraft}
       sendCoordinationToChat={sendTaskGraphToChat}
@@ -62,6 +60,8 @@ export function TaskGraphWorkbench({
       setCoordinationPublished={setTaskGraphPublished}
       editorPublished={taskGraphDraft.publish_state === "published"}
       topologyDirty={rest.taskGraphDirty}
+      selectedCoordinationId={rest.selectedTaskGraphId}
+      setSelectedCoordinationId={rest.setSelectedTaskGraphId}
     />
   );
 }

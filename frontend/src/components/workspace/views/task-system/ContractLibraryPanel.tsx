@@ -225,14 +225,14 @@ export function ContractLibraryPanel({
               <span>{contractKindLabel(spec.contract_kind)}</span>
             </button>
           ))}
-          {!specs.length ? <div className="boundary-empty">还没有 ContractSpec。</div> : null}
+          {!specs.length ? <div className="boundary-empty">还没有契约规格。</div> : null}
         </div>
       </aside>
 
       <section className="boundary-card boundary-card--editor contract-library-workbench__editor">
         <header className="boundary-editor-title">
           <div className="boundary-identity-stack">
-            <span>ContractSpec 主数据</span>
+            <span>契约规格主数据</span>
             <strong>{contractSpecTitle(draft)}</strong>
             <small>{contractKindLabel(draft.contract_kind)}</small>
           </div>
@@ -288,7 +288,7 @@ export function ContractLibraryPanel({
               <TaskSystemField label="失败策略 JSON" wide><textarea value={draftText.failure_policy} onChange={(event) => setDraftText((value) => ({ ...value, failure_policy: event.target.value }))} /></TaskSystemField>
               <TaskSystemField label="人工门控 JSON" wide><textarea value={draftText.human_gate_policy} onChange={(event) => setDraftText((value) => ({ ...value, human_gate_policy: event.target.value }))} /></TaskSystemField>
               <TaskSystemField label="允许 Agent 类别" wide><textarea value={draftText.allowed_agent_kinds} onChange={(event) => setDraftText((value) => ({ ...value, allowed_agent_kinds: event.target.value }))} /></TaskSystemField>
-              <TaskSystemField label="允许 Runtime Lane" wide><textarea value={draftText.allowed_runtime_lanes} onChange={(event) => setDraftText((value) => ({ ...value, allowed_runtime_lanes: event.target.value }))} /></TaskSystemField>
+              <TaskSystemField label="允许运行通道" wide><textarea value={draftText.allowed_runtime_lanes} onChange={(event) => setDraftText((value) => ({ ...value, allowed_runtime_lanes: event.target.value }))} /></TaskSystemField>
               <TaskSystemField label="扩展元数据 JSON" wide><textarea value={draftText.metadata} onChange={(event) => setDraftText((value) => ({ ...value, metadata: event.target.value }))} /></TaskSystemField>
             </div>
           </section>

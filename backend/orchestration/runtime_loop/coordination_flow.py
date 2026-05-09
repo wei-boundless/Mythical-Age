@@ -224,6 +224,21 @@ def _normalize_stage_sequence(
             role = str(item.get("role") or "").strip()
             stages.append(
                 {
+                    **{
+                        key: value
+                        for key, value in item.items()
+                        if key
+                        not in {
+                            "stage_id",
+                            "title",
+                            "node_id",
+                            "role",
+                            "task_ref",
+                            "message_type",
+                            "status",
+                            "loop_kind",
+                        }
+                    },
                     "stage_id": stage_id,
                     "title": str(item.get("title") or _DEFAULT_STAGE_TITLES.get(message_type, stage_id)).strip(),
                     "node_id": node_id,
@@ -236,12 +251,36 @@ def _normalize_stage_sequence(
             )
     if stages:
         return stages
+    nodes = [dict(item) for item in list(topology_template.get("nodes") or []) if isinstance(item, dict)]
+    if nodes:
+        for index, node in enumerate(nodes, start=1):
+            stage_id = str(node.get("stage_id") or node.get("node_id") or f"stage_{index}").strip()
+            if not stage_id:
+                continue
+            node_type = str(node.get("node_type") or "").strip()
+            message_type = str(node.get("message_type") or "message/send").strip()
+            loop_kind = str(node.get("loop_kind") or "").strip()
+            if not loop_kind and node_type == "revision":
+                loop_kind = "revision_loop"
+            stages.append(
+                {
+                    "stage_id": stage_id,
+                    "title": str(node.get("title") or stage_id).strip(),
+                    "node_id": str(node.get("node_id") or stage_id).strip(),
+                    "role": str(node.get("role") or "").strip(),
+                    "task_ref": str(node.get("task_id") or node.get("task_ref") or "").strip(),
+                    "message_type": message_type,
+                    "status": "pending",
+                    "loop_kind": loop_kind,
+                }
+            )
+    if stages:
+        return stages
     message_types = [
         str(item).strip()
         for item in list(communication_protocol_payload.get("message_types") or [])
         if str(item).strip()
     ]
-    nodes = [dict(item) for item in list(topology_template.get("nodes") or []) if isinstance(item, dict)]
     for index, message_type in enumerate(message_types, start=1):
         node = nodes[min(index - 1, len(nodes) - 1)] if nodes else {}
         stage_id = f"stage_{index}"

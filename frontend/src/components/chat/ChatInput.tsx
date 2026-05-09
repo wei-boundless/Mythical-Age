@@ -41,7 +41,7 @@ export function ChatInput({
     <div className="panel chat-input-panel chat-input-panel--workbench rounded-[16px] p-3">
       <div className="archive-section-head mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="archive-section-head__eyebrow">Prompt</p>
+          <p className="archive-section-head__eyebrow">输入</p>
           <p className="chat-input-panel__note text-sm">输入问题、任务目标或协调指令。</p>
         </div>
         <div className="chat-search-policy chat-search-policy--corner" aria-label="对话级搜索权限">

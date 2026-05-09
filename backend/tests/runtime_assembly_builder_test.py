@@ -59,6 +59,7 @@ def _manifest() -> ContractManifest:
                 task_id="task.test.worker",
                 agent_id="agent:test",
                 runtime_lane="test_lane",
+                projection_id="projection.test.node_worker",
                 input_contract_id="contract.test.input",
                 output_contract_id="contract.test.output",
                 contract_refs=("contract.test.input", "contract.test.output"),
@@ -120,6 +121,8 @@ def test_node_runtime_assembly_hides_main_history_and_links_handoff_packet() -> 
 
     assert payload["authority"] == "orchestration.node_runtime_assembly"
     assert payload["node_id"] == "worker"
+    assert payload["projection_id"] == "projection.test.node_worker"
+    assert payload["diagnostics"]["projection_resolution_source"] == "node"
     assert payload["diagnostics"]["full_main_session_history_included"] is False
     assert all(item["section_id"] != "main_session_history" for item in payload["context_sections"])
     assert payload["handoff_packets"][0]["a2a_trace"]["message_type"] == "message/send"
@@ -152,7 +155,7 @@ def test_runtime_context_manager_uses_assembly_visibility_to_hide_history() -> N
     assert default_snapshot.history_message_count == 2
     assert assembly_snapshot.history_message_count == 0
     assert assembly_snapshot.diagnostics["runtime_assembly_context_applied"] is True
-    assert "Runtime Assembly" in assembly_snapshot.model_messages[0]["content"]
+    assert "可用参考材料" in assembly_snapshot.model_messages[0]["content"]
 
 
 def test_stage_execution_request_carries_runtime_assembly() -> None:
@@ -176,6 +179,7 @@ def test_stage_execution_request_carries_runtime_assembly() -> None:
 
     assert restored.runtime_assembly["assembly_id"] == assembly.assembly_id
     assert restored.to_dict()["runtime_assembly"]["node_id"] == "worker"
+    assert restored.to_dict()["runtime_assembly"]["projection_id"] == "projection.test.node_worker"
 
 
 def test_task_run_loop_start_writes_runtime_assembly_refs_to_trace(tmp_path: Path) -> None:

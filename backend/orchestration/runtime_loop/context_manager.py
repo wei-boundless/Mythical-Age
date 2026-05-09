@@ -388,22 +388,16 @@ def _render_runtime_assembly_block(runtime_assembly: dict[str, Any] | None) -> s
         for item in list(assembly.get("context_sections") or [])
         if isinstance(item, dict) and dict(item).get("model_visible") is not False
     ]
-    output_contracts = [dict(item or {}) for item in list(assembly.get("output_contracts") or []) if isinstance(item, dict)]
-    lines = [
-        "## Runtime Assembly",
-        f"assembly_id: {assembly.get('assembly_id') or ''}",
-        f"manifest_ref: {assembly.get('manifest_ref') or ''}",
-        "Context sections:",
-    ]
+    if not sections:
+        return ""
+    lines = ["## 可用参考材料"]
     for section in sections:
-        lines.append(
-            f"- {section.get('section_id')}: {section.get('content_mode') or 'summary'}"
-        )
-    if output_contracts:
-        lines.append("Output contracts:")
-        for contract in output_contracts:
-            required = ", ".join(str(item) for item in list(contract.get("required_fields") or [])) or "none"
-            lines.append(f"- {contract.get('contract_id')}: required_fields={required}")
+        title = str(section.get("title") or section.get("label") or section.get("section_id") or "").strip()
+        mode = str(section.get("content_mode") or "").strip()
+        if title and mode:
+            lines.append(f"- {title}：{mode}")
+        elif title:
+            lines.append(f"- {title}")
     return "\n".join(lines)
 
 
@@ -413,7 +407,7 @@ def _render_projection_block(stage_projection_snapshot: Any | None) -> str:
     sections = []
     for section in _model_visible_projection_sections(stage_projection_snapshot):
         item = dict(section or {})
-        title = str(item.get("title") or item.get("section_id") or "Runtime Projection").strip()
+        title = str(item.get("title") or item.get("section_id") or "本轮写作要求").strip()
         content = str(item.get("content") or "").strip()
         if not content:
             continue
@@ -421,9 +415,8 @@ def _render_projection_block(stage_projection_snapshot: Any | None) -> str:
     if not sections:
         return ""
     header = (
-        "## Runtime Stage Projection\n"
-        "当前投影只约束本次任务的关注点、角色姿态和输出形态；"
-        "它来自正式编排层，不替代身份锚点和共同契约。"
+        "## 本轮创作角色\n"
+        "以下内容用于确定本轮写作或编辑的职责、语气和交付形态。"
     )
     return "\n\n".join([header, *sections])
 

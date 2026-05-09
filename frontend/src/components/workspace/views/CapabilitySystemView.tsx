@@ -111,6 +111,8 @@ function skillSearchText(skill: OperationSkill) {
 function toolSearchText(tool: OperationTool) {
   return [
     tool.name,
+    tool.display_name,
+    tool.operation_metadata.llm_description,
     tool.module,
     tool.operation_metadata.tool_type,
     tool.operation_metadata.tool_boundary,
@@ -145,20 +147,8 @@ function compactList(value: string[], fallback = "未配置") {
   return value.length ? value.join(" / ") : fallback;
 }
 
-function toolCardSummary(tool: OperationTool) {
-  return [
-    tool.operation_metadata.tool_type,
-    tool.operation_metadata.tool_boundary,
-    tool.operation_metadata.risk_level ? `${tool.operation_metadata.risk_level}风险` : ""
-  ].filter(Boolean).join(" · ");
-}
-
-function endpointCardSummary(endpoint: CapabilityEndpoint) {
-  return [
-    endpoint.kind,
-    endpoint.operation_id,
-    endpoint.runtime_lane
-  ].filter(Boolean).join(" · ");
+function toolDisplayName(tool: OperationTool) {
+  return tool.display_name || tool.name;
 }
 
 export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySystemViewProps = {}) {
@@ -171,6 +161,7 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
   const [promptDraft, setPromptDraft] = useState({ title: "", capability: "", use_when: "", output_rule: "" });
   const [promptEditing, setPromptEditing] = useState(false);
   const [toolNoteDraft, setToolNoteDraft] = useState("");
+  const [toolLlmDescriptionDraft, setToolLlmDescriptionDraft] = useState("");
   const [skillEditing, setSkillEditing] = useState(false);
   const [query, setQuery] = useState("");
   const [toolBoundaryFilter, setToolBoundaryFilter] = useState("全部边界");
@@ -259,7 +250,8 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
 
   useEffect(() => {
     setToolNoteDraft(selectedTool?.operation_metadata.note ?? "");
-  }, [selectedTool?.name, selectedTool?.operation_metadata.note]);
+    setToolLlmDescriptionDraft(selectedTool?.operation_metadata.llm_description ?? "");
+  }, [selectedTool?.name, selectedTool?.operation_metadata.llm_description, selectedTool?.operation_metadata.note]);
 
   async function saveSkill() {
     if (!selectedSkill) {
@@ -329,7 +321,8 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
     try {
       const payload = await updateCapabilitySystemTool(tool.name, {
         tool_type: toolType,
-        note: tool.operation_metadata.note
+        note: tool.operation_metadata.note,
+        llm_description: tool.operation_metadata.llm_description
       });
       setCatalog(payload);
       setNotice(`${tool.name} 已归入「${toolType}」。`);
@@ -364,7 +357,8 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
     try {
       const payload = await updateCapabilitySystemTool(tool.name, {
         tool_type: tool.operation_metadata.tool_type,
-        note: toolNoteDraft
+        note: toolNoteDraft,
+        llm_description: toolLlmDescriptionDraft
       });
       setCatalog(payload);
       setNotice(`${tool.name} 的治理备注已保存。`);
@@ -450,8 +444,6 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 type="button"
               >
                 <strong>{skill.runtime.title || skill.runtime.name}</strong>
-                <p>{skill.runtime.description}</p>
-                <small>{skill.runtime.preferred_route || skill.runtime.name}</small>
               </button>
             ))}
           </div>
@@ -587,8 +579,8 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 onClick={() => setSelectedToolName(tool.name)}
                 type="button"
               >
-                <strong>{tool.name}</strong>
-                <p>{toolCardSummary(tool)}</p>
+                <strong>{toolDisplayName(tool)}</strong>
+                <p>{tool.operation_metadata.tool_type} · {tool.operation_metadata.risk_level}风险</p>
               </button>
             ))}
           </div>
@@ -598,8 +590,9 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
               <>
                 <div className="operation-detail__head">
                   <div>
-                    <h3>{selectedTool.name}</h3>
-                    <p>{selectedTool.module} · {selectedTool.operation_metadata.editable_policy}</p>
+                    <span>Tool · {selectedTool.name}</span>
+                    <h3>{toolDisplayName(selectedTool)}</h3>
+                    <p>{selectedTool.module} · {selectedTool.operation_id}</p>
                   </div>
                   <div className={`operation-risk-badge ${RISK_CLASS[selectedTool.operation_metadata.risk_level] ?? ""}`}>
                     <AlertTriangle size={16} />
@@ -626,6 +619,14 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                         <option key={type} value={type}>{type}</option>
                       ))}
                     </select>
+                  </label>
+                  <label>
+                    LLM 调用描述
+                    <textarea
+                      onChange={(event) => setToolLlmDescriptionDraft(event.target.value)}
+                      placeholder="写给 LLM 的调用说明：什么时候应该调用这个工具，输入边界和主要限制是什么。"
+                      value={toolLlmDescriptionDraft}
+                    />
                   </label>
                   <label>
                     治理备注
@@ -694,7 +695,6 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
                 type="button"
               >
                 <strong>{endpoint.title || endpoint.name}</strong>
-                <p>{endpointCardSummary(endpoint)}</p>
               </button>
             ))}
           </div>

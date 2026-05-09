@@ -3,9 +3,9 @@ import type { Dispatch, SetStateAction } from "react";
 import type {
   ContractSpec,
   CoordinationGraphSpec,
-  CoordinationTask,
   SpecificTaskRecord,
   TaskCommunicationProtocol,
+  TaskGraphRecord,
   TaskSystemOverview,
   TopologyTemplate,
 } from "@/lib/api";
@@ -19,8 +19,18 @@ export type TaskGraphNode = Record<string, unknown> & {
   label?: string;
   task_id?: string;
   agent_id?: string;
+  projection_id?: string;
   role?: string;
   work_posture?: string;
+  phase_id?: string;
+  sequence_index?: number;
+  timeline_group_id?: string;
+  main_chain?: boolean;
+  start_policy?: string;
+  completion_policy?: string;
+  blocks_phase_exit?: boolean;
+  loop_policy?: Record<string, unknown>;
+  review_gate_policy?: Record<string, unknown>;
 };
 
 export type TaskGraphEdge = Record<string, unknown> & {
@@ -54,7 +64,33 @@ export type TaskGraphDraft = {
 };
 
 export type LegacyTaskGraphStack = {
-  coordinationDraft: CoordinationTask & { stop_conditions_text: string };
+  coordinationDraft: {
+    coordination_task_id: string;
+    title: string;
+    coordination_mode: string;
+    coordinator_agent_id: string;
+    task_family?: string;
+    domain_id?: string;
+    agent_group_id?: string;
+    participant_agent_ids: string[];
+    topology_template_id: string;
+    shared_context_policy: string;
+    memory_sharing_policy: string;
+    handoff_policy: string;
+    conflict_resolution_policy: string;
+    output_merge_policy: string;
+    stop_conditions: string[];
+    subtask_refs: string[];
+    graph_nodes: Array<Record<string, unknown>>;
+    graph_edges: Array<Record<string, unknown>>;
+    communication_modes: string[];
+    enabled: boolean;
+    metadata?: Record<string, unknown>;
+    stop_conditions_text: string;
+    graph_id: string;
+    graph_kind: TaskGraphKind;
+    protocol_id: string;
+  };
   topologyDraft: TopologyTemplate & {
     nodes_text: string;
     edges_text: string;
@@ -85,16 +121,15 @@ export type TaskGraphWorkbenchAgentCatalog = NonNullable<TaskSystemOverview["coo
 
 export type TaskGraphWorkbenchProps = {
   selectedDomain: TaskGraphDomainRecordLike | null;
-  coordinationTasks: CoordinationTask[];
-  selectedCoordinationId: string;
-  setSelectedCoordinationId: (value: string) => void;
+  taskGraphs: TaskGraphRecord[];
+  selectedTaskGraphId: string;
+  setSelectedTaskGraphId: (value: string) => void;
   taskGraphDraft: TaskGraphDraft;
-  selectedCoordination: CoordinationTask | null;
+  selectedTaskGraph: TaskGraphRecord | null;
   saving: string;
   applyTaskGraphTemplate: (template: "single_agent" | "multi_sequence" | "multi_parallel_merge") => void;
   duplicateTaskGraphDraft: () => Promise<void>;
-  sendTaskGraphToChat: (task: CoordinationTask | null, domain: TaskGraphDomainRecordLike | null) => void;
-  saveTaskGraphDraft: () => void;
+  sendTaskGraphToChat: (task: TaskGraphRecord | null, domain: TaskGraphDomainRecordLike | null) => void;
   saveTaskGraphStack: (nextPublished?: boolean) => Promise<void>;
   editorValid: boolean;
   editorIssueCount: number;
@@ -121,7 +156,6 @@ export type TaskGraphWorkbenchProps = {
   addTaskGraphSuccessorNode: (nodeId: string) => void;
   cycleTaskGraphNodeRole: (nodeId: string, currentRole: string) => void;
   removeTaskGraphNode: (nodeId: string) => void;
-  connectSelectedNodeTo: (targetNodeId: string) => void;
   selectedGraphNode: Record<string, unknown> | null;
   selectedGraphEdge: Record<string, unknown> | null;
   legacyDrafts: LegacyTaskGraphStack;
@@ -136,4 +170,5 @@ export type TaskGraphWorkbenchProps = {
   selectedTaskGraphSpec: CoordinationGraphSpec | null;
   a2aCatalog: TaskGraphWorkbenchAgentCatalog | null;
   contractSpecs: ContractSpec[];
+  projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
 };

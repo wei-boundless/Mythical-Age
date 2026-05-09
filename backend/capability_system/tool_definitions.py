@@ -35,6 +35,7 @@ ToolFactory = Callable[[Path], BaseTool]
 @dataclass(frozen=True, slots=True)
 class ToolDefinition:
     name: str
+    display_name: str
     operation_id: str
     module: str
     factory: ToolFactory
@@ -68,6 +69,7 @@ def _tool_definitions() -> list[ToolDefinition]:
     return [
         ToolDefinition(
             name="web_search",
+            display_name="网页搜索",
             operation_id="op.web_search",
             module="tools.web_search_tool",
             factory=lambda base_dir: WebSearchTool(root_dir=base_dir),
@@ -91,6 +93,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="analyze_multimodal_file",
+            display_name="多模态文件分析",
             operation_id="op.analyze_multimodal_file",
             module="tools.analyze_multimodal_file_tool",
             factory=lambda base_dir: AnalyzeMultimodalFileTool(root_dir=base_dir),
@@ -121,6 +124,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="index_multimodal_file",
+            display_name="多模态文件索引",
             operation_id="op.index_multimodal_file",
             module="tools.index_multimodal_file_tool",
             factory=lambda base_dir: IndexMultimodalFileTool(root_dir=base_dir),
@@ -151,6 +155,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="list_dir",
+            display_name="列出目录",
             operation_id="op.list_dir",
             module="tools.file_system_tools",
             factory=lambda base_dir: ListDirTool(root_dir=base_dir),
@@ -177,6 +182,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="stat_path",
+            display_name="查看路径信息",
             operation_id="op.stat_path",
             module="tools.file_system_tools",
             factory=lambda base_dir: StatPathTool(root_dir=base_dir),
@@ -203,6 +209,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="path_exists",
+            display_name="检查路径是否存在",
             operation_id="op.path_exists",
             module="tools.file_system_tools",
             factory=lambda base_dir: PathExistsTool(root_dir=base_dir),
@@ -229,6 +236,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="glob_paths",
+            display_name="按通配符查找路径",
             operation_id="op.glob_paths",
             module="tools.file_system_tools",
             factory=lambda base_dir: GlobPathsTool(root_dir=base_dir),
@@ -254,6 +262,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="search_files",
+            display_name="搜索文件",
             operation_id="op.search_files",
             module="tools.search_files_tool",
             factory=lambda base_dir: SearchFilesTool(root_dir=base_dir),
@@ -279,6 +288,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="search_text",
+            display_name="搜索文本",
             operation_id="op.search_text",
             module="tools.search_files_tool",
             factory=lambda base_dir: SearchTextTool(root_dir=base_dir),
@@ -304,6 +314,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="read_file",
+            display_name="读取文件",
             operation_id="op.read_file",
             module="tools.read_file_tool",
             factory=lambda base_dir: ReadFileTool(root_dir=base_dir),
@@ -333,6 +344,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="read_structured_file",
+            display_name="读取结构化文件",
             operation_id="op.read_structured_file",
             module="tools.structured_file_tool",
             factory=lambda base_dir: ReadStructuredFileTool(root_dir=base_dir),
@@ -359,6 +371,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="fetch_url",
+            display_name="抓取网页",
             operation_id="op.fetch_url",
             module="tools.fetch_url_tool",
             factory=lambda _base_dir: FetchURLTool(),
@@ -382,6 +395,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="git_status",
+            display_name="查看 Git 状态",
             operation_id="op.git_status",
             module="tools.git_tools",
             factory=lambda base_dir: GitStatusTool(root_dir=base_dir),
@@ -407,6 +421,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="git_diff",
+            display_name="查看 Git 差异",
             operation_id="op.git_diff",
             module="tools.git_tools",
             factory=lambda base_dir: GitDiffTool(root_dir=base_dir),
@@ -432,6 +447,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="git_log",
+            display_name="查看 Git 日志",
             operation_id="op.git_log",
             module="tools.git_tools",
             factory=lambda base_dir: GitLogTool(root_dir=base_dir),
@@ -457,6 +473,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="git_show",
+            display_name="查看 Git 对象",
             operation_id="op.git_show",
             module="tools.git_tools",
             factory=lambda base_dir: GitShowTool(root_dir=base_dir),
@@ -482,6 +499,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="write_file",
+            display_name="写入文件",
             operation_id="op.write_file",
             module="tools.write_file_tool",
             factory=lambda base_dir: WriteFileTool(root_dir=base_dir),
@@ -507,6 +525,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="edit_file",
+            display_name="编辑文件",
             operation_id="op.edit_file",
             module="tools.write_file_tool",
             factory=lambda base_dir: EditFileTool(root_dir=base_dir),
@@ -532,6 +551,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="terminal",
+            display_name="终端命令",
             operation_id="op.shell",
             module="tools.terminal_tool",
             factory=lambda base_dir: TerminalTool(root_dir=base_dir),
@@ -558,6 +578,7 @@ def _tool_definitions() -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="python_repl",
+            display_name="Python 执行",
             operation_id="op.python_repl",
             module="tools.python_repl_tool",
             factory=lambda base_dir: PythonReplTool(root_dir=base_dir),

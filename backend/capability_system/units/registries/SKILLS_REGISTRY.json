@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "skill_count": 3,
+  "skill_count": 4,
   "skills": [
     {
       "schema_version": 3,
@@ -232,6 +232,115 @@
         "title": "知识库问答",
         "capability": "面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。",
         "use_when": "Use for local knowledge-base lookup, factual explanation, and questions that should be answered from local materials.",
+        "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "skill-creator",
+      "title": "Skill 创建顾问",
+      "description": "用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。",
+      "path": "capability_system/units/skills/skill-creator/SKILL.md",
+      "supported_modalities": [
+        "text",
+        "markdown",
+        "workflow"
+      ],
+      "supported_task_kinds": [
+        "skill_create",
+        "skill_update",
+        "capability_authoring",
+        "prompt_contract_design"
+      ],
+      "supported_source_kinds": [
+        "capability_system",
+        "workspace"
+      ],
+      "capability_tags": [
+        "skill-authoring",
+        "capability-design",
+        "prompt-contract",
+        "workflow-instructions",
+        "validation"
+      ],
+      "preferred_route": "rag",
+      "forbidden_routes": [],
+      "routing_hints": [
+        "创建 skill",
+        "新建 skill",
+        "更新 skill",
+        "设计能力",
+        "能力注册",
+        "SKILL.md",
+        "prompt view",
+        "工具说明"
+      ],
+      "examples": [
+        "帮我创建一个用于写小说章节审核的 skill",
+        "把这个技能的使用条件写清楚",
+        "检查这个 SKILL.md 是否适合给 agent 使用",
+        "为能力系统新增一个文档审核 skill"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "runtime": {
+        "name": "skill-creator",
+        "title": "Skill 创建顾问",
+        "description": "用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。",
+        "path": "capability_system/units/skills/skill-creator/SKILL.md",
+        "supported_modalities": [
+          "text",
+          "markdown",
+          "workflow"
+        ],
+        "supported_task_kinds": [
+          "skill_create",
+          "skill_update",
+          "capability_authoring",
+          "prompt_contract_design"
+        ],
+        "supported_source_kinds": [
+          "capability_system",
+          "workspace"
+        ],
+        "capability_tags": [
+          "skill-authoring",
+          "capability-design",
+          "prompt-contract",
+          "workflow-instructions",
+          "validation"
+        ],
+        "preferred_route": "rag",
+        "forbidden_routes": [],
+        "routing_hints": [
+          "创建 skill",
+          "新建 skill",
+          "更新 skill",
+          "设计能力",
+          "能力注册",
+          "SKILL.md",
+          "prompt view",
+          "工具说明"
+        ],
+        "examples": [
+          "帮我创建一个用于写小说章节审核的 skill",
+          "把这个技能的使用条件写清楚",
+          "检查这个 SKILL.md 是否适合给 agent 使用",
+          "为能力系统新增一个文档审核 skill"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": []
+      },
+      "prompt": {
+        "name": "skill-creator",
+        "title": "Skill 创建顾问",
+        "capability": "用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。",
+        "use_when": "",
         "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
       },
       "validation_errors": []

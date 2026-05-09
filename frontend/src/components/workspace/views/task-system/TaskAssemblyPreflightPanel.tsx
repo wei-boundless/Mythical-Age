@@ -5,17 +5,19 @@ import { useMemo, useState } from "react";
 
 import {
   TaskSystemToolbarButton,
+  taskSystemOptionLabel,
 } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
+import { buildTimelinePreflightIssues } from "@/components/workspace/views/task-system/taskGraphTimeline";
 import {
-  buildTaskSystemNodeRuntimeAssembly,
+  buildTaskSystemTaskGraphNodeRuntimeAssembly,
   buildTaskSystemWorkflowRuntimeAssembly,
-  compileTaskSystemCoordinationContractManifest,
+  compileTaskSystemTaskGraphContractManifest,
   compileTaskSystemWorkflowContractManifest,
   type ContractManifest,
   type CoordinationGraphSpec,
-  type CoordinationTask,
   type RuntimeAssembly,
   type SpecificTaskRecord,
+  type TaskGraphRecord,
   type TaskSystemOverview,
 } from "@/lib/api";
 
@@ -121,6 +123,7 @@ export function TaskAssemblyPreflightPanel({
   selectedTask,
   selectedCoordination,
   selectedGraphSpec,
+  coordinationMetadata,
   selectedNodeId,
   setSelectedNodeId,
   a2aCatalog,
@@ -134,8 +137,9 @@ export function TaskAssemblyPreflightPanel({
   onBackToGraph,
 }: {
   selectedTask: SpecificTaskRecord | null;
-  selectedCoordination: CoordinationTask | null;
+  selectedCoordination: TaskGraphRecord | null;
   selectedGraphSpec: CoordinationGraphSpec;
+  coordinationMetadata?: Record<string, unknown>;
   selectedNodeId: string;
   setSelectedNodeId: (nodeId: string) => void;
   a2aCatalog: TaskSystemOverview["coordination_management"]["a2a"] | null | undefined;
@@ -161,7 +165,8 @@ export function TaskAssemblyPreflightPanel({
   const selectedNode = graphNodes.find((node, index) => nodeIdOf(node, index) === currentNodeId) ?? null;
   const graphIssues = useMemo(() => selectedGraphSpec.issues ?? [], [selectedGraphSpec.issues]);
   const dispatchIssues = useMemo(() => buildDispatchPreflightIssues(graphNodes, graphEdges), [graphEdges, graphNodes]);
-  const allPreflightIssues = useMemo(() => [...graphIssues, ...dispatchIssues], [dispatchIssues, graphIssues]);
+  const timelineIssues = useMemo(() => buildTimelinePreflightIssues(graphNodes, graphEdges, coordinationMetadata), [coordinationMetadata, graphEdges, graphNodes]);
+  const allPreflightIssues = useMemo(() => [...graphIssues, ...dispatchIssues, ...timelineIssues], [dispatchIssues, graphIssues, timelineIssues]);
 
   async function runWorkflowManifest() {
     if (!selectedTask?.default_workflow_id || !selectedTask.task_id) return null;
@@ -178,15 +183,15 @@ export function TaskAssemblyPreflightPanel({
   }
 
   async function runCoordinationManifest() {
-    if (!selectedCoordination?.coordination_task_id) return null;
-    const payload = await compileTaskSystemCoordinationContractManifest(selectedCoordination.coordination_task_id);
+    if (!selectedCoordination?.graph_id) return null;
+    const payload = await compileTaskSystemTaskGraphContractManifest(selectedCoordination.graph_id);
     setCoordinationManifest(payload);
     return payload;
   }
 
   async function runNodeAssembly() {
-    if (!selectedCoordination?.coordination_task_id || !currentNodeId) return null;
-    const payload = await buildTaskSystemNodeRuntimeAssembly(selectedCoordination.coordination_task_id, currentNodeId);
+    if (!selectedCoordination?.graph_id || !currentNodeId) return null;
+    const payload = await buildTaskSystemTaskGraphNodeRuntimeAssembly(selectedCoordination.graph_id, currentNodeId);
     setNodeAssembly(payload);
     return payload;
   }
@@ -213,7 +218,7 @@ export function TaskAssemblyPreflightPanel({
   }
 
   const workflowReady = Boolean(selectedTask?.task_id && selectedTask.default_workflow_id);
-  const coordinationReady = Boolean(selectedCoordination?.coordination_task_id);
+  const coordinationReady = Boolean(selectedCoordination?.graph_id);
   const nodeReady = Boolean(coordinationReady && currentNodeId);
 
   return (
@@ -239,8 +244,9 @@ export function TaskAssemblyPreflightPanel({
         <div className="boundary-metric-grid">
           <ReadinessTile label="图结构" value={editorValid ? "通过" : `${editorIssueCount} 个问题`} ready={editorValid} />
           <ReadinessTile label="调度策略" value={dispatchIssues.length ? `${dispatchIssues.length} 个问题` : "通过"} ready={!dispatchIssues.length} />
+          <ReadinessTile label="时序编排" value={timelineIssues.length ? `${timelineIssues.length} 个问题` : "通过"} ready={!timelineIssues.some((issue) => issue.severity === "error")} />
           <ReadinessTile label="拓扑草稿" value={topologyDirty ? "未同步" : "已同步"} ready={!topologyDirty} />
-          <ReadinessTile label="单任务装配" value={workflowReady ? "可预检" : "缺 workflow"} ready={workflowReady} />
+          <ReadinessTile label="单任务装配" value={workflowReady ? "可预检" : "缺少工作流"} ready={workflowReady} />
           <ReadinessTile label="节点装配" value={nodeReady ? currentNodeId : "未选节点"} ready={nodeReady} />
           <ReadinessTile label="发布状态" value={editorPublished ? "已发布" : "草稿"} ready={editorPublished} />
           <ReadinessTile label="A2A 通信" value={`${a2aCatalog?.transport || "JSONRPC"} · ${a2aCatalog?.protocol_version || "0.3.0"}`} ready={Boolean(a2aCatalog?.protocol_locked)} />
@@ -255,27 +261,27 @@ export function TaskAssemblyPreflightPanel({
           </header>
           <div className="boundary-actions boundary-actions--wrap">
             <TaskSystemToolbarButton disabled={!workflowReady || Boolean(loading)} onClick={() => void runAction("workflow-manifest", runWorkflowManifest)}>
-              {loading === "workflow-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}单任务 Manifest
+              {loading === "workflow-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}单任务清单
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton disabled={!workflowReady || Boolean(loading)} onClick={() => void runAction("workflow-assembly", runWorkflowAssembly)}>
-              {loading === "workflow-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}单任务 Assembly
+              {loading === "workflow-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}单任务装配
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton disabled={!coordinationReady || Boolean(loading)} onClick={() => void runAction("coordination-manifest", runCoordinationManifest)}>
-              {loading === "coordination-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}协调 Manifest
+              {loading === "coordination-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}任务图清单
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton disabled={!nodeReady || Boolean(loading)} onClick={() => void runAction("node-assembly", runNodeAssembly)}>
-              {loading === "node-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}节点 Assembly
+              {loading === "node-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}节点装配
             </TaskSystemToolbarButton>
           </div>
           <div className="boundary-kv">
             <p><span>单任务</span><strong>{selectedTask?.task_title || "未选择"}</strong></p>
-            <p><span>Workflow</span><strong>{selectedTask?.default_workflow_id || "未绑定"}</strong></p>
-            <p><span>协调任务</span><strong>{selectedCoordination?.coordination_task_id || "未选择"}</strong></p>
+            <p><span>工作流</span><strong>{selectedTask?.default_workflow_id || "未绑定"}</strong></p>
+            <p><span>任务图</span><strong>{selectedCoordination?.graph_id || "未选择"}</strong></p>
             <p><span>当前节点</span><strong>{currentNodeId || "未选择"}</strong></p>
-            <p><span>Workflow Manifest</span><strong>{workflowManifest ? `${manifestRefCount(workflowManifest)} 引用 / ${workflowManifest.issues.length} 问题` : "未生成"}</strong></p>
-            <p><span>Coordination Manifest</span><strong>{coordinationManifest ? `${manifestRefCount(coordinationManifest)} 引用 / ${coordinationManifest.issues.length} 问题` : "未生成"}</strong></p>
-            <p><span>单任务 Assembly</span><strong>{workflowAssembly?.assembly_id || "未生成"}</strong></p>
-            <p><span>节点 Assembly</span><strong>{nodeAssembly?.assembly_id || "未生成"}</strong></p>
+            <p><span>单任务契约清单</span><strong>{workflowManifest ? `${manifestRefCount(workflowManifest)} 引用 / ${workflowManifest.issues.length} 问题` : "未生成"}</strong></p>
+            <p><span>任务图契约清单</span><strong>{coordinationManifest ? `${manifestRefCount(coordinationManifest)} 引用 / ${coordinationManifest.issues.length} 问题` : "未生成"}</strong></p>
+            <p><span>单任务装配</span><strong>{workflowAssembly?.assembly_id || "未生成"}</strong></p>
+            <p><span>节点装配</span><strong>{nodeAssembly?.assembly_id || "未生成"}</strong></p>
           </div>
         </section>
 
@@ -308,7 +314,7 @@ export function TaskAssemblyPreflightPanel({
             {allPreflightIssues.map((issue, index) => (
               <article key={`${String(issue.code ?? "issue")}-${index}`}>
                 <strong>{String(issue.message ?? issue.code ?? "校验问题")}</strong>
-                <span>{String(issue.severity ?? "warning")}</span>
+                <span>{taskSystemOptionLabel(String(issue.severity ?? "warning"))}</span>
                 <small>{String(issue.node_id ?? issue.edge_id ?? "")}</small>
               </article>
             ))}
@@ -317,7 +323,7 @@ export function TaskAssemblyPreflightPanel({
         </section>
 
         <section className="boundary-card">
-          <header><strong>装配 JSON 快照</strong><span>Manifest / Assembly</span></header>
+          <header><strong>装配 JSON 快照</strong><span>清单 / 装配</span></header>
           <textarea
             className="task-assembly-preflight__json"
             readOnly

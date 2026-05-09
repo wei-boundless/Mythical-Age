@@ -12,7 +12,7 @@ from orchestration.runtime_loop.contract_compiler_models import CompiledGlobalCo
 from orchestration.worker_agent_factory import default_worker_agent_blueprints
 
 
-def test_builtin_agents_are_locked_and_have_runtime_profiles(tmp_path):
+def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(tmp_path):
     agents = AgentRegistry(tmp_path).list_agents()
     profiles = AgentRuntimeRegistry(tmp_path).list_profiles()
     profile_by_agent = {item.agent_id: item for item in profiles}
@@ -23,31 +23,35 @@ def test_builtin_agents_are_locked_and_have_runtime_profiles(tmp_path):
     assert {item.agent_id for item in builtin_agents} == builtin_ids
     assert all(item.builtin for item in builtin_agents)
     assert all(item.enabled for item in builtin_agents)
-    assert all(item.editable is False for item in builtin_agents)
-    assert all(item.lifecycle_policy == "system_locked" for item in builtin_agents)
+    assert all(item.editable is True for item in builtin_agents)
+    assert all(item.lifecycle_policy == "system_builtin" for item in builtin_agents)
     assert all(item.definition_source == "system_builtin" for item in builtin_agents)
     assert builtin_ids.issubset(profile_by_agent)
     assert all(profile_by_agent[agent_id].lifecycle_policy == "system_builtin" for agent_id in builtin_ids)
 
 
-def test_builtin_agent_upsert_and_runtime_profile_updates_fail_closed(tmp_path):
+def test_builtin_agent_upsert_and_runtime_profile_updates_follow_regular_management(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     runtime_registry = AgentRuntimeRegistry(tmp_path)
 
-    with pytest.raises(PermissionError):
-        agent_registry.upsert_agent(
-            agent_id="agent:1",
-            agent_name="被篡改的权限 Agent",
-            agent_category="worker_sub_agent",
-            enabled=False,
-        )
+    updated_agent = agent_registry.upsert_agent(
+        agent_id="agent:1",
+        agent_name="被改名的权限 Agent",
+        agent_category="worker_sub_agent",
+        enabled=False,
+        interface_target="permission_console_v2",
+    )
+    updated_profile = runtime_registry.upsert_profile(
+        agent_id="agent:1",
+        agent_profile_id="mutated_permission_agent",
+        allowed_operations=("op.model_response", "op.write_file"),
+    )
 
-    with pytest.raises(PermissionError):
-        runtime_registry.upsert_profile(
-            agent_id="agent:1",
-            agent_profile_id="mutated_permission_agent",
-            allowed_operations=("op.model_response", "op.write_file"),
-        )
+    assert updated_agent.agent_name == "被改名的权限 Agent"
+    assert updated_agent.agent_category == "system_management_agent"
+    assert updated_agent.enabled is False
+    assert updated_agent.interface_target == "permission_console_v2"
+    assert updated_profile.allowed_operations == ("op.model_response", "op.write_file")
 
 
 def test_custom_agent_runtime_profile_persists_output_contracts(tmp_path):
@@ -160,7 +164,7 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
     assert orchestration["projection_ref"] == "xuannv__primary"
 
 
-def test_builtin_agent_runtime_profile_allows_only_output_contract_updates(tmp_path):
+def test_builtin_agent_runtime_profile_allows_regular_updates(tmp_path):
     runtime_registry = AgentRuntimeRegistry(tmp_path)
     current = runtime_registry.get_profile("agent:3")
 
@@ -171,7 +175,7 @@ def test_builtin_agent_runtime_profile_allows_only_output_contract_updates(tmp_p
         agent_profile_id=current.agent_profile_id,
         allowed_task_modes=current.allowed_task_modes,
         allowed_runtime_lanes=current.allowed_runtime_lanes,
-        allowed_operations=current.allowed_operations,
+        allowed_operations=(*current.allowed_operations, "op.write_file"),
         blocked_operations=current.blocked_operations,
         allowed_memory_scopes=current.allowed_memory_scopes,
         allowed_context_sections=current.allowed_context_sections,
@@ -182,26 +186,10 @@ def test_builtin_agent_runtime_profile_allows_only_output_contract_updates(tmp_p
     )
 
     assert updated.output_contracts == ("HealthTriageResult", "HealthTraceAnalysis")
-    assert updated.allowed_operations == current.allowed_operations
-
-    with pytest.raises(PermissionError):
-        runtime_registry.upsert_profile(
-            agent_id="agent:3",
-            agent_profile_id=current.agent_profile_id,
-            allowed_task_modes=current.allowed_task_modes,
-            allowed_runtime_lanes=current.allowed_runtime_lanes,
-            allowed_operations=(*current.allowed_operations, "op.write_file"),
-            blocked_operations=current.blocked_operations,
-            allowed_memory_scopes=current.allowed_memory_scopes,
-            allowed_context_sections=current.allowed_context_sections,
-            output_contracts=updated.output_contracts,
-            approval_policy=current.approval_policy,
-            trace_policy=current.trace_policy,
-            lifecycle_policy=current.lifecycle_policy,
-        )
+    assert updated.allowed_operations == (*current.allowed_operations, "op.write_file")
 
 
-def test_agent_group_members_must_be_existing_unlocked_workers(tmp_path):
+def test_agent_group_members_must_be_existing_workers(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     group_registry = AgentGroupRegistry(tmp_path)
     agent_registry.upsert_agent(

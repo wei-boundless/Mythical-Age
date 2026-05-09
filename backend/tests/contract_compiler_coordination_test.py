@@ -53,7 +53,15 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         task_family="test",
         graph_nodes=(
             {"node_id": "coordinator", "node_type": "coordinator", "agent_id": "agent:0", "role": "coordinator"},
-            {"node_id": "worker", "node_type": "subtask", "task_id": task.task_id, "agent_id": "agent:test", "runtime_lane": "node_lane", "node_contract_id": "contract.test.node_override"},
+            {
+                "node_id": "worker",
+                "node_type": "subtask",
+                "task_id": task.task_id,
+                "agent_id": "agent:test",
+                "runtime_lane": "node_lane",
+                "node_contract_id": "contract.test.node_override",
+                "projection_id": "projection.test.node_worker",
+            },
         ),
         graph_edges=(
             {"edge_id": "coordinator_to_worker", "from": "coordinator", "to": "worker", "mode": "dispatch"},
@@ -78,7 +86,7 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         agent_id="agent:test",
         allowed_task_modes=("node_work",),
         allowed_runtime_lanes=("node_lane",),
-        output_contracts=("contract.test.node_output",),
+        output_contracts=("contract.test.node_output", "contract.test.node_override"),
     )
     coordinator_profile = AgentRuntimeProfile(
         agent_profile_id="coordinator_test_profile",
@@ -107,6 +115,7 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         "contract.test.node_output",
         "contract.test.node_override",
     )
+    assert manifest.node_contracts[1].projection_id == "projection.test.node_worker"
     assert {item.contract_id for item in manifest.global_contracts} == {
         "contract.test.node_input",
         "contract.test.node_output",

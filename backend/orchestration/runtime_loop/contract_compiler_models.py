@@ -60,6 +60,7 @@ class CompiledNodeContract:
     task_id: str = ""
     agent_id: str = ""
     runtime_lane: str = ""
+    projection_id: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
     contract_refs: tuple[str, ...] = ()

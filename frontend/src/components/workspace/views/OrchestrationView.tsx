@@ -4,11 +4,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Gauge,
-  KeyRound,
-  Layers3,
   RefreshCw,
   Save,
-  ShieldCheck,
   Trash2,
   UserCog,
 } from "lucide-react";
@@ -17,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   deleteOrchestrationAgentGroup,
   deleteOrchestrationAgent,
+  getCapabilitySystemCatalog,
   getSoulSystemCatalog,
   getSoulProjectionCards,
   getOrchestrationAgents,
@@ -29,6 +27,7 @@ import {
   type OrchestrationAgentRuntimeCatalog,
   type OrchestrationAgentRuntimeProfile,
   type OrchestrationAgentUpsertPayload,
+  type CapabilitySystemCatalog,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
   type SoulSystemCatalog,
@@ -43,6 +42,7 @@ import {
 import { OrchestrationGroupWorkbench } from "@/components/workspace/views/orchestration/OrchestrationGroupWorkbench";
 import { OrchestrationRegistryWorkbench } from "@/components/workspace/views/orchestration/OrchestrationRegistryWorkbench";
 import { OrchestrationToolbarButton } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
+import { taskSystemDisplayLabel } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 
 type AgentCategory = "main_agent" | "system_management_agent" | "worker_sub_agent";
 type OrchestrationLayer = "registry" | "groups" | "runtime" | "permissions" | "context" | "eligibility";
@@ -134,6 +134,8 @@ function text(value: unknown, fallback = "-") {
 function displayId(value: unknown, fallback = "未配置") {
   const raw = String(value ?? "").trim();
   if (!raw) return fallback;
+  const registeredLabel = taskSystemDisplayLabel(raw, fallback);
+  if (registeredLabel !== raw) return registeredLabel;
   const labels: Record<string, string> = {
     main_agent: "主 Agent",
     system_management_agent: "系统管理 Agent",
@@ -352,6 +354,7 @@ function searchText(agent: Record<string, unknown>) {
 
 export function OrchestrationView() {
   const [catalog, setCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
+  const [capabilityCatalog, setCapabilityCatalog] = useState<CapabilitySystemCatalog | null>(null);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
   const [soulCatalog, setSoulCatalog] = useState<SoulSystemCatalog | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -374,8 +377,9 @@ export function OrchestrationView() {
     setLoading(true);
     setError("");
     try {
-      const [payload, projections, souls] = await Promise.all([getOrchestrationAgents(), getSoulProjectionCards(), getSoulSystemCatalog()]);
+      const [payload, capabilities, projections, souls] = await Promise.all([getOrchestrationAgents(), getCapabilitySystemCatalog(), getSoulProjectionCards(), getSoulSystemCatalog()]);
       setCatalog(payload);
+      setCapabilityCatalog(capabilities);
       setProjectionCatalog(projections);
       setSoulCatalog(souls);
       const firstGroupId = String(payload.agent_groups?.[0]?.group_id || "");
@@ -515,28 +519,18 @@ export function OrchestrationView() {
   ]);
 
   const activeGroup = groupedAgents.find((group) => group.category === activeCategory);
-  const agentDeleteBlocked = Boolean(selectedAgent?.builtin);
+  const agentDeleteBlocked = false;
   const profileMissing = Boolean(selectedAgent && !selectedProfile.agent_profile_id);
   const allowedOps = splitList(runtimeDraft.allowed_operations_text);
   const blockedOps = splitList(runtimeDraft.blocked_operations_text);
   const overlapOps = allowedOps.filter((item) => blockedOps.includes(item));
   const runtimeSaveBlocked = agentMode === "new" || !agentDraft.agent_id.trim();
-  const fixedIdentityAgent = agentDraft.agent_category === "main_agent" || agentDraft.agent_category === "system_management_agent";
+  const builtinManagedAgent = Boolean(selectedAgent?.builtin);
   const categoryCounts = groupedAgents.reduce<Record<string, number>>((acc, group) => {
     acc[group.category] = group.items.length;
     return acc;
   }, {});
   const legacySystemKey = String(agentDraft.metadata?.system_key || "");
-  const readinessRows = [
-    { label: "Agent 名册", value: agentDraft.agent_id || "未保存", ready: Boolean(agentDraft.agent_id && agentDraft.agent_name) },
-    { label: "运行配置", value: runtimeDraft.agent_profile_id || "未配置", ready: Boolean(runtimeDraft.agent_profile_id) && !runtimeSaveBlocked },
-    { label: "权限边界", value: `${allowedOps.length}/${blockedOps.length}`, ready: Boolean(allowedOps.length) && !overlapOps.length },
-    { label: "上下文边界", value: `${splitList(runtimeDraft.allowed_context_sections_text).length} / ${runtimeDraft.use_shared_contract ? "含共同契约" : "无共同契约"}`, ready: Boolean(splitList(runtimeDraft.allowed_context_sections_text).length) },
-  ];
-  const readinessGapCount = readinessRows.filter((item) => !item.ready).length;
-  const selectedAgentGroup = selectedAgentId
-    ? agentGroups.find((group) => group.member_agent_ids.some((memberId) => String(memberId) === selectedAgentId))
-    : null;
   const eligibilityChecks = [
     { label: "类别", value: CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? text(agentDraft.agent_category), ready: Boolean(agentDraft.agent_category) },
     { label: "允许操作", value: displayOptionList(allowedOps.slice(0, 4), runtimeOptionLabels), ready: Boolean(allowedOps.length) },
@@ -878,7 +872,7 @@ export function OrchestrationView() {
             </div>
             <div className="orchestration-agent-focus__meta">
               <span>{agentDraft.agent_id || "未生成 ID"}</span>
-              <b>{fixedIdentityAgent ? "内置锁定" : agentMode === "new" ? "新建草稿" : "可配置"}</b>
+              <b>{agentMode === "new" ? "新建草稿" : builtinManagedAgent ? "内置来源" : "可配置"}</b>
             </div>
           </section>
           <nav className="boundary-layer-tabs" aria-label="编排系统层级">
@@ -954,7 +948,9 @@ export function OrchestrationView() {
                 <OrchestrationPermissionsWorkbench
                   allowedOpsCount={allowedOps.length}
                   blockedOpsCount={blockedOps.length}
+                  capabilityCatalog={capabilityCatalog}
                   displayId={displayId}
+                  operationDescriptors={catalog?.options.operations ?? []}
                   operationOptionItems={operationOptionItems}
                   operationOptions={operationOptions}
                   overlapOps={overlapOps}
@@ -985,60 +981,6 @@ export function OrchestrationView() {
             </>
           ) : null}
         </main>
-
-        <aside className="boundary-card orchestration-assembly-panel">
-          <header>
-            <strong>装配预览</strong>
-            <span className={readinessGapCount ? "boundary-badge boundary-badge--warn" : "boundary-badge boundary-badge--ok"}>
-              {readinessGapCount ? `${readinessGapCount} 个缺口` : "完整"}
-            </span>
-          </header>
-          <div className="orchestration-assembly-identity">
-            <UserCog size={18} />
-            <div>
-              <strong>{agentDraft.agent_name || agentDraft.agent_id || "未选择 Agent"}</strong>
-              <span>{CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? text(agentDraft.agent_category)}</span>
-            </div>
-          </div>
-          <div className="boundary-readiness-list">
-            {readinessRows.map((item) => (
-              <article className={item.ready ? "boundary-readiness boundary-readiness--ready" : "boundary-readiness"} key={item.label}>
-                <span>{item.label}</span>
-                <strong>{item.value}</strong>
-                <small>{item.ready ? "已配置" : "待配置"}</small>
-              </article>
-            ))}
-          </div>
-          <div className="boundary-kv orchestration-assembly-kv">
-            <p><span>所在组</span><strong>{selectedAgentGroup?.title || "未进组"}</strong></p>
-            <p><span>默认投影</span><strong>{projectionLabel(agentDraft.default_projection_id || "", projectionCards)}</strong></p>
-            <p><span>任务模式</span><strong>{compactList(splitList(runtimeDraft.allowed_task_modes_text))}</strong></p>
-            <p><span>运行通道</span><strong>{compactList(splitList(runtimeDraft.allowed_runtime_lanes_text))}</strong></p>
-            <p><span>允许操作</span><strong>{compactList(allowedOps)}</strong></p>
-            <p><span>上下文段</span><strong>{compactList(splitList(runtimeDraft.allowed_context_sections_text))}</strong></p>
-            <p><span>共同契约</span><strong>{runtimeDraft.use_shared_contract ? "采用" : "不采用"}</strong></p>
-          </div>
-          <div className="boundary-actions boundary-actions--stack">
-            <OrchestrationToolbarButton disabled={saving === "agent"} onClick={() => void saveAgent()} variant="primary">
-              <Save size={15} />
-              保存 Agent
-            </OrchestrationToolbarButton>
-            <OrchestrationToolbarButton disabled={saving === "runtime" || runtimeSaveBlocked} onClick={() => void saveRuntimeProfile()} variant="primary">
-              <Gauge size={15} />
-              保存运行档案
-            </OrchestrationToolbarButton>
-            {activeCategory === "worker_sub_agent" ? (
-              <OrchestrationToolbarButton disabled={saving === "delete" || agentDeleteBlocked || agentMode === "new" || !selectedAgent} onClick={() => void removeAgent()} variant="danger">
-                <Trash2 size={15} />
-                删除子 Agent
-              </OrchestrationToolbarButton>
-            ) : null}
-          </div>
-          <div className="orchestration-assembly-note">
-            <ShieldCheck size={15} />
-            <span>任务图只引用 Agent；Agent 的身份、能力、投影和运行边界在这里定义。</span>
-          </div>
-        </aside>
       </section>
     </div>
   );

@@ -4,24 +4,24 @@ import { Eye, Loader2, PackageCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { contractSpecTitle } from "@/components/workspace/views/task-system/ContractLibraryPanel";
-import { TaskSystemToolbarButton } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
+import { TaskSystemToolbarButton, taskSystemOptionLabel } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import {
-  buildTaskSystemNodeRuntimeAssembly,
+  buildTaskSystemTaskGraphNodeRuntimeAssembly,
   buildTaskSystemWorkflowRuntimeAssembly,
-  compileTaskSystemCoordinationContractManifest,
+  compileTaskSystemTaskGraphContractManifest,
   compileTaskSystemWorkflowContractManifest,
   type ContractManifest,
   type ContractSpec,
-  type CoordinationTask,
   type RuntimeAssembly,
   type SpecificTaskRecord,
+  type TaskGraphRecord,
 } from "@/lib/api";
 
 function kindLabel(value: string) {
   const labels: Record<string, string> = {
     global_task: "全局任务",
-    workflow: "Workflow",
-    workflow_step: "Workflow 步骤",
+    workflow: "单任务工作流",
+    workflow_step: "工作流步骤",
     node_execution: "节点执行",
     edge_handoff: "边交接",
     final_output: "最终输出",
@@ -30,7 +30,7 @@ function kindLabel(value: string) {
     failure: "失败",
     human_gate: "人工门控",
   };
-  return labels[value] ?? value;
+  return labels[value] ?? taskSystemOptionLabel(value);
 }
 
 function refCount(manifest: ContractManifest | null) {
@@ -51,7 +51,7 @@ export function ContractOverviewPanel({
 }: {
   contractSpecs: ContractSpec[];
   selectedTask: SpecificTaskRecord | null;
-  selectedCoordination: CoordinationTask | null;
+  selectedCoordination: TaskGraphRecord | null;
   selectedNodeId: string;
 }) {
   const [loading, setLoading] = useState("");
@@ -93,24 +93,24 @@ export function ContractOverviewPanel({
   }
 
   async function previewCoordinationManifest() {
-    if (!selectedCoordination?.coordination_task_id) return;
+    if (!selectedCoordination?.graph_id) return;
     setLoading("coordination-manifest");
     setError("");
     try {
-      setCoordinationManifest(await compileTaskSystemCoordinationContractManifest(selectedCoordination.coordination_task_id));
+      setCoordinationManifest(await compileTaskSystemTaskGraphContractManifest(selectedCoordination.graph_id));
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "协调任务契约预检失败");
+      setError(exc instanceof Error ? exc.message : "任务图契约预检失败");
     } finally {
       setLoading("");
     }
   }
 
   async function previewNodeAssembly() {
-    if (!selectedCoordination?.coordination_task_id || !selectedNodeId) return;
+    if (!selectedCoordination?.graph_id || !selectedNodeId) return;
     setLoading("node-assembly");
     setError("");
     try {
-      setAssembly(await buildTaskSystemNodeRuntimeAssembly(selectedCoordination.coordination_task_id, selectedNodeId));
+      setAssembly(await buildTaskSystemTaskGraphNodeRuntimeAssembly(selectedCoordination.graph_id, selectedNodeId));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "节点 RuntimeAssembly 预览失败");
     } finally {
@@ -123,7 +123,7 @@ export function ContractOverviewPanel({
       <div className="boundary-card">
         <header>
           <strong>契约汇总</strong>
-          <span>{contractSpecs.length} 个 ContractSpec</span>
+          <span>{contractSpecs.length} 个契约规格</span>
         </header>
         <div className="boundary-metric-grid">
           {byKind.map(([kind, count]) => (
@@ -133,7 +133,7 @@ export function ContractOverviewPanel({
               <small>已归类</small>
             </article>
           ))}
-          {!byKind.length ? <div className="boundary-empty">契约库为空，先到契约库建立通用 ContractSpec。</div> : null}
+          {!byKind.length ? <div className="boundary-empty">契约库为空，先到契约库建立通用契约规格。</div> : null}
         </div>
         <div className="boundary-task-table">
           {contractSpecs.slice(0, 10).map((spec) => (
@@ -150,25 +150,25 @@ export function ContractOverviewPanel({
         {error ? <div className="boundary-alert boundary-alert--error">{error}</div> : null}
         <div className="boundary-actions">
           <TaskSystemToolbarButton disabled={!selectedTask || Boolean(loading)} onClick={() => void previewWorkflowManifest()}>
-            {loading === "workflow-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}单任务 Manifest
+            {loading === "workflow-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}单任务清单
           </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!selectedTask || Boolean(loading)} onClick={() => void previewWorkflowAssembly()}>
-            {loading === "workflow-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}单任务 Assembly
+            {loading === "workflow-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}单任务装配
           </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!selectedCoordination || Boolean(loading)} onClick={() => void previewCoordinationManifest()}>
-            {loading === "coordination-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}协调 Manifest
+            {loading === "coordination-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}任务图清单
           </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!selectedCoordination || !selectedNodeId || Boolean(loading)} onClick={() => void previewNodeAssembly()}>
-            {loading === "node-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}节点 Assembly
+            {loading === "node-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}节点装配
           </TaskSystemToolbarButton>
         </div>
         <div className="boundary-kv">
           <p><span>单任务</span><strong>{selectedTask?.task_title || "未选择"}</strong></p>
-          <p><span>协调任务</span><strong>{selectedCoordination?.title || "未选择"}</strong></p>
+          <p><span>任务图</span><strong>{selectedCoordination?.title || "未选择"}</strong></p>
           <p><span>选中节点</span><strong>{selectedNodeId || "未选择"}</strong></p>
-          <p><span>Workflow Manifest</span><strong>{workflowManifest ? `${refCount(workflowManifest)} 引用 / ${workflowManifest.issues.length} 问题` : "未生成"}</strong></p>
-          <p><span>Coordination Manifest</span><strong>{coordinationManifest ? `${refCount(coordinationManifest)} 引用 / ${coordinationManifest.issues.length} 问题` : "未生成"}</strong></p>
-          <p><span>RuntimeAssembly</span><strong>{assembly?.assembly_id || "未生成"}</strong></p>
+          <p><span>单任务契约清单</span><strong>{workflowManifest ? `${refCount(workflowManifest)} 引用 / ${workflowManifest.issues.length} 问题` : "未生成"}</strong></p>
+          <p><span>任务图契约清单</span><strong>{coordinationManifest ? `${refCount(coordinationManifest)} 引用 / ${coordinationManifest.issues.length} 问题` : "未生成"}</strong></p>
+          <p><span>运行装配</span><strong>{assembly?.assembly_id || "未生成"}</strong></p>
         </div>
       </aside>
 

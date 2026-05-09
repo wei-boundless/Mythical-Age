@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -77,6 +78,7 @@ from .langgraph_coordination_runner import LangGraphCoordinationRunner
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs, dedupe_refs as dedupe_artifact_refs
 from .langgraph_coordination_runtime import LangGraphCoordinationRuntime
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
+from .task_artifact_materializer import MaterializedTaskArtifacts, materialize_task_artifacts
 from .model_adoption import build_model_response_runtime_adoption
 from .models import (
     AgentDispatchPlan,
@@ -235,13 +237,18 @@ class TaskRunLoop:
         manifest_ref = str(assembly_payload.get("manifest_ref") or "")
         working_memory_refs = _working_memory_refs_from_assembly(assembly_payload)
         working_memory_diag = _working_memory_diagnostics_from_assembly(assembly_payload)
+        resolved_coordination_task_ref = str(
+            coordination_task_ref
+            or assembly_payload.get("coordination_task_ref")
+            or ""
+        ).strip()
         task_run_id = f"taskrun:{session_id}:{task_id}:{uuid.uuid4().hex[:8]}"
         agent_run_id = f"agrun:{task_run_id}:main"
         coordination_run = (
             CoordinationRun(
                 coordination_run_id=f"coordrun:{task_run_id}:primary",
                 task_run_id=task_run_id,
-                coordination_task_ref=coordination_task_ref,
+                coordination_task_ref=resolved_coordination_task_ref,
                 coordinator_agent_id=coordinator_agent_id or agent_id,
                 topology_template_id=topology_template_id,
                 communication_protocol_id=communication_protocol_id,
@@ -256,7 +263,7 @@ class TaskRunLoop:
                     "task_agent_binding_ref": task_agent_binding_ref,
                 },
             )
-            if coordination_task_ref
+            if resolved_coordination_task_ref
             else None
         )
         started = self.event_log.append(
@@ -274,7 +281,7 @@ class TaskRunLoop:
                 "health_issue_ref": health_issue_ref,
                 "single_agent": coordination_run is None,
                 "multi_agent_enabled": coordination_run is not None,
-                "coordination_task_ref": coordination_task_ref,
+                "coordination_task_ref": resolved_coordination_task_ref,
                 "adoption_mode": adoption_mode,
                 "runtime_assembly_ref": assembly_ref,
                 "contract_manifest_ref": manifest_ref,
@@ -676,9 +683,47 @@ class TaskRunLoop:
             communication_protocol_payload=task_communication_protocol_payload,
             task_agent_adoption_plan_payload=task_agent_adoption_plan_payload,
             effective_limits=effective_limits,
+            task_spec_payload=task_spec_payload,
         )
         for runtime_event in runtime_object_events:
             yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+        initial_coordination_run = (
+            self.state_index.list_task_coordination_runs(state.task_run_id)[0]
+            if self.state_index.list_task_coordination_runs(state.task_run_id)
+            else None
+        )
+        if initial_coordination_run is not None:
+            initial_coordination_state = self.langgraph_coordination_runtime.checkpoints.get_state(
+                thread_id=initial_coordination_run.coordination_run_id
+            )
+            initial_request_payload = dict(dict(initial_coordination_state or {}).get("stage_execution_request") or {})
+            if initial_request_payload:
+                initial_request = StageExecutionRequest.from_dict(initial_request_payload)
+                continuation_payload = LangGraphCoordinationRuntimeResult(
+                    state=dict(initial_coordination_state or {}),
+                    stage_execution_request=initial_request,
+                ).continuation_payload(
+                    session_id=session_id,
+                    current_turn_context=dict(task_operation.get("current_turn_context") or {}),
+                )
+                if continuation_payload:
+                    async for event in self._continue_coordination_delivery_stream(
+                        session_id=session_id,
+                        history=history,
+                        source=source,
+                        agent_runtime_chain=agent_runtime_chain,
+                        model_response_executor=model_response_executor,
+                        runtime_context_manager=runtime_context_manager,
+                        stage_projection_cycle=stage_projection_cycle,
+                        memory_intent=memory_intent,
+                        assistant_message_committer=assistant_message_committer,
+                        tool_runtime_executor=tool_runtime_executor,
+                        tool_instances=tool_instances,
+                        agent_runtime_profile=agent_runtime_profile,
+                        continuation_payload=continuation_payload,
+                    ):
+                        yield event
+                    return
         current_worker_spawn_results = self.state_index.list_task_worker_spawn_results(state.task_run_id)
         current_worker_agent_runs = [
             item
@@ -2228,7 +2273,7 @@ class TaskRunLoop:
         result_refs.append(f"working_memory_finalization:{working_memory_finalization_result.get('archive_report_path') or terminal_state.task_run_id}")
         yield {"type": "runtime_loop_event", "event": dict(working_memory_finalization.get("event") or {})}
         yield {"type": "working_memory_finalized", "result": working_memory_finalization_result}
-        yield {
+        done_event = {
             "type": "done",
             "content": final_content,
             "main_context": dict(final_main_context),
@@ -2330,6 +2375,7 @@ class TaskRunLoop:
         )
         for runtime_event in finished.events:
             yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+        yield done_event
         continuation_payload = dict(finished.continuation_payload or {})
         if continuation_payload:
             async for event in self._continue_coordination_delivery_stream(
@@ -2370,6 +2416,89 @@ class TaskRunLoop:
         continuation_payload: dict[str, Any] = {}
         existing_task_run = self.state_index.get_task_run(start_task_run.task_run_id)
         base_task_run = existing_task_run or start_task_run
+        explicit_inputs = dict(dict(current_turn_context or {}).get("explicit_inputs") or {})
+        task_ref_for_artifacts = str(
+            dict(current_turn_context or {}).get("selected_task_id")
+            or dict(current_turn_context or {}).get("task_id")
+            or task_contract_ref
+            or base_task_run.task_id
+            or ""
+        ).strip()
+        task_policy_for_artifacts: dict[str, Any] = {}
+        task_record_for_artifacts = (
+            self.task_flow_registry.get_specific_task_record(task_ref_for_artifacts)
+            if task_ref_for_artifacts
+            else None
+        )
+        if task_record_for_artifacts is None:
+            task_record_for_artifacts = _specific_task_record_for_runtime_ref(
+                self.task_flow_registry,
+                task_ref_for_artifacts or task_contract_ref or base_task_run.task_id,
+            )
+        if task_record_for_artifacts is not None:
+            task_ref_for_artifacts = str(getattr(task_record_for_artifacts, "task_id", "") or task_ref_for_artifacts)
+            task_policy_for_artifacts = dict(task_record_for_artifacts.task_policy or {})
+        try:
+            artifact_materialization = materialize_task_artifacts(
+                workspace_root=_workspace_root_from_runtime_root(self.root_dir),
+                task_run_id=start_task_run.task_run_id,
+                session_id=start_task_run.session_id,
+                task_ref=task_ref_for_artifacts,
+                coordination_run_id=start_coordination_run.coordination_run_id if start_coordination_run is not None else "",
+                final_content=final_content,
+                user_message=user_message,
+                explicit_inputs=explicit_inputs,
+                task_policy=task_policy_for_artifacts,
+            )
+        except Exception as exc:
+            artifact_materialization = MaterializedTaskArtifacts(
+                enabled=True,
+                diagnostics={
+                    "status": "failed",
+                    "reason": str(exc),
+                    "source": "task_policy.artifact_policy",
+                },
+            )
+        artifact_materialization_payload = artifact_materialization.to_dict()
+        if artifact_materialization.enabled and artifact_materialization.artifact_refs:
+            task_result_payload = dict(task_result or {})
+            task_result_payload["output_refs"] = _dedupe_refs(
+                [
+                    *list(task_result_payload.get("output_refs") or []),
+                    *list(artifact_materialization.artifact_refs),
+                ]
+            )
+            task_result_payload["diagnostics"] = {
+                **dict(task_result_payload.get("diagnostics") or {}),
+                "artifact_materialization": artifact_materialization_payload,
+            }
+            final_outputs = dict(task_result_payload.get("final_outputs") or {})
+            final_outputs["artifact_materialization"] = artifact_materialization_payload
+            task_result_payload["final_outputs"] = final_outputs
+            task_result = task_result_payload
+        elif artifact_materialization.enabled:
+            task_result = {
+                **dict(task_result or {}),
+                "diagnostics": {
+                    **dict(dict(task_result or {}).get("diagnostics") or {}),
+                    "artifact_materialization": artifact_materialization_payload,
+                },
+            }
+        artifact_event = self.event_log.append(
+            start_task_run.task_run_id,
+            "task_artifacts_materialized" if artifact_materialization.enabled else "task_artifact_materialization_checked",
+            payload={
+                "artifact_materialization": artifact_materialization_payload,
+                "resolved_task_ref": task_ref_for_artifacts,
+                "artifact_policy_enabled": bool(dict(task_policy_for_artifacts.get("artifact_policy") or {}).get("enabled")),
+                "task_policy_keys": sorted(str(key) for key in task_policy_for_artifacts.keys()),
+            },
+            refs={
+                "task_ref": task_ref_for_artifacts,
+                "artifact_root": artifact_materialization.artifact_root,
+            },
+        )
+        events.append(artifact_event)
         self.state_index.upsert_task_run(
             TaskRun(
                 task_run_id=base_task_run.task_run_id,
@@ -2388,6 +2517,11 @@ class TaskRunLoop:
                 diagnostics={
                     **dict(base_task_run.diagnostics),
                     **dict(diagnostics or {}),
+                    **(
+                        {"artifact_materialization": artifact_materialization_payload}
+                        if artifact_materialization.enabled
+                        else {}
+                    ),
                 },
             )
         )
@@ -2532,7 +2666,13 @@ class TaskRunLoop:
                     artifact_refs=tuple(output_refs),
                     accepted=terminal_state.status == "completed",
                     agent_run_result_ref=agent_run_result.agent_run_result_id,
-                    diagnostics={"terminal_reason": terminal_state.terminal_reason},
+                    diagnostics={
+                        "terminal_reason": terminal_state.terminal_reason,
+                        "chapter_words": _count_longform_chapter_words(
+                            final_content,
+                            stage_id=current_stage_id,
+                        ),
+                    },
                 )
                 artifact_root = self._artifact_root_from_context_or_events(
                     current_task_run_id=start_task_run.task_run_id,
@@ -2784,6 +2924,7 @@ class TaskRunLoop:
         communication_protocol_payload: dict[str, Any],
         task_agent_adoption_plan_payload: dict[str, Any] | None = None,
         effective_limits: RuntimeLoopLimits | None = None,
+        task_spec_payload: dict[str, Any] | None = None,
     ) -> tuple[Any, ...]:
         events: list[Any] = []
         adoption_plan_payload = dict(task_agent_adoption_plan_payload or {})
@@ -2972,6 +3113,7 @@ class TaskRunLoop:
                 runtime_result = self.langgraph_coordination_runtime.initialize(
                     coordination_run=coordination_run,
                     event_task_run_id=start_result.task_run.task_run_id,
+                    inherited_inputs=dict(dict(task_spec_payload or {}).get("inputs") or {}),
                 )
                 events.extend(runtime_result.events)
                 refreshed = self.state_index.get_coordination_run(coordination_run.coordination_run_id)
@@ -3592,6 +3734,18 @@ class TaskRunLoop:
                 return str(contract.get("stage_id") or "").strip()
         return ""
 
+    @staticmethod
+    def _stage_contract_from_flow(flow_state: dict[str, Any], stage_id: str) -> dict[str, Any]:
+        target = str(stage_id or "").strip()
+        if not target:
+            return {}
+        for stage in list(dict(flow_state or {}).get("stages") or []):
+            if not isinstance(stage, dict):
+                continue
+            if str(stage.get("stage_id") or "").strip() == target:
+                return dict(stage)
+        return {}
+
     def _artifact_root_from_context_or_events(
         self,
         *,
@@ -3640,6 +3794,7 @@ class TaskRunLoop:
         next_stage_id = str(finalized_flow.get("current_stage_id") or "").strip()
         if not next_stage_id or not str(next_task_ref or "").strip():
             return {}
+        stage_contract = self._stage_contract_from_flow(finalized_flow, next_stage_id)
         workspace_root = _workspace_root_from_runtime_root(self.root_dir)
         artifact_root = str(
             current_turn_context.get("artifact_root")
@@ -3668,12 +3823,24 @@ class TaskRunLoop:
             artifact_root=artifact_root,
             final_content=final_content,
             agent_run_result_id=agent_run_result_id,
+            stage_contract=stage_contract,
         )
         next_turn_context = {
             **{
                 key: value
                 for key, value in current_turn_context.items()
-                if key not in {"selected_task_id", "task_id", "specific_task_id", "task_assignment_id", "turn_id", "explicit_inputs"}
+                if key
+                not in {
+                    "selected_task_id",
+                    "task_id",
+                    "specific_task_id",
+                    "task_assignment_id",
+                    "turn_id",
+                    "explicit_inputs",
+                    "projection_id",
+                    "selected_projection_id",
+                    "agent_id",
+                }
                 and value not in ("", None, [], {})
             },
             "authority": str(current_turn_context.get("authority") or "context.current_turn"),
@@ -3684,15 +3851,25 @@ class TaskRunLoop:
             "continuation_from_task_id": current_task_id,
             "continuation_from_task_ref": current_task_ref,
             "continuation_stage_id": next_stage_id,
+            "stage_contract": stage_contract,
+            "stage_id": next_stage_id,
             "execution_mode": str(current_turn_context.get("execution_mode") or "single"),
             "explicit_inputs": explicit_inputs,
         }
+        stage_agent_id = str(stage_contract.get("agent_id") or "").strip()
+        if stage_agent_id:
+            next_turn_context["agent_id"] = stage_agent_id
+        stage_projection_id = str(stage_contract.get("projection_id") or "").strip()
+        if stage_projection_id:
+            next_turn_context["projection_id"] = stage_projection_id
+            next_turn_context["selected_projection_id"] = stage_projection_id
         next_message = self._build_continuation_user_message(
             next_task_ref=next_task_ref,
             next_stage_id=next_stage_id,
             original_user_message=user_message,
             final_content=final_content,
             explicit_inputs=explicit_inputs,
+            stage_contract=stage_contract,
         )
         return {
             "session_id": session_id,
@@ -3716,6 +3893,7 @@ class TaskRunLoop:
         artifact_root: str,
         final_content: str,
         agent_run_result_id: str,
+        stage_contract: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
         if artifact_root:
@@ -3740,20 +3918,54 @@ class TaskRunLoop:
         original_user_message: str,
         final_content: str,
         explicit_inputs: dict[str, Any],
+        stage_contract: dict[str, Any] | None = None,
     ) -> str:
         artifact_root = str(explicit_inputs.get("artifact_root") or "").strip()
-        lines = [
-            f"继续推进协调任务阶段，当前进入阶段：{next_stage_id or next_task_ref}。",
-            f"当前执行任务：{next_task_ref}。",
-            "这是从同一协调流程自动续接的内部阶段，不需要向用户重新确认。",
-            "必须基于上游真实产物继续推进，不得伪造最终完成状态。",
+        contract = dict(stage_contract or {})
+        title = str(contract.get("title") or next_stage_id or next_task_ref).strip()
+        artifact_paths = [
+            str(item.get("path") or item.get("naming_rule") or "").strip()
+            for item in list(contract.get("artifact_requirements") or contract.get("artifact_targets") or [])
+            if isinstance(item, dict) and str(item.get("path") or item.get("naming_rule") or "").strip()
         ]
+        instructions = [
+            str(item).strip()
+            for item in list(contract.get("instructions") or contract.get("stage_instructions") or [])
+            if str(item).strip()
+        ]
+        lines = [
+            f"本轮工作：{title}。",
+            "请直接完成本轮创作或编辑产物，不要写寒暄、等待补充、工作过程说明或系统说明。",
+            "只使用用户给定的硬设定作为不可违背边界；边界之外由你按本轮职责自由发挥。",
+        ]
+        chapter_index = _safe_int(explicit_inputs.get("chapter_index"), 0)
+        if chapter_index > 0:
+            lines.append(
+                f"当前章节：第{chapter_index}章。"
+                f"本章目标约{_safe_int(explicit_inputs.get('chapter_target_words'), 5000)}字；"
+                f"全书目标约{_safe_int(explicit_inputs.get('target_words'), 1000000)}字；"
+                f"当前已完成约{_safe_int(explicit_inputs.get('current_words'), 0)}字。"
+            )
+        user_seed = str(
+            explicit_inputs.get("user_seed")
+            or explicit_inputs.get("hard_constraints")
+            or explicit_inputs.get("project_brief")
+            or ""
+        ).strip()
+        if user_seed:
+            lines.append("用户硬设定：")
+            lines.append(user_seed)
+        if artifact_paths:
+            lines.append("目标文本：" + "、".join(artifact_paths) + "。")
+        if instructions:
+            lines.append("写作要求：")
+            lines.extend(f"- {item}" for item in instructions)
         if artifact_root:
-            lines.append(f"产物根目录：{artifact_root}")
+            lines.append(f"保存位置：{artifact_root}")
         if original_user_message:
             lines.append(f"原始用户要求：{original_user_message}")
         if final_content:
-            lines.append(f"上一阶段摘要：{final_content[:400]}")
+            lines.append(f"可参考的上轮内容：{final_content[:400]}")
         return "\n".join(lines)
 
     async def _continue_coordination_delivery_stream(
@@ -3778,6 +3990,10 @@ class TaskRunLoop:
         next_turn_context = dict(continuation_payload.get("current_turn_context") or {})
         if not next_task_ref or not next_message:
             return
+        stage_agent_id = str(next_turn_context.get("agent_id") or "").strip()
+        stage_agent_runtime_profile = agent_runtime_profile
+        if stage_agent_id:
+            stage_agent_runtime_profile = self.agent_runtime_registry.get_profile(stage_agent_id) or agent_runtime_profile
         turn_marker = str(next_turn_context.get("turn_id") or "").strip() or f"turn:{session_id}:{uuid.uuid4().hex[:8]}"
         next_turn_context["turn_id"] = turn_marker
         next_task_id = f"taskinst:{turn_marker}:{next_task_ref.split('.')[-1]}"
@@ -3790,6 +4006,9 @@ class TaskRunLoop:
                     "turn_id",
                     "selected_task_id",
                     "task_id",
+                    "agent_id",
+                    "projection_id",
+                    "selected_projection_id",
                     "runtime_limits",
                     "agent_group_id",
                     "artifact_root",
@@ -3820,7 +4039,7 @@ class TaskRunLoop:
             assistant_message_committer=assistant_message_committer,
             tool_runtime_executor=tool_runtime_executor,
             tool_instances=tool_instances,
-            agent_runtime_profile=agent_runtime_profile,
+            agent_runtime_profile=stage_agent_runtime_profile,
         ):
             if continuation_payload.get("suppress_done") and event.get("type") == "done":
                 continue
@@ -5748,6 +5967,21 @@ def _working_memory_diagnostics_from_assembly(assembly: dict[str, Any]) -> dict[
     }
 
 
+def _specific_task_record_for_runtime_ref(flow_registry: TaskFlowRegistry, task_ref: str) -> Any | None:
+    """Resolve a runtime task instance id back to its configured specific task."""
+    raw = str(task_ref or "").strip()
+    if not raw:
+        return None
+    suffix = raw.split(":")[-1].strip()
+    if not suffix:
+        return None
+    for record in flow_registry.list_specific_task_records():
+        task_id = str(getattr(record, "task_id", "") or "").strip()
+        if task_id == raw or task_id.endswith(f".{suffix}") or task_id.split(".")[-1] == suffix:
+            return record
+    return None
+
+
 def _compile_agent_dispatch_plan_from_payload(
     *,
     task_run_id: str,
@@ -5913,6 +6147,17 @@ def _safe_int(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _count_longform_chapter_words(content: str, *, stage_id: str = "") -> int:
+    if str(stage_id or "").strip() not in {"chapter_draft", "revision_editor", "style_editor"}:
+        return 0
+    text = str(content or "").strip()
+    if not text:
+        return 0
+    cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
+    latin_words = len(re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", text))
+    return cjk_chars + latin_words
 
 
 def _match_bundle_ordinal_for_tool_observation(

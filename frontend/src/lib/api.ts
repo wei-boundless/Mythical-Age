@@ -357,13 +357,13 @@ export type TaskSystemNextIds = {
   task_id: string;
   flow_id: string;
   workflow_id: string;
-  coordination_task_id: string;
+  graph_id: string;
   topology_template_id: string;
   display_numbers: {
     task: string;
     flow: string;
     workflow: string;
-    coordination: string;
+    graph: string;
     topology: string;
   };
 };
@@ -665,30 +665,6 @@ export type RuntimeAssembly = {
   diagnostics: Record<string, unknown>;
 };
 
-export type CoordinationTask = {
-  coordination_task_id: string;
-  title: string;
-  coordination_mode: string;
-  coordinator_agent_id: string;
-  task_family?: string;
-  domain_id?: string;
-  agent_group_id?: string;
-  participant_agent_ids: string[];
-  topology_template_id: string;
-  shared_context_policy: string;
-  memory_sharing_policy: string;
-  handoff_policy: string;
-  conflict_resolution_policy: string;
-  output_merge_policy: string;
-  stop_conditions: string[];
-  subtask_refs: string[];
-  graph_nodes: Array<Record<string, unknown>>;
-  graph_edges: Array<Record<string, unknown>>;
-  communication_modes: string[];
-  enabled: boolean;
-  metadata?: Record<string, unknown>;
-};
-
 export type CoordinationGraphSpec = {
   graph_id: string;
   coordination_task_id: string;
@@ -721,6 +697,7 @@ export type TaskGraphNodeRecord = {
   output_contract_id?: string;
   runtime_lane?: string;
   context_visibility_policy?: Record<string, unknown>;
+  projection_id?: string;
   projection_overlay_id?: string;
   failure_policy?: Record<string, unknown>;
   human_gate_policy?: Record<string, unknown>;
@@ -731,6 +708,15 @@ export type TaskGraphNodeRecord = {
   dispatch_group?: string;
   wait_policy?: string;
   join_policy?: string;
+  phase_id?: string;
+  sequence_index?: number;
+  timeline_group_id?: string;
+  main_chain?: boolean;
+  start_policy?: string;
+  completion_policy?: string;
+  blocks_phase_exit?: boolean;
+  loop_policy?: Record<string, unknown>;
+  review_gate_policy?: Record<string, unknown>;
   background_policy?: Record<string, unknown>;
   notification_policy?: Record<string, unknown>;
   resource_lifecycle_policy?: Record<string, unknown>;
@@ -837,7 +823,6 @@ export type TaskExecutionPolicyUpsertPayload = TaskExecutionPolicy;
 export type TaskMemoryRequestProfileUpsertPayload = TaskMemoryRequestProfile;
 export type ContractSpecUpsertPayload = ContractSpec;
 
-export type CoordinationTaskUpsertPayload = CoordinationTask;
 export type TaskGraphUpsertPayload = TaskGraphRecord;
 
 export type TopologyTemplateUpsertPayload = TopologyTemplate;
@@ -890,7 +875,6 @@ export type TaskSystemOverview = {
   };
   coordination_management: {
     task_graphs?: TaskGraphRecord[];
-    coordination_tasks: CoordinationTask[];
     coordination_graph_specs?: CoordinationGraphSpec[];
     topology_templates: TopologyTemplate[];
     communication_protocols: TaskCommunicationProtocol[];
@@ -959,7 +943,7 @@ export type OrchestrationAgentRuntimeCatalog = {
   profiles: OrchestrationAgentRuntimeProfile[];
   summary: Record<string, number>;
   options: {
-    operations: Array<Record<string, unknown>>;
+    operations: OperationDescriptor[];
     task_modes: string[];
     runtime_lanes: string[];
     memory_scopes: string[];
@@ -1444,6 +1428,7 @@ export type OrchestrationCatalogSkill = {
 
 export type OrchestrationCatalogTool = {
   name: string;
+  display_name: string;
   operation_id: string;
   module: string;
   contract: Record<string, unknown>;
@@ -1498,6 +1483,7 @@ export type OperationTool = OrchestrationCatalogTool & {
   operation_metadata: {
     tool_type: string;
     note: string;
+    llm_description: string;
     source_class: string;
     search_policy: string[];
     tool_boundary: string;
@@ -1536,6 +1522,27 @@ export type OperationWorker = {
   mcp_profile: Record<string, unknown>;
   operation: Record<string, unknown>;
   diagnostics: Record<string, unknown>;
+};
+
+export type OperationMCP = {
+  mcp_id: string;
+  unit_id: string;
+  route: string;
+  name: string;
+  description: string;
+  operation_id: string;
+  implementation_module?: string;
+  endpoint_protocol?: string;
+  transport: string;
+  server_name?: string;
+  runtime_lane?: string;
+  model_visibility: string;
+  input_modes?: string[];
+  output_modes?: string[];
+  tags: string[];
+  mcp_profile?: Record<string, unknown>;
+  operation?: OperationDescriptor | Record<string, unknown>;
+  diagnostics?: Record<string, unknown>;
 };
 
 export type CapabilityEndpoint = {
@@ -1606,6 +1613,8 @@ export type OperationBindingGraph = {
 export type CapabilitySystemCatalog = {
   skills: OperationSkill[];
   tools: OperationTool[];
+  mcps?: OperationMCP[];
+  local_mcp_units?: Array<Record<string, unknown>>;
   workers?: OperationWorker[];
   capability_endpoints?: CapabilityEndpoint[];
   operations?: OperationDescriptor[];
@@ -2976,7 +2985,7 @@ export async function deleteCapabilitySystemSkill(skillName: string) {
   });
 }
 
-export async function updateCapabilitySystemTool(toolName: string, payload: { tool_type: string; note?: string }) {
+export async function updateCapabilitySystemTool(toolName: string, payload: { tool_type: string; note?: string; llm_description?: string }) {
   return request<CapabilitySystemCatalog>(`/capability-system/tools/${encodeURIComponent(toolName)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
@@ -3138,6 +3147,12 @@ export async function compileTaskSystemCoordinationContractManifest(coordination
   );
 }
 
+export async function compileTaskSystemTaskGraphContractManifest(graphId: string) {
+  return request<ContractManifest>(
+    `/tasks/contract-manifests/task-graphs/${encodeURIComponent(graphId)}`
+  );
+}
+
 export async function buildTaskSystemWorkflowRuntimeAssembly(workflowId: string, taskId: string) {
   const params = new URLSearchParams({ task_id: taskId });
   return request<RuntimeAssembly>(
@@ -3148,6 +3163,12 @@ export async function buildTaskSystemWorkflowRuntimeAssembly(workflowId: string,
 export async function buildTaskSystemNodeRuntimeAssembly(coordinationTaskId: string, nodeId: string) {
   return request<RuntimeAssembly>(
     `/tasks/runtime-assemblies/coordination/${encodeURIComponent(coordinationTaskId)}/nodes/${encodeURIComponent(nodeId)}`
+  );
+}
+
+export async function buildTaskSystemTaskGraphNodeRuntimeAssembly(graphId: string, nodeId: string) {
+  return request<RuntimeAssembly>(
+    `/tasks/runtime-assemblies/task-graphs/${encodeURIComponent(graphId)}/nodes/${encodeURIComponent(nodeId)}`
   );
 }
 
@@ -3211,16 +3232,6 @@ export async function upsertTaskSystemExecutionPolicy(taskId: string, payload: T
 
 export async function upsertTaskSystemMemoryRequestProfile(taskId: string, payload: TaskMemoryRequestProfileUpsertPayload) {
   return request<TaskSystemOverview>(`/tasks/memory-request-profiles/${encodeURIComponent(taskId)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function upsertTaskSystemCoordinationTask(
-  coordinationTaskId: string,
-  payload: CoordinationTaskUpsertPayload
-) {
-  return request<TaskSystemOverview>(`/tasks/coordination-tasks/${encodeURIComponent(coordinationTaskId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });

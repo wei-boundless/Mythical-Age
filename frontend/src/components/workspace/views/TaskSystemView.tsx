@@ -7,7 +7,6 @@ import {
   Network,
   Plus,
   RefreshCw,
-  RotateCcw,
   Save,
   Send,
   Pencil,
@@ -27,24 +26,24 @@ import { TaskContractPanel } from "@/components/workspace/views/task-system/Task
 import { TaskAssemblyPreflightPanel } from "@/components/workspace/views/task-system/TaskAssemblyPreflightPanel";
 import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
 import { TaskRunLoopWorkbenchPanel } from "@/components/workspace/views/task-system/TaskRunLoopWorkbenchPanel";
-import { buildTaskGraphDraft } from "@/components/workspace/views/task-system/taskGraphDraft";
+import { buildTaskGraphDraft, taskGraphRecordToDraft } from "@/components/workspace/views/task-system/taskGraphDraft";
 import {
   TaskSystemDomainTaskSelectField as DomainTaskSelectField,
   TaskSystemField as Field,
   TaskSystemMultiSelectField as MultiSelectField,
   TaskSystemSelectField as SelectField,
   TaskSystemToolbarButton as ToolbarButton,
+  taskSystemDisplayLabel,
+  taskSystemOptionLabel,
 } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import {
   deleteTaskSystemDomain,
   deleteTaskSystemSpecificRecord,
-  getOrchestrationAgents,
   getSoulProjectionCards,
   getTaskSystemNextIds,
   getTaskSystemOverview,
   deleteTaskSystemContract,
   upsertTaskSystemCommunicationProtocol,
-  upsertTaskSystemCoordinationTask,
   upsertTaskSystemContract,
   upsertTaskSystemDomain,
   upsertTaskSystemEntryPolicy,
@@ -59,9 +58,6 @@ import {
   type ConversationEntryPolicy,
   type ContractSpec,
   type CoordinationGraphSpec,
-  type CoordinationTask,
-  type OrchestrationAgentRuntimeCatalog,
-  type OrchestrationAgentRuntimeProfile,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
   type SpecificTaskRecord,
@@ -80,10 +76,8 @@ import {
 import { useAppStore } from "@/lib/store";
 
 type TaskLayer = "management" | "editor";
-type TaskConfigPanel = "definition" | "contracts" | "package" | "preflight" | "runloop";
+type TaskConfigPanel = "definition" | "contracts" | "preflight" | "runloop";
 type ContractPanel = "library" | "templates" | "bindings" | "manifest";
-type PackagePanel = "templates" | "draft" | "pipeline" | "prerequisites";
-type PackagePrerequisiteStatus = "ready" | "missing" | "partial";
 
 type WorkflowDraft = TaskWorkflowRecord & {
   compatible_projection_ids_text: string;
@@ -93,7 +87,35 @@ type WorkflowDraft = TaskWorkflowRecord & {
   required_evidence_refs_text: string;
 };
 
-type CoordinationDraft = CoordinationTask & {
+type GraphRuntimeDraft = {
+  graph_id: string;
+  coordination_task_id: string;
+  title: string;
+  graph_kind: "single_agent" | "multi_agent" | "coordination";
+  domain_id: string;
+  task_family: string;
+  coordinator_agent_id: string;
+  agent_group_id: string;
+  coordination_mode: string;
+  topology_template_id: string;
+  protocol_id: string;
+  shared_context_policy: string;
+  memory_sharing_policy: string;
+  handoff_policy: string;
+  conflict_resolution_policy: string;
+  output_merge_policy: string;
+  stop_conditions: string[];
+  subtask_refs: string[];
+  graph_nodes: Array<Record<string, unknown>>;
+  graph_edges: Array<Record<string, unknown>>;
+  communication_modes: string[];
+  enabled: boolean;
+  participant_agent_ids: string[];
+  metadata?: Record<string, unknown>;
+  stop_conditions_text: string;
+};
+
+type CoordinationDraft = GraphRuntimeDraft & {
   stop_conditions_text: string;
 };
 
@@ -112,22 +134,24 @@ type ProtocolDraft = TaskCommunicationProtocol & {
 
 type DomainRecord = {
   domain_id: string;
-  title: string;
   task_family: string;
+  task_modes: string[];
+  title: string;
   description: string;
   enabled: boolean;
   sort_order: number;
   metadata?: Record<string, unknown>;
-  task_modes: string[];
   tasks: SpecificTaskRecord[];
   entry_policy: ConversationEntryPolicy | null;
 };
 
-type PackageSaveStep = {
-  id: string;
-  label: string;
-  status: "pending" | "success" | "error";
-  detail: string;
+type ArtifactPolicyDraft = {
+  enabled: boolean;
+  artifact_root: string;
+  subdir_template: string;
+  materializer: string;
+  required_files_text: string;
+  optional_files_text: string;
 };
 
 function text(value: unknown, fallback = "-") {
@@ -161,6 +185,13 @@ function slugFromTitle(value: string, fallback = "custom") {
   return ascii || fallback;
 }
 
+function domainIdToLegacyFamily(domainId: string, fallback = "general") {
+  const raw = String(domainId || "").trim();
+  if (!raw) return fallback;
+  const normalized = raw.replace(/^domain\./, "").trim();
+  return normalized || fallback;
+}
+
 type ContractView = {
   key: string;
   title: string;
@@ -183,6 +214,69 @@ function parseJsonObject(value: string, label: string) {
     throw new Error(`${label} 必须是 JSON 对象`);
   }
   return parsed as Record<string, unknown>;
+}
+
+function defaultArtifactPolicyDraft(): ArtifactPolicyDraft {
+  return {
+    enabled: false,
+    artifact_root: "",
+    subdir_template: "{task_slug}/{run_slug}",
+    materializer: "markdown_section_split",
+    required_files_text: "",
+    optional_files_text: "",
+  };
+}
+
+function artifactPolicyDraftFrom(policy: Record<string, unknown>): ArtifactPolicyDraft {
+  const artifactPolicy = dictOf(policy.artifact_policy);
+  const artifacts = Array.isArray(artifactPolicy.artifacts) ? artifactPolicy.artifacts.filter((item) => item && typeof item === "object") as Array<Record<string, unknown>> : [];
+  return {
+    enabled: artifactPolicy.enabled === true,
+    artifact_root: String(artifactPolicy.artifact_root || artifactPolicy.default_artifact_root || ""),
+    subdir_template: String(artifactPolicy.subdir_template || ""),
+    materializer: String(artifactPolicy.materializer || "markdown_section_split"),
+    required_files_text: artifacts.filter((item) => item.required !== false).map((item) => String(item.path || "")).filter(Boolean).join("\n"),
+    optional_files_text: artifacts.filter((item) => item.required === false).map((item) => String(item.path || "")).filter(Boolean).join("\n"),
+  };
+}
+
+function artifactSpecsFromDraft(draft: ArtifactPolicyDraft) {
+  const sectionHints: Record<string, string[]> = {
+    "01_project_bible.md": ["项目总纲", "Project Brief"],
+    "02_world_bible.md": ["世界规则", "World Rules"],
+    "03_character_bible.md": ["主角设定", "人物设定", "角色设定", "Protagonist"],
+    "04_volume_plan.md": ["分卷规划", "Volume Plan"],
+    "chapters/chapter_001_plan.md": ["第一章规划", "Chapter 1 Plan"],
+    "chapters/chapter_001_draft.md": ["第一章正文", "正文初稿", "Chapter 1 Draft"],
+  };
+  const required = splitList(draft.required_files_text).map((path) => ({
+    path,
+    required: true,
+    section_keys: sectionHints[path] ?? [],
+    fallback_to_full_content: path === "01_project_bible.md",
+  }));
+  const optional = splitList(draft.optional_files_text).map((path) => ({
+    path,
+    required: false,
+    section_keys: sectionHints[path] ?? [],
+  }));
+  return [...required, ...optional];
+}
+
+function mergeArtifactPolicy(taskPolicyText: string, draft: ArtifactPolicyDraft) {
+  const policy = parseJsonObject(taskPolicyText, "任务策略");
+  const artifactPolicy = {
+    ...dictOf(policy.artifact_policy),
+    enabled: draft.enabled,
+    artifact_root: draft.artifact_root.trim(),
+    subdir_template: draft.subdir_template.trim(),
+    materializer: draft.materializer.trim() || "markdown_section_split",
+    artifacts: artifactSpecsFromDraft(draft),
+  };
+  return {
+    ...policy,
+    artifact_policy: artifactPolicy,
+  };
 }
 
 function parseJsonList(value: string, label: string) {
@@ -376,10 +470,12 @@ function emptyMemoryProfile(taskId = ""): TaskMemoryRequestProfile {
   };
 }
 
-function emptyCoordination(templateId = "", protocolId = "", taskFamily = "", domainId = ""): CoordinationDraft {
+function emptyCoordination(templateId = "", protocolId = "", taskFamily = "", domainId = "", graphId = "graph.dev.task"): CoordinationDraft {
   return {
-    coordination_task_id: "coord.dev.task",
-    title: "新协调任务",
+    graph_id: graphId,
+    coordination_task_id: graphId,
+    title: "新任务图",
+    graph_kind: "multi_agent",
     coordination_mode: "review_merge",
     coordinator_agent_id: "agent:0",
     task_family: taskFamily,
@@ -387,6 +483,7 @@ function emptyCoordination(templateId = "", protocolId = "", taskFamily = "", do
     agent_group_id: "",
     participant_agent_ids: [],
     topology_template_id: templateId,
+    protocol_id: protocolId,
     shared_context_policy: "explicit_refs_only",
     memory_sharing_policy: "isolated_by_default",
     handoff_policy: "filtered_handoff",
@@ -403,13 +500,11 @@ function emptyCoordination(templateId = "", protocolId = "", taskFamily = "", do
   };
 }
 
-function coordinationDraftFrom(task?: CoordinationTask | null): CoordinationDraft {
+function coordinationDraftFrom(task?: GraphRuntimeDraft | null): CoordinationDraft {
   const base = task ?? emptyCoordination();
   return {
     ...base,
-    participant_agent_ids: base.participant_agent_ids ?? [],
     stop_conditions: base.stop_conditions ?? [],
-    subtask_refs: base.subtask_refs ?? [],
     graph_nodes: base.graph_nodes?.length ? base.graph_nodes : [{ node_id: "coordinator", agent_id: base.coordinator_agent_id || "agent:0", role: "coordinator" }],
     graph_edges: base.graph_edges ?? [],
     communication_modes: base.communication_modes?.length ? base.communication_modes : ["structured_handoff"],
@@ -499,9 +594,11 @@ function domainTitle(family: string) {
 function displayId(value: unknown, fallback = "未配置") {
   const raw = String(value ?? "").trim();
   if (!raw) return fallback;
+  const registeredLabel = taskSystemDisplayLabel(raw, fallback);
+  if (registeredLabel !== raw) return registeredLabel;
   const labels: Record<string, string> = {
     "single_agent_chain": "单 Agent 链",
-    "coordination_chain": "协调任务",
+    "coordination_chain": "任务图协作",
     "orchestration_default": "编排默认选择",
     "task_default": "任务默认",
     "workflow_compatible_or_task_default": "流程兼容优先",
@@ -518,10 +615,6 @@ function displayId(value: unknown, fallback = "未配置") {
     "bounded_patch": "受限补丁",
     "light_web_game": "轻量网页小游戏",
     "arcade_game_bundle": "复合小游戏包",
-    "issue_triage": "问题分诊",
-    "trace_analysis": "Trace 分析",
-    "case_draft": "案例草案",
-    "fix_verification": "修复验证",
     "AssistantFinalAnswer": "最终回答",
     "LightWebGameResult": "网页游戏产物",
     "UserMessage": "用户消息",
@@ -543,8 +636,8 @@ function displayId(value: unknown, fallback = "未配置") {
     ["task.writing.", "写作任务"],
     ["task.dev.", "开发任务"],
     ["task.health.", "健康任务"],
-    ["coord.writing.", "写作协调任务"],
-    ["coord.dev.", "开发协调任务"],
+    ["coord.writing.", "写作任务图"],
+    ["coord.dev.", "开发任务图"],
     ["workflow.writing.", "写作执行流程"],
     ["workflow.dev.", "开发执行流程"],
     ["topology.writing.", "写作拓扑"],
@@ -577,763 +670,27 @@ const HANDOFF_POLICY_CHOICES = ["filtered_handoff", "direct_handoff"];
 const CONFLICT_POLICY_CHOICES = ["coordinator_review", "majority_vote"];
 const MERGE_POLICY_CHOICES = ["coordinator_final_merge", "ordered_append", "section_merge"];
 
-function novelContract(
-  contractId: string,
-  title: string,
-  kind: string,
-  outputFields: Array<Partial<ContractField> & { field_id: string; title_zh: string }>,
-  description: string,
-): ContractSpec {
-  return {
-    contract_id: contractId,
-    title_zh: title,
-    title_en: contractId.split(".").slice(-1)[0],
-    contract_kind: kind,
-    description,
-    input_fields: [],
-    output_fields: outputFields.map((field) => ({
-      field_id: field.field_id,
-      title_zh: field.title_zh,
-      field_type: field.field_type || "string",
-      required: field.required ?? true,
-      description: field.description || "",
-      default_value: field.default_value,
-      schema: field.schema || {},
-      source_hint: field.source_hint || "upstream_output",
-      visibility: field.visibility || "model_visible",
-    })),
-    artifact_requirements: [],
-    acceptance_rules: outputFields.filter((field) => field.required !== false).map((field) => ({
-      rule_id: `${field.field_id}_present`,
-      title_zh: `${field.title_zh}必须存在`,
-      rule_type: "required_field_present",
-      severity: "error",
-      target_field: field.field_id,
-      criteria: `${field.title_zh}不能为空。`,
-      config: {},
-    })),
-    runtime_requirements: [],
-    context_visibility_policy: {
-      main_session_history: "summary",
-      upstream_outputs: "summary",
-      sibling_nodes: "status_only",
-      artifact_access: "refs_only",
-      memory_scopes: [],
-      model_visible_sections: ["task", "runtime_contracts", "working_memory"],
-      hidden_sections: [],
-      notes: "",
-    },
-    handoff_policy: {
-      handoff_mode: "structured_handoff",
-      include_artifact_refs: true,
-      include_raw_messages: false,
-      ack_required: true,
-      timeout_policy: "fail_closed",
-    },
-    failure_policy: {
-      failure_mode: "fail_closed",
-      retry_allowed: true,
-      retry_limit: 1,
-      escalate_to: "coordinator",
-      fallback_contract_id: "contract.error_report.basic",
-    },
-    human_gate_policy: {
-      required: false,
-      gate_type: "none",
-      reviewer_role: "",
-      decision_contract_id: "",
-    },
-    allowed_agent_kinds: ["worker_sub_agent"],
-    allowed_runtime_lanes: [],
-    version: "1.0.0",
-    enabled: true,
-    metadata: { managed_by: "task_package_wizard", package_template: "longform_novel_writing" },
-  };
-}
-
-function buildLongformNovelContracts(): ContractSpec[] {
-  return [
-    novelContract("contract.novel.project_brief", "长篇小说项目简报", "global_task", [
-      { field_id: "title", title_zh: "作品标题", required: false },
-      { field_id: "genre", title_zh: "题材类型", required: true },
-      { field_id: "target_length", title_zh: "目标篇幅", required: true },
-      { field_id: "core_premise", title_zh: "核心设定", required: true },
-      { field_id: "constraints", title_zh: "创作约束", field_type: "array", required: false },
-    ], "长篇小说任务的项目级输入边界。"),
-    novelContract("contract.novel.project_plan", "长篇小说生产计划", "workflow", [
-      { field_id: "volume_plan", title_zh: "分卷计划", field_type: "array" },
-      { field_id: "chapter_count", title_zh: "章节数量", field_type: "number" },
-      { field_id: "quality_gates", title_zh: "质量门控", field_type: "array" },
-    ], "由 Showrunner 输出的整体生产计划。"),
-    novelContract("contract.novel.world_bible_delta", "世界观设定增量", "node_execution", [
-      { field_id: "world_rules", title_zh: "世界规则", field_type: "array" },
-      { field_id: "setting_delta", title_zh: "设定变更", field_type: "array" },
-      { field_id: "conflict_risks", title_zh: "冲突风险", field_type: "array", required: false },
-    ], "故事架构阶段输出的世界观设定增量。"),
-    novelContract("contract.novel.volume_outline", "分卷与章节大纲", "node_execution", [
-      { field_id: "volume_outline", title_zh: "分卷大纲", field_type: "array" },
-      { field_id: "chapter_briefs", title_zh: "章节简报", field_type: "array" },
-      { field_id: "foreshadow_track", title_zh: "伏笔账本", field_type: "array", required: false },
-    ], "故事架构阶段输出的分卷、章节和伏笔规划。"),
-    novelContract("contract.novel.character_delta", "角色连续性增量", "node_execution", [
-      { field_id: "character_states", title_zh: "角色状态", field_type: "array" },
-      { field_id: "relationship_delta", title_zh: "关系变化", field_type: "array" },
-      { field_id: "arc_risks", title_zh: "人物弧风险", field_type: "array", required: false },
-    ], "故事架构与章节审校阶段输出的角色状态增量。"),
-    novelContract("contract.novel.chapter_brief", "章节写作简报", "edge_handoff", [
-      { field_id: "chapter_index", title_zh: "章节序号", field_type: "number" },
-      { field_id: "scene_goals", title_zh: "场景目标", field_type: "array" },
-      { field_id: "required_memory_refs", title_zh: "必需记忆引用", field_type: "array" },
-    ], "章节计划到章节写作的交接契约。"),
-    novelContract("contract.novel.chapter_draft", "章节草稿", "node_execution", [
-      { field_id: "chapter_index", title_zh: "章节序号", field_type: "number" },
-      { field_id: "chapter_text", title_zh: "章节正文" },
-      { field_id: "new_facts", title_zh: "新增事实", field_type: "array", required: false },
-    ], "章节写作阶段输出。"),
-    novelContract("contract.novel.continuity_review", "连续性审查报告", "node_execution", [
-      { field_id: "conflicts", title_zh: "连续性冲突", field_type: "array" },
-      { field_id: "severity", title_zh: "严重程度" },
-      { field_id: "fix_suggestions", title_zh: "修复建议", field_type: "array" },
-    ], "连续性审校阶段输出。"),
-    novelContract("contract.novel.memory_promotion_batch", "任务记忆晋升批次", "node_execution", [
-      { field_id: "promotion_candidates", title_zh: "晋升候选", field_type: "array" },
-      { field_id: "rejected_items", title_zh: "拒绝项", field_type: "array", required: false },
-      { field_id: "review_required", title_zh: "是否需要人工复核", field_type: "boolean" },
-    ], "记忆与交付管理阶段输出。"),
-    novelContract("contract.novel.final_manuscript_package", "最终稿件交付包", "final_output", [
-      { field_id: "manuscript_refs", title_zh: "正文产物引用", field_type: "array" },
-      { field_id: "bible_refs", title_zh: "设定集引用", field_type: "array" },
-      { field_id: "unresolved_issues", title_zh: "未解决问题", field_type: "array", required: false },
-    ], "长篇小说任务最终交付契约。"),
-  ];
-}
-
-function longformNovelNodeScheduling(nodeId: string) {
-  const base = {
-    execution_mode: "sync",
-    dispatch_group: "",
-    wait_policy: "wait_all_upstream_completed",
-    join_policy: "all_success",
-    background_policy: { enabled: false, blocks_downstream: true },
-    notification_policy: { on_started: "event_only", on_completed: "event_only", on_failed: "queued_alert", include_result: "summary_and_refs", priority: "next" },
-    resource_lifecycle_policy: { kill_on_parent_abort: true, cleanup_on_terminal: true },
-    human_gate_policy: {},
-    failure_policy: {
-      on_contract_error: "retry_structure_only_once",
-      on_content_conflict: "route_to_revision_gate",
-      on_timeout: "queued_alert_and_pause_node",
-      max_retries: 1,
-      escalation: "revision_gate",
-    },
-  };
-  if (nodeId === "story_architecture") {
-    return {
-      ...base,
-      execution_mode: "sync",
-      dispatch_group: "planning_assets",
-      join_policy: "all_success",
-      failure_policy: { ...base.failure_policy, on_failure: "fail_closed_manual_review", max_retries: 1 },
-      notification_policy: { ...base.notification_policy, on_completed: "queued_summary", priority: "next" },
-    };
-  }
-  if (nodeId === "revision_gate") {
-    return {
-      ...base,
-      execution_mode: "barrier",
-      dispatch_group: "chapter_quality",
-      join_policy: "coordinator_decides",
-      failure_policy: { ...base.failure_policy, on_failure: "manual_review", max_retries: 0, escalation: "human_gate" },
-      human_gate_policy: {
-        required_when: ["blocking_conflict_repeated", "world_rule_retroactive_change", "user_goal_changed", "final_blocking_issue"],
-        decision_contract_id: "contract.novel.continuity_review",
-        reviewer_role: "user_or_showrunner",
-      },
-      notification_policy: { ...base.notification_policy, on_completed: "queued_summary", priority: "now" },
-    };
-  }
-  if (nodeId === "memory_publish") {
-    return {
-      ...base,
-      execution_mode: "background",
-      dispatch_group: "memory_maintenance",
-      join_policy: "allow_partial_with_issues",
-      background_policy: {
-        enabled: true,
-        blocks_downstream: false,
-        result_visibility: "summary_and_refs",
-        writeback_targets: ["working_memory_candidate", "task_durable_candidate"],
-        max_runtime_seconds: 900,
-        kill_on_parent_abort: true,
-        retain_after_completion_seconds: 1800,
-      },
-      failure_policy: { ...base.failure_policy, on_failure: "allow_partial_pending_review", max_retries: 1, escalation: "final_assembly" },
-      notification_policy: { on_started: "event_only", on_completed: "queued_summary", on_failed: "queued_alert", include_result: "summary_and_refs", priority: "later" },
-    };
-  }
-  if (nodeId === "final_assembly") {
-    return {
-      ...base,
-      execution_mode: "barrier",
-      dispatch_group: "final_join",
-      wait_policy: "wait_all_upstream_completed",
-      join_policy: "all_success",
-      failure_policy: { ...base.failure_policy, on_missing_stable_assets: "emit_incomplete_package", max_retries: 0 },
-      notification_policy: { ...base.notification_policy, on_completed: "queued_summary", priority: "now" },
-    };
-  }
-  if (nodeId === "continuity_review") {
-    return {
-      ...base,
-      execution_mode: "sync",
-      dispatch_group: "chapter_quality",
-      join_policy: "fail_on_any_error",
-      failure_policy: { ...base.failure_policy, on_failure: "fail_closed", max_retries: 1 },
-      notification_policy: { ...base.notification_policy, on_completed: "queued_summary", priority: "next" },
-    };
-  }
-  if (nodeId === "chapter_draft") {
-    return {
-      ...base,
-      failure_policy: { ...base.failure_policy, on_failure: "retry_until_chapter_attempt_limit", max_retries: 1, escalation: "revision_gate" },
-    };
-  }
-  return base;
-}
-
-function longformNovelNodeMemoryPolicy(nodeId: string) {
-  const dynamic = {
-    enabled: true,
-    allow_dynamic_read: true,
-    max_dynamic_reads_per_node_run: 3,
-    allow_temporal_expansion: true,
-    max_temporal_expansion_depth: 2,
-    max_temporal_neighbors: 6,
-    expansion_requires_reason: true,
-  };
-  const readonlyStable = {
-    readable_kinds: ["task_goal", "decision_record", "plan_fragment", "world_bible_delta", "character_state_delta", "style_constraint", "foreshadow_track"],
-    readable_scopes: ["task_scope", "graph_scope", "handoff_only"],
-    readable_semantics: ["working_fact", "decision", "instruction", "temporal_event"],
-    prefer_accepted_items: true,
-    reject_unaccepted_facts: true,
-  };
-  if (nodeId === "input_brief") {
-    return {
-      memory_read_policy: { readable_kinds: [], readable_scopes: [], readable_semantics: [] },
-      memory_writeback_policy: {
-        writable_kinds: ["task_goal", "decision_record"],
-        writable_scopes: ["graph_scope"],
-        default_visibility: "shared_in_graph",
-        requires_coordinator_review: false,
-      },
-      dynamic_memory_read_policy: { enabled: false, allow_dynamic_read: false, max_dynamic_reads_per_node_run: 0 },
-    };
-  }
-  if (nodeId === "story_architecture") {
-    return {
-      memory_read_policy: {
-        ...readonlyStable,
-        readable_kinds: ["task_goal", "decision_record", "style_constraint", "world_bible_delta", "character_state_delta", "foreshadow_track"],
-      },
-      memory_writeback_policy: {
-        writable_kinds: ["plan_fragment", "decision_record", "world_bible_delta", "character_state_delta", "foreshadow_track", "style_constraint"],
-        writable_scopes: ["node_scope", "graph_scope"],
-        default_visibility: "shared_in_graph",
-        requires_coordinator_review: true,
-      },
-      dynamic_memory_read_policy: { ...dynamic, max_dynamic_reads_per_node_run: 4 },
-    };
-  }
-  if (nodeId === "chapter_plan") {
-    return {
-      memory_read_policy: {
-        ...readonlyStable,
-        readable_kinds: ["plan_fragment", "decision_record", "world_bible_delta", "character_state_delta", "style_constraint", "foreshadow_track", "artifact_ref"],
-      },
-      memory_writeback_policy: {
-        writable_kinds: ["chapter_brief", "decision_record", "foreshadow_track"],
-        writable_scopes: ["node_scope", "graph_scope"],
-        default_visibility: "shared_in_graph",
-        requires_coordinator_review: true,
-      },
-      dynamic_memory_read_policy: { ...dynamic, max_dynamic_reads_per_node_run: 4 },
-    };
-  }
-  if (nodeId === "chapter_draft") {
-    return {
-      memory_read_policy: {
-        readable_kinds: ["chapter_brief", "decision_record", "world_bible_delta", "character_state_delta", "style_constraint", "foreshadow_track", "retry_guidance", "artifact_ref"],
-        readable_scopes: ["task_scope", "graph_scope", "handoff_only"],
-        readable_semantics: ["working_fact", "decision", "instruction", "temporal_event", "draft_artifact"],
-        prefer_accepted_items: true,
-        reject_unaccepted_facts: true,
-      },
-      memory_writeback_policy: {
-        writable_kinds: ["chapter_draft", "character_state_delta", "world_bible_delta", "foreshadow_track", "artifact_ref"],
-        writable_scopes: ["node_scope", "graph_scope"],
-        default_visibility: "private_to_node",
-        requires_coordinator_review: true,
-        accepted_write_forbidden: true,
-      },
-      dynamic_memory_read_policy: dynamic,
-    };
-  }
-  if (nodeId === "continuity_review") {
-    return {
-      memory_read_policy: {
-        readable_kinds: ["chapter_draft", "decision_record", "world_bible_delta", "character_state_delta", "style_constraint", "foreshadow_track", "artifact_ref"],
-        readable_scopes: ["task_scope", "graph_scope", "handoff_only", "node_scope"],
-        readable_semantics: ["working_fact", "draft_artifact", "temporal_event", "decision", "conflict"],
-        prefer_accepted_items: true,
-        allow_unaccepted_draft_refs: true,
-      },
-      memory_writeback_policy: {
-        writable_kinds: ["continuity_conflict", "evaluator_feedback", "revision_instruction"],
-        writable_scopes: ["edge_scope", "graph_scope"],
-        default_visibility: "shared_in_graph",
-        requires_coordinator_review: true,
-      },
-      dynamic_memory_read_policy: { ...dynamic, max_dynamic_reads_per_node_run: 5 },
-    };
-  }
-  if (nodeId === "revision_gate") {
-    return {
-      memory_read_policy: {
-        readable_kinds: ["continuity_conflict", "evaluator_feedback", "revision_instruction", "chapter_draft", "decision_record", "world_bible_delta", "character_state_delta", "artifact_ref"],
-        readable_scopes: ["task_scope", "graph_scope", "handoff_only", "edge_scope"],
-        readable_semantics: ["decision", "conflict", "instruction", "draft_artifact", "working_fact"],
-        prefer_accepted_items: false,
-      },
-      memory_writeback_policy: {
-        writable_kinds: ["decision_record", "retry_guidance"],
-        writable_scopes: ["graph_scope"],
-        default_visibility: "shared_in_graph",
-        requires_coordinator_review: false,
-      },
-      dynamic_memory_read_policy: { ...dynamic, max_dynamic_reads_per_node_run: 2, allow_temporal_expansion: false, max_temporal_expansion_depth: 0 },
-    };
-  }
-  if (nodeId === "memory_publish") {
-    return {
-      memory_read_policy: {
-        readable_kinds: ["decision_record", "chapter_draft", "world_bible_delta", "character_state_delta", "foreshadow_track", "style_constraint", "continuity_conflict", "artifact_ref"],
-        readable_scopes: ["task_scope", "graph_scope", "handoff_only"],
-        readable_semantics: ["working_fact", "decision", "temporal_event", "conflict", "draft_artifact"],
-        require_acceptance_refs: true,
-      },
-      memory_writeback_policy: {
-        writable_kinds: ["promotion_candidate", "artifact_ref"],
-        writable_scopes: ["task_scope"],
-        default_visibility: "coordinator_only",
-        requires_coordinator_review: true,
-        task_durable_candidate_only: true,
-      },
-      dynamic_memory_read_policy: { ...dynamic, max_dynamic_reads_per_node_run: 4 },
-    };
-  }
-  if (nodeId === "final_assembly") {
-    return {
-      memory_read_policy: {
-        readable_kinds: ["promotion_candidate", "artifact_ref", "decision_record", "continuity_conflict"],
-        readable_scopes: ["task_scope", "graph_scope", "handoff_only"],
-        readable_semantics: ["working_fact", "decision", "conflict", "artifact_ref"],
-        require_stable_refs: true,
-      },
-      memory_writeback_policy: {
-        writable_kinds: ["artifact_ref", "decision_record"],
-        writable_scopes: ["task_scope"],
-        default_visibility: "shared_in_graph",
-        requires_coordinator_review: false,
-      },
-      dynamic_memory_read_policy: { ...dynamic, max_dynamic_reads_per_node_run: 2, allow_temporal_expansion: false, max_temporal_expansion_depth: 0 },
-    };
-  }
-  return {
-    memory_read_policy: readonlyStable,
-    memory_writeback_policy: {
-      writable_kinds: ["decision_record"],
-      writable_scopes: ["node_scope"],
-      default_visibility: "private_to_node",
-      requires_coordinator_review: true,
-    },
-    dynamic_memory_read_policy: dynamic,
-  };
-}
-
-function buildLongformNovelPackage(): {
-  domain: TaskDomainRecord;
-  task: SpecificTaskRecord;
-  workflow: WorkflowDraft;
-  execution: TaskExecutionPolicy;
-  memory: TaskMemoryRequestProfile;
-  contracts: ContractSpec[];
-  topology: TopologyDraft;
-  protocol: ProtocolDraft;
-  coordination: CoordinationDraft;
-  graph: TaskGraphRecord;
-  requiredAgents: Array<{ agent_id: string; title: string; projection_id: string; output_contracts: string[]; allowed_operations: string[]; allowed_memory_scopes: string[]; required_capabilities: string[]; forbidden_actions: string[] }>;
-  requiredProjections: Array<{ projection_id: string; agent_id: string; title: string }>;
-} {
-  const contracts = buildLongformNovelContracts();
-  const domain: TaskDomainRecord = {
-    domain_id: "domain.longform_novel",
-    task_family: "longform_novel_writing",
-    title: "长篇小说创作",
-    description: "面向多章节、多角色、多设定连续性的长篇小说生产任务域。",
-    enabled: true,
-    sort_order: 260,
-    metadata: { managed_by: "task_package_wizard", package_template: "longform_novel_writing" },
-  };
-  const task: SpecificTaskRecord = {
-    ...emptySpecificTaskRecord("workflow.longform_novel.graph_runtime", "flow.longform_novel.graph_runtime"),
-    task_id: "task.longform_novel.create_full_novel",
-    task_title: "长篇小说完整创作",
-    task_family: domain.task_family,
-    task_mode: "longform_novel_graph",
-    description: "通过多 Agent 拓扑完成项目规划、设定管理、章节写作、连续性审查、记忆整理与最终交付。",
-    input_contract_id: "contract.novel.project_brief",
-    output_contract_id: "contract.novel.final_manuscript_package",
-    task_policy: {
-      safety_policy: { safety_class: "S2_bounded", write_mode: "artifact_ref_only", verification_mode: "contract_and_review" },
-      task_structure: { execution_chain_type: "graph_run_loop", trigger_signals: ["task_package.longform_novel"] },
-    },
-    metadata: { managed_by: "task_package_wizard", package_template: "longform_novel_writing" },
-  };
-  const workflow: WorkflowDraft = {
-    ...emptyWorkflow(task.task_mode),
-    workflow_id: task.default_workflow_id,
-    title: "长篇小说图运行流程",
-    output_contract_id: task.output_contract_id,
-    compatible_projection_ids: [
-      "projection.longform_novel.showrunner",
-      "projection.longform_novel.story_architect",
-      "projection.longform_novel.chapter_writer",
-      "projection.longform_novel.continuity_editor",
-      "projection.longform_novel.memory_publisher",
-    ],
-    steps: [
-      { step_id: "project_plan", title: "项目规划" },
-      { step_id: "asset_build", title: "设定与角色资产建立" },
-      { step_id: "chapter_loop", title: "章节循环" },
-      { step_id: "final_assembly", title: "最终整理" },
-    ],
-    steps_text: "project_plan | 项目规划\nasset_build | 设定与角色资产建立\nchapter_loop | 章节循环\nfinal_assembly | 最终整理",
-    stop_conditions: ["final_manuscript_package_ready"],
-    stop_conditions_text: "final_manuscript_package_ready",
-    compatible_projection_ids_text: [
-      "projection.longform_novel.showrunner",
-      "projection.longform_novel.story_architect",
-      "projection.longform_novel.chapter_writer",
-      "projection.longform_novel.continuity_editor",
-      "projection.longform_novel.memory_publisher",
-    ].join("\n"),
-    metadata: { managed_by: "task_package_wizard", package_template: "longform_novel_writing" },
-  };
-  const execution = {
-    ...emptyExecutionPolicy(task.task_id),
-    execution_chain_type: "graph_run_loop",
-    runtime_agent_selection_policy: "task_graph_explicit_agent",
-    default_agent_id: "agent:novel_showrunner",
-    allowed_agent_categories: ["worker_sub_agent"],
-    allow_worker_agent_spawn: false,
-    notes: "Agent 必须先在编排系统前端创建，并由任务图节点显式绑定。",
-    metadata: { managed_by: "task_package_wizard", package_template: "longform_novel_writing" },
-  };
-  const memory = {
-    ...emptyMemoryProfile(task.task_id),
-    requested_memory_layers: ["working", "task_durable"],
-    requested_topics: ["story_bible", "character_state", "chapter_draft", "continuity"],
-    writeback_policy: "task_durable_reviewed_promotion",
-    allow_long_term_memory: true,
-    allow_working_memory: true,
-    allow_dynamic_working_memory_read: true,
-    working_memory_policy_profile_id: "wmprofile.longform_novel",
-    working_memory_default_scope: "node_scope",
-    working_memory_default_visibility: "private_to_node",
-    working_memory_policy: {
-      enabled: true,
-      default_scope: "node_scope",
-      default_visibility: "private_to_node",
-      allowed_kinds: ["chapter_draft", "character_state_delta", "world_bible_delta", "continuity_conflict", "promotion_candidate", "revision_instruction"],
-      finalize_requires_human_review: true,
-      promotion_requires_human_review: true,
-    },
-    memory_scope_hint: "任务工作记忆与任务长期记忆隔离，不写入 Global Durable。",
-    metadata: { managed_by: "task_package_wizard", package_template: "longform_novel_writing" },
-  };
-  const nodes = [
-    ["input_brief", "input", "项目简报", "agent:novel_showrunner", "contract.novel.project_brief"],
-    ["story_architecture", "agent", "故事架构", "agent:novel_story_architect", "contract.novel.volume_outline"],
-    ["chapter_plan", "agent", "章节计划", "agent:novel_story_architect", "contract.novel.chapter_brief"],
-    ["chapter_draft", "agent", "章节写作", "agent:novel_chapter_writer", "contract.novel.chapter_draft"],
-    ["continuity_review", "agent", "连续性审校", "agent:novel_continuity_editor", "contract.novel.continuity_review"],
-    ["revision_gate", "coordinator", "修订决策", "agent:novel_showrunner", "contract.novel.project_plan"],
-    ["memory_publish", "agent", "记忆与交付管理", "agent:novel_memory_publisher", "contract.novel.memory_promotion_batch"],
-    ["final_assembly", "agent", "最终交付整理", "agent:novel_memory_publisher", "contract.novel.final_manuscript_package"],
-  ].map(([nodeId, nodeType, title, agentId, outputContractId]) => {
-    const scheduling = longformNovelNodeScheduling(String(nodeId));
-    const memoryPolicy = longformNovelNodeMemoryPolicy(String(nodeId));
-    return {
-    node_id: String(nodeId),
-    node_type: String(nodeType),
-    title,
-    label: title,
-    task_id: task.task_id,
-    task_title: task.task_title,
-    task_family: domain.task_family,
-    agent_id: agentId,
-    role: nodeId === "input_brief" ? "coordinator" : "participant",
-    work_posture: nodeId,
-    node_contract_id: outputContractId,
-    input_contract_id: nodeId === "input_brief" ? task.input_contract_id : "",
-    output_contract_id: outputContractId,
-    runtime_lane: "longform_novel_graph",
-    execution_mode: scheduling.execution_mode,
-    dispatch_group: scheduling.dispatch_group,
-    wait_policy: scheduling.wait_policy,
-    join_policy: scheduling.join_policy,
-    background_policy: scheduling.background_policy,
-    notification_policy: scheduling.notification_policy,
-    resource_lifecycle_policy: scheduling.resource_lifecycle_policy,
-    human_gate_policy: scheduling.human_gate_policy,
-    failure_policy: scheduling.failure_policy,
-    memory_read_policy: memoryPolicy.memory_read_policy,
-    memory_writeback_policy: memoryPolicy.memory_writeback_policy,
-    dynamic_memory_read_policy: memoryPolicy.dynamic_memory_read_policy,
-    };
-  });
-  const edgePairs = [
-    ["e_brief_architecture", "input_brief", "story_architecture", "contract.novel.project_brief", ["task_goal"], "fail_downstream"],
-    ["e_architecture_chapter", "story_architecture", "chapter_plan", "contract.novel.volume_outline", ["plan_fragment", "foreshadow_track", "world_state_delta", "character_state_delta"], "fail_downstream"],
-    ["e_chapter_plan_draft", "chapter_plan", "chapter_draft", "contract.novel.chapter_brief", ["chapter_brief", "style_constraint", "accepted_refs"], "fail_downstream"],
-    ["e_draft_review", "chapter_draft", "continuity_review", "contract.novel.chapter_draft", ["chapter_draft", "character_state_delta", "world_state_delta"], "fail_downstream"],
-    ["e_review_gate", "continuity_review", "revision_gate", "contract.novel.continuity_review", ["continuity_conflict", "evaluator_feedback", "revision_instruction"], "coordinator_decides"],
-    ["e_gate_memory", "revision_gate", "memory_publish", "contract.novel.continuity_review", ["accepted_refs", "decision_record", "retry_guidance"], "allow_partial"],
-    ["e_memory_final", "memory_publish", "final_assembly", "contract.novel.memory_promotion_batch", ["promotion_candidate", "task_durable_refs", "unresolved_conflict"], "coordinator_decides"],
-  ];
-  const edges = edgePairs.map(([edgeId, from, to, contractId, carryKinds, failurePolicy]) => ({
-    edge_id: edgeId,
-    from,
-    to,
-    source_node_id: from,
-    target_node_id: to,
-    edge_type: "handoff",
-    mode: "structured_handoff",
-    policy: "structured_handoff",
-    a2a_message_type: "message/send",
-    payload_contract_id: contractId,
-    wait_policy: "wait_all_upstream_completed",
-    ack_required: true,
-    ack_policy: "required_before_target_start",
-    failure_propagation_policy: String(failurePolicy),
-    result_delivery_policy: "contract_payload_and_refs",
-    timeout_policy: "fail_closed",
-    context_filter_policy: { include_raw_messages: false, include_private_memory: false, prefer_refs: true },
-    artifact_ref_policy: { include_artifact_refs: true, require_stable_refs_for_final: to === "final_assembly" },
-    communication_policy: {
-      sync_semantics: to === "memory_publish" ? "async_background_after_gate" : to === "final_assembly" ? "barrier_wait_for_stable_refs" : "sync_handoff_before_target_start",
-      payload_visibility: "contract_payload_and_refs",
-      ack_semantics: "target_must_ack_before_execution",
-      raw_message_forwarding: false,
-    },
-    failure_policy: {
-      duplicate_source_message_hash: "reuse_handoff_transaction",
-      contract_mismatch: "block_downstream_and_route_to_revision_gate",
-      missing_ack: "pause_target_and_alert",
-    },
-    working_memory_handoff_policy: {
-      carry_kinds: carryKinds,
-      carry_scopes: ["handoff_only", "graph_scope"],
-      working_memory_refs: [],
-      summary_only: true,
-      allow_artifact_refs: true,
-      prefer_accepted_items: true,
-      reject_unaccepted_facts: true,
-      quarantine_unaccepted_facts: true,
-    },
-  }));
-  const topology: TopologyDraft = {
-    ...emptyTopology(),
-    template_id: "topology.longform_novel.production_graph",
-    title: "长篇小说生产拓扑",
-    nodes,
-    edges,
-    enabled: true,
-    metadata: { managed_by: "task_package_wizard", task_family: domain.task_family, domain_id: domain.domain_id, package_template: "longform_novel_writing" },
-    nodes_text: JSON.stringify(nodes, null, 2),
-    edges_text: JSON.stringify(edges, null, 2),
-  };
-  const protocol: ProtocolDraft = {
-    ...emptyProtocol(),
-    protocol_id: "protocol.longform_novel.a2a_handoff",
-    title: "长篇小说 A2A 交接协议",
-    message_types: ["message/send"],
-    payload_contracts: contracts.map((item) => item.contract_id),
-    signal_rules: ["contract_payload_required", "working_memory_refs_are_refs_only"],
-    handoff_rules: ["no_raw_private_memory", "ack_required", "task_durable_only_after_review"],
-    enabled: true,
-    metadata: { managed_by: "task_package_wizard", task_family: domain.task_family, domain_id: domain.domain_id, a2a_protocol: "official", protocol_locked: true },
-    message_types_text: "message/send",
-    payload_contracts_text: contracts.map((item) => item.contract_id).join("\n"),
-    signal_rules_text: "contract_payload_required\nworking_memory_refs_are_refs_only",
-    handoff_rules_text: "no_raw_private_memory\nack_required\ntask_durable_only_after_review",
-  };
-  const coordination: CoordinationDraft = {
-    ...emptyCoordination(topology.template_id, protocol.protocol_id, domain.task_family, domain.domain_id),
-    coordination_task_id: "coord.longform_novel.core_production",
-    title: "长篇小说核心团队生产任务",
-    coordination_mode: "pipeline",
-    coordinator_agent_id: "agent:novel_showrunner",
-    agent_group_id: "group.longform_novel_core_team",
-    graph_nodes: nodes,
-    graph_edges: edges,
-    subtask_refs: [task.task_id],
-    communication_modes: ["structured_handoff", "review_feedback", "revision_gate"],
-    enabled: true,
-    metadata: { managed_by: "task_package_wizard", protocol_id: protocol.protocol_id, task_family: domain.task_family, domain_id: domain.domain_id, package_template: "longform_novel_writing" },
-    stop_conditions: ["final_manuscript_package_ready"],
-    stop_conditions_text: "final_manuscript_package_ready",
-  };
-  const graph: TaskGraphRecord = {
-    graph_id: "graph.longform_novel.core_production",
-    title: "长篇小说核心团队任务图",
-    domain_id: domain.domain_id,
-    task_family: domain.task_family,
-    graph_kind: "multi_agent",
-    entry_node_id: "input_brief",
-    output_node_id: "final_assembly",
-    nodes,
-    edges: edges.map((edge) => ({
-      edge_id: String(edge.edge_id),
-      source_node_id: String(edge.source_node_id),
-      target_node_id: String(edge.target_node_id),
-      edge_type: "handoff",
-      a2a_message_type: "message/send",
-      payload_contract_id: String(edge.payload_contract_id),
-      working_memory_handoff_policy: edge.working_memory_handoff_policy,
-      wait_policy: String(edge.wait_policy),
-      ack_required: Boolean(edge.ack_required),
-      ack_policy: String(edge.ack_policy),
-      failure_propagation_policy: String(edge.failure_propagation_policy),
-      result_delivery_policy: String(edge.result_delivery_policy),
-    })),
-    graph_contract_id: task.output_contract_id,
-    default_protocol_id: protocol.protocol_id,
-    runtime_policy: {
-      loop_kind: "iterative_graph",
-      iteration_unit: "chapter",
-      max_iterations: 120,
-      max_attempts_per_iteration: 3,
-      revise_until: "no_error_conflict",
-      memory_finalize_per_iteration: true,
-      task_durable_promotion_cadence: "revision_gate_accept",
-      chapter_loop: {
-        plan_node_id: "chapter_plan",
-        draft_node_id: "chapter_draft",
-        review_node_id: "continuity_review",
-        gate_node_id: "revision_gate",
-        memory_node_id: "memory_publish",
-        max_attempts_per_chapter: 3,
-        retry_on: ["contract_error", "continuity_conflict", "style_drift"],
-        manual_gate_on: ["blocking_conflict_repeated", "world_rule_retroactive_change", "user_goal_changed", "memory_promotion_ambiguous"],
-        skip_policy: "coordinator_decides",
-      },
-      checkpoint_policy: {
-        checkpoint_after_nodes: ["revision_gate", "memory_publish"],
-        resume_from: "latest_successful_checkpoint",
-        idempotency_keys: ["task_run_id", "graph_run_id", "chapter_index", "node_run_id", "run_attempt_id", "handoff_transaction_id", "source_message_hash", "artifact_ref"],
-      },
-      recovery_policy: {
-        duplicate_output: "reuse_existing_artifact_ref",
-        stale_handoff: "revalidate_contract_before_dispatch",
-        agent_timeout: "retry_once_then_manual_review",
-        background_failure: "mark_pending_review_and_continue",
-        abort_policy: "kill_background_runs_keep_pending_candidates",
-      },
-      memory_quarantine_policy: {
-        draft_kind: "draft_artifact",
-        accept_requires: ["continuity_review_passed", "revision_gate_accept"],
-        promotion_requires_human_review: true,
-        global_durable_write: "forbidden_without_manual_secondary_promotion",
-      },
-      finalization_policy: {
-        require_no_blocking_conflicts: true,
-        incomplete_package_on_blockers: true,
-        include_unresolved_conflicts: true,
-      },
-    },
-    context_policy: { sharing: "explicit_refs_only", raw_private_memory: false, unaccepted_facts: "ephemeral_only" },
-    publish_state: "draft",
-    enabled: true,
-    metadata: { managed_by: "task_package_wizard", coordination_task_id: coordination.coordination_task_id, package_template: "longform_novel_writing" },
-  };
-  const requiredAgents = [
-    {
-      agent_id: "agent:novel_showrunner",
-      title: "长篇小说总协调",
-      projection_id: "projection.longform_novel.showrunner",
-      output_contracts: ["contract.novel.project_brief", "contract.novel.project_plan"],
-      allowed_operations: ["op.model_response", "op.memory_read", "op.memory_write_candidate", "op.artifact_result_ref"],
-      allowed_memory_scopes: ["working_memory.task_read", "working_memory.graph_read_write", "task_durable.read_candidate"],
-      required_capabilities: ["coordination.decision_gate", "contract.validation", "runloop.chapter_control"],
-      forbidden_actions: ["write_global_durable", "direct_accept_chapter_draft_without_review"],
-    },
-    {
-      agent_id: "agent:novel_story_architect",
-      title: "故事架构师",
-      projection_id: "projection.longform_novel.story_architect",
-      output_contracts: ["contract.novel.volume_outline", "contract.novel.chapter_brief", "contract.novel.world_bible_delta", "contract.novel.character_delta"],
-      allowed_operations: ["op.model_response", "op.memory_read", "op.memory_write_candidate"],
-      allowed_memory_scopes: ["working_memory.task_read", "working_memory.graph_read_write", "task_durable.read_candidate"],
-      required_capabilities: ["story.planning", "world_bible.delta", "chapter_briefing"],
-      forbidden_actions: ["write_global_durable", "overwrite_accepted_fact_without_gate"],
-    },
-    {
-      agent_id: "agent:novel_chapter_writer",
-      title: "章节写作 Agent",
-      projection_id: "projection.longform_novel.chapter_writer",
-      output_contracts: ["contract.novel.chapter_draft"],
-      allowed_operations: ["op.model_response", "op.memory_read", "op.memory_write_candidate", "op.artifact_result_ref"],
-      allowed_memory_scopes: ["working_memory.handoff_read", "working_memory.node_write", "artifact.write_ref"],
-      required_capabilities: ["chapter.drafting", "revision.apply_instruction", "artifact.ref_output"],
-      forbidden_actions: ["accept_own_draft", "write_task_durable", "write_global_durable"],
-    },
-    {
-      agent_id: "agent:novel_continuity_editor",
-      title: "连续性审校 Agent",
-      projection_id: "projection.longform_novel.continuity_editor",
-      output_contracts: ["contract.novel.continuity_review"],
-      allowed_operations: ["op.model_response", "op.memory_read", "op.memory_write_candidate"],
-      allowed_memory_scopes: ["working_memory.task_read", "working_memory.graph_read_write", "working_memory.edge_write"],
-      required_capabilities: ["continuity.review", "conflict.detect", "revision.instruction"],
-      forbidden_actions: ["rewrite_chapter_text", "accept_memory_promotion", "write_global_durable"],
-    },
-    {
-      agent_id: "agent:novel_memory_publisher",
-      title: "记忆与交付管理 Agent",
-      projection_id: "projection.longform_novel.memory_publisher",
-      output_contracts: ["contract.novel.memory_promotion_batch", "contract.novel.final_manuscript_package"],
-      allowed_operations: ["op.model_response", "op.memory_read", "op.memory_write_candidate", "op.artifact_result_ref"],
-      allowed_memory_scopes: ["working_memory.accepted_read", "task_durable.write_candidate", "artifact.read_write_ref"],
-      required_capabilities: ["memory.promotion_batch", "task_durable.candidate_publish", "final.package_assembly"],
-      forbidden_actions: ["write_global_durable_without_manual_secondary_promotion", "promote_unaccepted_draft"],
-    },
-  ];
-  const requiredProjections = [
-    { projection_id: "projection.longform_novel.showrunner", agent_id: "agent:novel_showrunner", title: "长篇小说总协调" },
-    { projection_id: "projection.longform_novel.story_architect", agent_id: "agent:novel_story_architect", title: "故事架构师" },
-    { projection_id: "projection.longform_novel.chapter_writer", agent_id: "agent:novel_chapter_writer", title: "章节写作 Agent" },
-    { projection_id: "projection.longform_novel.continuity_editor", agent_id: "agent:novel_continuity_editor", title: "连续性审校 Agent" },
-    { projection_id: "projection.longform_novel.memory_publisher", agent_id: "agent:novel_memory_publisher", title: "记忆与交付管理 Agent" },
-  ];
-  return { domain, task, workflow, execution, memory, contracts, topology, protocol, coordination, graph, requiredAgents, requiredProjections };
-}
-
 function contractLabel(value: string, specs: ContractSpec[] = [], legacyContracts: TaskContractDescriptor[] = []) {
   const spec = specs.find((item) => item.contract_id === value);
   if (spec) return `${contractSpecTitle(spec)} · ${value}`;
   const contract = legacyContracts.find((item) => item.contract_id === value);
   return contract?.title || displayId(value);
+}
+
+function contractBelongsToDomain(spec: ContractSpec, domain: DomainRecord | null) {
+  if (!domain) return true;
+  const metadata = dictOf(spec.metadata);
+  const domainId = String(metadata.domain_id ?? "").trim();
+  const taskFamily = String(metadata.task_family ?? "").trim();
+  if (domainId || taskFamily) {
+    return domainId === domain.domain_id || taskFamily === domainIdToLegacyFamily(domain.domain_id);
+  }
+  const familyToken = domainIdToLegacyFamily(domain.domain_id).replace(/[^a-zA-Z0-9_]+/g, "_");
+  return Boolean(familyToken && spec.contract_id.includes(familyToken));
+}
+
+function scopedContractSpecs(contractSpecs: ContractSpec[], domain: DomainRecord | null) {
+  return contractSpecs.filter((spec) => contractBelongsToDomain(spec, domain));
 }
 
 function deriveTaskGraphSpec(
@@ -1420,24 +777,6 @@ function projectionLabel(value: string, cards: SoulProjectionCard[] = []) {
   return soul ? `${title} · ${soul}` : title;
 }
 
-function runtimeProfileHasAll(profile: Partial<OrchestrationAgentRuntimeProfile> | undefined, key: keyof OrchestrationAgentRuntimeProfile, expected: string[]) {
-  const raw = profile?.[key];
-  const values = Array.isArray(raw) ? new Set(raw.map(String)) : new Set<string>();
-  return expected.every((item) => values.has(item));
-}
-
-function packagePrerequisiteBadge(status: PackagePrerequisiteStatus) {
-  if (status === "ready") return "已就绪";
-  if (status === "partial") return "需补齐";
-  return "缺失";
-}
-
-function packagePrerequisiteClass(status: PackagePrerequisiteStatus) {
-  if (status === "ready") return "boundary-badge boundary-badge--ok";
-  if (status === "partial") return "boundary-badge boundary-badge--warn";
-  return "boundary-badge boundary-badge--danger";
-}
-
 function ProjectionSelectField({
   label,
   value,
@@ -1508,33 +847,44 @@ function buildDomains(consolePayload: TaskSystemOverview | null): DomainRecord[]
   const formalDomains = consolePayload?.task_management.task_domains ?? [];
   const grouped = new Map<string, SpecificTaskRecord[]>();
   for (const task of tasks) {
-    const key = task.task_family || "general";
-    grouped.set(key, [...(grouped.get(key) ?? []), task]);
+    const metadata = dictOf(task.metadata);
+    const domainId = String(metadata.domain_id ?? "").trim() || `domain.${task.task_family || "general"}`;
+    grouped.set(domainId, [...(grouped.get(domainId) ?? []), task]);
   }
-  const baseDomains = formalDomains.length
-    ? formalDomains
-    : Array.from(grouped.keys()).map((family, index) => ({
+  const baseDomains: Array<TaskDomainRecord & { metadata?: Record<string, unknown> }> = formalDomains.length
+    ? formalDomains.map((domain) => ({
+        ...domain,
+        metadata: {
+          ...(domain.metadata ?? {}),
+          task_family_legacy: String((domain as { task_family?: string }).task_family ?? "").trim(),
+        },
+      }))
+    : Array.from(grouped.keys()).map((domainId, index) => ({
         ...emptyTaskDomain(index),
-        domain_id: `domain.${family}`,
-        task_family: family,
-        title: domainTitle(family),
+        domain_id: domainId,
+        title: domainTitle(String(domainId).replace(/^domain\./, "")),
+        metadata: {
+          ...(emptyTaskDomain(index).metadata ?? {}),
+          task_family_legacy: domainIdToLegacyFamily(domainId),
+        },
       }));
-  if (!baseDomains.length) baseDomains.push({ ...emptyTaskDomain(), domain_id: "domain.general", task_family: "general", title: "通用任务域" });
+  if (!baseDomains.length) baseDomains.push({ ...emptyTaskDomain(), domain_id: "domain.general", title: "通用任务域" });
   return baseDomains
     .map((domain, index) => {
-      const family = domain.task_family || String(domain.domain_id || "").replace(/^domain\./, "") || "general";
-      const items = grouped.get(family) ?? [];
+      const domainId = domain.domain_id || "domain.general";
+      const family = String(domainId).replace(/^domain\./, "") || "general";
+      const items = grouped.get(domainId) ?? [];
       return {
-        domain_id: domain.domain_id || `domain.${family}`,
+        domain_id: domainId,
+        task_family: family,
+        task_modes: uniqueStrings(items.map((task) => task.task_mode)),
         title: domain.title || domainTitle(family),
         description: domain.description || "",
         enabled: domain.enabled ?? true,
         sort_order: domain.sort_order ?? index * 10,
         metadata: domain.metadata ?? {},
-        task_family: family,
-        task_modes: Array.from(new Set(items.map((item) => item.task_mode).filter(Boolean))),
         tasks: items,
-        entry_policy: entryPolicies.find((item) => String(item.metadata?.task_family ?? "").trim() === family) ?? entryPolicies[index] ?? entryPolicies[0] ?? null,
+        entry_policy: entryPolicies.find((item) => String(item.metadata?.domain_id ?? "").trim() === domainId) ?? entryPolicies[index] ?? entryPolicies[0] ?? null,
       };
     })
     .sort((a, b) => a.sort_order - b.sort_order || a.title.localeCompare(b.title));
@@ -1557,14 +907,34 @@ function familyFromTaskRef(taskId: unknown, tasks: SpecificTaskRecord[]) {
   return task?.task_family || familyFromRef(raw);
 }
 
-function coordinationFamily(task: CoordinationTask, tasks: SpecificTaskRecord[]) {
+function taskDomainId(task: SpecificTaskRecord) {
+  const metadata = dictOf(task.metadata);
+  return String(metadata.domain_id ?? "").trim() || `domain.${task.task_family || "general"}`;
+}
+
+function coordinationDomainId(task: GraphRuntimeDraft, tasks: SpecificTaskRecord[]) {
+  const metadata = dictOf(task.metadata);
+  const explicit = String(task.domain_id ?? "").trim() || String(metadata.domain_id ?? "").trim();
+  if (explicit) return explicit;
+  const taskId = String(metadata.task_id ?? "").trim();
+  const boundTask = tasks.find((item) => item.task_id === taskId);
+  if (boundTask) return taskDomainId(boundTask);
+  const fromSubtask = (task.subtask_refs ?? [])
+    .map((taskRef: string) => tasks.find((item) => item.task_id === String(taskRef).trim()))
+    .find(Boolean);
+  if (fromSubtask) return taskDomainId(fromSubtask);
+  const family = coordinationFamily(task, tasks);
+  return `domain.${family || "general"}`;
+}
+
+function coordinationFamily(task: GraphRuntimeDraft, tasks: SpecificTaskRecord[]) {
   const metadata = task.metadata ?? {};
   if (task.task_family) return task.task_family;
   if (task.domain_id?.startsWith("domain.")) return task.domain_id.replace("domain.", "");
   return (
     String(metadata.task_family ?? "").trim()
     || familyFromTaskRef(metadata.task_id, tasks)
-    || (task.subtask_refs ?? []).map((taskId) => familyFromTaskRef(taskId, tasks)).find(Boolean)
+    || (task.subtask_refs ?? []).map((taskId: string) => familyFromTaskRef(taskId, tasks)).find(Boolean)
     || familyFromRef(task.coordination_task_id)
     || familyFromRef(task.topology_template_id)
   );
@@ -1573,6 +943,11 @@ function coordinationFamily(task: CoordinationTask, tasks: SpecificTaskRecord[])
 function topologyFamily(template: TopologyTemplate) {
   const metadata = template.metadata ?? {};
   return String(metadata.task_family ?? "").trim() || familyFromRef(template.template_id);
+}
+
+function topologyDomainId(template: TopologyTemplate) {
+  const metadata = dictOf(template.metadata);
+  return String(metadata.domain_id ?? "").trim() || `domain.${topologyFamily(template) || "general"}`;
 }
 
 function protocolFamily(protocol: TaskCommunicationProtocol, tasks: SpecificTaskRecord[]) {
@@ -1584,9 +959,19 @@ function protocolFamily(protocol: TaskCommunicationProtocol, tasks: SpecificTask
   );
 }
 
+function protocolDomainId(protocol: TaskCommunicationProtocol, tasks: SpecificTaskRecord[]) {
+  const metadata = dictOf(protocol.metadata);
+  const explicit = String(metadata.domain_id ?? "").trim();
+  if (explicit) return explicit;
+  const taskId = String(metadata.task_id ?? "").trim();
+  const boundTask = tasks.find((item) => item.task_id === taskId);
+  if (boundTask) return taskDomainId(boundTask);
+  return `domain.${protocolFamily(protocol, tasks) || "general"}`;
+}
+
 function protocolForCoordination(
   protocols: TaskCommunicationProtocol[],
-  task: CoordinationTask | null,
+  task: GraphRuntimeDraft | null,
   fallbackProtocolId = "",
 ) {
   if (!task) return null;
@@ -1721,16 +1106,16 @@ export function TaskSystemView() {
   const { setTaskSelection, setWorkspaceView } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
-  const [orchestrationCatalog, setOrchestrationCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [selectedDomainId, setSelectedDomainId] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
-  const [selectedCoordinationId, setSelectedCoordinationId] = useState("");
+  const [selectedTaskGraphId, setSelectedTaskGraphId] = useState("");
+  const [editorDomainId, setEditorDomainId] = useState("");
   const [editorTaskId, setEditorTaskId] = useState("");
-  const [editorCoordinationId, setEditorCoordinationId] = useState("");
+  const [editorTaskGraphId, setEditorTaskGraphId] = useState("");
   const [taskLayer, setTaskLayer] = useState<TaskLayer>("management");
   const [editingDomainName, setEditingDomainName] = useState(false);
   const [selectedGraphNodeId, setSelectedGraphNodeId] = useState("");
@@ -1738,7 +1123,6 @@ export function TaskSystemView() {
   const [linkingFromNodeId, setLinkingFromNodeId] = useState("");
   const [taskConfigPanel, setTaskConfigPanel] = useState<TaskConfigPanel>("definition");
   const [contractPanel, setContractPanel] = useState<ContractPanel>("library");
-  const [packagePanel, setPackagePanel] = useState<PackagePanel>("templates");
 
   const [entryDraft, setEntryDraft] = useState<ConversationEntryPolicy>(emptyEntryPolicy());
   const [domainDraft, setDomainDraft] = useState<TaskDomainRecord>(emptyTaskDomain());
@@ -1749,33 +1133,32 @@ export function TaskSystemView() {
   const [executionDraft, setExecutionDraft] = useState<TaskExecutionPolicy>(emptyExecutionPolicy());
   const [memoryDraft, setMemoryDraft] = useState<TaskMemoryRequestProfile>(emptyMemoryProfile());
   const [taskPolicyText, setTaskPolicyText] = useState("{}");
+  const [artifactPolicyDraft, setArtifactPolicyDraft] = useState<ArtifactPolicyDraft>(defaultArtifactPolicyDraft());
   const [coordinationDraft, setCoordinationDraft] = useState<CoordinationDraft>(emptyCoordination());
   const [topologyDraft, setTopologyDraft] = useState<TopologyDraft>(emptyTopology());
   const [protocolDraft, setProtocolDraft] = useState<ProtocolDraft>(emptyProtocol());
-  const [packageSteps, setPackageSteps] = useState<PackageSaveStep[]>([]);
-  const longformNovelPackage = useMemo(() => buildLongformNovelPackage(), []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [overview, projections, orchestration] = await Promise.all([
+      const [overview, projections] = await Promise.all([
         getTaskSystemOverview(),
         getSoulProjectionCards().catch(() => null),
-        getOrchestrationAgents().catch(() => null),
       ]);
       setConsolePayload(overview);
       setProjectionCatalog(projections);
-      setOrchestrationCatalog(orchestration);
       const nextDomains = buildDomains(overview);
       const defaultDomain = nextDomains.find((item) => item.tasks.length > 0) ?? nextDomains[0];
       const preferredDomain = selectedDomainId || defaultDomain?.domain_id || "";
       const selectedDomain = nextDomains.find((item) => item.domain_id === preferredDomain) ?? defaultDomain;
+      const taskGraphs = overview.task_graph_management?.task_graphs ?? overview.coordination_management.task_graphs ?? [];
       setSelectedDomainId(selectedDomain?.domain_id ?? "");
       setSelectedTaskId((current) => current || selectedDomain?.tasks[0]?.task_id || overview.task_management.specific_task_records[0]?.task_id || "");
-      setSelectedCoordinationId((current) => current || overview.coordination_management.coordination_tasks[0]?.coordination_task_id || "");
+      setEditorDomainId((current) => current || selectedDomain?.domain_id || "");
+      setSelectedTaskGraphId((current) => current || taskGraphs[0]?.graph_id || "");
       setEditorTaskId((current) => current && overview.task_management.specific_task_records.some((task) => task.task_id === current) ? current : "");
-      setEditorCoordinationId((current) => current && overview.coordination_management.coordination_tasks.some((task) => task.coordination_task_id === current) ? current : "");
+      setEditorTaskGraphId((current) => current && taskGraphs.some((graph) => graph.graph_id === current) ? current : "");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "任务系统加载失败");
     } finally {
@@ -1790,25 +1173,36 @@ export function TaskSystemView() {
 
   const domains = useMemo(() => buildDomains(consolePayload), [consolePayload]);
   const visibleDomains = useMemo(() => {
-    if (!selectedDomainId || domains.some((item) => item.domain_id === selectedDomainId) || !domainDraft.domain_id) {
-      return domains;
+    const draftTaskMissing = taskDraft.task_id
+      && taskDomainId(taskDraft)
+      && !domains.some((domain) => domain.tasks.some((task) => task.task_id === taskDraft.task_id));
+    const nextDomains = domains.map((domain) => {
+      if (!draftTaskMissing || domain.domain_id !== taskDomainId(taskDraft)) return domain;
+      return {
+        ...domain,
+        tasks: [...domain.tasks, taskDraft],
+      };
+    });
+    const hasSelectedDomain = nextDomains.some((item) => item.domain_id === selectedDomainId);
+    if (!selectedDomainId || hasSelectedDomain || !domainDraft.domain_id) {
+      return nextDomains;
     }
     return [
-      ...domains,
+      ...nextDomains,
       {
         domain_id: domainDraft.domain_id,
+        task_family: domainIdToLegacyFamily(domainDraft.domain_id),
+        task_modes: draftTaskMissing && taskDomainId(taskDraft) === domainDraft.domain_id ? uniqueStrings([taskDraft.task_mode]) : [],
         title: domainDraft.title,
         description: domainDraft.description,
         enabled: domainDraft.enabled,
         sort_order: domainDraft.sort_order,
         metadata: domainDraft.metadata ?? {},
-        task_family: domainDraft.task_family,
-        task_modes: [],
-        tasks: [],
+        tasks: draftTaskMissing && taskDomainId(taskDraft) === domainDraft.domain_id ? [taskDraft] : [],
         entry_policy: null,
       },
     ].sort((a, b) => a.sort_order - b.sort_order || a.title.localeCompare(b.title));
-  }, [domainDraft, domains, selectedDomainId]);
+  }, [domainDraft, domains, selectedDomainId, taskDraft]);
   const selectedDomain = visibleDomains.find((item) => item.domain_id === selectedDomainId) ?? visibleDomains[0] ?? null;
   const tasks = useMemo(() => consolePayload?.task_management.specific_task_records ?? [], [consolePayload]);
   const workflows = useMemo(() => consolePayload?.task_management.workflow_resources ?? [], [consolePayload]);
@@ -1819,114 +1213,76 @@ export function TaskSystemView() {
   const selectedDomainTasks = useMemo(() => selectedDomain?.tasks ?? [], [selectedDomain]);
   const selectedTask = selectedDomainTasks.find((item) => item.task_id === selectedTaskId) ?? selectedDomainTasks[0] ?? null;
   const selectedTaskDomain = selectedDomain;
+  const domainContractSpecs = useMemo(() => scopedContractSpecs(contractSpecs, selectedDomain), [contractSpecs, selectedDomain]);
   const projectionBinding = (consolePayload?.task_management.projection_bindings ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const flowBinding = (consolePayload?.task_management.flow_contract_bindings ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const executionPolicy = (consolePayload?.task_management.execution_policies ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const memoryProfile = (consolePayload?.task_management.memory_request_profiles ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const selectedWorkflow = workflows.find((item) => item.workflow_id === selectedTask?.default_workflow_id);
-  const allCoordinationTasks = useMemo(() => consolePayload?.coordination_management.coordination_tasks ?? [], [consolePayload]);
+  const allTaskGraphs = useMemo(() => consolePayload?.task_graph_management?.task_graphs ?? consolePayload?.coordination_management.task_graphs ?? [], [consolePayload]);
   const allCoordinationGraphSpecs = useMemo(() => consolePayload?.coordination_management.coordination_graph_specs ?? [], [consolePayload]);
   const allTopologyTemplates = useMemo(() => consolePayload?.coordination_management.topology_templates ?? [], [consolePayload]);
   const allCommunicationProtocols = useMemo(() => consolePayload?.coordination_management.communication_protocols ?? [], [consolePayload]);
   const a2aCatalog = consolePayload?.coordination_management.a2a ?? null;
-  const activeFamily = selectedDomain?.task_family || "";
-  const coordinationTasks = useMemo(
-    () => allCoordinationTasks.filter((item) => coordinationFamily(item, tasks) === activeFamily),
-    [activeFamily, allCoordinationTasks, tasks],
+  const activeDomainId = selectedDomain?.domain_id || "";
+  const taskGraphs = useMemo(
+    () => activeDomainId ? allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === activeDomainId) : [],
+    [activeDomainId, allTaskGraphs],
   );
   const topologyTemplates = useMemo(
-    () => allTopologyTemplates.filter((item) => topologyFamily(item) === activeFamily),
-    [activeFamily, allTopologyTemplates],
+    () => activeDomainId ? allTopologyTemplates.filter((item) => topologyDomainId(item) === activeDomainId) : [],
+    [activeDomainId, allTopologyTemplates],
   );
   const communicationProtocols = useMemo(
-    () => allCommunicationProtocols.filter((item) => protocolFamily(item, tasks) === activeFamily),
-    [activeFamily, allCommunicationProtocols, tasks],
+    () => activeDomainId ? allCommunicationProtocols.filter((item) => protocolDomainId(item, tasks) === activeDomainId) : [],
+    [activeDomainId, allCommunicationProtocols, tasks],
   );
-  const selectedCoordination = coordinationTasks.find((item) => item.coordination_task_id === selectedCoordinationId) ?? coordinationTasks[0] ?? null;
-  const editorTask = tasks.find((item) => item.task_id === editorTaskId) ?? null;
-  const editorDomain = visibleDomains.find((domain) => domain.tasks.some((task) => task.task_id === editorTaskId)) ?? null;
-  const editorFamily = editorTask?.task_family || editorDomain?.task_family || "";
-  const editorDomainTasks = useMemo(() => editorDomain?.tasks ?? [], [editorDomain]);
-  const editorCoordinationTasks = useMemo(
-    () => editorFamily ? allCoordinationTasks.filter((item) => coordinationFamily(item, tasks) === editorFamily) : [],
-    [allCoordinationTasks, editorFamily, tasks],
+  const selectedTaskGraph = taskGraphs.find((item) => item.graph_id === selectedTaskGraphId) ?? taskGraphs[0] ?? null;
+  const editorDomain = visibleDomains.find((domain) => domain.domain_id === editorDomainId) ?? visibleDomains[0] ?? null;
+  const editorDomainTaskList = useMemo(() => editorDomain?.tasks ?? [], [editorDomain]);
+  const editorTask = editorDomainTaskList.find((item) => item.task_id === editorTaskId) ?? editorDomainTaskList[0] ?? null;
+  const editorDomainFilterId = editorDomain?.domain_id || (editorTask ? taskDomainId(editorTask) : "");
+  const editorDomainTasks = editorDomainTaskList;
+  const editorContractSpecs = useMemo(() => scopedContractSpecs(contractSpecs, editorDomain), [contractSpecs, editorDomain]);
+  const editorTaskGraphs = useMemo(
+    () => editorDomainFilterId ? allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === editorDomainFilterId) : [],
+    [allTaskGraphs, editorDomainFilterId],
   );
   const editorTopologyTemplates = useMemo(
-    () => editorFamily ? allTopologyTemplates.filter((item) => topologyFamily(item) === editorFamily) : [],
-    [allTopologyTemplates, editorFamily],
+    () => editorDomainFilterId ? allTopologyTemplates.filter((item) => topologyDomainId(item) === editorDomainFilterId) : [],
+    [allTopologyTemplates, editorDomainFilterId],
   );
   const editorCommunicationProtocols = useMemo(
-    () => editorFamily ? allCommunicationProtocols.filter((item) => protocolFamily(item, tasks) === editorFamily) : [],
-    [allCommunicationProtocols, editorFamily, tasks],
+    () => editorDomainFilterId ? allCommunicationProtocols.filter((item) => protocolDomainId(item, tasks) === editorDomainFilterId) : [],
+    [allCommunicationProtocols, editorDomainFilterId, tasks],
   );
-  const editorSelectedCoordination = editorCoordinationTasks.find((item) => item.coordination_task_id === editorCoordinationId) ?? null;
-  const activeCoordination = taskLayer === "editor" ? editorSelectedCoordination : selectedCoordination;
-  const activeCoordinationGraphSpec = allCoordinationGraphSpecs.find((item) => item.coordination_task_id === activeCoordination?.coordination_task_id) ?? null;
-  const activeTopology = (taskLayer === "editor" ? editorTopologyTemplates : topologyTemplates).find((item) => item.template_id === activeCoordination?.topology_template_id);
-  const activeProtocol = protocolForCoordination(taskLayer === "editor" ? editorCommunicationProtocols : communicationProtocols, activeCoordination, "");
-  const taskModeOptions = useMemo(() => uniqueStrings(tasks.map((item) => item.task_mode)), [tasks]);
+  const editorSelectedTaskGraph = editorTaskGraphs.find((item) => item.graph_id === editorTaskGraphId) ?? null;
+  const activeTaskGraph = taskLayer === "editor" ? editorSelectedTaskGraph : selectedTaskGraph;
+  const activeCoordinationGraphSpec = allCoordinationGraphSpecs.find((item) => item.graph_id === activeTaskGraph?.graph_id) ?? null;
+  const activeTopology = (taskLayer === "editor" ? editorTopologyTemplates : topologyTemplates).find((item) => item.template_id === String(activeTaskGraph?.metadata?.topology_template_id ?? ""));
+  const activeProtocol = (taskLayer === "editor" ? editorCommunicationProtocols : communicationProtocols).find((item) => item.protocol_id === String(activeTaskGraph?.default_protocol_id ?? activeTaskGraph?.metadata?.protocol_id ?? ""));
   const workflowOptions = useMemo(() => uniqueStrings(workflows.map((item) => item.workflow_id)), [workflows]);
   const commonContractOptions = useMemo(
-    () => uniqueStrings([...COMMON_CONTRACT_CHOICES, ...contractCatalog.map((item) => item.contract_id), ...contractSpecs.map((item) => item.contract_id)]),
-    [contractCatalog, contractSpecs],
+    () => uniqueStrings([...COMMON_CONTRACT_CHOICES, ...contractCatalog.map((item) => item.contract_id), ...domainContractSpecs.map((item) => item.contract_id)]),
+    [contractCatalog, domainContractSpecs],
   );
   const editorAgentGroupOptions = useMemo(
-    () => uniqueStrings(editorCoordinationTasks.map((item) => item.agent_group_id)),
-    [editorCoordinationTasks],
+    () => uniqueStrings(editorTaskGraphs.map((item) => String(item.runtime_policy?.agent_group_id ?? item.metadata?.agent_group_id ?? ""))),
+    [editorTaskGraphs],
   );
   const editorDomainTaskOptions = useMemo(
     () => editorDomainTasks.map((task) => ({ value: task.task_id, label: task.task_title })),
     [editorDomainTasks],
   );
   const projectionCards = useMemo(() => projectionCatalog?.cards ?? [], [projectionCatalog]);
-  const orchestrationAgents = useMemo(() => orchestrationCatalog?.agents ?? [], [orchestrationCatalog]);
-  const orchestrationProfiles = useMemo(() => orchestrationCatalog?.profiles ?? [], [orchestrationCatalog]);
-  const orchestrationGroups = useMemo(() => orchestrationCatalog?.agent_groups ?? [], [orchestrationCatalog]);
-  const longformProjectionStatuses = useMemo(() => longformNovelPackage.requiredProjections.map((projection) => {
-    const card = projectionCards.find((item) => item.projection_id === projection.projection_id);
-    const content = [
-      card?.identity_anchor,
-      card?.projection_prompt,
-      ...(card?.projection_nodes ?? []).map((node) => String(node.content ?? "")),
-    ].join("\n").trim();
-    const status: PackagePrerequisiteStatus = card ? (content ? "ready" : "partial") : "missing";
-    return { ...projection, status, detail: card ? (content ? "身份锚点已写入" : "投影存在但身份锚点为空") : "需要在投影系统创建" };
-  }), [longformNovelPackage.requiredProjections, projectionCards]);
-  const longformAgentStatuses = useMemo(() => longformNovelPackage.requiredAgents.map((agent) => {
-    const descriptor = orchestrationAgents.find((item) => String(item.agent_id ?? "") === agent.agent_id);
-    const profile = orchestrationProfiles.find((item) => item.agent_profile_id === agent.agent_id || item.agent_id === agent.agent_id) ?? descriptor?.runtime_profile;
-    const projectionOk = String(descriptor?.default_projection_id ?? "") === agent.projection_id;
-    const contractsOk = runtimeProfileHasAll(profile, "output_contracts", agent.output_contracts);
-    const operationsOk = runtimeProfileHasAll(profile, "allowed_operations", agent.allowed_operations);
-    const memoryOk = runtimeProfileHasAll(profile, "allowed_memory_scopes", agent.allowed_memory_scopes);
-    const status: PackagePrerequisiteStatus = descriptor && projectionOk && contractsOk && operationsOk && memoryOk ? "ready" : descriptor ? "partial" : "missing";
-    const missing = [
-      projectionOk ? "" : "投影绑定",
-      contractsOk ? "" : "输出契约",
-      operationsOk ? "" : "操作权限",
-      memoryOk ? "" : "记忆范围",
-    ].filter(Boolean).join("、");
-    return { ...agent, status, detail: descriptor ? (missing || "RuntimeProfile 已对齐") : "需要在编排系统创建 Agent" };
-  }), [longformNovelPackage.requiredAgents, orchestrationAgents, orchestrationProfiles]);
-  const longformGroupStatus = useMemo(() => {
-    const group = orchestrationGroups.find((item) => item.group_id === "group.longform_novel_core_team");
-    if (!group) return { status: "missing" as PackagePrerequisiteStatus, detail: "需要在编排系统创建 AgentGroup" };
-    const memberSet = new Set(group.member_agent_ids ?? []);
-    const membersOk = longformNovelPackage.requiredAgents.slice(1).every((agent) => memberSet.has(agent.agent_id));
-    const coordinatorOk = group.coordinator_agent_id === longformNovelPackage.requiredAgents[0]?.agent_id;
-    return {
-      status: coordinatorOk && membersOk ? "ready" as PackagePrerequisiteStatus : "partial" as PackagePrerequisiteStatus,
-      detail: coordinatorOk && membersOk ? "核心团队成员已对齐" : "协调者或成员列表需补齐",
-    };
-  }, [longformNovelPackage.requiredAgents, orchestrationGroups]);
-  const longformPrerequisiteReadyCount = [
-    ...longformProjectionStatuses,
-    ...longformAgentStatuses,
-    longformGroupStatus,
-  ].filter((item) => item.status === "ready").length;
-  const longformPrerequisiteTotal = longformProjectionStatuses.length + longformAgentStatuses.length + 1;
+  const domainProjectionCards = useMemo(() => projectionCards.filter((card) => {
+    if (!selectedDomain) return true;
+    const haystack = `${String(card.projection_id ?? "")} ${String(card.soul_id ?? "")} ${String(card.soul_name ?? "")}`.toLowerCase();
+    const domainToken = selectedDomain.domain_id.replace(/^domain\./, "").toLowerCase();
+    return haystack.includes(domainToken) || haystack.includes(selectedDomain.title.toLowerCase());
+  }), [projectionCards, selectedDomain]);
   const contractViews = useMemo<ContractView[]>(() => (
-    contractSpecs.map((contract) => ({
+    domainContractSpecs.map((contract) => ({
       key: `${contract.contract_kind}:${contract.contract_id}`,
       title: contractSpecTitle(contract),
       kind: CONTRACT_KIND_LABELS[contract.contract_kind] || contract.contract_kind,
@@ -1934,7 +1290,7 @@ export function TaskSystemView() {
       source: contract.metadata?.default_seed ? "内置通用契约" : "用户契约库",
       raw: contract.contract_id,
     }))
-  ), [contractSpecs]);
+  ), [domainContractSpecs]);
 
   const sendTaskToChat = useCallback((task: SpecificTaskRecord | null, domain: DomainRecord | null) => {
     if (!task) return;
@@ -1948,18 +1304,18 @@ export function TaskSystemView() {
     setNotice(`已将特定任务“${task.task_title}”带入主会话。`);
   }, [setTaskSelection, setWorkspaceView]);
 
-  const sendCoordinationToChat = useCallback((task: CoordinationTask | null, domain: DomainRecord | null) => {
-    if (!task) return;
-    const subtaskId = coordinationSubtaskRefs(task)[0] || "";
+  const sendTaskGraphToChat = useCallback((graph: TaskGraphRecord | null, domain: DomainRecord | null) => {
+    if (!graph) return;
+    const metadata = dictOf(graph.metadata);
+    const subtaskId = String(metadata.task_id ?? "").trim();
     setTaskSelection({
       selected_task_id: subtaskId,
-      coordination_task_id: task.coordination_task_id,
-      domain_id: domain?.domain_id || task.domain_id || "",
-      label: task.title,
-      mode: "coordination",
+      domain_id: domain?.domain_id || graph.domain_id || "",
+      label: graph.title,
+      mode: "single_task",
     });
     setWorkspaceView("chat");
-    setNotice(`已将协调任务“${task.title}”带入主会话。`);
+    setNotice(`已将任务图“${graph.title}”带入主会话。`);
   }, [setTaskSelection, setWorkspaceView]);
   useEffect(() => {
     if (!selectedDomain) return;
@@ -1980,28 +1336,46 @@ export function TaskSystemView() {
     if (!selectedDomain.tasks.some((item) => item.task_id === selectedTaskId)) {
       setSelectedTaskId(selectedDomain.tasks[0]?.task_id || "");
     }
-  }, [selectedDomain, selectedTaskId]);
+    setDomainDraft({
+      domain_id: selectedDomain.domain_id,
+      task_family: selectedDomain.task_family,
+      title: selectedDomain.title,
+      description: selectedDomain.description,
+      enabled: selectedDomain.enabled,
+      sort_order: selectedDomain.sort_order,
+      metadata: selectedDomain.metadata ?? {},
+    });
+    setEntryDraft(selectedDomain.entry_policy ?? emptyEntryPolicy(workflows[0]?.workflow_id ?? "", ""));
+  }, [selectedDomain, selectedTaskId, workflows]);
 
   useEffect(() => {
-    if (!coordinationTasks.some((item) => item.coordination_task_id === selectedCoordinationId)) {
-      setSelectedCoordinationId(coordinationTasks[0]?.coordination_task_id || "");
+    if (!taskGraphs.some((item) => item.graph_id === selectedTaskGraphId)) {
+      setSelectedTaskGraphId(taskGraphs[0]?.graph_id || "");
     }
-  }, [coordinationTasks, selectedCoordinationId]);
+  }, [taskGraphs, selectedTaskGraphId]);
 
   useEffect(() => {
     if (!editorTaskId) {
-      if (editorCoordinationId) setEditorCoordinationId("");
+      if (editorTaskGraphId) setEditorTaskGraphId("");
       return;
     }
-    if (!editorCoordinationTasks.some((item) => item.coordination_task_id === editorCoordinationId)) {
-      setEditorCoordinationId(editorCoordinationTasks[0]?.coordination_task_id || "");
+    if (!editorTaskGraphs.some((item) => item.graph_id === editorTaskGraphId)) {
+      setEditorTaskGraphId(editorTaskGraphs[0]?.graph_id || "");
     }
-  }, [editorCoordinationId, editorCoordinationTasks, editorTaskId]);
+  }, [editorTaskGraphId, editorTaskGraphs, editorTaskId]);
+
+  useEffect(() => {
+    if (!editorDomain) return;
+    if (!editorTaskId || !editorDomain.tasks.some((task) => task.task_id === editorTaskId)) {
+      setEditorTaskId(editorDomain.tasks[0]?.task_id || "");
+    }
+  }, [editorDomain, editorTaskId]);
 
   useEffect(() => {
     if (!selectedTask) return;
     setTaskDraft({ ...selectedTask, metadata: selectedTask.metadata ?? {}, task_policy: selectedTask.task_policy ?? {} });
     setTaskPolicyText(JSON.stringify(selectedTask.task_policy ?? {}, null, 2));
+    setArtifactPolicyDraft(artifactPolicyDraftFrom(selectedTask.task_policy ?? {}));
     setWorkflowDraft(workflowDraftFrom(selectedWorkflow, selectedTask.task_mode));
     setProjectionDraft(projectionBinding ?? emptyProjectionBinding(selectedTask.task_id, ""));
     setFlowDraft(flowBinding ?? emptyFlowBinding(selectedTask.task_id, selectedTask.default_flow_contract_id));
@@ -2010,10 +1384,39 @@ export function TaskSystemView() {
   }, [selectedTask, selectedWorkflow, projectionBinding, flowBinding, executionPolicy, memoryProfile]);
 
   useEffect(() => {
-    setCoordinationDraft(coordinationDraftFrom(activeCoordination));
+    if (!activeTaskGraph) {
+      setCoordinationDraft(coordinationDraftFrom(null));
+      setTopologyDraft(topologyDraftFrom(null));
+      setProtocolDraft(protocolDraftFrom(null));
+      return;
+    }
+    const graphDraft = taskGraphRecordToDraft(activeTaskGraph, topologyDraftFrom(activeTopology), protocolDraftFrom(activeProtocol));
+    setCoordinationDraft(coordinationDraftFrom({
+      ...coordinationDraft,
+      graph_id: graphDraft.graph_id,
+      title: graphDraft.title,
+      graph_kind: graphDraft.graph_kind,
+      domain_id: graphDraft.domain_id,
+      topology_template_id: graphDraft.topology_template_id,
+      protocol_id: graphDraft.protocol_id,
+      agent_group_id: graphDraft.agent_group_id,
+      coordination_mode: graphDraft.coordination_mode,
+      graph_nodes: graphDraft.nodes,
+      graph_edges: graphDraft.edges,
+      communication_modes: graphDraft.communication_modes,
+      enabled: graphDraft.publish_state === "published",
+      metadata: graphDraft.metadata,
+      stop_conditions: [],
+      task_family: domainIdToLegacyFamily(graphDraft.domain_id, ""),
+      shared_context_policy: String(activeTaskGraph.context_policy?.shared_context_policy ?? "explicit_refs_only"),
+      memory_sharing_policy: String(activeTaskGraph.context_policy?.memory_sharing_policy ?? "isolated_by_default"),
+      handoff_policy: String(activeTaskGraph.metadata?.handoff_policy ?? "filtered_handoff"),
+      conflict_resolution_policy: String(activeTaskGraph.metadata?.conflict_resolution_policy ?? "coordinator_review"),
+      output_merge_policy: String(activeTaskGraph.metadata?.output_merge_policy ?? "coordinator_final_merge"),
+    }));
     const nextTopology = topologyDraftFrom(activeTopology);
-    const nextNodes = activeCoordination?.graph_nodes?.length ? activeCoordination.graph_nodes : (nextTopology.nodes ?? []);
-    const nextEdges = activeCoordination?.graph_edges?.length ? activeCoordination.graph_edges : (nextTopology.edges ?? []);
+    const nextNodes = activeTaskGraph.nodes?.length ? activeTaskGraph.nodes : (nextTopology.nodes ?? []);
+    const nextEdges = activeTaskGraph.edges?.length ? activeTaskGraph.edges : (nextTopology.edges ?? []);
     setTopologyDraft({
       ...nextTopology,
       nodes: nextNodes,
@@ -2022,10 +1425,10 @@ export function TaskSystemView() {
       edges_text: JSON.stringify(nextEdges, null, 2),
     });
     setProtocolDraft(protocolDraftFrom(activeProtocol));
-    setSelectedGraphNodeId(String((activeCoordination?.graph_nodes ?? [])[0]?.node_id ?? ""));
+    setSelectedGraphNodeId(String((activeTaskGraph.nodes ?? [])[0]?.node_id ?? ""));
     setSelectedGraphEdgeId("");
     setLinkingFromNodeId("");
-  }, [activeCoordination, activeTopology, activeProtocol]);
+  }, [activeProtocol, activeTaskGraph, activeTopology]);
 
   async function createTaskDraft() {
     setSaving("task-create");
@@ -2034,17 +1437,24 @@ export function TaskSystemView() {
     try {
       const ids = await getTaskSystemNextIds();
       const nextTask = emptySpecificTaskRecord(ids.workflow_id, ids.flow_id);
+      const selectedDomainId = selectedDomain?.domain_id || "domain.general";
+      const legacyFamily = domainIdToLegacyFamily(selectedDomainId);
       nextTask.task_id = ids.task_id;
-      nextTask.task_family = selectedDomain?.task_family || nextTask.task_family;
-      nextTask.task_mode = selectedDomain?.task_modes[0] || nextTask.task_mode;
+      nextTask.task_family = legacyFamily;
+      nextTask.task_mode = nextTask.task_mode || `${legacyFamily}_task`;
       nextTask.task_title = `${ids.display_numbers.task} 特定任务`;
       nextTask.default_flow_contract_id = ids.flow_id;
       nextTask.default_workflow_id = ids.workflow_id;
+      nextTask.metadata = {
+        ...(nextTask.metadata ?? {}),
+        domain_id: selectedDomainId,
+      };
       setSelectedTaskId(nextTask.task_id);
       setTaskLayer("management");
       setTaskConfigPanel("definition");
       setTaskDraft(nextTask);
       setTaskPolicyText(JSON.stringify(nextTask.task_policy, null, 2));
+      setArtifactPolicyDraft(artifactPolicyDraftFrom(nextTask.task_policy));
       setWorkflowDraft({ ...emptyWorkflow(nextTask.task_mode), workflow_id: ids.workflow_id, title: `${ids.display_numbers.workflow} Workflow` });
       setProjectionDraft(emptyProjectionBinding(nextTask.task_id, ""));
       setFlowDraft(emptyFlowBinding(nextTask.task_id, ids.flow_id));
@@ -2062,7 +1472,6 @@ export function TaskSystemView() {
     const index = visibleDomains.length + 1;
     const draft = emptyTaskDomain(index);
     draft.domain_id = `domain.custom_${index}`;
-    draft.task_family = `custom_${index}`;
     draft.title = `新任务域 ${index}`;
     draft.metadata = { ...(draft.metadata ?? {}), draft_identity_locked: true };
     setDomainDraft(draft);
@@ -2075,138 +1484,6 @@ export function TaskSystemView() {
 
   function updateDomainTitle(title: string) {
     setDomainDraft((value) => ({ ...value, title }));
-  }
-
-  function previewLongformNovelPackage() {
-    const pack = longformNovelPackage;
-    setDomainDraft(pack.domain);
-    setTaskDraft(pack.task);
-    setTaskPolicyText(JSON.stringify(pack.task.task_policy, null, 2));
-    setWorkflowDraft(pack.workflow);
-    setProjectionDraft(emptyProjectionBinding(pack.task.task_id, ""));
-    setFlowDraft(emptyFlowBinding(pack.task.task_id, pack.task.default_flow_contract_id));
-    setExecutionDraft(pack.execution);
-    setMemoryDraft(pack.memory);
-    setCoordinationDraft(pack.coordination);
-    setTopologyDraft(pack.topology);
-    setProtocolDraft(pack.protocol);
-    setSelectedDomainId(pack.domain.domain_id);
-    setSelectedTaskId(pack.task.task_id);
-    setSelectedCoordinationId(pack.coordination.coordination_task_id);
-    setSelectedGraphNodeId("input_brief");
-    setSelectedGraphEdgeId("");
-    setTaskLayer("management");
-    setTaskConfigPanel("package");
-    setPackagePanel("draft");
-    setNotice("已生成长篇小说任务包草案。Agent 和 AgentGroup 仍需在编排系统前端配置。");
-  }
-
-  async function saveLongformNovelPackage() {
-    const pack = longformNovelPackage;
-    const domainPayload = { ...pack.domain, ...domainDraft };
-    const taskPayload = { ...pack.task, ...taskDraft, task_policy: taskPolicyObject };
-    const workflowPayload = { ...pack.workflow, ...workflowDraft };
-    const executionPayload = { ...pack.execution, ...executionDraft };
-    const memoryPayload = { ...pack.memory, ...memoryDraft };
-  const protocolPayload = { ...pack.protocol, ...protocolDraft };
-  const topologyPayload = { ...pack.topology, ...topologyDraft };
-  const coordinationPayload = { ...pack.coordination, ...coordinationDraft };
-  const projectionPayload = {
-    ...emptyProjectionBinding(taskPayload.task_id, pack.requiredProjections[0]?.projection_id || ""),
-    task_id: taskPayload.task_id,
-    projection_selection_mode: "task_graph_agent_projection",
-    allowed_projection_ids: pack.requiredProjections.map((item) => item.projection_id),
-    default_projection_id: pack.requiredProjections[0]?.projection_id || "",
-    projection_required: true,
-    notes: "长篇小说任务使用任务图节点 Agent 的专属投影；具体 prompt 在投影卡身份锚点中维护。",
-    metadata: { task_family: domainPayload.task_family, managed_by: "task_package_wizard", package_template: "longform_novel_writing" },
-  };
-  const graphPayload = {
-    ...pack.graph,
-    domain_id: domainPayload.domain_id,
-    task_family: domainPayload.task_family,
-    nodes: topologyPayload.nodes,
-    edges: topologyPayload.edges,
-    default_protocol_id: protocolPayload.protocol_id,
-      metadata: {
-        ...dictOf(pack.graph.metadata),
-        coordination_task_id: coordinationPayload.coordination_task_id,
-        package_template: "longform_novel_writing",
-      },
-    };
-    const steps: PackageSaveStep[] = [
-      { id: "domain", label: "任务域", status: "pending", detail: domainPayload.domain_id },
-      { id: "contracts", label: "ContractSpec 批量契约", status: "pending", detail: `${pack.contracts.length} 个契约` },
-      { id: "workflow", label: "Workflow", status: "pending", detail: workflowPayload.workflow_id },
-      { id: "task", label: "SpecificTask", status: "pending", detail: taskPayload.task_id },
-      { id: "projection", label: "投影绑定", status: "pending", detail: `${projectionPayload.allowed_projection_ids.length} 个专属投影` },
-      { id: "execution", label: "执行策略", status: "pending", detail: taskPayload.task_id },
-      { id: "memory", label: "记忆请求策略", status: "pending", detail: memoryPayload.working_memory_policy_profile_id || taskPayload.task_id },
-      { id: "protocol", label: "A2A 通信协议", status: "pending", detail: protocolPayload.protocol_id },
-      { id: "topology", label: "拓扑模板", status: "pending", detail: topologyPayload.template_id },
-      { id: "coordination", label: "协调任务", status: "pending", detail: coordinationPayload.coordination_task_id },
-      { id: "graph", label: "任务图", status: "pending", detail: graphPayload.graph_id },
-    ];
-    const updateStep = (id: string, status: PackageSaveStep["status"], detail = "") => {
-      setPackageSteps((current) => current.map((step) => step.id === id ? { ...step, status, detail: detail || step.detail } : step));
-    };
-    setPackageSteps(steps);
-    setSaving("package");
-    setError("");
-    setNotice("");
-    try {
-      let payload = await upsertTaskSystemDomain(domainPayload.domain_id, domainPayload);
-      updateStep("domain", "success");
-      for (const contract of pack.contracts) {
-        payload = await upsertTaskSystemContract(contract.contract_id, contract);
-      }
-      updateStep("contracts", "success");
-      await upsertTaskWorkflow(workflowPayload.workflow_id, {
-        ...workflowPayload,
-        compatible_projection_ids: workflowPayload.compatible_projection_ids,
-        visible_skill_ids: workflowPayload.visible_skill_ids,
-        steps: workflowPayload.steps,
-        stop_conditions: workflowPayload.stop_conditions,
-        required_evidence_refs: workflowPayload.required_evidence_refs,
-      });
-      updateStep("workflow", "success");
-      await upsertTaskSystemSpecificRecord(taskPayload.task_id, taskPayload);
-      updateStep("task", "success");
-      await upsertTaskSystemProjectionBinding(taskPayload.task_id, projectionPayload);
-      updateStep("projection", "success");
-      await upsertTaskSystemExecutionPolicy(taskPayload.task_id, executionPayload);
-      updateStep("execution", "success");
-      await upsertTaskSystemMemoryRequestProfile(taskPayload.task_id, memoryPayload);
-      updateStep("memory", "success");
-      await upsertTaskSystemCommunicationProtocol(protocolPayload.protocol_id, protocolPayload);
-      updateStep("protocol", "success");
-      await upsertTaskSystemTopologyTemplate(topologyPayload.template_id, {
-        ...topologyPayload,
-        handoff_rules: [],
-      });
-      updateStep("topology", "success");
-      await upsertTaskSystemCoordinationTask(coordinationPayload.coordination_task_id, coordinationPayload);
-      updateStep("coordination", "success");
-      payload = await upsertTaskSystemTaskGraph(graphPayload.graph_id, graphPayload);
-      updateStep("graph", "success");
-      setConsolePayload(payload);
-      setSelectedDomainId(domainPayload.domain_id);
-      setSelectedTaskId(taskPayload.task_id);
-      setSelectedCoordinationId(coordinationPayload.coordination_task_id);
-      setPackagePanel("pipeline");
-      setNotice("长篇小说任务包的任务层资产已通过正式 API 保存。请到编排系统创建并配置 Agent / AgentGroup。");
-    } catch (exc) {
-      const message = exc instanceof Error ? exc.message : "保存长篇小说任务包失败";
-      setPackageSteps((current) => {
-        const pending = current.find((step) => step.status === "pending");
-        return pending
-          ? current.map((step) => step.id === pending.id ? { ...step, status: "error", detail: message } : step)
-          : current;
-      });
-      setError(message);
-    } finally {
-      setSaving("");
-    }
   }
 
   function addCoordinationNode() {
@@ -2263,7 +1540,7 @@ export function TaskSystemView() {
 
   function addCoordinationRoleNode(role: string) {
     const nextIndex = (topologyDraft.nodes?.length || 0) + 1;
-    const nodeId = role === "coordinator" ? `coordinator_${nextIndex}` : `agent_${nextIndex}`;
+    const nodeId = role === "coordinator" ? `coordinator_${nextIndex}` : role === "memory" ? `memory_${nextIndex}` : `agent_${nextIndex}`;
     const titleByRole: Record<string, string> = {
       coordinator: "协调器",
       planner: "规划节点",
@@ -2272,13 +1549,14 @@ export function TaskSystemView() {
       verifier: "验证节点",
       summarizer: "整理节点",
       merge: "汇总节点",
+      memory: "工作记忆节点",
       writer: "执行节点",
       acceptance: "验收节点",
       participant: "协作节点",
     };
     const node = {
       node_id: nodeId,
-      node_type: "agent_role",
+      node_type: role === "memory" ? "memory" : "agent_role",
       task_id: "",
       task_title: "",
       task_family: graphContextFamily,
@@ -2467,33 +1745,6 @@ export function TaskSystemView() {
     });
   }
 
-  function connectSelectedNodeTo(targetNodeId: string) {
-    const from = selectedGraphNodeId;
-    const to = targetNodeId;
-    if (!from || !to || from === to) return;
-    setTopologyDraft((current) => {
-      const exists = (current.edges ?? []).some((edge) => graphEdgeSource(edge) === from && graphEdgeTarget(edge) === to);
-      if (exists) return current;
-      const nextIndex = (current.edges?.length || 0) + 1;
-      const edge = {
-        edge_id: `edge_${nextIndex}`,
-        from,
-        to,
-        source_node_id: from,
-        target_node_id: to,
-        mode: coordinationDraft.communication_modes?.[0] || "structured_handoff",
-      };
-      setSelectedGraphEdgeId(graphEdgeId(edge, nextIndex - 1));
-      setSelectedGraphNodeId("");
-      const nextEdges = [...(current.edges ?? []), edge];
-      return {
-        ...current,
-        edges: nextEdges,
-        edges_text: JSON.stringify(nextEdges, null, 2),
-      };
-    });
-  }
-
   function handleTopologyNodeClick(nodeId: string) {
     if (linkingFromNodeId) {
       if (linkingFromNodeId !== nodeId) {
@@ -2529,10 +1780,15 @@ export function TaskSystemView() {
   }
 
   function cycleCoordinationNodeRole(nodeId: string, currentRole: string) {
-    const roles = ["participant", "writer", "reviewer", "acceptance"];
+    const roles = ["participant", "writer", "reviewer", "acceptance", "memory"];
     const currentIndex = roles.indexOf(currentRole);
     const nextRole = roles[(currentIndex + 1) % roles.length] ?? "participant";
-    updateCoordinationNode(nodeId, { role: nextRole });
+    updateCoordinationNode(nodeId, {
+      role: nextRole,
+      work_posture: nextRole,
+      node_type: nextRole === "memory" ? "memory" : "agent_role",
+      agent_id: "",
+    });
   }
 
   function updateCoordinationEdge(edgeId: string, patch: Record<string, unknown>) {
@@ -2605,15 +1861,15 @@ export function TaskSystemView() {
       nodes_text: JSON.stringify(current.nodes ?? [], null, 2),
       edges_text: JSON.stringify(current.edges ?? [], null, 2),
     }));
-    setNotice("拓扑草稿已同步到协调任务，接下来可继续保存草稿或发布。");
+    setNotice("拓扑草稿已同步到任务图，接下来可继续保存草稿或发布。");
     setError("");
   }
 
   async function createCoordinationDraft() {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const draftTask = taskLayer === "editor" ? editorTask : selectedTask;
-    const draftFamily = draftTask?.task_family || draftDomain?.task_family || "";
-    const draftDomainId = draftDomain?.domain_id || "";
+    const draftDomainId = draftDomain?.domain_id || (draftTask ? taskDomainId(draftTask) : "");
+    const draftFamily = draftTask?.task_family || domainIdToLegacyFamily(draftDomainId, "");
     if (taskLayer === "editor" && !draftTask) {
       setError("请先在图编辑器中打开一个任务。");
       return;
@@ -2623,14 +1879,17 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const ids = await getTaskSystemNextIds();
+      const graphId = ids.graph_id;
       const coordination = emptyCoordination(
         ids.topology_template_id,
-        `protocol.${ids.coordination_task_id.replace(/^coord\./, "")}`,
+        `protocol.${ids.graph_id.replace(/^graph\./, "")}`,
         draftFamily,
         draftDomainId,
+        graphId,
       );
-      coordination.coordination_task_id = ids.coordination_task_id;
-      coordination.title = `${ids.display_numbers.coordination} 协调任务`;
+      coordination.coordination_task_id = graphId;
+      coordination.graph_id = graphId;
+      coordination.title = `${ids.display_numbers.graph} 任务图`;
       coordination.topology_template_id = ids.topology_template_id;
       coordination.task_family = draftFamily;
       coordination.domain_id = draftDomainId;
@@ -2651,7 +1910,7 @@ export function TaskSystemView() {
       };
       const protocol = emptyProtocol();
       protocol.protocol_id = String(coordination.metadata?.protocol_id || protocol.protocol_id);
-      protocol.title = `${ids.display_numbers.coordination} 协议`;
+      protocol.title = `${ids.display_numbers.graph} 协议`;
       protocol.metadata = {
         ...(protocol.metadata ?? {}),
         task_family: draftFamily,
@@ -2659,43 +1918,44 @@ export function TaskSystemView() {
         task_id: draftTask?.task_id || "",
       };
       if (taskLayer === "editor") {
-        setEditorCoordinationId(coordination.coordination_task_id);
+        setEditorTaskGraphId(coordination.graph_id);
       } else {
-        setSelectedCoordinationId(coordination.coordination_task_id);
+        setSelectedTaskGraphId(coordination.graph_id);
       }
       setTaskLayer("editor");
       setCoordinationDraft(coordination);
       setTopologyDraft(topology);
       setProtocolDraft(protocol);
-      setNotice(`已生成协调任务草稿：${coordination.coordination_task_id}`);
+      setNotice(`已生成任务图草稿：${coordination.graph_id}`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "生成协调任务草稿失败");
+      setError(exc instanceof Error ? exc.message : "生成任务图草稿失败");
     } finally {
       setSaving("");
     }
   }
 
   async function duplicateCoordinationDraft() {
-    const sourceCoordination = taskLayer === "editor" ? editorSelectedCoordination : selectedCoordination;
+    const sourceCoordination = taskLayer === "editor" ? editorSelectedTaskGraph : selectedTaskGraph;
     if (!sourceCoordination) {
-      setError("当前没有可复制的协调任务");
+      setError("当前没有可复制的任务图");
       return;
     }
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
-    const draftFamily = draftDomain?.task_family || coordinationDraft.task_family || "";
     const draftDomainId = draftDomain?.domain_id || coordinationDraft.domain_id || "";
+    const draftFamily = domainIdToLegacyFamily(draftDomainId, coordinationDraft.task_family || "");
     setSaving("coordination-duplicate");
     setError("");
     setNotice("");
     try {
       const ids = await getTaskSystemNextIds();
-      const nextCoordinationId = ids.coordination_task_id;
+      const nextGraphId = ids.graph_id;
       const nextTopologyId = ids.topology_template_id;
-      const nextProtocolId = `protocol.${nextCoordinationId.replace(/^coord\./, "")}`;
-      const nextTitle = `${sourceCoordination.title || ids.display_numbers.coordination} 副本`;
+      const nextProtocolId = `protocol.${ids.graph_id.replace(/^graph\./, "")}`;
+      const nextTitle = `${sourceCoordination.title || ids.display_numbers.graph} 副本`;
       const nextCoordination: CoordinationDraft = {
         ...coordinationDraft,
-        coordination_task_id: nextCoordinationId,
+        coordination_task_id: nextGraphId,
+        graph_id: nextGraphId,
         title: nextTitle,
         topology_template_id: nextTopologyId,
         enabled: false,
@@ -2737,9 +1997,9 @@ export function TaskSystemView() {
         },
       };
       if (taskLayer === "editor") {
-        setEditorCoordinationId(nextCoordinationId);
+        setEditorTaskGraphId(nextGraphId);
       } else {
-        setSelectedCoordinationId(nextCoordinationId);
+        setSelectedTaskGraphId(nextGraphId);
       }
       setTaskLayer("editor");
       setCoordinationDraft(nextCoordination);
@@ -2748,9 +2008,9 @@ export function TaskSystemView() {
       setSelectedGraphNodeId(String((nextCoordination.graph_nodes ?? [])[0]?.node_id ?? ""));
       setSelectedGraphEdgeId("");
       setLinkingFromNodeId("");
-      setNotice(`已复制协调任务草稿：${nextCoordinationId}`);
+      setNotice(`已复制任务图草稿：${nextGraphId}`);
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "复制协调任务草稿失败");
+      setError(exc instanceof Error ? exc.message : "复制任务图草稿失败");
     } finally {
       setSaving("");
     }
@@ -2792,7 +2052,7 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const isNewDraft = !domains.some((domain) => domain.domain_id === domainDraft.domain_id);
-      const normalizedFamily = domainDraft.task_family || domainDraft.domain_id.replace(/^domain\./, "") || slugFromTitle(domainDraft.title);
+      const normalizedFamily = domainIdToLegacyFamily(domainDraft.domain_id || `domain.${slugFromTitle(domainDraft.title)}`);
       const normalizedDomainId = domainDraft.domain_id || `domain.${normalizedFamily}`;
       const payload = await upsertTaskSystemDomain(normalizedDomainId, {
         ...domainDraft,
@@ -2826,7 +2086,7 @@ export function TaskSystemView() {
       setConsolePayload(payload);
       setSelectedDomainId(nextDomains[0]?.domain_id || "");
       setSelectedTaskId(nextDomains[0]?.tasks[0]?.task_id || "");
-      setSelectedCoordinationId("");
+      setSelectedTaskGraphId("");
       setEditingDomainName(false);
       setNotice("任务域及其特定任务已删除。");
     } catch (exc) {
@@ -2867,7 +2127,7 @@ export function TaskSystemView() {
     setError("");
     setNotice("");
     try {
-      const taskPayload = { ...taskDraft, task_policy: parseJsonObject(taskPolicyText, "任务策略") };
+      const taskPayload = { ...taskDraft, task_policy: mergeArtifactPolicy(taskPolicyText, artifactPolicyDraft) };
       await upsertTaskWorkflow(workflowDraft.workflow_id, {
         ...workflowDraft,
         compatible_projection_ids: splitList(workflowDraft.compatible_projection_ids_text),
@@ -2896,8 +2156,8 @@ export function TaskSystemView() {
   async function saveCoordinationStack(nextPublished?: boolean) {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const draftTask = taskLayer === "editor" ? editorTask : selectedTask;
-    const draftFamily = draftTask?.task_family || draftDomain?.task_family || coordinationDraft.task_family || "";
-    const draftDomainId = draftDomain?.domain_id || coordinationDraft.domain_id || "";
+    const draftDomainId = draftDomain?.domain_id || (draftTask ? taskDomainId(draftTask) : "") || coordinationDraft.domain_id || "";
+    const draftFamily = draftTask?.task_family || domainIdToLegacyFamily(draftDomainId, coordinationDraft.task_family || "");
     if (taskLayer === "editor" && !draftTask) {
       setError("请先在图编辑器中打开一个任务。");
       return;
@@ -2949,25 +2209,40 @@ export function TaskSystemView() {
           task_id: draftTask?.task_id || "",
         },
       });
-      const payload = await upsertTaskSystemCoordinationTask(effectiveCoordinationDraft.coordination_task_id, {
-        ...effectiveCoordinationDraft,
-        task_family: draftFamily,
+      const payload = await upsertTaskSystemTaskGraph(effectiveCoordinationDraft.graph_id, {
+        graph_id: effectiveCoordinationDraft.graph_id,
+        title: effectiveCoordinationDraft.title,
         domain_id: draftDomainId,
-        participant_agent_ids: (effectiveCoordinationDraft.graph_nodes ?? [])
-          .filter((node) => String(node.role ?? "") !== "coordinator")
-          .map((node) => String(node.agent_id ?? "").trim())
-          .filter(Boolean),
-        stop_conditions: splitList(effectiveCoordinationDraft.stop_conditions_text),
-        subtask_refs: subtaskRefs,
-        communication_modes: effectiveCoordinationDraft.communication_modes ?? [],
-        graph_nodes: effectiveCoordinationDraft.graph_nodes ?? [],
-        graph_edges: effectiveCoordinationDraft.graph_edges ?? [],
+        task_family: draftFamily,
+        graph_kind: activeGraphNodes.length <= 1 ? "single_agent" : "multi_agent",
+        entry_node_id: String((effectiveCoordinationDraft.graph_nodes ?? [])[0]?.node_id ?? ""),
+        output_node_id: String((effectiveCoordinationDraft.graph_nodes ?? []).slice(-1)[0]?.node_id ?? ""),
+        nodes: (effectiveCoordinationDraft.graph_nodes ?? []) as TaskGraphRecord["nodes"],
+        edges: (effectiveCoordinationDraft.graph_edges ?? []) as TaskGraphRecord["edges"],
+        graph_contract_id: "",
+        default_protocol_id: protocolPayload.protocol_id,
+        runtime_policy: {
+          coordination_mode: effectiveCoordinationDraft.coordination_mode,
+          agent_group_id: effectiveCoordinationDraft.agent_group_id,
+        },
+        context_policy: {
+          shared_context_policy: effectiveCoordinationDraft.shared_context_policy,
+          memory_sharing_policy: effectiveCoordinationDraft.memory_sharing_policy,
+        },
+        publish_state: nextPublished === true ? "published" : "draft",
+        enabled: nextPublished === true,
         metadata: {
           ...(effectiveCoordinationDraft.metadata ?? {}),
           protocol_id: protocolPayload.protocol_id,
+          topology_template_id: effectiveTopologyDraft.template_id,
           task_family: draftFamily,
           domain_id: draftDomainId,
           task_id: draftTask?.task_id || "",
+          handoff_policy: effectiveCoordinationDraft.handoff_policy,
+          conflict_resolution_policy: effectiveCoordinationDraft.conflict_resolution_policy,
+          output_merge_policy: effectiveCoordinationDraft.output_merge_policy,
+          business_communication_modes: effectiveCoordinationDraft.communication_modes ?? [],
+          subtask_refs: subtaskRefs,
         },
       });
       setCoordinationDraft(effectiveCoordinationDraft);
@@ -2975,13 +2250,13 @@ export function TaskSystemView() {
       setProtocolDraft(effectiveProtocolDraft);
       setConsolePayload(payload);
       if (taskLayer === "editor") {
-        setEditorCoordinationId(effectiveCoordinationDraft.coordination_task_id);
+        setEditorTaskGraphId(effectiveCoordinationDraft.graph_id);
       } else {
-        setSelectedCoordinationId(effectiveCoordinationDraft.coordination_task_id);
+        setSelectedTaskGraphId(effectiveCoordinationDraft.graph_id);
       }
-      setNotice(nextPublished === true ? "协调任务、拓扑和协议已发布。" : "协调任务、拓扑和协议已保存。");
+      setNotice(nextPublished === true ? "任务图、拓扑和协议已发布。" : "任务图、拓扑和协议已保存。");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "保存协调任务失败");
+      setError(exc instanceof Error ? exc.message : "保存任务图失败");
     } finally {
       setSaving("");
     }
@@ -2992,7 +2267,18 @@ export function TaskSystemView() {
     setError("");
     setNotice("");
     try {
-      const payload = await upsertTaskSystemContract(spec.contract_id, spec);
+      const activeDomain = selectedDomain;
+      const payloadSpec = activeDomain
+        ? {
+          ...spec,
+          metadata: {
+            ...(spec.metadata ?? {}),
+            domain_id: activeDomain.domain_id,
+            task_family: domainIdToLegacyFamily(activeDomain.domain_id),
+          },
+        }
+        : spec;
+      const payload = await upsertTaskSystemContract(payloadSpec.contract_id, payloadSpec);
       setConsolePayload(payload);
       setNotice(`契约“${contractSpecTitle(spec)}”已保存。`);
     } catch (exc) {
@@ -3033,10 +2319,10 @@ export function TaskSystemView() {
   const graphContextDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
   const graphContextDomainTasks = taskLayer === "editor" ? editorDomainTasks : selectedDomainTasks;
   const graphContextTask = taskLayer === "editor" ? editorTask : selectedTask;
-  const graphContextFamily = graphContextTask?.task_family || graphContextDomain?.task_family || coordinationDraft.task_family || "";
+  const graphContextFamily = graphContextTask?.task_family || domainIdToLegacyFamily(graphContextDomain?.domain_id || coordinationDraft.domain_id || "", coordinationDraft.task_family || "");
   const graphContextDomainId = graphContextDomain?.domain_id || coordinationDraft.domain_id || "";
   const draftGraphSpec = deriveTaskGraphSpec(
-    coordinationDraft.coordination_task_id || activeCoordination?.coordination_task_id || "",
+    coordinationDraft.graph_id || taskGraphDraft.graph_id || "",
     graphContextDomainId,
     graphContextFamily,
     activeGraphNodes,
@@ -3068,9 +2354,9 @@ export function TaskSystemView() {
   ];
   const eligibilityRows = [
     { label: "允许 Agent", value: executionDraft.allowed_agent_categories?.map((item) => displayId(item)).join(" / ") || "未配置" },
-    { label: "任务范围", value: `${domainTitle(taskDraft.task_family || selectedTaskDomain?.task_family || "")} / ${displayId(taskDraft.task_mode)}` },
+    { label: "任务范围", value: selectedTaskDomain?.title || domainTitle(domainIdToLegacyFamily(taskDomainId(taskDraft))) },
     { label: "权限口径", value: `${displayId(executionDraft.task_level)} / ${displayId(executionDraft.task_privilege)}` },
-    { label: "输出契约", value: contractLabel(taskDraft.output_contract_id || workflowDraft.output_contract_id || "", contractSpecs, contractCatalog) },
+    { label: "输出契约", value: contractLabel(taskDraft.output_contract_id || workflowDraft.output_contract_id || "", domainContractSpecs, contractCatalog) },
   ];
   const taskLayerItems: Array<LayerNavItem<TaskLayer>> = [
     {
@@ -3082,7 +2368,7 @@ export function TaskSystemView() {
     {
       value: "editor",
       label: "图编辑器",
-      meta: editorTask ? (coordinationDraft.title || editorSelectedCoordination?.title || editorTask.task_title) : "未打开任务",
+      meta: editorTask ? (coordinationDraft.title || editorSelectedTaskGraph?.title || editorTask.task_title) : "未打开任务",
       detail: "打开任务并编辑它的 Agent 能力拓扑",
     },
   ];
@@ -3098,12 +2384,6 @@ export function TaskSystemView() {
       label: "契约",
       meta: `${contractViews.length} 项`,
       detail: "当前任务的契约库、契约绑定与 Manifest",
-    },
-    {
-      value: "package",
-      label: "任务包",
-      meta: "模板安装",
-      detail: "生成和保存当前任务相关的任务层资产",
     },
     {
       value: "preflight",
@@ -3128,8 +2408,8 @@ export function TaskSystemView() {
     {
       value: "templates",
       label: "契约模板",
-      meta: "模板草案",
-      detail: "从模板生成草案，编辑后再保存",
+      meta: "待重建",
+      detail: "旧业务模板已清理；新模板将按任务域隔离注册",
     },
     {
       value: "bindings",
@@ -3140,43 +2420,33 @@ export function TaskSystemView() {
     {
       value: "manifest",
       label: "Manifest",
-      meta: activeCoordination?.title || "协调任务",
+      meta: activeTaskGraph?.title || "任务图",
       detail: "查看当前任务图的契约覆盖与校验摘要",
     },
   ];
-  const packagePanelItems: Array<LayerNavItem<PackagePanel>> = [
-    {
-      value: "templates",
-      label: "模板库",
-      meta: "1 个可用模板",
-      detail: "选择任务包模板并生成前端草案",
-    },
-    {
-      value: "draft",
-      label: "草案审查",
-      meta: domainDraft.domain_id === longformNovelPackage.domain.domain_id ? (domainDraft.title || "长篇小说草案") : "尚未生成",
-      detail: "审查将要创建的任务层对象",
-    },
-    {
-      value: "pipeline",
-      label: "保存管线",
-      meta: packageSteps.length ? `${packageSteps.filter((step) => step.status === "success").length}/${packageSteps.length}` : "未开始",
-      detail: "逐项调用正式 API 并显示失败位置",
-    },
-    {
-      value: "prerequisites",
-      label: "前置条件",
-      meta: `${longformNovelPackage.requiredAgents.length} 个 Agent`,
-      detail: "Agent / AgentGroup / RuntimeProfile 必须到编排系统配置",
-    },
-  ];
   function selectTaskForEditor(taskId: string) {
-    const nextTask = tasks.find((item) => item.task_id === taskId) ?? null;
-    const nextDomain = visibleDomains.find((domain) => domain.tasks.some((task) => task.task_id === taskId)) ?? null;
-    const nextFamily = nextTask?.task_family || nextDomain?.task_family || "";
-    const nextCoordination = allCoordinationTasks.find((item) => coordinationFamily(item, tasks) === nextFamily);
+    const nextTask = editorDomainTasks.find((item) => item.task_id === taskId) ?? null;
+    const nextDomainId = editorDomain?.domain_id || (nextTask ? taskDomainId(nextTask) : "");
+    const nextGraph = allTaskGraphs.find((item) => String(item.domain_id ?? "").trim() === nextDomainId);
     setEditorTaskId(nextTask?.task_id || "");
-    setEditorCoordinationId(nextCoordination?.coordination_task_id || "");
+    setEditorTaskGraphId(nextGraph?.graph_id || "");
+    setSelectedGraphNodeId("");
+    setSelectedGraphEdgeId("");
+    setLinkingFromNodeId("");
+  }
+
+  function enterManagementLayer() {
+    setTaskLayer("management");
+  }
+
+  function selectEditorDomain(domainId: string) {
+    const nextDomain = visibleDomains.find((domain) => domain.domain_id === domainId) ?? null;
+    const nextTask = nextDomain?.tasks[0] ?? null;
+    const nextDomainId = nextDomain?.domain_id || (nextTask ? taskDomainId(nextTask) : "");
+    const nextGraph = allTaskGraphs.find((item) => String(item.domain_id ?? "").trim() === nextDomainId);
+    setEditorDomainId(nextDomain?.domain_id || "");
+    setEditorTaskId(nextTask?.task_id || "");
+    setEditorTaskGraphId(nextGraph?.graph_id || "");
     setSelectedGraphNodeId("");
     setSelectedGraphEdgeId("");
     setLinkingFromNodeId("");
@@ -3184,29 +2454,33 @@ export function TaskSystemView() {
 
   return (
     <div className={`workspace-view boundary-console task-system-boundary task-system-boundary--${taskLayer}`}>
-      <header className="boundary-hero">
+      <header className={taskLayer === "editor" ? "boundary-hero boundary-hero--editor" : "boundary-hero"}>
         <div>
-          <span>任务边界工作台</span>
-          <h2>任务系统工作台</h2>
-          <p>任务管理负责两层资产；图编辑器负责当前任务的 Agent 拓扑。</p>
+          <span>{taskLayer === "editor" ? "任务图编辑器" : "任务边界工作台"}</span>
+          <h2>{taskLayer === "editor" ? editorTask?.task_title || "任务图编辑器" : "任务系统工作台"}</h2>
+          <p>{taskLayer === "editor" ? `${editorDomain?.title || "未选择任务域"} / ${coordinationDraft.title || editorSelectedTaskGraph?.title || "任务图"}` : "任务域是第一管理边界；图编辑器只编辑当前任务域下的 Agent 拓扑。"}</p>
         </div>
         <div className="boundary-actions">
           <ToolbarButton onClick={() => void load()}><RefreshCw size={15} />刷新</ToolbarButton>
-          {taskLayer === "management" ? (
-            <>
-              <ToolbarButton onClick={createDomainDraft}><Plus size={15} />新任务域</ToolbarButton>
-              <ToolbarButton disabled={saving === "task-create" || !selectedDomain} onClick={() => void createTaskDraft()}><Plus size={15} />新任务</ToolbarButton>
-            </>
-          ) : null}
         </div>
       </header>
 
+      <section className="task-system-page-strip" aria-label="任务系统页面">
+        {taskLayerItems.map((item) => (
+          <button
+            className={taskLayer === item.value ? "task-system-page-tab task-system-page-tab--active" : "task-system-page-tab"}
+            key={item.value}
+            onClick={() => item.value === "management" ? enterManagementLayer() : setTaskLayer("editor")}
+            type="button"
+          >
+            <span>{item.label}</span>
+            <strong>{item.meta}</strong>
+          </button>
+        ))}
+      </section>
+
       {error ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{error}</div> : null}
       {notice ? <div className="boundary-notice"><CheckCircle2 size={16} />{notice}</div> : null}
-
-      <section className="task-system-switchboard task-system-switchboard--compact">
-        <LayerNav ariaLabel="任务系统层级" items={taskLayerItems} value={taskLayer} onChange={setTaskLayer} />
-      </section>
 
       {taskLayer === "management" ? (
       <section className="boundary-workbench">
@@ -3232,9 +2506,8 @@ export function TaskSystemView() {
                   onClick={() => {
                     setSelectedDomainId(domain.domain_id);
                     setSelectedTaskId(domain.tasks[0]?.task_id || "");
-                    const domainFamily = domain.task_family;
-                    const nextCoordination = (consolePayload?.coordination_management.coordination_tasks ?? []).find((item) => coordinationFamily(item, tasks) === domainFamily);
-                    setSelectedCoordinationId(nextCoordination?.coordination_task_id || "");
+                    const nextGraph = (consolePayload?.task_graph_management?.task_graphs ?? consolePayload?.coordination_management.task_graphs ?? []).find((item) => String(item.domain_id ?? "").trim() === domain.domain_id);
+                    setSelectedTaskGraphId(nextGraph?.graph_id || "");
                     setEditingDomainName(false);
                   }}
                   type="button"
@@ -3298,7 +2571,6 @@ export function TaskSystemView() {
                     </div>
                   </header>
                   <div className="boundary-form">
-                    <Field label="任务族群"><input value={domainDraft.task_family} onChange={(event) => setDomainDraft((value) => ({ ...value, task_family: event.target.value }))} /></Field>
                     <label className="boundary-check"><input checked={domainDraft.enabled} onChange={(event) => setDomainDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用任务域</label>
                     <Field label="任务域描述" wide><textarea value={domainDraft.description} onChange={(event) => setDomainDraft((value) => ({ ...value, description: event.target.value }))} /></Field>
                   </div>
@@ -3311,7 +2583,7 @@ export function TaskSystemView() {
                   {selectedDomain?.tasks.map((task) => (
                     <button className={task.task_id === selectedTaskId ? "boundary-list-row boundary-list-row--active task-domain-task-row" : "boundary-list-row task-domain-task-row"} key={task.task_id} onClick={() => setSelectedTaskId(task.task_id)} type="button">
                       <strong>{task.task_title}</strong>
-                      <span>{task.enabled ? "启用" : "停用"} / {displayId(task.task_mode)}</span>
+                      <span>{task.enabled ? "启用" : "停用"}</span>
                     </button>
                   ))}
                   {!selectedDomain?.tasks.length ? (
@@ -3357,15 +2629,25 @@ export function TaskSystemView() {
                           </header>
                           <div className="boundary-form task-definition-form">
                             <Field label="任务标题"><input value={taskDraft.task_title} onChange={(event) => setTaskDraft((value) => ({ ...value, task_title: event.target.value }))} /></Field>
-                            <Field label="所属任务域"><input readOnly value={selectedDomain?.title || domainTitle(taskDraft.task_family)} /></Field>
-                            <SelectField label="任务模式" onChange={(value) => setTaskDraft((current) => ({ ...current, task_mode: value }))} options={taskModeOptions} value={taskDraft.task_mode} />
+                            <Field label="所属任务域"><input readOnly value={selectedDomain?.title || domainTitle(domainIdToLegacyFamily(taskDomainId(taskDraft)))} /></Field>
                             <Field label="验收档案"><input value={taskDraft.acceptance_profile_id} onChange={(event) => setTaskDraft((value) => ({ ...value, acceptance_profile_id: event.target.value }))} /></Field>
                             <Field label="任务描述" wide><textarea value={taskDraft.description} onChange={(event) => setTaskDraft((value) => ({ ...value, description: event.target.value }))} /></Field>
                             <label className="boundary-check"><input checked={taskDraft.enabled} onChange={(event) => setTaskDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用任务</label>
+                            <section className="contract-editor-section task-artifact-policy-editor">
+                              <header><strong>产物规则</strong><span>任务运行结束后按这里的规则生成真实文件</span></header>
+                              <div className="boundary-form">
+                                <Field label="产物根目录"><input value={artifactPolicyDraft.artifact_root} onChange={(event) => setArtifactPolicyDraft((value) => ({ ...value, artifact_root: event.target.value }))} placeholder="output/novels/honghuang-shidai" /></Field>
+                                <Field label="任务子目录"><input value={artifactPolicyDraft.subdir_template} onChange={(event) => setArtifactPolicyDraft((value) => ({ ...value, subdir_template: event.target.value }))} placeholder="{task_slug}/{run_slug}" /></Field>
+                                <Field label="生成器"><input value={artifactPolicyDraft.materializer} onChange={(event) => setArtifactPolicyDraft((value) => ({ ...value, materializer: event.target.value }))} /></Field>
+                                <label className="boundary-check"><input checked={artifactPolicyDraft.enabled} onChange={(event) => setArtifactPolicyDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用产物落盘</label>
+                                <Field label="必需产物" wide><textarea value={artifactPolicyDraft.required_files_text} onChange={(event) => setArtifactPolicyDraft((value) => ({ ...value, required_files_text: event.target.value }))} placeholder={"01_project_bible.md\n02_world_bible.md"} /></Field>
+                                <Field label="可选产物" wide><textarea value={artifactPolicyDraft.optional_files_text} onChange={(event) => setArtifactPolicyDraft((value) => ({ ...value, optional_files_text: event.target.value }))} placeholder="chapters/chapter_001_draft.md" /></Field>
+                              </div>
+                            </section>
                             <SystemFields>
                               <Field label="任务 ID"><input value={taskDraft.task_id} onChange={(event) => setTaskDraft((value) => ({ ...value, task_id: event.target.value }))} /></Field>
-                              <ContractSelectField contracts={contractSpecs} legacyContracts={contractCatalog} label="输入契约" onChange={(value) => setTaskDraft((current) => ({ ...current, input_contract_id: value }))} options={commonContractOptions} value={taskDraft.input_contract_id} />
-                              <ContractSelectField contracts={contractSpecs} legacyContracts={contractCatalog} label="输出契约" onChange={(value) => setTaskDraft((current) => ({ ...current, output_contract_id: value }))} options={commonContractOptions} value={taskDraft.output_contract_id} />
+                              <ContractSelectField contracts={domainContractSpecs} legacyContracts={contractCatalog} label="输入契约" onChange={(value) => setTaskDraft((current) => ({ ...current, input_contract_id: value }))} options={commonContractOptions} value={taskDraft.input_contract_id} />
+                              <ContractSelectField contracts={domainContractSpecs} legacyContracts={contractCatalog} label="输出契约" onChange={(value) => setTaskDraft((current) => ({ ...current, output_contract_id: value }))} options={commonContractOptions} value={taskDraft.output_contract_id} />
                               <SelectField label="默认执行流程" onChange={(value) => setTaskDraft((current) => ({ ...current, default_workflow_id: value }))} options={workflowOptions} value={taskDraft.default_workflow_id} />
                               <FlowContractSelect label="默认流程契约" flows={taskFlowDefinitions} onChange={(value) => setTaskDraft((current) => ({ ...current, default_flow_contract_id: value }))} value={taskDraft.default_flow_contract_id} />
                               <SelectField label="投影策略" onChange={(value) => setTaskDraft((current) => ({ ...current, default_projection_policy: value }))} options={DEFAULT_PROJECTION_POLICY_CHOICES} value={taskDraft.default_projection_policy} />
@@ -3388,13 +2670,7 @@ export function TaskSystemView() {
                     ) : null}
                   </section>
                 ) : (
-                  <section className="boundary-card">
-                    <header>
-                      <strong>当前任务域暂无任务</strong>
-                      <ToolbarButton disabled={saving === "task-create" || !selectedDomain} onClick={() => void createTaskDraft()} variant="primary"><Plus size={15} />新任务</ToolbarButton>
-                    </header>
-                    <div className="boundary-empty">任务定义是任务域下的第二层对象。先创建任务，再进入图编辑器配置单 Agent 或多 Agent 拓扑。</div>
-                  </section>
+                  null
                 )}
               </div>
             </section>
@@ -3413,7 +2689,7 @@ export function TaskSystemView() {
 
               {contractPanel === "library" && contractManagement ? (
                 <ContractLibraryPanel
-                  contractManagement={contractManagement}
+                  contractManagement={{ ...contractManagement, contract_specs: domainContractSpecs }}
                   onDelete={removeContractSpec}
                   onSave={saveContractSpec}
                   saving={saving === "contract-spec"}
@@ -3425,23 +2701,12 @@ export function TaskSystemView() {
                   <article className="boundary-card contract-template-card">
                     <header>
                       <div className="boundary-identity-stack">
-                        <span>任务包契约组</span>
-                        <strong>长篇小说契约组</strong>
-                        <small>{longformNovelPackage.contracts.length} 个契约草案</small>
+                        <span>域级模板中心</span>
+                        <strong>模板注册待重建</strong>
+                        <small>按任务域隔离</small>
                       </div>
-                      <ToolbarButton onClick={() => { previewLongformNovelPackage(); setContractPanel("library"); }}>
-                        <Plus size={15} />载入草案
-                      </ToolbarButton>
                     </header>
-                    <p>生成项目简报、章节草稿、连续性审查、记忆晋升、最终交付等契约草案。草案只进入当前工作台，需要用户审查后通过正式 API 保存。</p>
-                    <div className="boundary-list boundary-list--scroll">
-                      {longformNovelPackage.contracts.map((contract) => (
-                        <article className="boundary-list-row" key={contract.contract_id}>
-                          <strong>{contractSpecTitle(contract)}</strong>
-                          <span>{CONTRACT_KIND_LABELS[contract.contract_kind] || contract.contract_kind}</span>
-                        </article>
-                      ))}
-                    </div>
+                    <p>旧任务包模板已经下线。后续模板能力需要从任务域进入，模板只注册契约草案，不直接创建 Agent 或跨域资产。</p>
                   </article>
                   <article className="boundary-card contract-template-card">
                     <header>
@@ -3465,7 +2730,7 @@ export function TaskSystemView() {
                 <section className="boundary-layer-grid boundary-layer-grid--wide">
                   {selectedTask ? (
                   <TaskContractPanel
-                    contractSpecs={contractSpecs}
+                    contractSpecs={domainContractSpecs}
                     onWorkflowOutputContractChange={(contractId) => setWorkflowDraft((current) => ({ ...current, output_contract_id: contractId }))}
                     setTaskDraft={setTaskDraft}
                     taskDraft={taskDraft}
@@ -3478,13 +2743,13 @@ export function TaskSystemView() {
                       {activeGraphNodes.map((node, index) => (
                         <article className="boundary-list-row" key={String(node.node_id ?? `node_${index}`)}>
                           <strong>{String(node.title ?? node.label ?? node.node_id ?? "节点")}</strong>
-                          <span>{contractLabel(String(node.node_contract_id ?? node.output_contract_id ?? ""), contractSpecs, contractCatalog)}</span>
+                          <span>{contractLabel(String(node.node_contract_id ?? node.output_contract_id ?? ""), domainContractSpecs, contractCatalog)}</span>
                         </article>
                       ))}
                       {activeGraphEdges.map((edge, index) => (
                         <article className="boundary-list-row" key={String(edge.edge_id ?? `edge_${index}`)}>
                           <strong>{String(edge.label ?? edge.title ?? "交接边")}</strong>
-                          <span>{contractLabel(String(edge.payload_contract_id ?? edge.contract_id ?? ""), contractSpecs, contractCatalog)}</span>
+                          <span>{contractLabel(String(edge.payload_contract_id ?? edge.contract_id ?? ""), domainContractSpecs, contractCatalog)}</span>
                         </article>
                       ))}
                     </div>
@@ -3494,232 +2759,14 @@ export function TaskSystemView() {
 
               {contractPanel === "manifest" ? (
                 <ContractOverviewPanel
-                  contractSpecs={contractSpecs}
-                  selectedCoordination={selectedCoordination}
+                  contractSpecs={domainContractSpecs}
+                  selectedCoordination={activeTaskGraph}
                   selectedNodeId={selectedGraphNodeId}
                   selectedTask={selectedTask}
                 />
               ) : null}
             </section>
           ) : null}
-
-          {taskLayer === "management" && selectedTask && taskConfigPanel === "package" ? (
-            <section className="boundary-layer-stack task-package-center">
-              <section className="task-system-context-bar">
-                <div className="task-system-context-bar__copy">
-                  <span>当前任务配置</span>
-                  <strong>{packagePanelItems.find((item) => item.value === packagePanel)?.label || "模板库"}</strong>
-                  <p>{packagePanelItems.find((item) => item.value === packagePanel)?.detail || "为当前任务选择模板、审查草案、保存任务层资产。"}</p>
-                </div>
-              </section>
-              <LayerNav ariaLabel="当前任务包页面" items={packagePanelItems} value={packagePanel} onChange={setPackagePanel} variant="secondary" />
-
-              {packagePanel === "templates" ? (
-                <section className="package-template-grid">
-                  <article className="boundary-card package-template-card package-template-card--featured">
-                    <header>
-                      <div className="boundary-identity-stack">
-                        <span>可配置任务包模板</span>
-                        <strong>长篇小说创作</strong>
-                        <small>多 Agent 写作工作流</small>
-                      </div>
-                      <span className="boundary-badge boundary-badge--ok">可用</span>
-                    </header>
-                    <p>生成长篇小说任务域、特定任务、投影绑定、契约组、拓扑模板、通信协议、协调任务和任务图草案。Agent 团队仍由编排系统前端创建。</p>
-                    <div className="boundary-readiness-list boundary-readiness-list--grid">
-                      <ReadinessCard label="契约" value={`${longformNovelPackage.contracts.length} 个`} ready />
-                      <ReadinessCard label="节点" value={`${longformNovelPackage.topology.nodes.length} 个`} ready />
-                      <ReadinessCard label="边" value={`${longformNovelPackage.topology.edges.length} 条`} ready />
-                      <ReadinessCard label="前置资源" value={`${longformPrerequisiteReadyCount}/${longformPrerequisiteTotal}`} ready={longformPrerequisiteReadyCount === longformPrerequisiteTotal} />
-                    </div>
-                    <div className="boundary-actions">
-                      <ToolbarButton onClick={previewLongformNovelPackage} variant="primary"><Plus size={15} />生成草案</ToolbarButton>
-                      <ToolbarButton onClick={() => setPackagePanel("prerequisites")}>查看前置条件</ToolbarButton>
-                    </div>
-                  </article>
-                  <article className="boundary-card package-template-card">
-                    <header><strong>后续模板位</strong><span className="boundary-badge">规划中</span></header>
-                    <p>健康管理、研究报告、代码重构等任务包可以继续接入同一套模板库、草案审查和保存管线。</p>
-                    <div className="boundary-readiness-list boundary-readiness-list--grid">
-                      <ReadinessCard label="模板入口" value="通用" ready />
-                      <ReadinessCard label="保存管线" value="复用" ready />
-                    </div>
-                  </article>
-                </section>
-              ) : null}
-
-              {packagePanel === "draft" ? (
-                <section className="package-draft-editor">
-                  <div className="boundary-card package-draft-editor__main">
-                    <header>
-                      <div className="boundary-identity-stack">
-                        <span>可编辑任务包草案</span>
-                        <strong>{taskDraft.task_title || longformNovelPackage.task.task_title}</strong>
-                        <small>任务层资产草案</small>
-                      </div>
-                      <div className="boundary-actions">
-                        <ToolbarButton onClick={previewLongformNovelPackage}><RotateCcw size={15} />重置模板</ToolbarButton>
-                        <ToolbarButton onClick={() => { setTaskLayer("editor"); }}>进入任务图</ToolbarButton>
-                        <ToolbarButton disabled={saving === "package"} onClick={() => void saveLongformNovelPackage()} variant="primary"><Save size={15} />保存任务层资产</ToolbarButton>
-                      </div>
-                    </header>
-                    <div className="package-draft-editor__sections">
-                      <section className="contract-editor-section">
-                        <header><strong>任务域与任务</strong><span>保存前可直接改标题、族群、模式和描述</span></header>
-                        <div className="boundary-form">
-                          <Field label="任务域标题"><input value={domainDraft.title} onChange={(event) => setDomainDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
-                          <Field label="任务族群"><input value={domainDraft.task_family} onChange={(event) => {
-                            const nextFamily = event.target.value;
-                            setDomainDraft((value) => ({ ...value, task_family: nextFamily }));
-                            setTaskDraft((value) => ({ ...value, task_family: nextFamily }));
-                          }} /></Field>
-                          <Field label="任务标题"><input value={taskDraft.task_title} onChange={(event) => setTaskDraft((value) => ({ ...value, task_title: event.target.value }))} /></Field>
-                          <Field label="任务模式"><input value={taskDraft.task_mode} onChange={(event) => setTaskDraft((value) => ({ ...value, task_mode: event.target.value }))} /></Field>
-                          <Field label="任务描述" wide><textarea value={taskDraft.description} onChange={(event) => setTaskDraft((value) => ({ ...value, description: event.target.value }))} /></Field>
-                        </div>
-                      </section>
-
-                      <section className="contract-editor-section">
-                        <header><strong>运行与记忆</strong><span>长任务循环、记忆层和任务长期记忆策略</span></header>
-                        <div className="boundary-form">
-                          <Field label="默认 Agent"><input value={executionDraft.default_agent_id} onChange={(event) => setExecutionDraft((value) => ({ ...value, default_agent_id: event.target.value }))} /></Field>
-                          <Field label="执行链类型"><input value={executionDraft.execution_chain_type} onChange={(event) => setExecutionDraft((value) => ({ ...value, execution_chain_type: event.target.value }))} /></Field>
-                          <Field label="工作记忆策略 ID"><input value={memoryDraft.working_memory_policy_profile_id || ""} onChange={(event) => setMemoryDraft((value) => ({ ...value, working_memory_policy_profile_id: event.target.value }))} /></Field>
-                          <Field label="写回策略"><input value={memoryDraft.writeback_policy} onChange={(event) => setMemoryDraft((value) => ({ ...value, writeback_policy: event.target.value }))} /></Field>
-                          <label className="boundary-check"><input checked={memoryDraft.allow_working_memory === true} onChange={(event) => setMemoryDraft((value) => ({ ...value, allow_working_memory: event.target.checked }))} type="checkbox" />启用工作记忆</label>
-                          <label className="boundary-check"><input checked={memoryDraft.allow_dynamic_working_memory_read === true} onChange={(event) => setMemoryDraft((value) => ({ ...value, allow_dynamic_working_memory_read: event.target.checked }))} type="checkbox" />允许动态读取</label>
-                          <label className="boundary-check"><input checked={memoryDraft.allow_long_term_memory === true} onChange={(event) => setMemoryDraft((value) => ({ ...value, allow_long_term_memory: event.target.checked }))} type="checkbox" />启用任务长期记忆</label>
-                          <Field label="任务策略 JSON" wide>
-                            <>
-                              <textarea value={taskPolicyText} onChange={(event) => setTaskPolicyText(event.target.value)} />
-                              <small className={taskPolicyError ? "boundary-json-state boundary-json-state--error" : "boundary-json-state"}>{taskPolicyError || "JSON 可解析"}</small>
-                            </>
-                          </Field>
-                        </div>
-                      </section>
-
-                      <section className="contract-editor-section">
-                        <header><strong>图与通信</strong><span>协调任务、拓扑模板、A2A 协议</span></header>
-                        <div className="boundary-form">
-                          <Field label="协调任务标题"><input value={coordinationDraft.title} onChange={(event) => setCoordinationDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
-                          <Field label="协调模式"><input value={coordinationDraft.coordination_mode} onChange={(event) => setCoordinationDraft((value) => ({ ...value, coordination_mode: event.target.value }))} /></Field>
-                          <Field label="拓扑标题"><input value={topologyDraft.title} onChange={(event) => setTopologyDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
-                          <Field label="协议标题"><input value={protocolDraft.title} onChange={(event) => setProtocolDraft((value) => ({ ...value, title: event.target.value }))} /></Field>
-                          <Field label="停止条件" wide><textarea value={coordinationDraft.stop_conditions_text} onChange={(event) => setCoordinationDraft((value) => ({ ...value, stop_conditions_text: event.target.value, stop_conditions: splitList(event.target.value) }))} /></Field>
-                        </div>
-                      </section>
-                    </div>
-                  </div>
-
-                  <aside className="boundary-layer-stack package-draft-editor__side">
-                    <section className="boundary-card">
-                      <header><strong>对象摘要</strong><span className="boundary-badge">将保存</span></header>
-                      <div className="boundary-kv">
-                        <p><span>任务域</span><strong>{domainDraft.title || longformNovelPackage.domain.title}</strong></p>
-                        <p><span>特定任务</span><strong>{taskDraft.task_title || longformNovelPackage.task.task_title}</strong></p>
-                        <p><span>Workflow</span><strong>{workflowDraft.title || longformNovelPackage.workflow.title}</strong></p>
-                        <p><span>协调任务</span><strong>{coordinationDraft.title || longformNovelPackage.coordination.title}</strong></p>
-                        <p><span>任务图</span><strong>完整生产任务图</strong></p>
-                        <p><span>拓扑模板</span><strong>{topologyDraft.title || longformNovelPackage.topology.title}</strong></p>
-                        <p><span>通信协议</span><strong>{protocolDraft.title || longformNovelPackage.protocol.title}</strong></p>
-                        <p><span>契约数量</span><strong>{longformNovelPackage.contracts.length}</strong></p>
-                      </div>
-                    </section>
-                    <section className="boundary-card">
-                      <header><strong>草案质量门</strong><span className="boundary-badge">前端草案</span></header>
-                    <div className="boundary-readiness-list boundary-readiness-list--grid">
-                      <ReadinessCard label="正式 API" value="保存时调用" ready />
-                      <ReadinessCard label="投影绑定" value="随任务包保存" ready />
-                      <ReadinessCard label="Agent 注册" value="前置校验" ready={longformAgentStatuses.every((item) => item.status === "ready")} />
-                      <ReadinessCard label="调度策略" value="已内置草案" ready />
-                      <ReadinessCard label="记忆策略" value="Working + Task Durable" ready />
-                    </div>
-                    <div className="boundary-notice">
-                      <AlertTriangle size={16} />
-                      <span>草案进入工作台后仍可在任务域、契约、任务图、RunLoop 页面继续编辑。</span>
-                    </div>
-                    </section>
-                  </aside>
-                </section>
-              ) : null}
-
-              {packagePanel === "pipeline" ? (
-                <section className="boundary-card">
-                  <header>
-                    <strong>保存管线</strong>
-                    <div className="boundary-actions">
-                      <span className="boundary-badge">{packageSteps.length ? `${packageSteps.filter((step) => step.status === "success").length}/${packageSteps.length}` : "未开始"}</span>
-                      <ToolbarButton disabled={saving === "package"} onClick={() => void saveLongformNovelPackage()} variant="primary"><Save size={15} />运行保存</ToolbarButton>
-                    </div>
-                  </header>
-                  <div className="package-pipeline-list">
-                    {(packageSteps.length ? packageSteps : [
-                      { id: "ready", label: "等待保存", status: "pending", detail: "点击运行保存后逐项调用正式 API。" } as PackageSaveStep,
-                    ]).map((step) => (
-                      <article className={`package-pipeline-step package-pipeline-step--${step.status}`} key={step.id}>
-                        <span>{step.status === "success" ? <CheckCircle2 size={15} /> : step.status === "error" ? <AlertTriangle size={15} /> : <Loader2 size={15} />}</span>
-                        <strong>{step.label}</strong>
-                        <small>{step.status === "error" ? step.detail : step.status === "success" ? "已保存" : "等待执行"}</small>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {packagePanel === "prerequisites" ? (
-                <section className="boundary-layer-grid boundary-layer-grid--wide">
-                  <div className="boundary-card">
-                    <header>
-                      <strong>编排系统前置清单</strong>
-                      <div className="boundary-actions">
-                        <span className={packagePrerequisiteClass(longformPrerequisiteReadyCount === longformPrerequisiteTotal ? "ready" : longformPrerequisiteReadyCount > 0 ? "partial" : "missing")}>
-                          {longformPrerequisiteReadyCount}/{longformPrerequisiteTotal}
-                        </span>
-                        <ToolbarButton onClick={() => void load()}><RefreshCw size={15} />刷新状态</ToolbarButton>
-                        <ToolbarButton onClick={() => setWorkspaceView("orchestration")}>去编排系统</ToolbarButton>
-                      </div>
-                    </header>
-                    <div className="boundary-notice">
-                      <AlertTriangle size={16} />
-                      <span>先在投影系统创建以下专属投影卡，并写入各 Agent 的 prompt；再到编排系统创建 Agent 并绑定对应投影。</span>
-                    </div>
-                    <div className="boundary-list boundary-list--scroll">
-                      {longformProjectionStatuses.map((projection) => (
-                        <article className="boundary-list-row" key={projection.projection_id}>
-                          <strong>{projection.projection_id}</strong>
-                          <span>{projection.title} · {projection.detail}</span>
-                          <small className={packagePrerequisiteClass(projection.status)}>{packagePrerequisiteBadge(projection.status)}</small>
-                        </article>
-                      ))}
-                      {longformAgentStatuses.map((agent) => (
-                        <article className="boundary-list-row" key={agent.agent_id}>
-                          <strong>{agent.title}</strong>
-                          <span>{agent.agent_id} · {agent.detail}</span>
-                          <small className={packagePrerequisiteClass(agent.status)}>{packagePrerequisiteBadge(agent.status)}</small>
-                        </article>
-                      ))}
-                      <article className="boundary-list-row">
-                        <strong>group.longform_novel_core_team</strong>
-                        <span>{longformGroupStatus.detail}</span>
-                        <small className={packagePrerequisiteClass(longformGroupStatus.status)}>{packagePrerequisiteBadge(longformGroupStatus.status)}</small>
-                      </article>
-                    </div>
-                  </div>
-                  <aside className="boundary-card">
-                    <header><strong>不可在任务包页创建</strong><span className="boundary-badge boundary-badge--warn">边界保护</span></header>
-                    <div className="boundary-kv">
-                      <p><span>Agent</span><strong>OrchestrationView 创建</strong></p>
-                      <p><span>AgentGroup</span><strong>OrchestrationView 创建</strong></p>
-                      <p><span>专属投影</span><strong>投影系统创建并写入角色 prompt</strong></p>
-                      <p><span>RuntimeProfile</span><strong>编排系统配置权限和 output_contracts</strong></p>
-                      <p><span>任务资产</span><strong>本页面只保存任务层对象</strong></p>
-                    </div>
-                  </aside>
-                </section>
-              ) : null}
-            </section>
-          ) : null}
-
           {taskLayer === "management" && selectedTask && taskConfigPanel === "preflight" ? (
             <TaskAssemblyPreflightPanel
               a2aCatalog={a2aCatalog}
@@ -3730,7 +2777,8 @@ export function TaskSystemView() {
               saveCoordinationStack={saveCoordinationStack}
               saveTopologyDraftIntoCoordination={saveTopologyDraftIntoCoordination}
               saving={saving}
-              selectedCoordination={selectedCoordination}
+              selectedCoordination={activeTaskGraph}
+              coordinationMetadata={coordinationDraft.metadata}
               selectedGraphSpec={editorGraphSpec}
               selectedNodeId={selectedGraphNodeId}
               selectedTask={selectedTask}
@@ -3749,7 +2797,7 @@ export function TaskSystemView() {
               saveCoordinationStack={saveCoordinationStack}
               saveTaskStack={saveTaskStack}
               saving={saving}
-              selectedCoordination={selectedCoordination}
+              selectedCoordination={activeTaskGraph}
               selectedTask={selectedTask}
               setCoordinationMemorySharingPolicy={(value) => setCoordinationDraft((current) => ({ ...current, memory_sharing_policy: value }))}
               setCoordinationSharedContextPolicy={(value) => setCoordinationDraft((current) => ({ ...current, shared_context_policy: value }))}
@@ -3764,43 +2812,53 @@ export function TaskSystemView() {
 
       {taskLayer === "editor" ? (
         <section className="task-system-editor-shell">
-          <section className="task-graph-loader">
-            <div className="task-graph-loader__copy">
-              <span>当前编辑任务</span>
-              <strong>{editorTask ? editorTask.task_title : "未打开任务"}</strong>
-            </div>
-            <div className="task-graph-loader__controls">
-              <label>
-                <span>打开任务</span>
-                <select value={editorTaskId} onChange={(event) => selectTaskForEditor(event.target.value)}>
-                  <option disabled={tasks.length > 0} value="">{tasks.length ? "选择要编辑的任务" : "暂无任务"}</option>
+          <section className="task-graph-editor-chrome" aria-label="任务图编辑器操作台">
+            <div className="task-graph-editor-chrome__controls">
+              <label className="task-graph-editor-chrome__field">
+                <span className="task-graph-editor-chrome__field-label">任务域</span>
+                <select value={editorDomainId} onChange={(event) => selectEditorDomain(event.target.value)}>
+                  <option disabled={visibleDomains.length > 0} value="">{visibleDomains.length ? "选择任务域" : "暂无任务域"}</option>
                   {visibleDomains.map((domain) => (
-                    <optgroup key={domain.domain_id} label={domain.title}>
-                      {domain.tasks.map((task) => (
-                        <option key={task.task_id} value={task.task_id}>{task.task_title}</option>
-                      ))}
-                    </optgroup>
+                    <option key={domain.domain_id} value={domain.domain_id}>{domain.title}</option>
                   ))}
                 </select>
               </label>
-              <label>
-                <span>图草稿</span>
-                <select disabled={!editorTask} value={editorCoordinationId} onChange={(event) => {
-                  setEditorCoordinationId(event.target.value);
+              <label className="task-graph-editor-chrome__field">
+                <span className="task-graph-editor-chrome__field-label">任务</span>
+                <select disabled={!editorDomain} value={editorTaskId} onChange={(event) => selectTaskForEditor(event.target.value)}>
+                  {!editorDomain ? <option value="">先选择任务域</option> : null}
+                  {editorDomain && !editorDomainTasks.length ? <option value="">当前任务域暂无任务</option> : null}
+                  {editorDomainTasks.map((task) => (
+                    <option key={task.task_id} value={task.task_id}>{task.task_title}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="task-graph-editor-chrome__field">
+                <span className="task-graph-editor-chrome__field-label">图草稿</span>
+                <select disabled={!editorTask} value={editorTaskGraphId} onChange={(event) => {
+                  setEditorTaskGraphId(event.target.value);
                   setSelectedGraphNodeId("");
                   setSelectedGraphEdgeId("");
                   setLinkingFromNodeId("");
                 }}>
                   {!editorTask ? <option value="">先打开任务</option> : null}
-                  {editorTask && !editorCoordinationTasks.length ? <option value="">暂无草稿</option> : null}
-                  {editorCoordinationTasks.map((task) => (
-                    <option key={task.coordination_task_id} value={task.coordination_task_id}>{task.title}</option>
+                  {editorTask && !editorTaskGraphs.length ? <option value="">暂无草稿</option> : null}
+                  {editorTaskGraphs.map((task) => (
+                    <option key={task.graph_id} value={task.graph_id}>{task.title}</option>
                   ))}
                 </select>
               </label>
             </div>
-            <div className="task-graph-loader__actions">
+            <div className="task-graph-editor-chrome__status">
+              <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未保存" : "拓扑已同步"}</span>
+              <span className={editorValid ? "boundary-status boundary-status--ok" : "boundary-status boundary-status--danger"}>{editorValid ? "图校验通过" : `图校验未通过 ${editorIssueCount}`}</span>
+              <span className={editorPublished ? "boundary-status boundary-status--ok" : "boundary-status"}>{editorPublished ? "已发布" : "草稿"}</span>
+            </div>
+            <div className="task-graph-editor-chrome__actions">
               <ToolbarButton disabled={saving === "coordination-create"} onClick={() => void createCoordinationDraft()}><Network size={15} />新图草稿</ToolbarButton>
+              <ToolbarButton onClick={saveTopologyDraftIntoCoordination}><Save size={15} />同步拓扑</ToolbarButton>
+              <ToolbarButton disabled={saving === "coordination"} onClick={() => { void saveCoordinationStack(false); }}><Save size={15} />保存</ToolbarButton>
+              <ToolbarButton onClick={() => sendTaskGraphToChat(editorSelectedTaskGraph, editorDomain)}>带入会话</ToolbarButton>
             </div>
           </section>
 
@@ -3814,9 +2872,8 @@ export function TaskSystemView() {
             agentGroupOptions={editorAgentGroupOptions}
             applyTaskGraphTemplate={applyCoordinationGraphTemplate}
             boundCoordinationTaskIds={boundCoordinationTaskIds}
-            connectSelectedNodeTo={connectSelectedNodeTo}
-            contractSpecs={contractSpecs}
-            coordinationTasks={editorCoordinationTasks}
+            contractSpecs={editorContractSpecs}
+            taskGraphs={editorTaskGraphs}
             cycleTaskGraphEdgeMode={cycleCoordinationEdgeMode}
             cycleTaskGraphNodeRole={cycleCoordinationNodeRole}
             domainTaskOptions={editorDomainTaskOptions}
@@ -3827,16 +2884,15 @@ export function TaskSystemView() {
             activeGraphEdges={activeGraphEdges}
             activeGraphNodes={activeGraphNodes}
             handleTopologyNodeClick={handleTopologyNodeClick}
-            legacyDrafts={{ coordinationDraft, topologyDraft, protocolDraft }}
+            legacyDrafts={{ coordinationDraft: coordinationDraft as never, topologyDraft, protocolDraft }}
             linkingFromNodeId={linkingFromNodeId}
             removeTaskGraphEdge={removeCoordinationEdge}
             removeTaskGraphNode={removeCoordinationNode}
             reverseTaskGraphEdge={reverseCoordinationEdge}
-            saveTaskGraphDraft={saveTopologyDraftIntoCoordination}
             saveTaskGraphStack={saveCoordinationStack}
             saving={saving}
-            selectedCoordination={editorSelectedCoordination}
-            selectedCoordinationId={editorCoordinationId}
+            selectedTaskGraph={editorSelectedTaskGraph}
+            selectedTaskGraphId={editorTaskGraphId}
             selectedDomain={editorDomain}
             selectedDomainTasks={editorDomainTasks}
             selectedGraphEdge={selectedGraphEdge}
@@ -3844,11 +2900,11 @@ export function TaskSystemView() {
             selectedGraphNode={selectedGraphNode}
             selectedGraphNodeId={selectedGraphNodeId}
             selectedTaskGraphSpec={editorGraphSpec}
-            sendTaskGraphToChat={sendCoordinationToChat}
-            setCoordinationDraft={setCoordinationDraft}
+            sendTaskGraphToChat={sendTaskGraphToChat}
+            setCoordinationDraft={setCoordinationDraft as never}
             setLinkingFromNodeId={setLinkingFromNodeId}
             setProtocolDraft={setProtocolDraft}
-            setSelectedCoordinationId={setEditorCoordinationId}
+            setSelectedTaskGraphId={setEditorTaskGraphId}
             setSelectedGraphEdgeId={setSelectedGraphEdgeId}
             setSelectedGraphNodeId={setSelectedGraphNodeId}
             setTaskGraphPublished={setCoordinationPublished}
@@ -3857,6 +2913,7 @@ export function TaskSystemView() {
             taskGraphDraft={taskGraphDraft}
             updateTaskGraphEdge={updateCoordinationEdge}
             updateTaskGraphNode={updateCoordinationNode}
+            projectionCards={domainProjectionCards}
           />
         </section>
       ) : null}

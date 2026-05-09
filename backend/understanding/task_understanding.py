@@ -68,6 +68,7 @@ class TaskSignals:
     freshness_requirement: bool = False
     weather_domain: bool = False
     gold_price_domain: bool = False
+    skill_authoring_request: bool = False
     mixed_direct_capabilities: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,6 +100,7 @@ class TaskSignals:
             "freshness_requirement": self.freshness_requirement,
             "weather_domain": self.weather_domain,
             "gold_price_domain": self.gold_price_domain,
+            "skill_authoring_request": self.skill_authoring_request,
             "mixed_direct_capabilities": self.mixed_direct_capabilities,
         }
 
@@ -167,6 +169,7 @@ def analyze_task_understanding(
     direct = (
         _build_direct_dataset_task(normalized, signals)
         or _build_direct_pdf_task(normalized, signals)
+        or _build_direct_skill_authoring_task(normalized, signals)
         or _build_direct_workspace_read_task(normalized, signals)
         or _build_direct_workspace_search_task(normalized, signals)
         or _build_direct_web_task(normalized, signals)
@@ -241,6 +244,7 @@ def _collect_task_signals(
         lowered,
         ("gold price", "spot gold", "xau", "xauusd", "黄金", "金价", "现货黄金", "黄金价格"),
     )
+    skill_authoring_request = _looks_like_skill_authoring_request(message, lowered)
     binding_view = _normalize_active_bindings(active_bindings)
 
     anchor_kinds: list[str] = []
@@ -276,6 +280,8 @@ def _collect_task_signals(
         anchor_kinds.append("weather_domain")
     if gold_price_domain:
         anchor_kinds.append("gold_price_domain")
+    if skill_authoring_request:
+        anchor_kinds.append("skill_authoring")
 
     signals = TaskSignals(
         explicit_dataset_path=explicit_dataset_path,
@@ -305,6 +311,7 @@ def _collect_task_signals(
         freshness_requirement=freshness_requirement,
         weather_domain=weather_domain,
         gold_price_domain=gold_price_domain,
+        skill_authoring_request=skill_authoring_request,
     )
     signals.mixed_direct_capabilities = _has_mixed_direct_capabilities(signals)
     return signals
@@ -408,6 +415,49 @@ def _build_direct_pdf_task(message: str, signals: TaskSignals) -> TaskUnderstand
         should_skip_rag=True,
         confidence=0.94 if signals.explicit_pdf_path else 0.91 if followup_pdf_request else 0.87,
         reasons=reasons,
+        structural_signals=signals.to_dict(),
+    )
+
+
+def _build_direct_skill_authoring_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
+    if not signals.skill_authoring_request:
+        return None
+    lowered = message.lower()
+    task_kind = "capability_authoring"
+    reasons = ["skill_authoring_intent"]
+    if _contains_any(lowered, ("创建", "新建", "新增", "生成", "create ", "new skill", "add skill")):
+        task_kind = "skill_create"
+        reasons.append("skill_create_request")
+    elif _contains_any(lowered, ("更新", "修改", "改写", "调整", "优化", "补齐", "update ", "modify ", "rewrite ")):
+        task_kind = "skill_update"
+        reasons.append("skill_update_request")
+    elif _contains_any(lowered, ("检查", "审查", "review", "validate", "是否适合")):
+        task_kind = "skill_update"
+        reasons.append("skill_review_request")
+    elif _contains_any(lowered, ("prompt", "提示词", "调用契约", "触发条件", "prompt contract")):
+        task_kind = "prompt_contract_design"
+        reasons.append("prompt_contract_request")
+
+    modality = "markdown" if _contains_any(lowered, ("skill.md", "markdown", ".md")) else "workflow"
+    capability_requests = ["skill-authoring", "capability-design"]
+    if task_kind == "prompt_contract_design" or _contains_any(lowered, ("prompt", "提示词", "调用契约", "触发条件")):
+        capability_requests.append("prompt-contract")
+    if _contains_any(lowered, ("检查", "审查", "review", "validate", "校验")):
+        capability_requests.append("validation")
+    return TaskUnderstanding(
+        intent="skill_authoring_query",
+        source_kind="capability_system",
+        task_kind=task_kind,
+        modality=modality,
+        route_hint="rag",
+        preferred_skill="skill-creator",
+        capability_requests=_dedupe(capability_requests),
+        parameters={"query": message},
+        execution_posture="direct_rag",
+        direct_route_reason="skill_authoring_intent",
+        should_skip_rag=False,
+        confidence=0.93,
+        reasons=_dedupe(reasons),
         structural_signals=signals.to_dict(),
     )
 
@@ -823,6 +873,61 @@ def _looks_like_faq_problem(lowered: str) -> bool:
         "refund",
     )
     return _contains_any(lowered, explanation_markers) and _contains_any(lowered, faq_domain_markers)
+
+
+def _looks_like_skill_authoring_request(message: str, lowered: str) -> bool:
+    normalized = (message or "").strip()
+    if not normalized:
+        return False
+    has_skill_object = _contains_any(
+        lowered,
+        (
+            "skill",
+            "skill.md",
+            "skills",
+            "能力系统",
+            "能力注册",
+            "能力编写",
+            "能力创建",
+            "prompt view",
+            "prompt contract",
+        ),
+    )
+    has_authoring_intent = _contains_any(
+        lowered,
+        (
+            "创建",
+            "新建",
+            "新增",
+            "生成",
+            "编写",
+            "写一个",
+            "做一个",
+            "更新",
+            "修改",
+            "改写",
+            "调整",
+            "优化",
+            "补齐",
+            "检查",
+            "审查",
+            "校验",
+            "设计",
+            "注册",
+            "触发",
+            "使用条件",
+            "提示词",
+            "create ",
+            "add ",
+            "new ",
+            "update ",
+            "modify ",
+            "rewrite ",
+            "review ",
+            "validate ",
+        ),
+    )
+    return has_skill_object and has_authoring_intent
 
 
 def _has_mixed_direct_capabilities(signals: TaskSignals) -> bool:

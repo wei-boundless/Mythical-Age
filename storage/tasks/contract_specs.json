@@ -1,1069 +1,92 @@
 {
   "contract_specs": [
     {
-      "contract_id": "contract.novel.chapter_brief",
-      "title_zh": "章节写作简报",
-      "title_en": "chapter_brief",
-      "contract_kind": "edge_handoff",
-      "description": "章节计划到章节写作的交接契约。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "chapter_index",
-          "title_zh": "章节序号",
-          "field_type": "number",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "scene_goals",
-          "title_zh": "场景目标",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "required_memory_refs",
-          "title_zh": "必需记忆引用",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "artifact_requirements": [],
-      "acceptance_rules": [
-        {
-          "rule_id": "chapter_index_present",
-          "title_zh": "章节序号必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "chapter_index",
-          "criteria": "章节序号不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "scene_goals_present",
-          "title_zh": "场景目标必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "scene_goals",
-          "criteria": "场景目标不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "required_memory_refs_present",
-          "title_zh": "必需记忆引用必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "required_memory_refs",
-          "criteria": "必需记忆引用不能为空。",
-          "config": {}
-        }
-      ],
-      "runtime_requirements": [],
-      "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
-      },
-      "handoff_policy": {
-        "handoff_mode": "structured_handoff",
-        "include_artifact_refs": true,
-        "include_raw_messages": false,
-        "ack_required": true,
-        "timeout_policy": "fail_closed",
-        "metadata": {}
-      },
-      "failure_policy": {
-        "failure_mode": "fail_closed",
-        "retry_allowed": true,
-        "retry_limit": 1,
-        "escalate_to": "coordinator",
-        "fallback_contract_id": "contract.error_report.basic",
-        "metadata": {}
-      },
-      "human_gate_policy": {
-        "required": false,
-        "gate_type": "none",
-        "reviewer_role": "",
-        "decision_contract_id": "",
-        "metadata": {}
-      },
-      "allowed_agent_kinds": [
-        "worker_sub_agent"
-      ],
-      "allowed_runtime_lanes": [
-        "longform_novel_graph"
-      ],
-      "version": "1.0.0",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
-      }
-    },
-    {
-      "contract_id": "contract.novel.chapter_draft",
-      "title_zh": "章节草稿",
-      "title_en": "chapter_draft",
+      "contract_id": "contract.novel.world_design_proposal",
+      "title_zh": "世界观设计方案",
+      "title_en": "world_design_proposal",
       "contract_kind": "node_execution",
-      "description": "章节写作阶段输出。",
+      "description": "双创作者世界观方案，用于建立或修正世界规则、神灵关系、地理秩序、力量边界和历史记忆。",
       "input_fields": [],
       "output_fields": [
         {
-          "field_id": "chapter_index",
-          "title_zh": "章节序号",
-          "field_type": "number",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "chapter_text",
-          "title_zh": "章节正文",
+          "field_id": "proposal_role",
+          "title_zh": "方案角色",
           "field_type": "string",
           "required": true,
-          "description": "",
+          "description": "A方案或B方案。",
           "default_value": null,
           "schema": {},
-          "source_hint": "upstream_output",
+          "source_hint": "authorized_input",
           "visibility": "model_visible"
         },
-        {
-          "field_id": "new_facts",
-          "title_zh": "新增事实",
-          "field_type": "array",
-          "required": false,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "artifact_requirements": [],
-      "acceptance_rules": [
-        {
-          "rule_id": "chapter_index_present",
-          "title_zh": "章节序号必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "chapter_index",
-          "criteria": "章节序号不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "chapter_text_present",
-          "title_zh": "章节正文必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "chapter_text",
-          "criteria": "章节正文不能为空。",
-          "config": {}
-        }
-      ],
-      "runtime_requirements": [],
-      "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
-      },
-      "handoff_policy": {
-        "handoff_mode": "structured_handoff",
-        "include_artifact_refs": true,
-        "include_raw_messages": false,
-        "ack_required": true,
-        "timeout_policy": "fail_closed",
-        "metadata": {}
-      },
-      "failure_policy": {
-        "failure_mode": "fail_closed",
-        "retry_allowed": true,
-        "retry_limit": 1,
-        "escalate_to": "coordinator",
-        "fallback_contract_id": "contract.error_report.basic",
-        "metadata": {}
-      },
-      "human_gate_policy": {
-        "required": false,
-        "gate_type": "none",
-        "reviewer_role": "",
-        "decision_contract_id": "",
-        "metadata": {}
-      },
-      "allowed_agent_kinds": [
-        "worker_sub_agent"
-      ],
-      "allowed_runtime_lanes": [
-        "longform_novel_graph"
-      ],
-      "version": "1.0.0",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
-      }
-    },
-    {
-      "contract_id": "contract.novel.character_delta",
-      "title_zh": "角色连续性增量",
-      "title_en": "character_delta",
-      "contract_kind": "node_execution",
-      "description": "故事架构与章节审校阶段输出的角色状态增量。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "character_states",
-          "title_zh": "角色状态",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "relationship_delta",
-          "title_zh": "关系变化",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "arc_risks",
-          "title_zh": "人物弧风险",
-          "field_type": "array",
-          "required": false,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "artifact_requirements": [],
-      "acceptance_rules": [
-        {
-          "rule_id": "character_states_present",
-          "title_zh": "角色状态必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "character_states",
-          "criteria": "角色状态不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "relationship_delta_present",
-          "title_zh": "关系变化必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "relationship_delta",
-          "criteria": "关系变化不能为空。",
-          "config": {}
-        }
-      ],
-      "runtime_requirements": [],
-      "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
-      },
-      "handoff_policy": {
-        "handoff_mode": "structured_handoff",
-        "include_artifact_refs": true,
-        "include_raw_messages": false,
-        "ack_required": true,
-        "timeout_policy": "fail_closed",
-        "metadata": {}
-      },
-      "failure_policy": {
-        "failure_mode": "fail_closed",
-        "retry_allowed": true,
-        "retry_limit": 1,
-        "escalate_to": "coordinator",
-        "fallback_contract_id": "contract.error_report.basic",
-        "metadata": {}
-      },
-      "human_gate_policy": {
-        "required": false,
-        "gate_type": "none",
-        "reviewer_role": "",
-        "decision_contract_id": "",
-        "metadata": {}
-      },
-      "allowed_agent_kinds": [
-        "worker_sub_agent"
-      ],
-      "allowed_runtime_lanes": [
-        "longform_novel_graph"
-      ],
-      "version": "1.0.0",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
-      }
-    },
-    {
-      "contract_id": "contract.novel.continuity_review",
-      "title_zh": "连续性审查报告",
-      "title_en": "continuity_review",
-      "contract_kind": "node_execution",
-      "description": "连续性审校阶段输出。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "conflicts",
-          "title_zh": "连续性冲突",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "severity",
-          "title_zh": "严重程度",
-          "field_type": "string",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "fix_suggestions",
-          "title_zh": "修复建议",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "artifact_requirements": [],
-      "acceptance_rules": [
-        {
-          "rule_id": "conflicts_present",
-          "title_zh": "连续性冲突必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "conflicts",
-          "criteria": "连续性冲突不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "severity_present",
-          "title_zh": "严重程度必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "severity",
-          "criteria": "严重程度不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "fix_suggestions_present",
-          "title_zh": "修复建议必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "fix_suggestions",
-          "criteria": "修复建议不能为空。",
-          "config": {}
-        }
-      ],
-      "runtime_requirements": [],
-      "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
-      },
-      "handoff_policy": {
-        "handoff_mode": "structured_handoff",
-        "include_artifact_refs": true,
-        "include_raw_messages": false,
-        "ack_required": true,
-        "timeout_policy": "fail_closed",
-        "metadata": {}
-      },
-      "failure_policy": {
-        "failure_mode": "fail_closed",
-        "retry_allowed": true,
-        "retry_limit": 1,
-        "escalate_to": "coordinator",
-        "fallback_contract_id": "contract.error_report.basic",
-        "metadata": {}
-      },
-      "human_gate_policy": {
-        "required": false,
-        "gate_type": "none",
-        "reviewer_role": "",
-        "decision_contract_id": "",
-        "metadata": {}
-      },
-      "allowed_agent_kinds": [
-        "worker_sub_agent"
-      ],
-      "allowed_runtime_lanes": [
-        "longform_novel_graph"
-      ],
-      "version": "1.0.0",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
-      }
-    },
-    {
-      "contract_id": "contract.novel.final_manuscript_package",
-      "title_zh": "最终稿件交付包",
-      "title_en": "final_manuscript_package",
-      "contract_kind": "final_output",
-      "description": "长篇小说任务最终交付契约。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "manuscript_refs",
-          "title_zh": "正文产物引用",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "bible_refs",
-          "title_zh": "设定集引用",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "unresolved_issues",
-          "title_zh": "未解决问题",
-          "field_type": "array",
-          "required": false,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "artifact_requirements": [],
-      "acceptance_rules": [
-        {
-          "rule_id": "manuscript_refs_present",
-          "title_zh": "正文产物引用必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "manuscript_refs",
-          "criteria": "正文产物引用不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "bible_refs_present",
-          "title_zh": "设定集引用必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "bible_refs",
-          "criteria": "设定集引用不能为空。",
-          "config": {}
-        }
-      ],
-      "runtime_requirements": [],
-      "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
-      },
-      "handoff_policy": {
-        "handoff_mode": "structured_handoff",
-        "include_artifact_refs": true,
-        "include_raw_messages": false,
-        "ack_required": true,
-        "timeout_policy": "fail_closed",
-        "metadata": {}
-      },
-      "failure_policy": {
-        "failure_mode": "fail_closed",
-        "retry_allowed": true,
-        "retry_limit": 1,
-        "escalate_to": "coordinator",
-        "fallback_contract_id": "contract.error_report.basic",
-        "metadata": {}
-      },
-      "human_gate_policy": {
-        "required": false,
-        "gate_type": "none",
-        "reviewer_role": "",
-        "decision_contract_id": "",
-        "metadata": {}
-      },
-      "allowed_agent_kinds": [
-        "worker_sub_agent"
-      ],
-      "allowed_runtime_lanes": [
-        "longform_novel_graph"
-      ],
-      "version": "1.0.0",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
-      }
-    },
-    {
-      "contract_id": "contract.novel.memory_promotion_batch",
-      "title_zh": "任务记忆晋升批次",
-      "title_en": "memory_promotion_batch",
-      "contract_kind": "node_execution",
-      "description": "记忆与交付管理阶段输出。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "promotion_candidates",
-          "title_zh": "晋升候选",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "rejected_items",
-          "title_zh": "拒绝项",
-          "field_type": "array",
-          "required": false,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "review_required",
-          "title_zh": "是否需要人工复核",
-          "field_type": "boolean",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "artifact_requirements": [],
-      "acceptance_rules": [
-        {
-          "rule_id": "promotion_candidates_present",
-          "title_zh": "晋升候选必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "promotion_candidates",
-          "criteria": "晋升候选不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "review_required_present",
-          "title_zh": "是否需要人工复核必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "review_required",
-          "criteria": "是否需要人工复核不能为空。",
-          "config": {}
-        }
-      ],
-      "runtime_requirements": [],
-      "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
-      },
-      "handoff_policy": {
-        "handoff_mode": "structured_handoff",
-        "include_artifact_refs": true,
-        "include_raw_messages": false,
-        "ack_required": true,
-        "timeout_policy": "fail_closed",
-        "metadata": {}
-      },
-      "failure_policy": {
-        "failure_mode": "fail_closed",
-        "retry_allowed": true,
-        "retry_limit": 1,
-        "escalate_to": "coordinator",
-        "fallback_contract_id": "contract.error_report.basic",
-        "metadata": {}
-      },
-      "human_gate_policy": {
-        "required": false,
-        "gate_type": "none",
-        "reviewer_role": "",
-        "decision_contract_id": "",
-        "metadata": {}
-      },
-      "allowed_agent_kinds": [
-        "worker_sub_agent"
-      ],
-      "allowed_runtime_lanes": [
-        "longform_novel_graph"
-      ],
-      "version": "1.0.0",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
-      }
-    },
-    {
-      "contract_id": "contract.novel.project_brief",
-      "title_zh": "长篇小说项目简报",
-      "title_en": "project_brief",
-      "contract_kind": "global_task",
-      "description": "长篇小说任务的项目级输入边界。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "title",
-          "title_zh": "作品标题",
-          "field_type": "string",
-          "required": false,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "genre",
-          "title_zh": "题材类型",
-          "field_type": "string",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "target_length",
-          "title_zh": "目标篇幅",
-          "field_type": "string",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "core_premise",
-          "title_zh": "核心设定",
-          "field_type": "string",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "constraints",
-          "title_zh": "创作约束",
-          "field_type": "array",
-          "required": false,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "artifact_requirements": [],
-      "acceptance_rules": [
-        {
-          "rule_id": "genre_present",
-          "title_zh": "题材类型必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "genre",
-          "criteria": "题材类型不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "target_length_present",
-          "title_zh": "目标篇幅必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "target_length",
-          "criteria": "目标篇幅不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "core_premise_present",
-          "title_zh": "核心设定必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "core_premise",
-          "criteria": "核心设定不能为空。",
-          "config": {}
-        }
-      ],
-      "runtime_requirements": [],
-      "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
-      },
-      "handoff_policy": {
-        "handoff_mode": "structured_handoff",
-        "include_artifact_refs": true,
-        "include_raw_messages": false,
-        "ack_required": true,
-        "timeout_policy": "fail_closed",
-        "metadata": {}
-      },
-      "failure_policy": {
-        "failure_mode": "fail_closed",
-        "retry_allowed": true,
-        "retry_limit": 1,
-        "escalate_to": "coordinator",
-        "fallback_contract_id": "contract.error_report.basic",
-        "metadata": {}
-      },
-      "human_gate_policy": {
-        "required": false,
-        "gate_type": "none",
-        "reviewer_role": "",
-        "decision_contract_id": "",
-        "metadata": {}
-      },
-      "allowed_agent_kinds": [
-        "worker_sub_agent"
-      ],
-      "allowed_runtime_lanes": [
-        "longform_novel_graph"
-      ],
-      "version": "1.0.0",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
-      }
-    },
-    {
-      "contract_id": "contract.novel.project_plan",
-      "title_zh": "长篇小说生产计划",
-      "title_en": "project_plan",
-      "contract_kind": "workflow",
-      "description": "由 Showrunner 输出的整体生产计划。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "volume_plan",
-          "title_zh": "分卷计划",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "chapter_count",
-          "title_zh": "章节数量",
-          "field_type": "number",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "quality_gates",
-          "title_zh": "质量门控",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "artifact_requirements": [],
-      "acceptance_rules": [
-        {
-          "rule_id": "volume_plan_present",
-          "title_zh": "分卷计划必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "volume_plan",
-          "criteria": "分卷计划不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "chapter_count_present",
-          "title_zh": "章节数量必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "chapter_count",
-          "criteria": "章节数量不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "quality_gates_present",
-          "title_zh": "质量门控必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "quality_gates",
-          "criteria": "质量门控不能为空。",
-          "config": {}
-        }
-      ],
-      "runtime_requirements": [],
-      "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
-      },
-      "handoff_policy": {
-        "handoff_mode": "structured_handoff",
-        "include_artifact_refs": true,
-        "include_raw_messages": false,
-        "ack_required": true,
-        "timeout_policy": "fail_closed",
-        "metadata": {}
-      },
-      "failure_policy": {
-        "failure_mode": "fail_closed",
-        "retry_allowed": true,
-        "retry_limit": 1,
-        "escalate_to": "coordinator",
-        "fallback_contract_id": "contract.error_report.basic",
-        "metadata": {}
-      },
-      "human_gate_policy": {
-        "required": false,
-        "gate_type": "none",
-        "reviewer_role": "",
-        "decision_contract_id": "",
-        "metadata": {}
-      },
-      "allowed_agent_kinds": [
-        "worker_sub_agent"
-      ],
-      "allowed_runtime_lanes": [
-        "longform_novel_graph"
-      ],
-      "version": "1.0.0",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
-      }
-    },
-    {
-      "contract_id": "contract.novel.volume_outline",
-      "title_zh": "分卷与章节大纲",
-      "title_en": "volume_outline",
-      "contract_kind": "node_execution",
-      "description": "故事架构阶段输出的分卷、章节和伏笔规划。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "volume_outline",
-          "title_zh": "分卷大纲",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "chapter_briefs",
-          "title_zh": "章节简报",
-          "field_type": "array",
-          "required": true,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "foreshadow_track",
-          "title_zh": "伏笔账本",
-          "field_type": "array",
-          "required": false,
-          "description": "",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "upstream_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "artifact_requirements": [],
-      "acceptance_rules": [
-        {
-          "rule_id": "volume_outline_present",
-          "title_zh": "分卷大纲必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "volume_outline",
-          "criteria": "分卷大纲不能为空。",
-          "config": {}
-        },
-        {
-          "rule_id": "chapter_briefs_present",
-          "title_zh": "章节简报必须存在",
-          "rule_type": "required_field_present",
-          "severity": "error",
-          "target_field": "chapter_briefs",
-          "criteria": "章节简报不能为空。",
-          "config": {}
-        }
-      ],
-      "runtime_requirements": [],
-      "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
-      },
-      "handoff_policy": {
-        "handoff_mode": "structured_handoff",
-        "include_artifact_refs": true,
-        "include_raw_messages": false,
-        "ack_required": true,
-        "timeout_policy": "fail_closed",
-        "metadata": {}
-      },
-      "failure_policy": {
-        "failure_mode": "fail_closed",
-        "retry_allowed": true,
-        "retry_limit": 1,
-        "escalate_to": "coordinator",
-        "fallback_contract_id": "contract.error_report.basic",
-        "metadata": {}
-      },
-      "human_gate_policy": {
-        "required": false,
-        "gate_type": "none",
-        "reviewer_role": "",
-        "decision_contract_id": "",
-        "metadata": {}
-      },
-      "allowed_agent_kinds": [
-        "worker_sub_agent"
-      ],
-      "allowed_runtime_lanes": [
-        "longform_novel_graph"
-      ],
-      "version": "1.0.0",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_package_wizard",
-        "package_template": "longform_novel_writing"
-      }
-    },
-    {
-      "contract_id": "contract.novel.world_bible_delta",
-      "title_zh": "世界观设定增量",
-      "title_en": "world_bible_delta",
-      "contract_kind": "node_execution",
-      "description": "故事架构阶段输出的世界观设定增量。",
-      "input_fields": [],
-      "output_fields": [
         {
           "field_id": "world_rules",
           "title_zh": "世界规则",
           "field_type": "array",
           "required": true,
-          "description": "",
+          "description": "可供正文继承的世界运行规则。",
           "default_value": null,
           "schema": {},
-          "source_hint": "upstream_output",
+          "source_hint": "authorized_input",
           "visibility": "model_visible"
         },
         {
-          "field_id": "setting_delta",
-          "title_zh": "设定变更",
+          "field_id": "divine_relations",
+          "title_zh": "神灵关系",
           "field_type": "array",
           "required": true,
-          "description": "",
+          "description": "先天神灵之间的关系、冲突和边界。",
           "default_value": null,
           "schema": {},
-          "source_hint": "upstream_output",
+          "source_hint": "authorized_input",
           "visibility": "model_visible"
         },
         {
-          "field_id": "conflict_risks",
-          "title_zh": "冲突风险",
+          "field_id": "geography_order",
+          "title_zh": "地理秩序",
           "field_type": "array",
-          "required": false,
-          "description": "",
+          "required": true,
+          "description": "东荒大泽及相关空间秩序。",
           "default_value": null,
           "schema": {},
-          "source_hint": "upstream_output",
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "usable_hooks",
+          "title_zh": "可写钩子",
+          "field_type": "array",
+          "required": true,
+          "description": "后续章节可调用的世界观钩子。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "风险说明",
+          "field_type": "array",
+          "required": true,
+          "description": "可能冲突、过度设定或不利写作之处。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
           "visibility": "model_visible"
         }
       ],
-      "artifact_requirements": [],
+      "artifact_requirements": [
+        {
+          "requirement_id": "world_design_proposal_artifact",
+          "title_zh": "世界观设计方案",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "世界观设计方案",
+          "naming_rule": "world/world_design_{proposal_role}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
       "acceptance_rules": [
         {
           "rule_id": "world_rules_present",
@@ -1071,26 +94,37 @@
           "rule_type": "required_field_present",
           "severity": "error",
           "target_field": "world_rules",
-          "criteria": "世界规则不能为空。",
+          "criteria": "必须有可执行世界规则。",
           "config": {}
         },
         {
-          "rule_id": "setting_delta_present",
-          "title_zh": "设定变更必须存在",
+          "rule_id": "hard_seed_respected",
+          "title_zh": "不得违背用户硬设定",
           "rule_type": "required_field_present",
           "severity": "error",
-          "target_field": "setting_delta",
-          "criteria": "设定变更不能为空。",
+          "target_field": "risk_notes",
+          "criteria": "必须说明如何尊重用户硬设定。",
           "config": {}
         }
       ],
-      "runtime_requirements": [],
+      "runtime_requirements": [
+        {
+          "requirement_id": "world_design_proposal_projection_required",
+          "title_zh": "需要对应投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.world_designer",
+          "config": {}
+        }
+      ],
       "context_visibility_policy": {
-        "main_session_history": "summary",
-        "upstream_outputs": "summary",
-        "sibling_nodes": "status_only",
-        "artifact_access": "refs_only",
-        "notes": ""
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "只读取本节点授权的稳定资产、候选稿、审核单和必要前情，不继承其他角色原始会话。"
       },
       "handoff_policy": {
         "handoff_mode": "structured_handoff",
@@ -1103,7 +137,7 @@
       "failure_policy": {
         "failure_mode": "fail_closed",
         "retry_allowed": true,
-        "retry_limit": 1,
+        "retry_limit": 2,
         "escalate_to": "coordinator",
         "fallback_contract_id": "contract.error_report.basic",
         "metadata": {}
@@ -1116,16 +150,2642 @@
         "metadata": {}
       },
       "allowed_agent_kinds": [
-        "worker_sub_agent"
+        "worker_sub_agent",
+        "system_management_agent"
       ],
       "allowed_runtime_lanes": [
         "longform_novel_graph"
       ],
-      "version": "1.0.0",
+      "version": "1.1.0",
       "enabled": true,
       "metadata": {
-        "managed_by": "task_package_wizard",
+        "managed_by": "codex_configurator",
         "package_template": "longform_novel_writing"
+      }
+    },
+    {
+      "contract_id": "contract.novel.outline_design_proposal",
+      "title_zh": "大纲结构设计方案",
+      "title_en": "outline_design_proposal",
+      "contract_kind": "node_execution",
+      "description": "双创作者大纲结构方案，用于建立或修正全书主线、分卷结构、阶段目标、章节细则和钩子。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "proposal_role",
+          "title_zh": "方案角色",
+          "field_type": "string",
+          "required": true,
+          "description": "A方案或B方案。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "book_arc",
+          "title_zh": "全书主线",
+          "field_type": "string",
+          "required": true,
+          "description": "百万字全书的主线推进。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "volume_plan",
+          "title_zh": "分卷结构",
+          "field_type": "array",
+          "required": true,
+          "description": "分卷目标和推进阶段。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "chapter_rules",
+          "title_zh": "章节细则",
+          "field_type": "array",
+          "required": true,
+          "description": "章节钩子、冲突、人物变化和信息释放规则。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "progression_hooks",
+          "title_zh": "推进钩子",
+          "field_type": "array",
+          "required": true,
+          "description": "后续章节可执行的推进钩子。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "结构风险",
+          "field_type": "array",
+          "required": true,
+          "description": "可能空转、断线或节奏失衡的风险。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "outline_design_proposal_artifact",
+          "title_zh": "大纲结构设计方案",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "大纲结构设计方案",
+          "naming_rule": "outline/outline_design_{proposal_role}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "chapter_rules_present",
+          "title_zh": "章节细则必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "chapter_rules",
+          "criteria": "大纲必须足够细，能引导写手。",
+          "config": {}
+        },
+        {
+          "rule_id": "progression_hooks_present",
+          "title_zh": "推进钩子必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "progression_hooks",
+          "criteria": "必须提供可执行钩子。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "outline_design_proposal_projection_required",
+          "title_zh": "需要对应投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.outline_designer",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "只读取本节点授权的稳定资产、候选稿、审核单和必要前情，不继承其他角色原始会话。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.1.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing"
+      }
+    },
+    {
+      "contract_id": "contract.novel.character_design_proposal",
+      "title_zh": "人物设定设计方案",
+      "title_en": "character_design_proposal",
+      "contract_kind": "node_execution",
+      "description": "双创作者人物设定方案，用于建立或修正人物身份、关系、动机、秘密、能力和成长弧。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "proposal_role",
+          "title_zh": "方案角色",
+          "field_type": "string",
+          "required": true,
+          "description": "A方案或B方案。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_states",
+          "title_zh": "人物状态",
+          "field_type": "array",
+          "required": true,
+          "description": "人物身份、目标、处境、秘密和能力。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "relationship_map",
+          "title_zh": "关系网",
+          "field_type": "array",
+          "required": true,
+          "description": "人物之间的关系、张力和变化。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "arc_design",
+          "title_zh": "人物弧",
+          "field_type": "array",
+          "required": true,
+          "description": "人物成长、堕落、选择或认知变化。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "人物风险",
+          "field_type": "array",
+          "required": true,
+          "description": "可能动机断裂或关系跳变的风险。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "character_design_proposal_artifact",
+          "title_zh": "人物设定设计方案",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "人物设定设计方案",
+          "naming_rule": "characters/character_design_{proposal_role}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "character_states_present",
+          "title_zh": "人物状态必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "character_states",
+          "criteria": "必须有可继承人物状态。",
+          "config": {}
+        },
+        {
+          "rule_id": "arc_design_present",
+          "title_zh": "人物弧必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "arc_design",
+          "criteria": "必须支撑长篇推进。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "character_design_proposal_projection_required",
+          "title_zh": "需要对应投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.character_designer",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "只读取本节点授权的稳定资产、候选稿、审核单和必要前情，不继承其他角色原始会话。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.1.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing"
+      }
+    },
+    {
+      "contract_id": "contract.novel.chapter_peer_review",
+      "title_zh": "章节互审意见",
+      "title_en": "chapter_peer_review",
+      "contract_kind": "node_execution",
+      "description": "写手B基于授权资产和写手A稿件给出的审读意见、修改方向和可保留创造。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "chapter_index",
+          "title_zh": "章节序号",
+          "field_type": "number",
+          "required": true,
+          "description": "当前章节编号。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "keep_items",
+          "title_zh": "保留项",
+          "field_type": "array",
+          "required": true,
+          "description": "初稿中必须保留的有效创造。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "revision_targets",
+          "title_zh": "修订目标",
+          "field_type": "array",
+          "required": true,
+          "description": "需要写手A处理的问题。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "direction_control",
+          "title_zh": "方向控制",
+          "field_type": "array",
+          "required": true,
+          "description": "是否偏离章节细纲、人物动机或世界观边界。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reader_effect",
+          "title_zh": "阅读效果",
+          "field_type": "array",
+          "required": true,
+          "description": "读者感受、节奏和吸引力判断。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "chapter_peer_review_artifact",
+          "title_zh": "章节互审意见",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "章节互审意见",
+          "naming_rule": "chapters/chapter_{chapter_index:03d}_peer_review.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "revision_targets_present",
+          "title_zh": "修订目标必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "revision_targets",
+          "criteria": "必须给出可执行修改方向。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "chapter_peer_review_projection_required",
+          "title_zh": "需要对应投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.writer_b",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "只读取本节点授权的稳定资产、候选稿、审核单和必要前情，不继承其他角色原始会话。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.1.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing"
+      }
+    },
+    {
+      "contract_id": "contract.novel.chapter_candidate_final",
+      "title_zh": "章节候选终稿",
+      "title_en": "chapter_candidate_final",
+      "contract_kind": "node_execution",
+      "description": "写手B在双人互改后提交给审核员的候选终稿，必须是可交付小说正文。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "chapter_index",
+          "title_zh": "章节序号",
+          "field_type": "number",
+          "required": true,
+          "description": "当前章节编号。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_final_text",
+          "title_zh": "候选终稿正文",
+          "field_type": "string",
+          "required": true,
+          "description": "可提交审核的章节正文。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "change_notes",
+          "title_zh": "改动说明",
+          "field_type": "array",
+          "required": true,
+          "description": "相对初稿和修订稿的关键改动。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "new_candidate_facts",
+          "title_zh": "候选新增事实",
+          "field_type": "array",
+          "required": true,
+          "description": "终稿中出现、但尚待审核通过的新事实。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "remaining_risks",
+          "title_zh": "剩余风险",
+          "field_type": "array",
+          "required": true,
+          "description": "交给审核员判断的风险。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "chapter_candidate_final_artifact",
+          "title_zh": "章节候选终稿",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "章节候选终稿",
+          "naming_rule": "chapters/chapter_{chapter_index:03d}_candidate_final.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "candidate_final_text_present",
+          "title_zh": "候选终稿必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "candidate_final_text",
+          "criteria": "必须是小说正文，不得用说明替代。",
+          "config": {}
+        },
+        {
+          "rule_id": "candidate_final_is_narrative",
+          "title_zh": "候选终稿必须是叙事文本",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "candidate_final_text",
+          "criteria": "不得只写计划、摘要、审稿意见或设定表。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "chapter_candidate_final_projection_required",
+          "title_zh": "需要对应投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.writer_b",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "只读取本节点授权的稳定资产、候选稿、审核单和必要前情，不继承其他角色原始会话。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.1.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing"
+      }
+    },
+    {
+      "contract_id": "contract.novel.quality_gate",
+      "title_zh": "小说审核通关单",
+      "title_en": "quality_gate",
+      "contract_kind": "node_execution",
+      "description": "审核员对创作环节最终候选产物进行通关裁判，输出评分、结论、返修要求和偏差类型。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "review_target",
+          "title_zh": "审核对象",
+          "field_type": "string",
+          "required": true,
+          "description": "章节、世界观、大纲、人物或偏差修正。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "总分",
+          "field_type": "number",
+          "required": true,
+          "description": "满分100。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_decision",
+          "title_zh": "通关结论",
+          "field_type": "string",
+          "required": true,
+          "description": "通过或不通过。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "评分明细",
+          "field_type": "array",
+          "required": true,
+          "description": "剧情推进、人物可信、世界一致、结构、语言、延展、互审方向等评分。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "必须修复项",
+          "field_type": "array",
+          "required": true,
+          "description": "不通过时必须修复的问题。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "keep_items",
+          "title_zh": "可保留项",
+          "field_type": "array",
+          "required": true,
+          "description": "通过或返修时应保留的有效内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "偏差类型",
+          "field_type": "string",
+          "required": true,
+          "description": "none/world/outline/character/chapter。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_action",
+          "title_zh": "下一步动作",
+          "field_type": "string",
+          "required": true,
+          "description": "进入记忆整理、返回互改或触发偏差修正。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "quality_gate_artifact",
+          "title_zh": "小说审核通关单",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "小说审核通关单",
+          "naming_rule": "reviews/review_{review_target}_{chapter_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "score_total_present",
+          "title_zh": "总分必须存在",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "score_total",
+          "criteria": "必须给出0到100分。",
+          "config": {}
+        },
+        {
+          "rule_id": "pass_decision_present",
+          "title_zh": "通关结论必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "必须明确通过或不通过。",
+          "config": {}
+        },
+        {
+          "rule_id": "reviewer_not_author",
+          "title_zh": "审核员不能代写",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "must_fix",
+          "criteria": "审核员只裁判，不直接创作正文或第三套方案。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "quality_gate_projection_required",
+          "title_zh": "需要对应投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.quality_reviewer",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "只读取本节点授权的稳定资产、候选稿、审核单和必要前情，不继承其他角色原始会话。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.1.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing",
+        "pass_threshold": 85,
+        "reviewer_memory_policy": "stateless_per_gate"
+      }
+    },
+    {
+      "contract_id": "contract.novel.approved_memory_commit",
+      "title_zh": "审核通过资产入库",
+      "title_en": "approved_memory_commit",
+      "contract_kind": "node_execution",
+      "description": "记忆整理员只把审核通过的世界观、大纲、人物、正文事实和审核记录整理为稳定候选记忆。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "commit_target",
+          "title_zh": "入库目标",
+          "field_type": "string",
+          "required": true,
+          "description": "world/outline/character/chapter_fact/review_record。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "approved_items",
+          "title_zh": "审核通过内容",
+          "field_type": "array",
+          "required": true,
+          "description": "可以进入对应记忆库的内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "来源引用",
+          "field_type": "array",
+          "required": true,
+          "description": "终稿、审核单和相关产物路径。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "rejected_items",
+          "title_zh": "未入库内容",
+          "field_type": "array",
+          "required": true,
+          "description": "未通过或只能候选保留的内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_context",
+          "title_zh": "下一轮可读上下文",
+          "field_type": "string",
+          "required": true,
+          "description": "下一章或下一阶段可读取的简明上下文。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "approved_memory_commit_artifact",
+          "title_zh": "审核通过资产入库",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "审核通过资产入库",
+          "naming_rule": "memory/memory_candidates_{chapter_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "approved_items_present",
+          "title_zh": "审核通过内容必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "approved_items",
+          "criteria": "只能整理审核通过内容。",
+          "config": {}
+        },
+        {
+          "rule_id": "source_refs_present",
+          "title_zh": "来源引用必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "source_refs",
+          "criteria": "入库内容必须可追溯。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "approved_memory_commit_projection_required",
+          "title_zh": "需要对应投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.memory_steward",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "只读取本节点授权的稳定资产、候选稿、审核单和必要前情，不继承其他角色原始会话。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.1.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing"
+      }
+    },
+    {
+      "contract_id": "contract.novel.world_foundation_quality_gate",
+      "title_zh": "世界观初设审核通关",
+      "title_en": "world_foundation_quality_gate",
+      "contract_kind": "node_execution",
+      "description": "审核世界观A/B初设方案是否尊重用户硬设定、世界规则是否自洽、边界是否清楚、是否能支撑长篇正文。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "review_target",
+          "title_zh": "审核对象",
+          "field_type": "string",
+          "required": true,
+          "description": "本轮审核对象。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "总分",
+          "field_type": "number",
+          "required": true,
+          "description": "满分100，低于85必须不通过。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_decision",
+          "title_zh": "通关结论",
+          "field_type": "string",
+          "required": true,
+          "description": "只能是“通过”或“不通过”。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "评分明细",
+          "field_type": "array",
+          "required": true,
+          "description": "按本契约评分维度逐项给分和理由。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "必须修复项",
+          "field_type": "array",
+          "required": true,
+          "description": "不通过时必须修复；通过时可为空数组。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "keep_items",
+          "title_zh": "可保留项",
+          "field_type": "array",
+          "required": true,
+          "description": "应保留的有效内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "偏差类型",
+          "field_type": "string",
+          "required": true,
+          "description": "none/world/outline/character/chapter。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_action",
+          "title_zh": "下一步动作",
+          "field_type": "string",
+          "required": true,
+          "description": "进入记忆整理、返回互改、触发偏差修正或进入下一阶段。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reasoning_basis",
+          "title_zh": "裁判依据",
+          "field_type": "array",
+          "required": true,
+          "description": "列出依据的原设定、已通过记忆或候选作品，不写内部思考过程。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "world_foundation_quality_gate_artifact",
+          "title_zh": "世界观初设审核通关",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "世界观初设审核通关",
+          "naming_rule": "reviews/review_world_foundation_000.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "score_total_present",
+          "title_zh": "总分必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_total",
+          "criteria": "必须给出0到100分。",
+          "config": {}
+        },
+        {
+          "rule_id": "pass_decision_present",
+          "title_zh": "通关结论必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "必须明确通过或不通过。",
+          "config": {}
+        },
+        {
+          "rule_id": "score_breakdown_present",
+          "title_zh": "评分明细必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_breakdown",
+          "criteria": "必须按阶段维度评分。",
+          "config": {}
+        },
+        {
+          "rule_id": "threshold_enforced",
+          "title_zh": "通过线必须执行",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "低于85分必须不通过；不通过不得入库。",
+          "config": {}
+        },
+        {
+          "rule_id": "reviewer_not_author",
+          "title_zh": "审核员不能代写",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "must_fix",
+          "criteria": "审核员只裁判，不直接创作正文、设定或第三套方案。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "world_foundation_quality_gate_projection_required",
+          "title_zh": "需要阶段审核投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.reviewer.world_foundation",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "审核员只读取本轮授权材料，不继承创作者原始会话，不保存长期上下文。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.2.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing",
+        "pass_threshold": 85,
+        "reviewer_memory_policy": "stateless_per_gate",
+        "score_dimensions": [
+          "硬设定忠实度20",
+          "世界规则自洽20",
+          "神灵关系与力量边界20",
+          "正文可写性20",
+          "长期扩展空间10",
+          "双方案取舍清晰度10"
+        ],
+        "focus_rules": [
+          "不得创造第三套世界观",
+          "不得为了华丽设定放松硬边界",
+          "必须指出可保留项和必须修复项"
+        ]
+      }
+    },
+    {
+      "contract_id": "contract.novel.outline_foundation_quality_gate",
+      "title_zh": "大纲初设审核通关",
+      "title_en": "outline_foundation_quality_gate",
+      "contract_kind": "node_execution",
+      "description": "审核大纲A/B初设方案是否能支撑百万字、分卷和章节钩子是否细、信息释放与人物变化是否可执行。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "review_target",
+          "title_zh": "审核对象",
+          "field_type": "string",
+          "required": true,
+          "description": "本轮审核对象。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "总分",
+          "field_type": "number",
+          "required": true,
+          "description": "满分100，低于85必须不通过。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_decision",
+          "title_zh": "通关结论",
+          "field_type": "string",
+          "required": true,
+          "description": "只能是“通过”或“不通过”。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "评分明细",
+          "field_type": "array",
+          "required": true,
+          "description": "按本契约评分维度逐项给分和理由。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "必须修复项",
+          "field_type": "array",
+          "required": true,
+          "description": "不通过时必须修复；通过时可为空数组。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "keep_items",
+          "title_zh": "可保留项",
+          "field_type": "array",
+          "required": true,
+          "description": "应保留的有效内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "偏差类型",
+          "field_type": "string",
+          "required": true,
+          "description": "none/world/outline/character/chapter。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_action",
+          "title_zh": "下一步动作",
+          "field_type": "string",
+          "required": true,
+          "description": "进入记忆整理、返回互改、触发偏差修正或进入下一阶段。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reasoning_basis",
+          "title_zh": "裁判依据",
+          "field_type": "array",
+          "required": true,
+          "description": "列出依据的原设定、已通过记忆或候选作品，不写内部思考过程。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "outline_foundation_quality_gate_artifact",
+          "title_zh": "大纲初设审核通关",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "大纲初设审核通关",
+          "naming_rule": "reviews/review_outline_foundation_000.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "score_total_present",
+          "title_zh": "总分必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_total",
+          "criteria": "必须给出0到100分。",
+          "config": {}
+        },
+        {
+          "rule_id": "pass_decision_present",
+          "title_zh": "通关结论必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "必须明确通过或不通过。",
+          "config": {}
+        },
+        {
+          "rule_id": "score_breakdown_present",
+          "title_zh": "评分明细必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_breakdown",
+          "criteria": "必须按阶段维度评分。",
+          "config": {}
+        },
+        {
+          "rule_id": "threshold_enforced",
+          "title_zh": "通过线必须执行",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "低于85分必须不通过；不通过不得入库。",
+          "config": {}
+        },
+        {
+          "rule_id": "reviewer_not_author",
+          "title_zh": "审核员不能代写",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "must_fix",
+          "criteria": "审核员只裁判，不直接创作正文、设定或第三套方案。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "outline_foundation_quality_gate_projection_required",
+          "title_zh": "需要阶段审核投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.reviewer.outline_foundation",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "审核员只读取本轮授权材料，不继承创作者原始会话，不保存长期上下文。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.2.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing",
+        "pass_threshold": 85,
+        "reviewer_memory_policy": "stateless_per_gate",
+        "score_dimensions": [
+          "百万字承载力20",
+          "分卷推进梯度20",
+          "章节钩子细则20",
+          "人物变化与信息释放15",
+          "节奏风险控制15",
+          "双方案取舍清晰度10"
+        ],
+        "focus_rules": [
+          "不得只接受空泛大纲",
+          "必须要求钩子和阶段目标足够细",
+          "不能为了当前方便牺牲全书结构"
+        ]
+      }
+    },
+    {
+      "contract_id": "contract.novel.setting_revision_quality_gate",
+      "title_zh": "世界观大纲偏差修正审核",
+      "title_en": "setting_revision_quality_gate",
+      "contract_kind": "node_execution",
+      "description": "审核世界观或大纲修正是否基于既成正文事实，是否是原设定自然延展，是否允许写入对应记忆库。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "review_target",
+          "title_zh": "审核对象",
+          "field_type": "string",
+          "required": true,
+          "description": "本轮审核的创作对象。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "总分",
+          "field_type": "number",
+          "required": true,
+          "description": "满分100，低于85必须不通过。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_decision",
+          "title_zh": "通关结论",
+          "field_type": "string",
+          "required": true,
+          "description": "只能是“通过”或“不通过”。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "评分明细",
+          "field_type": "array",
+          "required": true,
+          "description": "按本契约评分维度逐项给分和理由。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "必须修复项",
+          "field_type": "array",
+          "required": true,
+          "description": "不通过时必须修复；通过时可为空数组。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "keep_items",
+          "title_zh": "可保留项",
+          "field_type": "array",
+          "required": true,
+          "description": "应保留的有效内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "偏差类型",
+          "field_type": "string",
+          "required": true,
+          "description": "none/world/outline/character/chapter。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_action",
+          "title_zh": "下一步动作",
+          "field_type": "string",
+          "required": true,
+          "description": "进入记忆整理、返回互改、触发偏差修正或进入下一阶段。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reasoning_basis",
+          "title_zh": "裁判依据",
+          "field_type": "array",
+          "required": true,
+          "description": "列出依据的原设定、已通过记忆或候选作品，不写内部思考过程。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "setting_revision_quality_gate_artifact",
+          "title_zh": "世界观大纲偏差修正审核",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "世界观大纲偏差修正审核",
+          "naming_rule": "reviews/review_setting_revision_{chapter_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "score_total_present",
+          "title_zh": "总分必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_total",
+          "criteria": "必须给出0到100分。",
+          "config": {}
+        },
+        {
+          "rule_id": "pass_decision_present",
+          "title_zh": "通关结论必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "必须明确通过或不通过。",
+          "config": {}
+        },
+        {
+          "rule_id": "score_breakdown_present",
+          "title_zh": "评分明细必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_breakdown",
+          "criteria": "必须按阶段维度评分。",
+          "config": {}
+        },
+        {
+          "rule_id": "threshold_enforced",
+          "title_zh": "通过线必须执行",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "低于85分必须不通过；不通过不得入库。",
+          "config": {}
+        },
+        {
+          "rule_id": "reviewer_not_author",
+          "title_zh": "审核员不能代写",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "must_fix",
+          "criteria": "审核员只裁判，不直接创作正文、设定或第三套方案。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "setting_revision_quality_gate_projection_required",
+          "title_zh": "需要阶段审核投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.reviewer.setting_revision",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "审核员只读取本轮授权材料，不继承创作者原始会话，不保存长期上下文。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.2.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing",
+        "pass_threshold": 85,
+        "reviewer_memory_policy": "stateless_per_gate",
+        "score_dimensions": [
+          "既成正文依据25",
+          "原设定连续性20",
+          "修正必要性20",
+          "对后续章节帮助15",
+          "副作用风险10",
+          "双方案仲裁清晰度10"
+        ],
+        "focus_rules": [
+          "修正必须基于已通过正文事实",
+          "不得为了当前章节方便硬改设定",
+          "不通过时保持原设定并返回正文修订"
+        ]
+      }
+    },
+    {
+      "contract_id": "contract.novel.chapter_plan_quality_gate",
+      "title_zh": "章节细纲审核通关",
+      "title_en": "chapter_plan_quality_gate",
+      "contract_kind": "node_execution",
+      "description": "审核当前章细纲是否承接大纲和前文，场景、冲突、信息释放、人物状态和结尾钩子是否足以指导写手。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "review_target",
+          "title_zh": "审核对象",
+          "field_type": "string",
+          "required": true,
+          "description": "本轮审核的创作对象。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "总分",
+          "field_type": "number",
+          "required": true,
+          "description": "满分100，低于85必须不通过。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_decision",
+          "title_zh": "通关结论",
+          "field_type": "string",
+          "required": true,
+          "description": "只能是“通过”或“不通过”。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "评分明细",
+          "field_type": "array",
+          "required": true,
+          "description": "按本契约评分维度逐项给分和理由。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "必须修复项",
+          "field_type": "array",
+          "required": true,
+          "description": "不通过时必须修复；通过时可为空数组。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "keep_items",
+          "title_zh": "可保留项",
+          "field_type": "array",
+          "required": true,
+          "description": "应保留的有效内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "偏差类型",
+          "field_type": "string",
+          "required": true,
+          "description": "none/world/outline/character/chapter。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_action",
+          "title_zh": "下一步动作",
+          "field_type": "string",
+          "required": true,
+          "description": "进入记忆整理、返回互改、触发偏差修正或进入下一阶段。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reasoning_basis",
+          "title_zh": "裁判依据",
+          "field_type": "array",
+          "required": true,
+          "description": "列出依据的原设定、已通过记忆或候选作品，不写内部思考过程。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "chapter_plan_quality_gate_artifact",
+          "title_zh": "章节细纲审核通关",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "章节细纲审核通关",
+          "naming_rule": "reviews/review_chapter_plan_{chapter_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "score_total_present",
+          "title_zh": "总分必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_total",
+          "criteria": "必须给出0到100分。",
+          "config": {}
+        },
+        {
+          "rule_id": "pass_decision_present",
+          "title_zh": "通关结论必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "必须明确通过或不通过。",
+          "config": {}
+        },
+        {
+          "rule_id": "score_breakdown_present",
+          "title_zh": "评分明细必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_breakdown",
+          "criteria": "必须按阶段维度评分。",
+          "config": {}
+        },
+        {
+          "rule_id": "threshold_enforced",
+          "title_zh": "通过线必须执行",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "低于85分必须不通过；不通过不得入库。",
+          "config": {}
+        },
+        {
+          "rule_id": "reviewer_not_author",
+          "title_zh": "审核员不能代写",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "must_fix",
+          "criteria": "审核员只裁判，不直接创作正文、设定或第三套方案。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "chapter_plan_quality_gate_projection_required",
+          "title_zh": "需要阶段审核投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.reviewer.chapter_plan",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "审核员只读取本轮授权材料，不继承创作者原始会话，不保存长期上下文。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.2.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing",
+        "pass_threshold": 85,
+        "reviewer_memory_policy": "stateless_per_gate",
+        "score_dimensions": [
+          "承接原设定与前文20",
+          "本章目标清晰20",
+          "场景和冲突可写20",
+          "人物状态可信15",
+          "信息释放与结尾钩子15",
+          "写手指导性10"
+        ],
+        "focus_rules": [
+          "细纲不写正文",
+          "细纲必须能指导写手",
+          "不通过时返回大纲/细纲修订"
+        ]
+      }
+    },
+    {
+      "contract_id": "contract.novel.chapter_text_quality_gate",
+      "title_zh": "章节正文审核通关",
+      "title_en": "chapter_text_quality_gate",
+      "contract_kind": "node_execution",
+      "description": "审核候选终稿是否是真正小说正文，是否推进剧情、保持人物可信、自然使用世界观并产生下一章动力。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "review_target",
+          "title_zh": "审核对象",
+          "field_type": "string",
+          "required": true,
+          "description": "本轮审核对象。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "总分",
+          "field_type": "number",
+          "required": true,
+          "description": "满分100，低于85必须不通过。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_decision",
+          "title_zh": "通关结论",
+          "field_type": "string",
+          "required": true,
+          "description": "只能是“通过”或“不通过”。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "评分明细",
+          "field_type": "array",
+          "required": true,
+          "description": "按本契约评分维度逐项给分和理由。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "必须修复项",
+          "field_type": "array",
+          "required": true,
+          "description": "不通过时必须修复；通过时可为空数组。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "keep_items",
+          "title_zh": "可保留项",
+          "field_type": "array",
+          "required": true,
+          "description": "应保留的有效内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "偏差类型",
+          "field_type": "string",
+          "required": true,
+          "description": "none/world/outline/character/chapter。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_action",
+          "title_zh": "下一步动作",
+          "field_type": "string",
+          "required": true,
+          "description": "进入记忆整理、返回互改、触发偏差修正或进入下一阶段。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reasoning_basis",
+          "title_zh": "裁判依据",
+          "field_type": "array",
+          "required": true,
+          "description": "列出依据的原设定、已通过记忆或候选作品，不写内部思考过程。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "chapter_text_quality_gate_artifact",
+          "title_zh": "章节正文审核通关",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "章节正文审核通关",
+          "naming_rule": "reviews/review_chapter_{chapter_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "score_total_present",
+          "title_zh": "总分必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_total",
+          "criteria": "必须给出0到100分。",
+          "config": {}
+        },
+        {
+          "rule_id": "pass_decision_present",
+          "title_zh": "通关结论必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "必须明确通过或不通过。",
+          "config": {}
+        },
+        {
+          "rule_id": "score_breakdown_present",
+          "title_zh": "评分明细必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_breakdown",
+          "criteria": "必须按阶段维度评分。",
+          "config": {}
+        },
+        {
+          "rule_id": "threshold_enforced",
+          "title_zh": "通过线必须执行",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "低于85分必须不通过；不通过不得入库。",
+          "config": {}
+        },
+        {
+          "rule_id": "reviewer_not_author",
+          "title_zh": "审核员不能代写",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "must_fix",
+          "criteria": "审核员只裁判，不直接创作正文、设定或第三套方案。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "chapter_text_quality_gate_projection_required",
+          "title_zh": "需要阶段审核投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.reviewer.chapter_text",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "审核员只读取本轮授权材料，不继承创作者原始会话，不保存长期上下文。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.2.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing",
+        "pass_threshold": 85,
+        "reviewer_memory_policy": "stateless_per_gate",
+        "score_dimensions": [
+          "剧情推进20",
+          "人物动机与行为可信20",
+          "世界观一致性15",
+          "章节结构与细纲承接15",
+          "语言质感与可读性10",
+          "长篇伏笔和后续延展10",
+          "双写手互改方向10"
+        ],
+        "focus_rules": [
+          "审核员不改正文",
+          "低于85返回写手A/B继续互改",
+          "通过后才允许记忆整理"
+        ]
+      }
+    },
+    {
+      "contract_id": "contract.novel.world_revision_quality_gate",
+      "title_zh": "世界观修正审核通关",
+      "title_en": "world_revision_quality_gate",
+      "contract_kind": "node_execution",
+      "description": "审核世界观修正是否基于既成正文事实，是否是原世界观的自然延展，是否允许写入世界观记忆库。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "review_target",
+          "title_zh": "审核对象",
+          "field_type": "string",
+          "required": true,
+          "description": "本轮审核对象。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "总分",
+          "field_type": "number",
+          "required": true,
+          "description": "满分100，低于85必须不通过。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_decision",
+          "title_zh": "通关结论",
+          "field_type": "string",
+          "required": true,
+          "description": "只能是“通过”或“不通过”。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "评分明细",
+          "field_type": "array",
+          "required": true,
+          "description": "按本契约评分维度逐项给分和理由。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "必须修复项",
+          "field_type": "array",
+          "required": true,
+          "description": "不通过时必须修复；通过时可为空数组。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "keep_items",
+          "title_zh": "可保留项",
+          "field_type": "array",
+          "required": true,
+          "description": "应保留的有效内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "偏差类型",
+          "field_type": "string",
+          "required": true,
+          "description": "none/world/outline/character/chapter。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_action",
+          "title_zh": "下一步动作",
+          "field_type": "string",
+          "required": true,
+          "description": "进入记忆整理、返回互改、触发偏差修正或进入下一阶段。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reasoning_basis",
+          "title_zh": "裁判依据",
+          "field_type": "array",
+          "required": true,
+          "description": "列出依据的原设定、已通过记忆或候选作品，不写内部思考过程。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "world_revision_quality_gate_artifact",
+          "title_zh": "世界观修正审核通关",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "世界观修正审核通关",
+          "naming_rule": "reviews/review_world_revision_{chapter_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "score_total_present",
+          "title_zh": "总分必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_total",
+          "criteria": "必须给出0到100分。",
+          "config": {}
+        },
+        {
+          "rule_id": "pass_decision_present",
+          "title_zh": "通关结论必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "必须明确通过或不通过。",
+          "config": {}
+        },
+        {
+          "rule_id": "score_breakdown_present",
+          "title_zh": "评分明细必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_breakdown",
+          "criteria": "必须按阶段维度评分。",
+          "config": {}
+        },
+        {
+          "rule_id": "threshold_enforced",
+          "title_zh": "通过线必须执行",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "低于85分必须不通过；不通过不得入库。",
+          "config": {}
+        },
+        {
+          "rule_id": "reviewer_not_author",
+          "title_zh": "审核员不能代写",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "must_fix",
+          "criteria": "审核员只裁判，不直接创作正文、设定或第三套方案。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "world_revision_quality_gate_projection_required",
+          "title_zh": "需要阶段审核投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.reviewer.world_revision",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "审核员只读取本轮授权材料，不继承创作者原始会话，不保存长期上下文。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.2.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing",
+        "pass_threshold": 85,
+        "reviewer_memory_policy": "stateless_per_gate",
+        "score_dimensions": [
+          "既成正文依据25",
+          "原世界观连续性20",
+          "修正必要性20",
+          "对后续章节帮助15",
+          "副作用风险10",
+          "双方案仲裁清晰度10"
+        ],
+        "focus_rules": [
+          "修正必须基于已通过正文事实",
+          "不得为了当前章节方便硬改世界观",
+          "不通过时保持原世界观并返回正文修订"
+        ]
+      }
+    },
+    {
+      "contract_id": "contract.novel.outline_revision_quality_gate",
+      "title_zh": "大纲修正审核通关",
+      "title_en": "outline_revision_quality_gate",
+      "contract_kind": "node_execution",
+      "description": "审核大纲修正是否基于既成正文事实，是否是原大纲的自然延展，是否允许写入大纲记忆库。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "review_target",
+          "title_zh": "审核对象",
+          "field_type": "string",
+          "required": true,
+          "description": "本轮审核对象。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "总分",
+          "field_type": "number",
+          "required": true,
+          "description": "满分100，低于85必须不通过。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_decision",
+          "title_zh": "通关结论",
+          "field_type": "string",
+          "required": true,
+          "description": "只能是“通过”或“不通过”。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "评分明细",
+          "field_type": "array",
+          "required": true,
+          "description": "按本契约评分维度逐项给分和理由。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "必须修复项",
+          "field_type": "array",
+          "required": true,
+          "description": "不通过时必须修复；通过时可为空数组。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "keep_items",
+          "title_zh": "可保留项",
+          "field_type": "array",
+          "required": true,
+          "description": "应保留的有效内容。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "偏差类型",
+          "field_type": "string",
+          "required": true,
+          "description": "none/world/outline/character/chapter。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_action",
+          "title_zh": "下一步动作",
+          "field_type": "string",
+          "required": true,
+          "description": "进入记忆整理、返回互改、触发偏差修正或进入下一阶段。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reasoning_basis",
+          "title_zh": "裁判依据",
+          "field_type": "array",
+          "required": true,
+          "description": "列出依据的原设定、已通过记忆或候选作品，不写内部思考过程。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "authorized_input",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "outline_revision_quality_gate_artifact",
+          "title_zh": "大纲修正审核通关",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "大纲修正审核通关",
+          "naming_rule": "reviews/review_outline_revision_{chapter_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "score_total_present",
+          "title_zh": "总分必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_total",
+          "criteria": "必须给出0到100分。",
+          "config": {}
+        },
+        {
+          "rule_id": "pass_decision_present",
+          "title_zh": "通关结论必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "必须明确通过或不通过。",
+          "config": {}
+        },
+        {
+          "rule_id": "score_breakdown_present",
+          "title_zh": "评分明细必须存在",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "score_breakdown",
+          "criteria": "必须按阶段维度评分。",
+          "config": {}
+        },
+        {
+          "rule_id": "threshold_enforced",
+          "title_zh": "通过线必须执行",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "pass_decision",
+          "criteria": "低于85分必须不通过；不通过不得入库。",
+          "config": {}
+        },
+        {
+          "rule_id": "reviewer_not_author",
+          "title_zh": "审核员不能代写",
+          "rule_type": "quality_review",
+          "severity": "error",
+          "target_field": "must_fix",
+          "criteria": "审核员只裁判，不直接创作正文、设定或第三套方案。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [
+        {
+          "requirement_id": "outline_revision_quality_gate_projection_required",
+          "title_zh": "需要阶段审核投影",
+          "requirement_type": "projection",
+          "required": true,
+          "value": "projection.longform_novel.reviewer.outline_revision",
+          "config": {}
+        }
+      ],
+      "context_visibility_policy": {
+        "main_session_history": "summary_only",
+        "upstream_outputs": "authorized_artifacts_only",
+        "sibling_nodes": "hidden_by_default",
+        "artifact_access": "content_and_refs",
+        "raw_agent_dialogue": "never",
+        "private_reasoning": "never",
+        "notes": "审核员只读取本轮授权材料，不继承创作者原始会话，不保存长期上下文。"
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_handoff",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": true,
+        "retry_limit": 2,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "contract.error_report.basic",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [
+        "worker_sub_agent",
+        "system_management_agent"
+      ],
+      "allowed_runtime_lanes": [
+        "longform_novel_graph"
+      ],
+      "version": "1.2.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_configurator",
+        "package_template": "longform_novel_writing",
+        "pass_threshold": 85,
+        "reviewer_memory_policy": "stateless_per_gate",
+        "score_dimensions": [
+          "既成正文依据25",
+          "原大纲连续性20",
+          "修正必要性20",
+          "对后续章节帮助15",
+          "结构副作用风险10",
+          "双方案仲裁清晰度10"
+        ],
+        "focus_rules": [
+          "修正必须基于已通过正文事实",
+          "不得为了当前章节方便硬改大纲",
+          "不通过时保持原大纲并返回正文修订"
+        ]
       }
     }
   ]

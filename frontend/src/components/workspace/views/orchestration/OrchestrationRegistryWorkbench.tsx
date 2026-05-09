@@ -145,8 +145,6 @@ export function OrchestrationRegistryWorkbench({
   soulSeeds: SoulSystemSeed[];
   legacySystemKey: string;
 }) {
-  const fixedIdentityAgent =
-    agentDraft.agent_category === "main_agent" || agentDraft.agent_category === "system_management_agent";
   const selectedSoulProjectionCards = projectionCards.filter((card) => projectionBelongsToSoul(card, agentDraft.default_soul_id || ""));
 
   return (
@@ -182,8 +180,7 @@ export function OrchestrationRegistryWorkbench({
               disabled={
                 saving === "delete" ||
                 agentDeleteBlocked ||
-                agentMode === "new" ||
-                agentDraft.agent_category !== "worker_sub_agent"
+                agentMode === "new"
               }
               onClick={() => void removeAgent()}
               variant="danger"
@@ -202,7 +199,7 @@ export function OrchestrationRegistryWorkbench({
         </header>
         <div className="orchestration-identity-note">
           <span>这里定义 Agent 身份本体。</span>
-          <strong>{fixedIdentityAgent ? "主 Agent / 系统管理 Agent 身份锁定，只允许查看。子 Agent 才支持自由定义。" : "子 Agent 可自由定义名称、入口、选择灵魂/投影和职责说明。"}</strong>
+          <strong>{selectedAgentBuiltin ? "这是系统预置来源的 Agent，默认会对接既定会话口；除此之外按普通 Agent 管理。" : "子 Agent 可自由定义名称、入口、选择灵魂/投影和职责说明。"}</strong>
         </div>
         <div className="boundary-form">
           <OrchestrationField label="Agent 标识">
@@ -216,15 +213,12 @@ export function OrchestrationRegistryWorkbench({
           </OrchestrationField>
           <OrchestrationField label="入口位置">
             <input
-              readOnly={fixedIdentityAgent}
               value={agentDraft.interface_target || ""}
               onChange={(event) => patchAgentDraft({ interface_target: event.target.value })}
             />
           </OrchestrationField>
           <SoulSelectField
-            disabled={fixedIdentityAgent}
             onChange={(value) => {
-              if (fixedIdentityAgent) return;
               const currentProjection = projectionCards.find((card) => card.projection_id === agentDraft.default_projection_id);
               patchAgentDraft({
                 default_soul_id: value,
@@ -236,17 +230,15 @@ export function OrchestrationRegistryWorkbench({
           />
           <ProjectionSelectField
             cards={selectedSoulProjectionCards}
-            disabled={fixedIdentityAgent || !agentDraft.default_soul_id}
+            disabled={!agentDraft.default_soul_id}
             label="选择投影"
             onChange={(value) => {
-              if (fixedIdentityAgent) return;
               patchAgentDraft({ default_projection_id: value });
             }}
             value={agentDraft.default_projection_id || ""}
           />
           <OrchestrationField label="职责说明" wide>
             <textarea
-              readOnly={fixedIdentityAgent}
               value={agentDraft.description || ""}
               onChange={(event) => patchAgentDraft({ description: event.target.value })}
             />
@@ -254,7 +246,6 @@ export function OrchestrationRegistryWorkbench({
           <label className="boundary-check">
             <input
               checked={Boolean(agentDraft.enabled)}
-              disabled={fixedIdentityAgent}
               onChange={(event) => patchAgentDraft({ enabled: event.target.checked })}
               type="checkbox"
             />
@@ -263,7 +254,6 @@ export function OrchestrationRegistryWorkbench({
           <label className="boundary-check">
             <input
               checked={Boolean(agentDraft.editable)}
-              disabled={fixedIdentityAgent}
               onChange={(event) => patchAgentDraft({ editable: event.target.checked })}
               type="checkbox"
             />

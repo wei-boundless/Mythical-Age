@@ -56,6 +56,29 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             },
         ),
         TaskTemplate(
+            template_id="template.longform_novel.full_creation",
+            title="长篇小说完整创作",
+            description="用于长篇小说完整创作任务，要求系统在用户给定硬设定边界内自由发挥并承担长期创作责任。",
+            task_family="longform_novel_writing",
+            task_mode="longform_novel_graph",
+            output_schema={"final_answer": {"type": "string", "required": True}},
+            required_operations=("op.model_response",),
+            step_blueprints=general_steps,
+            metadata={
+                "workflow_id": "workflow.longform_novel.graph_runtime",
+                "final_answer_requirements": (
+                    "目标作品总规模为约100万字长篇小说。",
+                    "系统只接收用户给定的硬设定、任务目标、产物要求和执行职责，不额外要求用户先补完具体设定。",
+                    "系统必须在用户给定边界内自由发挥，履行长篇小说创作责任。",
+                    "不得把任务退化为说明书、任务解释或仅交付项目骨架来代替创作任务本身。",
+                ),
+                "forbidden_final_states": (
+                    "把长篇小说创作任务退化为纯说明书输出",
+                    "只交付项目总纲、设定提纲或章节规划而不承担后续创作责任",
+                ),
+            },
+        ),
+        TaskTemplate(
             template_id=_RAG_TEMPLATE_ID,
             title="知识检索回答",
             description="通过检索能力获取证据并生成有依据的回答。",

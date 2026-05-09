@@ -1,0 +1,389 @@
+export type TaskGraphPhaseDefinition = {
+  phase_id: string;
+  title: string;
+  entry_node_id?: string;
+  exit_node_id?: string;
+  review_gate_node_id?: string;
+  memory_commit_node_id?: string;
+  exit_policy?: Record<string, unknown>;
+  loop_policy?: Record<string, unknown>;
+};
+
+export type TaskGraphLifecyclePolicy = {
+  lifecycle_id?: string;
+  main_chain_mode?: string;
+  maturity_model?: string[];
+};
+
+export type TaskGraphTimelinePolicy = {
+  ordering?: string;
+  parallel_group_policy?: string;
+  phase_exit_policy?: string;
+};
+
+export type TaskGraphTimelineFrameType = "phase_frame" | "step_frame" | "parallel_frame" | "loop_frame" | "review_gate_frame";
+
+export type TaskGraphTimelineFrame = {
+  frame_id: string;
+  frame_type: TaskGraphTimelineFrameType;
+  title: string;
+  phase_id?: string;
+  sequence_index?: number;
+  timeline_group_id?: string;
+  node_ids: string[];
+  edge_ids: string[];
+  review_gate_node_id?: string;
+  loop_policy?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskGraphTimelineIssue = {
+  code: string;
+  message: string;
+  severity: "error" | "warning" | "info";
+  node_id?: string;
+  edge_id?: string;
+  phase_id?: string;
+};
+
+export type TaskGraphTimelineStep = {
+  step_key: string;
+  sequence_index: number;
+  timeline_group_id: string;
+  nodes: Array<Record<string, unknown>>;
+};
+
+export type TaskGraphTimelinePhase = {
+  phase: TaskGraphPhaseDefinition;
+  nodes: Array<Record<string, unknown>>;
+  steps: TaskGraphTimelineStep[];
+  issues: TaskGraphTimelineIssue[];
+};
+
+export const DEFAULT_PHASE_ID = "phase.unassigned";
+
+export const DEFAULT_LIFECYCLE_POLICY: TaskGraphLifecyclePolicy = {
+  lifecycle_id: "task_graph_default",
+  main_chain_mode: "phase_sequence",
+  maturity_model: ["draft", "mutual_review", "candidate_final", "review_passed", "committed"],
+};
+
+export const DEFAULT_TIMELINE_POLICY: TaskGraphTimelinePolicy = {
+  ordering: "phase_then_sequence_index",
+  parallel_group_policy: "same_sequence_or_group",
+  phase_exit_policy: "all_blocking_nodes_complete",
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function asRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
+}
+
+function asStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
+}
+
+function isTimelineFrameType(value: string): value is TaskGraphTimelineFrameType {
+  return ["phase_frame", "step_frame", "parallel_frame", "loop_frame", "review_gate_frame"].includes(value);
+}
+
+export function nodeIdOf(node: Record<string, unknown>, index = 0) {
+  return String(node.node_id ?? node.id ?? `node_${index + 1}`);
+}
+
+export function nodeTitle(node: Record<string, unknown>, index = 0) {
+  return String(node.title ?? node.label ?? node.task_title ?? nodeIdOf(node, index));
+}
+
+export function graphEdgeSource(edge: Record<string, unknown>) {
+  return String(edge.source_node_id ?? edge.from ?? edge.source ?? "");
+}
+
+export function graphEdgeTarget(edge: Record<string, unknown>) {
+  return String(edge.target_node_id ?? edge.to ?? edge.target ?? "");
+}
+
+export function nodeTimelineValue<T = unknown>(node: Record<string, unknown>, key: string, fallback: T): T {
+  const metadata = asRecord(node.metadata);
+  const value = node[key] ?? metadata[key];
+  return (value === undefined || value === null || value === "") ? fallback : value as T;
+}
+
+export function nodePhaseId(node: Record<string, unknown>) {
+  return String(nodeTimelineValue(node, "phase_id", DEFAULT_PHASE_ID));
+}
+
+export function nodeSequenceIndex(node: Record<string, unknown>) {
+  const value = Number(nodeTimelineValue(node, "sequence_index", 1));
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+export function nodeTimelineGroupId(node: Record<string, unknown>) {
+  return String(nodeTimelineValue(node, "timeline_group_id", ""));
+}
+
+export function nodeMainChain(node: Record<string, unknown>) {
+  return Boolean(nodeTimelineValue(node, "main_chain", false));
+}
+
+export function nodeBlocksPhaseExit(node: Record<string, unknown>) {
+  return Boolean(nodeTimelineValue(node, "blocks_phase_exit", false));
+}
+
+export function nodeReviewGatePolicy(node: Record<string, unknown>) {
+  return asRecord(nodeTimelineValue(node, "review_gate_policy", {}));
+}
+
+export function nodeLoopPolicy(node: Record<string, unknown>) {
+  return asRecord(nodeTimelineValue(node, "loop_policy", {}));
+}
+
+export function nodeCompletionPolicy(node: Record<string, unknown>) {
+  return String(nodeTimelineValue(node, "completion_policy", ""));
+}
+
+export function coordinationLifecyclePolicy(metadata: Record<string, unknown> | undefined): TaskGraphLifecyclePolicy {
+  return { ...DEFAULT_LIFECYCLE_POLICY, ...asRecord(metadata?.lifecycle_policy) };
+}
+
+export function coordinationTimelinePolicy(metadata: Record<string, unknown> | undefined): TaskGraphTimelinePolicy {
+  return { ...DEFAULT_TIMELINE_POLICY, ...asRecord(metadata?.timeline_policy) };
+}
+
+export function coordinationTimelineFrames(metadata: Record<string, unknown> | undefined): TaskGraphTimelineFrame[] {
+  return asRecordArray(metadata?.timeline_frames)
+    .map((item, index): TaskGraphTimelineFrame => {
+      const frameType = String(item.frame_type ?? item.type ?? "phase_frame");
+      const normalizedType = isTimelineFrameType(frameType) ? frameType : "phase_frame";
+      const frameId = String(item.frame_id ?? item.id ?? `timeline_frame_${index + 1}`).trim();
+      return {
+        frame_id: frameId || `timeline_frame_${index + 1}`,
+        frame_type: normalizedType,
+        title: String(item.title ?? item.name ?? frameId ?? `Frame ${index + 1}`).trim(),
+        phase_id: String(item.phase_id ?? "").trim() || undefined,
+        sequence_index: Number.isFinite(Number(item.sequence_index)) ? Number(item.sequence_index) : undefined,
+        timeline_group_id: String(item.timeline_group_id ?? "").trim() || undefined,
+        node_ids: asStringArray(item.node_ids),
+        edge_ids: asStringArray(item.edge_ids),
+        review_gate_node_id: String(item.review_gate_node_id ?? "").trim() || undefined,
+        loop_policy: asRecord(item.loop_policy),
+        metadata: asRecord(item.metadata),
+      };
+    })
+    .filter((item) => item.frame_id);
+}
+
+export function coordinationPhaseDefinitions(metadata: Record<string, unknown> | undefined, nodes: Array<Record<string, unknown>>): TaskGraphPhaseDefinition[] {
+  const explicit = asRecordArray(metadata?.phase_definitions)
+    .map((item): TaskGraphPhaseDefinition => ({
+      phase_id: String(item.phase_id ?? "").trim(),
+      title: String(item.title ?? item.phase_id ?? "").trim(),
+      entry_node_id: String(item.entry_node_id ?? ""),
+      exit_node_id: String(item.exit_node_id ?? ""),
+      review_gate_node_id: String(item.review_gate_node_id ?? ""),
+      memory_commit_node_id: String(item.memory_commit_node_id ?? ""),
+      exit_policy: asRecord(item.exit_policy),
+      loop_policy: asRecord(item.loop_policy),
+    }))
+    .filter((item) => item.phase_id);
+  if (explicit.length) return explicit;
+
+  const phaseIds = Array.from(new Set(nodes.map(nodePhaseId).filter(Boolean)));
+  return (phaseIds.length ? phaseIds : [DEFAULT_PHASE_ID]).map((phaseId) => ({
+    phase_id: phaseId,
+    title: phaseId === DEFAULT_PHASE_ID ? "未分配阶段" : phaseId.replace(/^phase\./, ""),
+  }));
+}
+
+export function buildTimelinePhases({
+  nodes,
+  metadata,
+}: {
+  nodes: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
+}): TaskGraphTimelinePhase[] {
+  const definitions = coordinationPhaseDefinitions(metadata, nodes);
+  const knownPhaseIds = new Set(definitions.map((item) => item.phase_id));
+  const extraPhaseIds = Array.from(new Set(nodes.map(nodePhaseId).filter((phaseId) => !knownPhaseIds.has(phaseId))));
+  const phases = [
+    ...definitions,
+    ...extraPhaseIds.map((phaseId) => ({ phase_id: phaseId, title: phaseId.replace(/^phase\./, "") })),
+  ];
+
+  return phases.map((phase) => {
+    const phaseNodes = nodes
+      .filter((node) => nodePhaseId(node) === phase.phase_id)
+      .sort((left, right) => nodeSequenceIndex(left) - nodeSequenceIndex(right) || nodeTitle(left).localeCompare(nodeTitle(right)));
+    const stepMap = new Map<string, TaskGraphTimelineStep>();
+    for (const node of phaseNodes) {
+      const sequenceIndex = nodeSequenceIndex(node);
+      const groupId = nodeTimelineGroupId(node);
+      const stepKey = groupId || `step:${sequenceIndex}`;
+      const existing = stepMap.get(stepKey);
+      if (existing) {
+        existing.nodes.push(node);
+      } else {
+        stepMap.set(stepKey, {
+          step_key: stepKey,
+          sequence_index: sequenceIndex,
+          timeline_group_id: groupId,
+          nodes: [node],
+        });
+      }
+    }
+    return {
+      phase,
+      nodes: phaseNodes,
+      steps: Array.from(stepMap.values()).sort((left, right) => left.sequence_index - right.sequence_index || left.step_key.localeCompare(right.step_key)),
+      issues: [],
+    };
+  });
+}
+
+function hasPath(edges: Array<Record<string, unknown>>, start: string, target: string) {
+  if (!start || !target) return false;
+  if (start === target) return true;
+  const nextBySource = new Map<string, string[]>();
+  for (const edge of edges) {
+    const source = graphEdgeSource(edge);
+    const next = graphEdgeTarget(edge);
+    if (!source || !next) continue;
+    nextBySource.set(source, [...(nextBySource.get(source) ?? []), next]);
+  }
+  const visited = new Set<string>();
+  const queue = [start];
+  while (queue.length) {
+    const current = queue.shift() ?? "";
+    if (current === target) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    queue.push(...(nextBySource.get(current) ?? []).filter((nodeId) => !visited.has(nodeId)));
+  }
+  return false;
+}
+
+function hasLoopStopCondition(policy: Record<string, unknown>) {
+  return Boolean(
+    Number(policy.max_attempts ?? 0) > 0
+    || Number(policy.target_words ?? 0) > 0
+    || Number(policy.chapter_count ?? 0) > 0
+    || String(policy.exit_condition ?? "").trim()
+    || String(policy.exit_stage_id ?? "").trim()
+  );
+}
+
+export function buildTimelinePreflightIssues(
+  nodes: Array<Record<string, unknown>>,
+  edges: Array<Record<string, unknown>>,
+  metadata?: Record<string, unknown>,
+): TaskGraphTimelineIssue[] {
+  const issues: TaskGraphTimelineIssue[] = [];
+  const nodeIds = new Set(nodes.map((node, index) => nodeIdOf(node, index)));
+  const edgeIds = new Set(edges.map((edge, index) => String(edge.edge_id ?? edge.id ?? `${graphEdgeSource(edge)}-${graphEdgeTarget(edge)}-${index}`).trim()).filter(Boolean));
+  const phaseDefinitions = coordinationPhaseDefinitions(metadata, nodes);
+  const timelineFrames = coordinationTimelineFrames(metadata);
+  const explicitPhaseDefinitions = asRecordArray(metadata?.phase_definitions);
+  const nodePhaseIds = new Set(nodes.map(nodePhaseId).filter(Boolean));
+
+  if (!explicitPhaseDefinitions.length && nodePhaseIds.size > 0 && !nodePhaseIds.has(DEFAULT_PHASE_ID)) {
+    issues.push({
+      code: "timeline_phase_definitions_missing",
+      message: "节点已经配置 phase_id，但图级 phase_definitions 还没有建立。",
+      severity: "warning",
+    });
+  }
+
+  for (const phase of phaseDefinitions) {
+    const phaseNodes = nodes.filter((node) => nodePhaseId(node) === phase.phase_id);
+    if (!phaseNodes.length) {
+      issues.push({ code: "timeline_phase_empty", message: `阶段 ${phase.title || phase.phase_id} 没有节点。`, severity: "warning", phase_id: phase.phase_id });
+    }
+    if (phase.entry_node_id && !nodeIds.has(phase.entry_node_id)) {
+      issues.push({ code: "timeline_phase_entry_missing", message: `阶段 ${phase.title || phase.phase_id} 的入口节点不存在。`, severity: "error", phase_id: phase.phase_id });
+    }
+    if (phase.exit_node_id && !nodeIds.has(phase.exit_node_id)) {
+      issues.push({ code: "timeline_phase_exit_missing", message: `阶段 ${phase.title || phase.phase_id} 的出口节点不存在。`, severity: "error", phase_id: phase.phase_id });
+    }
+    if (phase.review_gate_node_id && !nodeIds.has(phase.review_gate_node_id)) {
+      issues.push({ code: "timeline_phase_review_gate_missing", message: `阶段 ${phase.title || phase.phase_id} 的审核门节点不存在。`, severity: "error", phase_id: phase.phase_id });
+    }
+    if (phase.entry_node_id && phase.exit_node_id && !hasPath(edges, phase.entry_node_id, phase.exit_node_id)) {
+      issues.push({ code: "timeline_phase_main_path_missing", message: `阶段 ${phase.title || phase.phase_id} 的入口到出口没有连通路径。`, severity: "warning", phase_id: phase.phase_id });
+    }
+    if (Object.keys(asRecord(phase.loop_policy)).length && !hasLoopStopCondition(asRecord(phase.loop_policy))) {
+      issues.push({ code: "timeline_phase_loop_stop_missing", message: `阶段 ${phase.title || phase.phase_id} 的循环策略缺少停止条件。`, severity: "error", phase_id: phase.phase_id });
+    }
+  }
+
+  for (const frame of timelineFrames) {
+    if (!frame.node_ids.length) {
+      issues.push({ code: "timeline_frame_empty", message: `时序 Frame ${frame.title || frame.frame_id} 没有包含节点。`, severity: "warning" });
+    }
+    for (const nodeId of frame.node_ids) {
+      if (!nodeIds.has(nodeId)) {
+        issues.push({ code: "timeline_frame_node_missing", message: `时序 Frame ${frame.title || frame.frame_id} 引用了不存在的节点 ${nodeId}。`, severity: "error", node_id: nodeId });
+      }
+    }
+    for (const edgeId of frame.edge_ids) {
+      if (!edgeIds.has(edgeId)) {
+        issues.push({ code: "timeline_frame_edge_missing", message: `时序 Frame ${frame.title || frame.frame_id} 引用了不存在的通信边 ${edgeId}。`, severity: "warning", edge_id: edgeId });
+      }
+    }
+    if (frame.phase_id && !phaseDefinitions.some((phase) => phase.phase_id === frame.phase_id)) {
+      issues.push({ code: "timeline_frame_phase_missing", message: `时序 Frame ${frame.title || frame.frame_id} 绑定的阶段 ${frame.phase_id} 不存在。`, severity: "warning", phase_id: frame.phase_id });
+    }
+    if (frame.frame_type === "review_gate_frame") {
+      if (!frame.review_gate_node_id) {
+        issues.push({ code: "timeline_frame_review_gate_missing", message: `审核 Frame ${frame.title || frame.frame_id} 缺少审核门节点。`, severity: "error" });
+      } else if (!nodeIds.has(frame.review_gate_node_id)) {
+        issues.push({ code: "timeline_frame_review_gate_node_missing", message: `审核 Frame ${frame.title || frame.frame_id} 的审核门节点不存在。`, severity: "error", node_id: frame.review_gate_node_id });
+      } else if (!frame.node_ids.includes(frame.review_gate_node_id)) {
+        issues.push({ code: "timeline_frame_review_gate_outside", message: `审核 Frame ${frame.title || frame.frame_id} 的审核门节点不在 Frame 节点集合中。`, severity: "warning", node_id: frame.review_gate_node_id });
+      }
+    }
+    if (frame.frame_type === "loop_frame" && !hasLoopStopCondition(asRecord(frame.loop_policy))) {
+      issues.push({ code: "timeline_frame_loop_stop_missing", message: `循环 Frame ${frame.title || frame.frame_id} 缺少停止条件。`, severity: "error" });
+    }
+    if (frame.frame_type === "parallel_frame" && !frame.timeline_group_id) {
+      issues.push({ code: "timeline_frame_parallel_group_missing", message: `并行 Frame ${frame.title || frame.frame_id} 缺少 timeline_group_id。`, severity: "warning" });
+    }
+  }
+
+  for (const node of nodes) {
+    const nodeId = String(node.node_id ?? "");
+    const reviewPolicy = nodeReviewGatePolicy(node);
+    const loopPolicy = nodeLoopPolicy(node);
+    const isReviewGate = Boolean(reviewPolicy.is_review_gate) || String(node.node_type ?? "") === "review_gate";
+    if (isReviewGate) {
+      if (!String(node.node_contract_id ?? node.contract_id ?? "").trim()) {
+        issues.push({ code: "timeline_review_gate_contract_missing", message: "审核门节点缺少节点契约。", severity: "error", node_id: nodeId });
+      }
+      if (!String(node.output_contract_id ?? "").trim()) {
+        issues.push({ code: "timeline_review_gate_output_contract_missing", message: "审核门节点缺少输出契约。", severity: "error", node_id: nodeId });
+      }
+      if (!String(reviewPolicy.on_pass ?? "").trim()) {
+        issues.push({ code: "timeline_review_gate_pass_route_missing", message: "审核门节点缺少通过路线。", severity: "warning", node_id: nodeId });
+      }
+      if (!String(reviewPolicy.on_fail ?? "").trim()) {
+        issues.push({ code: "timeline_review_gate_fail_route_missing", message: "审核门节点缺少失败返修路线。", severity: "warning", node_id: nodeId });
+      }
+    }
+    if (Object.keys(loopPolicy).length && !hasLoopStopCondition(loopPolicy)) {
+      issues.push({ code: "timeline_node_loop_stop_missing", message: "节点循环策略缺少停止条件。", severity: "error", node_id: nodeId });
+    }
+    if (nodeBlocksPhaseExit(node) && ["async", "background"].includes(String(node.execution_mode ?? "")) && !nodeCompletionPolicy(node)) {
+      issues.push({ code: "timeline_blocking_async_completion_missing", message: "阻塞阶段退出的异步/后台节点缺少 completion_policy。", severity: "error", node_id: nodeId });
+    }
+    if (String(node.node_type ?? "") === "memory") {
+      const phase = phaseDefinitions.find((item) => item.phase_id === nodePhaseId(node));
+      if (!phase?.review_gate_node_id) {
+        issues.push({ code: "timeline_memory_without_review_gate", message: "记忆节点所在阶段没有配置审核门。", severity: "warning", node_id: nodeId, phase_id: phase?.phase_id });
+      }
+    }
+  }
+
+  return issues;
+}

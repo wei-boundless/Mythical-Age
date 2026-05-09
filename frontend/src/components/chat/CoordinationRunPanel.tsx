@@ -955,27 +955,27 @@ export function CoordinationRunPanel({
           </div>
           <div className="coordination-contract-summary">
             <div>
-              <span>Manifest</span>
+              <span>契约清单</span>
               <strong>{contractRuntime.manifestRef || "等待编译快照"}</strong>
             </div>
             <div>
-              <span>Ready</span>
+              <span>就绪</span>
               <strong>{contractRuntime.readyNodes.length}</strong>
             </div>
             <div>
-              <span>Blocked</span>
+              <span>阻塞</span>
               <strong>{contractRuntime.blockedNodes.length}</strong>
             </div>
             <div>
-              <span>Waiting</span>
+              <span>等待</span>
               <strong>{contractRuntime.waitingNodes.length}</strong>
             </div>
             <div>
-              <span>Completed</span>
+              <span>完成</span>
               <strong>{contractRuntime.completedNodes.length}</strong>
             </div>
             <div>
-              <span>Failed</span>
+              <span>失败</span>
               <strong>{contractRuntime.failedNodes.length}</strong>
             </div>
           </div>
@@ -1002,7 +1002,7 @@ export function CoordinationRunPanel({
 
         <article className="coordination-output-card coordination-contract-card">
           <div className="coordination-output-card__head">
-            <span><GitBranch size={14} /> A2A Handoff</span>
+            <span><GitBranch size={14} /> A2A 交接</span>
             <strong>{displayHandoffs.length ? `${displayHandoffs.length} 个交接包` : "暂无交接"}</strong>
           </div>
           <div className="coordination-handoff-list">
@@ -1013,11 +1013,11 @@ export function CoordinationRunPanel({
                   <span>{handoff.messageType}</span>
                 </div>
                 <em>{handoff.contractRefs.length ? handoff.contractRefs.join(" / ") : "默认交接契约"}</em>
-                <small>{handoff.runtimeAssemblyRef || handoff.contractManifestRef || "等待 runtime ref"}</small>
+                <small>{handoff.runtimeAssemblyRef || handoff.contractManifestRef || "等待运行引用"}</small>
               </article>
             )) : (
               <p className="coordination-contract-empty">
-                {activeContractNode ? `${activeContractNode.title} 还没有产生下游 handoff。` : "节点完成后会显示最新 A2A 交接包。"}
+                {activeContractNode ? `${activeContractNode.title} 还没有产生下游交接。` : "节点完成后会显示最新 A2A 交接包。"}
               </p>
             )}
           </div>

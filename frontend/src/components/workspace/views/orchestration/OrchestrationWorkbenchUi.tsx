@@ -2,6 +2,7 @@
 
 import { CheckCircle2, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { taskSystemDisplayLabel } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 
 export type OrchestrationOption = {
   id: string;
@@ -108,7 +109,7 @@ export function OrchestrationOptionGrid({
       {items.slice(0, 18).map((item) => (
         <button className="boundary-chip" key={item.value || item.id} onClick={() => onAdd(item)} title={item.description || item.value || item.id} type="button">
           <CheckCircle2 size={13} />
-          <span>{item.label || item.value || item.id}</span>
+          <span>{item.label || taskSystemDisplayLabel(item.value || item.id)}</span>
         </button>
       ))}
     </div>
@@ -138,7 +139,7 @@ export function OrchestrationOptionSelection({
     : fallbackOptions.map((item) => ({ id: item, value: item, label: displayId(item) }));
   const selectedSet = new Set(selected);
   const availableItems = optionItems.filter((item) => !selectedSet.has(item.value || item.id));
-  const labelByValue = new Map(optionItems.map((item) => [item.value || item.id, item.label || item.value || item.id]));
+  const labelByValue = new Map(optionItems.map((item) => [item.value || item.id, item.label || taskSystemDisplayLabel(item.value || item.id)]));
 
   function add(value: string) {
     if (!value) return;

@@ -87,10 +87,15 @@ class LangGraphCoordinationRuntimeResult:
         if self.stage_execution_request is None:
             return {}
         request = self.stage_execution_request
+        runtime_assembly = dict(request.runtime_assembly or {})
+        projection_id = str(runtime_assembly.get("projection_id") or "").strip()
         turn_context = {
             **dict(current_turn_context or {}),
             "selected_task_id": request.task_ref,
             "task_id": request.task_ref,
+            "agent_id": request.agent_id,
+            "projection_id": projection_id,
+            "selected_projection_id": projection_id,
             "coordination_run_id": request.coordination_run_id,
             "continuation_stage_id": request.stage_id,
             "stage_execution_request": request.to_dict(),
@@ -104,11 +109,17 @@ class LangGraphCoordinationRuntimeResult:
             "current_task_run_id": request.root_task_run_id,
             "next_task_ref": request.task_ref,
             "next_stage_id": request.stage_id,
-            "task_selection": {"selected_task_id": request.task_ref, "task_id": request.task_ref},
             "current_turn_context": turn_context,
             "message": request.message,
             "stage_execution_request": request.to_dict(),
             "a2a_payload": dict(request.a2a_payload),
+            "task_selection": {
+                "selected_task_id": request.task_ref,
+                "task_id": request.task_ref,
+                "agent_id": request.agent_id,
+                "projection_id": projection_id,
+                "selected_projection_id": projection_id,
+            },
             "suppress_done": True,
         }
 
@@ -148,11 +159,21 @@ class LangGraphCoordinationRuntime:
         *,
         coordination_run: CoordinationRun,
         event_task_run_id: str = "",
+        inherited_inputs: dict[str, Any] | None = None,
     ) -> LangGraphCoordinationRuntimeResult:
         coordination_task = self.task_flow_registry.get_coordination_task(coordination_run.coordination_task_ref)
         if coordination_task is None:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_coordination_task"})
         state = self._load_or_bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
+        if inherited_inputs:
+            state["pending_inputs"] = {**dict(state.get("pending_inputs") or {}), **dict(inherited_inputs)}
+            state["diagnostics"] = {
+                **dict(state.get("diagnostics") or {}),
+                "inherited_input_keys": sorted(str(key) for key in dict(inherited_inputs).keys()),
+            }
+        if not dict(state.get("stage_execution_request") or {}):
+            prepared = self._stage_execute(state)
+            state.update(prepared)
         checkpoint = self.checkpoints.put_state(
             thread_id=coordination_run.coordination_run_id,
             state=state,
@@ -167,6 +188,11 @@ class LangGraphCoordinationRuntime:
         return LangGraphCoordinationRuntimeResult(
             state=state,
             events=tuple(events),
+            stage_execution_request=(
+                StageExecutionRequest.from_dict(dict(state.get("stage_execution_request") or {}))
+                if dict(state.get("stage_execution_request") or {})
+                else None
+            ),
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics={"supported": True, "initialized": True},
         )
@@ -185,7 +211,10 @@ class LangGraphCoordinationRuntime:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_coordination_task"})
         state = self._load_or_bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
         state["current_event"] = event.to_dict()
-        state["pending_inputs"] = dict(inherited_inputs or {})
+        state["pending_inputs"] = {
+            **dict(state.get("pending_inputs") or {}),
+            **dict(inherited_inputs or {}),
+        }
         if artifact_root:
             state["pending_inputs"]["artifact_root"] = artifact_root
         graph_result = self._app.invoke(state, config={"configurable": {"thread_id": coordination_run.coordination_run_id}})
@@ -391,10 +420,17 @@ class LangGraphCoordinationRuntime:
             diagnostics["human_gate"] = {key: value for key, value in human_gate.items() if key != "original_event"}
         elif accepted or retry_stage_id or terminal_status == "failed":
             human_gate = {**human_gate, "status": "cleared"} if human_gate else {}
+        loop_updates = _chapter_loop_after_stage_accept(
+            state=state,
+            stage_id=stage_id,
+            accepted=accepted,
+            contract=contract,
+            event=event,
+        )
         artifact_payloads = [{"stage_id": stage_id, "ref": ref, "ref_kind": "artifact"} for ref in artifact_refs]
         return {
             "stage_results": stage_results,
-            "node_statuses": node_statuses,
+            "node_statuses": dict(loop_updates.get("node_statuses") or node_statuses),
             "retry_counts": retry_counts,
             "contract_status": contract_status,
             "human_gate": human_gate,
@@ -402,8 +438,9 @@ class LangGraphCoordinationRuntime:
             "final_result_ref": str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
             "stage_execution_request": {},
             "a2a_payload": {},
-            "terminal_status": terminal_status,
-            "diagnostics": diagnostics,
+            "terminal_status": str(loop_updates.get("terminal_status") if "terminal_status" in loop_updates else terminal_status),
+            "pending_inputs": dict(loop_updates.get("pending_inputs") or state.get("pending_inputs") or {}),
+            "diagnostics": {**diagnostics, **dict(loop_updates.get("diagnostics") or {})},
         }
 
     @staticmethod
@@ -456,6 +493,9 @@ class LangGraphCoordinationRuntime:
                 "blocked_nodes": blocked_nodes,
                 "missing_required_inputs": [f"upstream:{node}" for node in blocked_nodes],
             }
+        preferred_stage = str(dict(dict(state.get("diagnostics") or {}).get("chapter_loop") or {}).get("preferred_next_stage_id") or "").strip()
+        if preferred_stage and preferred_stage in ready:
+            ready = [preferred_stage, *[item for item in ready if item != preferred_stage]]
         next_stage = ready[0]
         contracts = dict(state.get("stage_contracts") or {})
         contract = dict(contracts.get(next_stage) or {})
@@ -587,9 +627,15 @@ class LangGraphCoordinationRuntime:
             agent_id=str(contract.get("agent_id") or ""),
             agent_profile_id=str(runtime_assembly_payload.get("agent_profile_id") or getattr(agent_profile, "agent_profile_id", "") or ""),
             runtime_lane=str(contract.get("runtime_lane") or ""),
-            explicit_inputs=explicit_inputs,
+            explicit_inputs=dict(explicit_inputs),
             runtime_assembly=runtime_assembly_payload,
             a2a_payload=a2a_payload,
+            message=_stage_execution_message(
+                stage_id=stage_id,
+                task_ref=str(contract.get("task_ref") or state.get("active_task_ref") or ""),
+                contract=contract,
+                explicit_inputs=explicit_inputs,
+            ),
             artifact_root=str(explicit_inputs.get("artifact_root") or ""),
             expected_outputs=tuple(dict(item) for item in list(contract.get("output_mappings") or []) if isinstance(item, dict)),
         )
@@ -645,7 +691,10 @@ class LangGraphCoordinationRuntime:
             topology_template=topology_template,
             communication_protocol=communication_protocol,
         )
-        topology_nodes = [node.to_dict() for node in graph_spec.nodes]
+        topology_nodes = _merge_runtime_nodes(
+            compiled_nodes=[node.to_dict() for node in graph_spec.nodes],
+            configured_nodes=[dict(item) for item in list(getattr(topology_template, "nodes", ()) or [])],
+        )
         contracts = self._contracts_for_run(coordination_run=coordination_run, coordination_task=coordination_task)
         stage_sequence = [dict(item) for item in list(dict(getattr(coordination_task, "metadata", {}) or {}).get("stage_sequence") or []) if isinstance(item, dict)]
         issues = validate_stage_contracts(coordination_task=coordination_task, contracts=contracts, stage_sequence=stage_sequence)
@@ -655,6 +704,8 @@ class LangGraphCoordinationRuntime:
         current_stage = str(dict(coordination_run.diagnostics.get("coordination_flow") or {}).get("current_stage_id") or (order[0] if order else ""))
         if current_stage and current_stage not in order:
             current_stage = order[0] if order else ""
+        coordination_metadata = dict(getattr(coordination_task, "metadata", {}) or {})
+        chapter_loop_state = _initial_chapter_loop_state(metadata=coordination_metadata)
         contract_map = {contract.stage_id: _contract_payload(contract, topology_nodes=topology_nodes) for contract in contracts}
         for node in topology_nodes:
             node_id = str(node.get("node_id") or "").strip()
@@ -720,7 +771,7 @@ class LangGraphCoordinationRuntime:
             "node_statuses": node_statuses,
             "stage_results": {},
             "artifact_refs": [],
-            "pending_inputs": {},
+            "pending_inputs": dict(chapter_loop_state),
             "missing_required_inputs": [],
             "retry_counts": {},
             "human_gate": {},
@@ -748,8 +799,10 @@ class LangGraphCoordinationRuntime:
                 "contract_manifest_issue_count": len(manifest.issues),
                 "stage_contract_issues": issues,
                 "continuation_policy": CoordinationContinuationPolicy.from_metadata(
-                    dict(getattr(coordination_task, "metadata", {}) or {})
+                    coordination_metadata
                 ).to_dict(),
+                "chapter_loop_policy": dict(coordination_metadata.get("chapter_loop_policy") or {}),
+                "chapter_loop": dict(chapter_loop_state),
             },
         }
 
@@ -776,7 +829,272 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
     payload["runtime_lane"] = str(node.get("lane") or node.get("runtime_lane") or "")
     payload["role"] = str(node.get("role") or "")
     payload["title"] = str(node.get("title") or contract.stage_id)
+    payload["output_contract_id"] = str(node.get("output_contract_id") or node.get("node_contract_id") or "")
+    payload["projection_id"] = str(node.get("projection_id") or "")
+    for key in (
+        "artifact_targets",
+        "artifact_requirements",
+        "instructions",
+        "stage_instructions",
+        "loop_kind",
+        "chapter_scoped",
+        "title_template",
+        "loop_route_policy",
+    ):
+        if key in node and key not in payload:
+            payload[key] = node[key]
     return payload
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _merge_runtime_nodes(*, compiled_nodes: list[dict[str, Any]], configured_nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    configured_by_id = {
+        str(item.get("node_id") or item.get("id") or "").strip(): dict(item)
+        for item in list(configured_nodes or [])
+        if isinstance(item, dict) and str(item.get("node_id") or item.get("id") or "").strip()
+    }
+    merged: list[dict[str, Any]] = []
+    for compiled in list(compiled_nodes or []):
+        node = dict(compiled or {})
+        node_id = str(node.get("node_id") or "").strip()
+        configured = dict(configured_by_id.get(node_id) or {})
+        metadata = dict(node.get("metadata") or {})
+        configured_metadata = dict(configured.get("metadata") or {}) if isinstance(configured.get("metadata"), dict) else {}
+        node.update(
+            {
+                key: value
+                for key, value in configured.items()
+                if key not in {"metadata"} and value not in ("", None, [], {})
+            }
+        )
+        node["metadata"] = {**metadata, **configured_metadata}
+        merged.append(node)
+    known = {str(item.get("node_id") or "") for item in merged}
+    for node_id, configured in configured_by_id.items():
+        if node_id not in known:
+            merged.append(dict(configured))
+    return merged
+
+
+def _initial_chapter_loop_state(*, metadata: dict[str, Any]) -> dict[str, Any]:
+    policy = dict(metadata.get("chapter_loop_policy") or {})
+    if not policy.get("enabled"):
+        return {}
+    first_index = _safe_int(policy.get("first_chapter_index"), 1)
+    target_words = _safe_int(policy.get("default_target_words"), 1000000)
+    chapter_target_words = _safe_int(policy.get("default_chapter_target_words"), 5000)
+    return _chapter_loop_inputs(
+        chapter_index=first_index,
+        target_words=target_words,
+        current_words=0,
+        chapter_target_words=chapter_target_words,
+    )
+
+
+def _chapter_loop_after_stage_accept(
+    *,
+    state: CoordinationRuntimeState,
+    stage_id: str,
+    accepted: bool,
+    contract: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    route_policy = dict(contract.get("loop_route_policy") or {})
+    if not accepted:
+        return {}
+    pending_inputs = dict(state.get("pending_inputs") or {})
+    stage_chapter_words = _safe_int(dict(event.get("diagnostics") or {}).get("chapter_words"), 0)
+    if contract.get("chapter_scoped") is True and stage_chapter_words > 0:
+        pending_inputs["last_chapter_words"] = stage_chapter_words
+    if str(route_policy.get("mode") or "") != "chapter_word_target":
+        if pending_inputs != dict(state.get("pending_inputs") or {}):
+            return {
+                "pending_inputs": pending_inputs,
+                "diagnostics": {
+                    "chapter_loop": {
+                        **dict(dict(state.get("diagnostics") or {}).get("chapter_loop") or {}),
+                        "last_chapter_words": stage_chapter_words,
+                    }
+                },
+            }
+        return {}
+    chapter_index = _safe_int(pending_inputs.get("chapter_index"), 1)
+    current_words = _safe_int(pending_inputs.get("current_words"), 0)
+    target_words = _safe_int(pending_inputs.get("target_words"), 1000000)
+    chapter_words = _safe_int(
+        dict(event.get("diagnostics") or {}).get("chapter_words")
+        or pending_inputs.get("last_chapter_words"),
+        0,
+    )
+    if chapter_words <= 0:
+        chapter_words = _safe_int(pending_inputs.get("chapter_target_words"), 5000)
+    current_words += chapter_words
+    continue_stage_id = str(route_policy.get("continue_stage_id") or "chapter_plan")
+    exit_stage_id = str(route_policy.get("exit_stage_id") or "final_assembly")
+    node_statuses = dict(state.get("node_statuses") or {})
+    if current_words < target_words:
+        next_chapter_index = chapter_index + 1 if route_policy.get("increment_chapter_on_continue") is not False else chapter_index
+        pending_inputs.update(
+            _chapter_loop_inputs(
+                chapter_index=next_chapter_index,
+                target_words=target_words,
+                current_words=current_words,
+                chapter_target_words=_safe_int(pending_inputs.get("chapter_target_words"), 5000),
+            )
+        )
+        for loop_stage_id, status in list(node_statuses.items()):
+            loop_contract = dict(dict(state.get("stage_contracts") or {}).get(loop_stage_id) or {})
+            if loop_contract.get("chapter_scoped") is True:
+                node_statuses[loop_stage_id] = "pending"
+        node_statuses[stage_id] = "completed"
+        node_statuses[continue_stage_id] = "pending"
+        node_statuses[exit_stage_id] = "pending"
+        return {
+            "node_statuses": node_statuses,
+            "pending_inputs": pending_inputs,
+            "terminal_status": "",
+            "diagnostics": {
+                "chapter_loop": {
+                    "status": "continue",
+                    "preferred_next_stage_id": continue_stage_id,
+                    "completed_chapter_index": chapter_index,
+                    "next_chapter_index": next_chapter_index,
+                    "current_words": current_words,
+                    "target_words": target_words,
+                    "chapter_words": chapter_words,
+                }
+            },
+        }
+    pending_inputs.update(
+        _chapter_loop_inputs(
+            chapter_index=chapter_index,
+            target_words=target_words,
+            current_words=current_words,
+            chapter_target_words=_safe_int(pending_inputs.get("chapter_target_words"), 5000),
+        )
+    )
+    node_statuses[exit_stage_id] = "pending"
+    return {
+        "node_statuses": node_statuses,
+        "pending_inputs": pending_inputs,
+        "terminal_status": "",
+        "diagnostics": {
+                "chapter_loop": {
+                    "status": "exit",
+                    "preferred_next_stage_id": exit_stage_id,
+                    "completed_chapter_index": chapter_index,
+                "current_words": current_words,
+                "target_words": target_words,
+                "chapter_words": chapter_words,
+            }
+        },
+    }
+
+
+def _chapter_loop_inputs(
+    *,
+    chapter_index: int,
+    target_words: int,
+    current_words: int,
+    chapter_target_words: int,
+) -> dict[str, Any]:
+    return {
+        "chapter_index": chapter_index,
+        "chapter_index_padded": f"{chapter_index:03d}",
+        "chapter_label": f"第{chapter_index}章",
+        "chapter_file_prefix": f"chapter_{chapter_index:03d}",
+        "target_words": target_words,
+        "current_words": current_words,
+        "chapter_target_words": chapter_target_words,
+    }
+
+
+def _stage_execution_message(
+    *,
+    stage_id: str,
+    task_ref: str,
+    contract: dict[str, Any],
+    explicit_inputs: dict[str, Any],
+) -> str:
+    title_template = str(contract.get("title_template") or "").strip()
+    title = _render_runtime_template(title_template, explicit_inputs) if title_template else ""
+    if not title:
+        title = str(contract.get("title") or stage_id or task_ref).strip()
+    artifact_paths = [
+        _render_runtime_template(str(item.get("path") or item.get("naming_rule") or "").strip(), explicit_inputs)
+        for item in list(contract.get("artifact_requirements") or contract.get("artifact_targets") or [])
+        if isinstance(item, dict) and str(item.get("path") or item.get("naming_rule") or "").strip()
+    ]
+    instructions = [
+        _render_runtime_template(str(item).strip(), explicit_inputs)
+        for item in list(contract.get("instructions") or contract.get("stage_instructions") or [])
+        if str(item).strip()
+    ]
+    chapter_index = _safe_int(explicit_inputs.get("chapter_index"), 0)
+    chapter_target_words = _safe_int(explicit_inputs.get("chapter_target_words"), 0)
+    current_words = _safe_int(explicit_inputs.get("current_words"), 0)
+    target_words = _safe_int(explicit_inputs.get("target_words"), 0)
+    lines = [
+        f"本轮工作：{title}。",
+        "请直接完成本轮创作或编辑产物，不要写寒暄、等待补充、工作过程说明或系统说明。",
+        "只使用用户给定的硬设定作为不可违背边界；边界之外由你按本轮职责自由发挥。",
+    ]
+    if chapter_index > 0:
+        lines.append(
+            f"当前章节：第{chapter_index}章。"
+            f"本章目标约{chapter_target_words or 5000}字；"
+            f"全书目标约{target_words or 1000000}字；"
+            f"当前已完成约{current_words}字。"
+        )
+    user_seed = str(
+        explicit_inputs.get("user_seed")
+        or explicit_inputs.get("hard_constraints")
+        or explicit_inputs.get("project_brief")
+        or ""
+    ).strip()
+    if user_seed:
+        lines.append("用户硬设定：")
+        lines.append(user_seed)
+    original_request = str(explicit_inputs.get("original_user_request") or explicit_inputs.get("natural_request") or "").strip()
+    if original_request and original_request != user_seed:
+        lines.append("原始任务目标：")
+        lines.append(original_request)
+    if artifact_paths:
+        lines.append("目标文本：" + "、".join(artifact_paths) + "。")
+    if instructions:
+        lines.append("写作要求：")
+        lines.extend(f"- {item}" for item in instructions)
+    upstream = str(explicit_inputs.get("upstream_final_content") or "").strip()
+    if upstream:
+        lines.append("可参考的上轮内容：")
+        lines.append(upstream[:800])
+    return "\n".join(lines)
+
+
+def _render_runtime_template(template: str, values: dict[str, Any]) -> str:
+    text = str(template or "")
+    if not text:
+        return ""
+    chapter_index = _safe_int(values.get("chapter_index"), 1)
+    replacements = {
+        "chapter_index": chapter_index,
+        "chapter_index_padded": str(values.get("chapter_index_padded") or f"{chapter_index:03d}"),
+        "chapter_label": str(values.get("chapter_label") or f"第{chapter_index}章"),
+        "chapter_file_prefix": str(values.get("chapter_file_prefix") or f"chapter_{chapter_index:03d}"),
+        "target_words": _safe_int(values.get("target_words"), 1000000),
+        "current_words": _safe_int(values.get("current_words"), 0),
+        "chapter_target_words": _safe_int(values.get("chapter_target_words"), 5000),
+    }
+    rendered = text.replace("{chapter_index:03d}", f"{chapter_index:03d}")
+    for key, value in replacements.items():
+        rendered = rendered.replace("{" + key + "}", str(value))
+    return rendered
 
 
 def _contract_from_payload(payload: dict[str, Any]) -> CoordinationStageContract:
@@ -1176,6 +1494,7 @@ def _node_contract_from_payload(payload: dict[str, Any]) -> CompiledNodeContract
         task_id=str(payload.get("task_id") or ""),
         agent_id=str(payload.get("agent_id") or ""),
         runtime_lane=str(payload.get("runtime_lane") or ""),
+        projection_id=str(payload.get("projection_id") or ""),
         input_contract_id=str(payload.get("input_contract_id") or ""),
         output_contract_id=str(payload.get("output_contract_id") or ""),
         contract_refs=tuple(str(item) for item in list(payload.get("contract_refs") or []) if str(item)),

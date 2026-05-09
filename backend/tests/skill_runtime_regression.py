@@ -175,6 +175,30 @@ def main() -> None:
     }
     assert "bound_pdf_followup" in bound_pdf.reasons
 
+    skill_create = analyze_query_understanding(
+        "帮我创建一个用于章节审核的 skill",
+        skill_registry=skill_registry,
+        tool_registry=tool_registry,
+    )
+    assert skill_create.route == "rag"
+    assert skill_create.execution_posture == "direct_rag"
+    assert skill_create.preferred_skill == "skill-creator"
+    assert skill_create.skill_name is None
+    assert skill_create.tool_name is None
+    assert skill_create.candidate_tools == []
+    assert skill_resolver.resolve(task_frame=skill_create).name == "skill-creator"
+    assert "skill-authoring" in skill_create.capability_requests
+
+    skill_review = analyze_query_understanding(
+        "检查这个 SKILL.md 是否适合给 agent 使用",
+        skill_registry=skill_registry,
+        tool_registry=tool_registry,
+    )
+    assert skill_review.task_kind == "skill_update"
+    assert skill_review.preferred_skill == "skill-creator"
+    assert "validation" in skill_review.capability_requests
+    assert skill_resolver.resolve(task_frame=skill_review).name == "skill-creator"
+
     faq = analyze_query_understanding(
         "为什么我在我的帐户中找不到我的订单？",
         skill_registry=skill_registry,

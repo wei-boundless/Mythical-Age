@@ -157,6 +157,12 @@ def compile_coordination_contract_manifest(
     for node in graph_spec.nodes:
         task = task_by_id.get(node.task_id)
         node_metadata = dict(node.metadata or {})
+        node_projection_id = str(
+            getattr(node, "projection_id", "")
+            or node_metadata.get("projection_id")
+            or node_metadata.get("projection_overlay_id")
+            or ""
+        ).strip()
         explicit_input_contract_id = str(
             getattr(node, "input_contract_id", "")
             or node_metadata.get("input_contract_id")
@@ -165,8 +171,6 @@ def compile_coordination_contract_manifest(
         explicit_output_contract_id = str(
             getattr(node, "output_contract_id", "")
             or node_metadata.get("output_contract_id")
-            or node_metadata.get("node_contract_id")
-            or node_metadata.get("contract_id")
             or ""
         ).strip()
         input_contract_id = str(
@@ -238,6 +242,7 @@ def compile_coordination_contract_manifest(
                 task_id=node.task_id,
                 agent_id=node.agent_id,
                 runtime_lane=node.runtime_lane,
+                projection_id=node_projection_id,
                 input_contract_id=input_contract_id,
                 output_contract_id=output_contract_id,
                 contract_refs=tuple(ref for ref in (input_contract_id, output_contract_id, *explicit_node_contract_refs) if ref),
