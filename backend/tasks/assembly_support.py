@@ -233,14 +233,15 @@ def _build_coordination_request_brief(
     query_understanding: dict[str, Any],
 ) -> dict[str, Any]:
     template_metadata = dict(getattr(selected_template, "metadata", {}) or {})
-    coordination_task_id = str(template_metadata.get("coordination_task_id") or "").strip()
-    if not coordination_task_id:
+    task_graph_id = str(template_metadata.get("task_graph_id") or template_metadata.get("graph_id") or "").strip()
+    graph_ref = str(task_graph_id or "").strip()
+    if not graph_ref:
         return {}
     explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
     context_ref_keys = (
         "selected_task_id",
-        "coordination_task_id",
-        "selected_coordination_task_id",
+        "graph_id",
+        "task_graph_id",
         "projection_id",
         "selected_projection_id",
         "workflow_id",
@@ -261,7 +262,8 @@ def _build_coordination_request_brief(
     return {
         "authority": "task_system.coordination_request_brief",
         "brief_id": f"coordbrief:{current_turn_context.get('turn_id') or getattr(selected_template, 'template_id', 'template')}",
-        "coordination_task_id": coordination_task_id,
+        "task_graph_id": graph_ref,
+        "graph_id": graph_ref,
         "template_id": str(getattr(selected_template, "template_id", "") or ""),
         "natural_request": str(user_goal or "").strip(),
         "carrying_policy": "preserve_user_request_as_runtime_brief",

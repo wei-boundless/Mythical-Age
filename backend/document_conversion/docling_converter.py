@@ -40,13 +40,13 @@ class DoclingConverter:
         return True
 
     def convert(self, record: SourceFileRecord) -> ConversionResult:
-        if self.available():
-            converted = self._convert_with_docling(record)
-            if self._conversion_result_usable(record, converted):
-                return converted
         if record.source_type == "pdf":
             converted = self._convert_pdf_with_parser(record)
             if converted is not None:
+                return converted
+        if self.available():
+            converted = self._convert_with_docling(record)
+            if self._conversion_result_usable(record, converted):
                 return converted
         return self._convert_with_fallback(record)
 
@@ -95,16 +95,17 @@ class DoclingConverter:
             title=record.absolute_path.stem,
             page_count=len({block.page for block in blocks if block.page is not None}),
             structure_contract_version=ConversionResult.empty(record, parser_backend="mineru_pdf").structure_contract_version,
-            parser_route=("docling", "mineru_pdf"),
-            fallback_used=True,
+            parser_route=("mineru_pdf",),
+            fallback_used=False,
             quality_flags=flags,
             blocks=tuple(blocks),
             metadata={
                 "prefer_ocr": self.prefer_ocr,
-                "pdf_parser": "mineru_first",
+                "pdf_parser": "page_aware_first",
                 "source_type": record.source_type,
                 "source_path": record.source_path,
-                "fallback_used": True,
+                "fallback_used": False,
+                "page_aware": True,
             },
         )
 

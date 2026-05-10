@@ -1,0 +1,115 @@
+{
+  "doc_id": "61e620db0e6387933c24d8cd63452852cf78d8ad",
+  "collection": "knowledge",
+  "source_path": "Financial Report Data/上汽集团 2025 Q3.pdf",
+  "source_type": "pdf",
+  "version_digest": "ed11848aeaaa94df382ce81d348232d444c617a1",
+  "parser_backend": "docling",
+  "title": "上汽集团 2025 Q3",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [
+    "table_dense"
+  ],
+  "blocks": [
+    {
+      "block_id": "ed11848aeaaa94df382ce81d348232d444c617a1:0",
+      "block_type": "paragraph",
+      "text": "编制单位：上海汽车集团股份有限公司",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "Financial Report Data/上汽集团 2025 Q3.pdf"
+      }
+    },
+    {
+      "block_id": "ed11848aeaaa94df382ce81d348232d444c617a1:1",
+      "block_type": "heading",
+      "text": "## 合并现金流量表",
+      "modality": "text",
+      "section_label": "合并现金流量表",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "合并现金流量表"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "Financial Report Data/上汽集团 2025 Q3.pdf"
+      }
+    },
+    {
+      "block_id": "ed11848aeaaa94df382ce81d348232d444c617a1:2",
+      "block_type": "paragraph",
+      "text": "2025 年 1 -9 月",
+      "modality": "text",
+      "section_label": "合并现金流量表",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合并现金流量表"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "Financial Report Data/上汽集团 2025 Q3.pdf"
+      }
+    },
+    {
+      "block_id": "ed11848aeaaa94df382ce81d348232d444c617a1:3",
+      "block_type": "paragraph",
+      "text": "单位：元 币种：人民币 审计类型：未经审计",
+      "modality": "text",
+      "section_label": "合并现金流量表",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合并现金流量表"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "Financial Report Data/上汽集团 2025 Q3.pdf"
+      }
+    },
+    {
+      "block_id": "ed11848aeaaa94df382ce81d348232d444c617a1:4",
+      "block_type": "table",
+      "text": "| 项目                                                |   2025 年前三季度 （ 1-9 月） |   2024 年前三季度 （ 1-9 月） |\n|-----------------------------------------------------|-------------------------------|-------------------------------|\n| 一、经营活动产生的现金流量：                        |                               |                               |\n| 销售商品、提供劳务收到的现金                        |            424,935,434,276.76 |            392,184,769,092.87 |\n| 客户存款和同业存放款项净增加额                      |            -10,516,126,256.61 |             -9,557,018,138.43 |\n| 向中央银行借款净增加额                              |                               |                               |\n| 向其他金融机构拆入资金净增加额                      |                               |                               |\n| 收到原保险合同保费取得的现金                        |                               |                               |\n| 收到再保业务现金净额                                |                               |                               |\n| 保户储金及投资款净增加额                            |                               |                               |\n| 收取利息、手续费及佣金的现金                        |              6,770,119,055.01 |             10,497,856,915.93 |\n| 拆入资金净增加额                                    |            -10,950,000,000.00 |            -19,332,496,816.77 |\n| 回购业务资金净增加额                                |             -8,089,944,000.00 |              6,138,005,000.00 |\n| 代理买卖证券收到的现金净额                          |                               |                               |\n| 收到的税费返还                                      |              8,847,077,071.53 |             11,676,810,982.26 |\n| 收到其他与经营活动有关的现金                        |             26,019,785,944.25 |             26,091,742,846.10 |\n| 经营活动现金流入小计                                |            437,016,346,090.94 |            417,699,669,881.96 |\n| 购买商品、接受劳务支付的现金                        |            315,640,382,084.40 |            346,605,795,506.39 |\n| 客户贷款及垫款净增加额                              |            -12,526,996,419.55 |            -53,617,898,003.74 |\n| 存放中央银行和同业款项净增加额                      |               -315,119,732.00 |               -401,353,032.03 |\n| 支付原保险合同赔付款项的现金                        |                               |                               |\n| 拆出资金净增加额                                    |                               |                               |\n| 支付利息、手续费及佣金的现金                        |              2,261,058,432.84 |              3,162,458,957.52 |\n| 支付保单红利的现金                                  |                               |                               |\n| 支付给职工及为职工支付的现金                        |             30,340,517,487.32 |             32,717,017,787.70 |\n| 支付的各项税费                                      |             21,819,524,413.46 |             16,702,311,544.82 |\n| 支付其他与经营活动有关的现金                        |             47,858,873,226.22 |             53,840,479,542.89 |\n| 经营活动现金流出小计                                |            405,078,239,492.69 |            399,008,812,303.55 |\n| 经营活动产生的现金流量净额                          |             31,938,106,598.25 |             18,690,857,578.41 |\n| 二、投资活动产生的现金流量：                        |                               |                               |\n| 收回投资收到的现金                                  |            249,338,285,162.63 |            306,608,399,638.71 |\n| 取得投资收益收到的现金                              |             10,703,106,775.05 |              7,075,983,981.39 |\n| 处置固定资产、无形资产和其他长期资 产收回的现金净额 |                749,731,758.60 |                375,229,563.65 |\n| 处置子公司及其他营业单位收到的现 金净额             |                156,104,243.81 |                 18,408,598.77 |\n| 收到其他与投资活动有关的现金                        |                854,397,478.69 |                246,627,417.49 |\n| 投资活动现金流入小计                                |            261,801,625,418.78 |            314,324,649,200.01 |",
+      "modality": "table",
+      "section_label": "合并现金流量表",
+      "structure_role": "object",
+      "page": null,
+      "section_path": [
+        "合并现金流量表"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "Financial Report Data/上汽集团 2025 Q3.pdf"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "pdf",
+    "source_path": "Financial Report Data/上汽集团 2025 Q3.pdf",
+    "fallback_used": false
+  }
+}

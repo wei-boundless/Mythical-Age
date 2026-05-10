@@ -1,0 +1,12 @@
+{
+  "doc_id": "d1a1c6645c3acf9421c5b49e92722c25fe26eb1c",
+  "source_path": "AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+  "version_digest": "6a95e8baaf91bcf056f02f2fec48e1ac31004542",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "table_dense",
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 549
+}

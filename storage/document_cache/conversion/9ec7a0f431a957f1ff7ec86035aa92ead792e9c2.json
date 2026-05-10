@@ -1,0 +1,22 @@
+{
+  "doc_id": "9ec7a0f431a957f1ff7ec86035aa92ead792e9c2",
+  "collection": "knowledge",
+  "source_path": "stub.pdf",
+  "source_type": "pdf",
+  "version_digest": "2cc809d854eabdeb021a8f12fd428d932b726828",
+  "parser_backend": "legacy_fallback",
+  "title": "",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "legacy_fallback"
+  ],
+  "fallback_used": true,
+  "quality_flags": [
+    "empty_conversion",
+    "fallback_parser"
+  ],
+  "blocks": [],
+  "metadata": {}
+}

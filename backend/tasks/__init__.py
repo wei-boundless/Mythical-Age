@@ -32,11 +32,8 @@ __all__ = [
     "TaskGraphNodeDefinition",
     "TaskGraphEdgeDefinition",
     "TaskGraphValidationIssue",
-    "CoordinationGraphSpec",
-    "CoordinationGraphNode",
-    "CoordinationGraphEdge",
-    "CoordinationGraphValidationIssue",
-    "compile_coordination_graph_spec",
+    "TaskGraphRuntimeSpec",
+    "compile_task_graph_runtime_spec",
     "ProjectionSelectionResult",
     "TaskExecutionAssembly",
     "TaskSpec",
@@ -190,29 +187,16 @@ def __getattr__(name: str) -> Any:
             "TaskGraphEdgeDefinition": TaskGraphEdgeDefinition,
             "TaskGraphValidationIssue": TaskGraphValidationIssue,
         }[name]
-    if name in {
-        "CoordinationGraphSpec",
-        "CoordinationGraphNode",
-        "CoordinationGraphEdge",
-        "CoordinationGraphValidationIssue",
-    }:
+    if name == "TaskGraphRuntimeSpec":
         from tasks.coordination_graph_models import (
-            CoordinationGraphEdge,
-            CoordinationGraphNode,
-            CoordinationGraphSpec,
-            CoordinationGraphValidationIssue,
+            TaskGraphRuntimeSpec,
         )
 
-        return {
-            "CoordinationGraphSpec": CoordinationGraphSpec,
-            "CoordinationGraphNode": CoordinationGraphNode,
-            "CoordinationGraphEdge": CoordinationGraphEdge,
-            "CoordinationGraphValidationIssue": CoordinationGraphValidationIssue,
-        }[name]
-    if name == "compile_coordination_graph_spec":
-        from tasks.coordination_graph_compiler import compile_coordination_graph_spec
+        return TaskGraphRuntimeSpec
+    if name == "compile_task_graph_runtime_spec":
+        from tasks.coordination_graph_compiler import compile_task_graph_runtime_spec
 
-        return compile_coordination_graph_spec
+        return compile_task_graph_runtime_spec
     if name in {"TaskWorkflowBinding"}:
         from tasks.workflow_models import TaskWorkflowBinding
 

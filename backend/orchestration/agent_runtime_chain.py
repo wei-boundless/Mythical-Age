@@ -8,6 +8,7 @@ from capability_system.local_mcp_registry import get_local_mcp_unit
 from context_management import ContextResolver
 from tasks.assembly_builder import build_task_execution_assembly_bundle
 from tasks.flow_registry import TaskFlowRegistry
+from understanding.capability_resolution_view import capability_resolution_view
 from understanding.memory_intent import analyze_memory_intent
 from understanding.query_understanding import analyze_query_understanding
 
@@ -360,13 +361,14 @@ def _operation_ids_for_runtime(
     _ = skill_frame
     operations: list[str] = []
     seen: set[str] = set()
-    route = str(getattr(query_understanding, "route", "") or getattr(query_understanding, "route_hint", "") or "").strip()
-    preferred_skill = str(getattr(query_understanding, "preferred_skill", "") or "").strip()
-    if route == "rag" or preferred_skill == "rag-skill":
+    resolution = capability_resolution_view(query_understanding)
+    effective_route = resolution.route
+    effective_skill = resolution.preferred_skill
+    if effective_route == "rag" or effective_skill == "rag-skill":
         mcp_unit = get_local_mcp_unit("retrieval")
-    elif route == "pdf" or preferred_skill == "pdf-analysis":
+    elif effective_route == "pdf" or effective_skill == "pdf-analysis":
         mcp_unit = get_local_mcp_unit("pdf")
-    elif route == "structured_data" or preferred_skill == "structured-data-analysis":
+    elif effective_route == "structured_data" or effective_skill == "structured-data-analysis":
         mcp_unit = get_local_mcp_unit("structured_data")
     else:
         mcp_unit = None

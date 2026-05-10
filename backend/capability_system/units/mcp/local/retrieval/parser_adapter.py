@@ -161,25 +161,36 @@ class MultimodalParserAdapter:
     def _parse_csv_file(self, path: Path) -> list[ParsedChunk]:
         rows = self._read_csv_rows(path, max_rows=self.max_csv_rows)
         rows = self.cleaner.clean_table_rows(rows)
-        if not rows:
+        if len(rows) <= 1:
             return []
 
-        header = rows[0]
-        lines = ["CSV table"]
-        lines.append(" | ".join(header))
-        lines.append(" | ".join(["---"] * len(header)))
-        for row in rows[1:]:
-            normalized = row + [""] * (len(header) - len(row))
-            lines.append(" | ".join(normalized[: len(header)]))
-
-        return [
-            ParsedChunk(
-                text="\n".join(lines),
-                source=self._source(path),
-                modality="table",
-                metadata={"parser": "native_multimodal", "format": "csv"},
+        chunks: list[ParsedChunk] = []
+        for item in self._table_row_windows(
+            sheet_name=path.stem,
+            rows=rows,
+            chunk_size=self.max_xlsx_rows_per_chunk,
+            source_format="csv",
+        ):
+            chunks.append(
+                ParsedChunk(
+                    text=str(item["text"]),
+                    source=self._source(path),
+                    modality="table",
+                    section=str(item["sheet_name"]),
+                    metadata={
+                        "parser": "native_multimodal",
+                        "format": "csv",
+                        "unit_view": "table_row_window",
+                        "row_start": item.get("row_start"),
+                        "row_end": item.get("row_end"),
+                        "total_rows": item.get("total_rows"),
+                        "chunk_index": item.get("chunk_index"),
+                        "chunk_count": item.get("chunk_count"),
+                        "header": item.get("header"),
+                    },
+                )
             )
-        ]
+        return chunks
 
     def _parse_pdf_file(self, path: Path) -> list[ParsedChunk]:
         if not self._pdf_parser.available():
@@ -319,6 +330,7 @@ class MultimodalParserAdapter:
                 "chunk_index": item.get("chunk_index"),
                 "chunk_count": item.get("chunk_count"),
                 "header": item.get("header"),
+                "unit_view": "table_row_window",
             }
             chunks.append(
                 ParsedChunk(
@@ -422,39 +434,61 @@ class MultimodalParserAdapter:
                 if len(normalized_rows) <= 1:
                     continue
 
-                header = normalized_rows[0]
-                body_rows = normalized_rows[1:]
-                total_rows = len(body_rows)
-                chunk_size = self.max_xlsx_rows_per_chunk
-                chunk_count = max(1, (total_rows + chunk_size - 1) // chunk_size)
-
-                for offset in range(0, total_rows, chunk_size):
-                    part = body_rows[offset : offset + chunk_size]
-                    row_start = offset + 1
-                    row_end = offset + len(part)
-                    lines = [
-                        f"Sheet: {worksheet.title}",
-                        f"Columns: {' | '.join(header)}",
-                        f"Rows: {row_start}-{row_end} / {total_rows}",
-                    ]
-                    for row in part:
-                        normalized = row + [""] * (len(header) - len(row))
-                        lines.append(" | ".join(normalized[: len(header)]))
-                    sheets.append(
-                        {
-                            "sheet_name": worksheet.title,
-                            "text": "\n".join(lines),
-                            "row_start": row_start,
-                            "row_end": row_end,
-                            "total_rows": total_rows,
-                            "chunk_index": (offset // chunk_size) + 1,
-                            "chunk_count": chunk_count,
-                            "header": header,
-                        }
+                sheets.extend(
+                    self._table_row_windows(
+                        sheet_name=worksheet.title,
+                        rows=normalized_rows,
+                        chunk_size=self.max_xlsx_rows_per_chunk,
+                        source_format="xlsx",
                     )
+                )
             return sheets
         except Exception:
             return []
+
+    def _table_row_windows(
+        self,
+        *,
+        sheet_name: str,
+        rows: list[list[str]],
+        chunk_size: int,
+        source_format: str,
+    ) -> list[dict[str, Any]]:
+        if len(rows) <= 1:
+            return []
+        header = rows[0]
+        body_rows = rows[1:]
+        total_rows = len(body_rows)
+        window_size = max(1, int(chunk_size or 1))
+        chunk_count = max(1, (total_rows + window_size - 1) // window_size)
+        windows: list[dict[str, Any]] = []
+        for offset in range(0, total_rows, window_size):
+            part = body_rows[offset : offset + window_size]
+            row_start = offset + 1
+            row_end = offset + len(part)
+            lines = [
+                f"Table: {sheet_name}",
+                f"Format: {source_format}",
+                f"Columns: {' | '.join(header)}",
+                f"Rows: {row_start}-{row_end} / {total_rows}",
+            ]
+            for row in part:
+                normalized = row + [""] * (len(header) - len(row))
+                lines.append(" | ".join(normalized[: len(header)]))
+            windows.append(
+                {
+                    "sheet_name": sheet_name,
+                    "text": "\n".join(lines),
+                    "row_start": row_start,
+                    "row_end": row_end,
+                    "total_rows": total_rows,
+                    "chunk_index": (offset // window_size) + 1,
+                    "chunk_count": chunk_count,
+                    "header": header,
+                    "unit_view": "table_row_window",
+                }
+            )
+        return windows
 
     def _extract_image_text(self, path: Path) -> str:
         if not self._ocr_available():

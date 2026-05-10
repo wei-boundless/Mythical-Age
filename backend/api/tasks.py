@@ -14,7 +14,7 @@ from orchestration.runtime_loop.runtime_assembly_builder import (
     build_node_runtime_assembly,
     build_single_agent_runtime_assembly,
 )
-from tasks import TaskContractRegistry, TaskFlowRegistry, TaskWorkflowRegistry, compile_coordination_graph_spec
+from tasks import TaskContractRegistry, TaskFlowRegistry, TaskWorkflowRegistry, compile_task_graph_runtime_spec
 
 router = APIRouter()
 
@@ -208,6 +208,30 @@ class TaskGraphUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class TaskGraphBundleUpsertRequest(BaseModel):
+    graph_id: str = Field(..., min_length=3, max_length=160)
+    title: str = Field(..., min_length=1, max_length=160)
+    coordination_mode: str = Field(default="review_merge", max_length=120)
+    coordinator_agent_id: str = Field(default="agent:0", max_length=160)
+    task_family: str = Field(default="", max_length=80)
+    domain_id: str = Field(default="", max_length=160)
+    agent_group_id: str = Field(default="", max_length=160)
+    participant_agent_ids: list[str] = Field(default_factory=list)
+    topology_template_id: str = Field(default="", max_length=160)
+    shared_context_policy: str = Field(default="explicit_refs_only", max_length=120)
+    memory_sharing_policy: str = Field(default="isolated_by_default", max_length=120)
+    handoff_policy: str = Field(default="filtered_handoff", max_length=120)
+    conflict_resolution_policy: str = Field(default="coordinator_review", max_length=120)
+    output_merge_policy: str = Field(default="coordinator_final_merge", max_length=120)
+    stop_conditions: list[str] = Field(default_factory=list)
+    subtask_refs: list[str] = Field(default_factory=list)
+    graph_nodes: list[dict[str, object]] = Field(default_factory=list)
+    graph_edges: list[dict[str, object]] = Field(default_factory=list)
+    communication_modes: list[str] = Field(default_factory=list)
+    enabled: bool = False
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class TopologyTemplateUpsertRequest(BaseModel):
     template_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
@@ -309,7 +333,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         for item in registry.list_specific_task_records()
         if item.task_id in visible_task_ids
     }
-    coordination_graph_specs = []
+    task_graph_specs = []
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
     contract_catalog = _visible_contract_payloads([item.to_dict() for item in registry.list_contract_descriptors()])
@@ -383,10 +407,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         "contract_management": contract_management,
         "task_graph_management": {
             "task_graphs": task_graphs,
-        },
-        "coordination_management": {
-            "task_graphs": task_graphs,
-            "coordination_graph_specs": coordination_graph_specs,
+            "task_graph_specs": task_graph_specs,
             "topology_templates": topology_templates,
             "communication_protocols": communication_protocols,
             "a2a": {
@@ -522,21 +543,31 @@ async def compile_task_system_workflow_contract_manifest(
     return manifest.to_dict()
 
 
-@router.get("/tasks/contract-manifests/coordination/{coordination_task_id}")
-async def compile_task_system_coordination_contract_manifest(coordination_task_id: str) -> dict[str, object]:
-    runtime = require_runtime()
-    registry = TaskFlowRegistry(runtime.base_dir)
-    coordination_task = registry.get_coordination_task(coordination_task_id)
-    if coordination_task is None:
+def _graph_view_or_404(*, registry: TaskFlowRegistry, graph_id: str):
+    graph = registry.get_task_graph(graph_id)
+    if graph is None:
         from fastapi import HTTPException
 
-        raise HTTPException(status_code=404, detail="coordination task not found")
+        raise HTTPException(status_code=404, detail="task graph not found")
+    graph_view = registry.get_graph_task(graph_id)
+    if graph_view is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="task graph view not found")
+    return graph, graph_view
+
+
+@router.get("/tasks/contract-manifests/task-graphs/{graph_id}")
+async def compile_task_system_task_graph_contract_manifest(graph_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    registry = TaskFlowRegistry(runtime.base_dir)
+    _, graph_view = _graph_view_or_404(registry=registry, graph_id=graph_id)
     specific_tasks = tuple(registry.list_specific_task_records())
-    protocol = registry.get_task_communication_protocol(str(dict(coordination_task.metadata or {}).get("protocol_id") or ""))
-    graph_spec = compile_coordination_graph_spec(
-        coordination_task=coordination_task,
+    protocol = registry.get_task_communication_protocol(str(dict(graph_view.metadata or {}).get("protocol_id") or ""))
+    graph_spec = compile_task_graph_runtime_spec(
+        coordination_task=graph_view,
         specific_tasks=specific_tasks,
-        topology_template=registry.get_topology_template(coordination_task.topology_template_id),
+        topology_template=registry.get_topology_template(graph_view.topology_template_id),
         communication_protocol=protocol,
     )
     runtime_registry = AgentRuntimeRegistry(runtime.base_dir)
@@ -551,30 +582,13 @@ async def compile_task_system_coordination_contract_manifest(coordination_task_i
     )
     manifest = compile_coordination_contract_manifest(
         contract_registry=TaskContractRegistry(runtime.base_dir),
-        coordination_task=coordination_task,
+        coordination_task=graph_view,
         graph_spec=graph_spec,
         specific_tasks=specific_tasks,
         communication_protocol=protocol,
         agent_profiles=agent_profiles,
     )
     return manifest.to_dict()
-
-
-@router.get("/tasks/contract-manifests/task-graphs/{graph_id}")
-async def compile_task_system_task_graph_contract_manifest(graph_id: str) -> dict[str, object]:
-    runtime = require_runtime()
-    registry = TaskFlowRegistry(runtime.base_dir)
-    graph = registry.get_task_graph(graph_id)
-    if graph is None:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail="task graph not found")
-    coordination_task_id = str(dict(graph.metadata or {}).get("coordination_task_id") or "").strip()
-    if not coordination_task_id:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail="task graph is missing compatibility coordination task binding")
-    return await compile_task_system_coordination_contract_manifest(coordination_task_id)
 
 
 @router.get("/tasks/runtime-assemblies/workflows/{workflow_id}")
@@ -615,21 +629,17 @@ async def build_task_system_workflow_runtime_assembly(
     return assembly.to_dict()
 
 
-@router.get("/tasks/runtime-assemblies/coordination/{coordination_task_id}/nodes/{node_id}")
-async def build_task_system_node_runtime_assembly(
-    coordination_task_id: str,
+@router.get("/tasks/runtime-assemblies/task-graphs/{graph_id}/nodes/{node_id}")
+async def build_task_system_task_graph_node_runtime_assembly(
+    graph_id: str,
     node_id: str,
 ) -> dict[str, object]:
     runtime = require_runtime()
     registry = TaskFlowRegistry(runtime.base_dir)
-    coordination_task = registry.get_coordination_task(coordination_task_id)
-    if coordination_task is None:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail="coordination task not found")
+    _, coordination_task = _coordination_view_from_graph_or_404(registry=registry, graph_id=graph_id)
     specific_tasks = tuple(registry.list_specific_task_records())
     protocol = registry.get_task_communication_protocol(str(dict(coordination_task.metadata or {}).get("protocol_id") or ""))
-    graph_spec = compile_coordination_graph_spec(
+    graph_spec = compile_task_graph_runtime_spec(
         coordination_task=coordination_task,
         specific_tasks=specific_tasks,
         topology_template=registry.get_topology_template(coordination_task.topology_template_id),
@@ -665,26 +675,6 @@ async def build_task_system_node_runtime_assembly(
         explicit_inputs={},
     )
     return assembly.to_dict()
-
-
-@router.get("/tasks/runtime-assemblies/task-graphs/{graph_id}/nodes/{node_id}")
-async def build_task_system_task_graph_node_runtime_assembly(
-    graph_id: str,
-    node_id: str,
-) -> dict[str, object]:
-    runtime = require_runtime()
-    registry = TaskFlowRegistry(runtime.base_dir)
-    graph = registry.get_task_graph(graph_id)
-    if graph is None:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail="task graph not found")
-    coordination_task_id = str(dict(graph.metadata or {}).get("coordination_task_id") or "").strip()
-    if not coordination_task_id:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail="task graph is missing compatibility coordination task binding")
-    return await build_task_system_node_runtime_assembly(coordination_task_id, node_id)
 
 
 @router.put("/tasks/workflows/{workflow_id}")
@@ -958,6 +948,45 @@ async def upsert_task_system_task_graph(
             runtime_policy=payload.runtime_policy,
             context_policy=payload.context_policy,
             publish_state=payload.publish_state,
+            enabled=payload.enabled,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.put("/tasks/task-graph-bundles/{graph_id}")
+async def upsert_task_system_task_graph_bundle(
+    graph_id: str,
+    payload: TaskGraphBundleUpsertRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    if payload.graph_id != graph_id:
+        payload = payload.model_copy(update={"graph_id": graph_id})
+    try:
+        TaskFlowRegistry(runtime.base_dir).upsert_graph_task(
+            graph_id=payload.graph_id,
+            title=payload.title,
+            coordination_mode=payload.coordination_mode,
+            coordinator_agent_id=payload.coordinator_agent_id,
+            task_family=payload.task_family,
+            domain_id=payload.domain_id,
+            agent_group_id=payload.agent_group_id,
+            participant_agent_ids=tuple(payload.participant_agent_ids),
+            topology_template_id=payload.topology_template_id,
+            shared_context_policy=payload.shared_context_policy,
+            memory_sharing_policy=payload.memory_sharing_policy,
+            handoff_policy=payload.handoff_policy,
+            conflict_resolution_policy=payload.conflict_resolution_policy,
+            output_merge_policy=payload.output_merge_policy,
+            stop_conditions=tuple(payload.stop_conditions),
+            subtask_refs=tuple(payload.subtask_refs),
+            graph_nodes=tuple(dict(item) for item in payload.graph_nodes),
+            graph_edges=tuple(dict(item) for item in payload.graph_edges),
+            communication_modes=tuple(payload.communication_modes),
             enabled=payload.enabled,
             metadata=payload.metadata,
         )

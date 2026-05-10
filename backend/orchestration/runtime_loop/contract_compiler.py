@@ -5,7 +5,7 @@ from typing import Any
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 from tasks.contract_definition_models import ContractSpec
 from tasks.contract_registry import TaskContractRegistry
-from tasks.coordination_graph_models import CoordinationGraphSpec
+from tasks.coordination_graph_models import TaskGraphRuntimeSpec
 from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol
 from tasks.workflow_models import TaskWorkflowBinding
 
@@ -132,11 +132,12 @@ def compile_coordination_contract_manifest(
     *,
     contract_registry: TaskContractRegistry,
     coordination_task: CoordinationTaskDefinition,
-    graph_spec: CoordinationGraphSpec,
+    graph_spec: TaskGraphRuntimeSpec,
     specific_tasks: tuple[SpecificTaskRecord, ...] = (),
     communication_protocol: TaskCommunicationProtocol | None = None,
     agent_profiles: tuple[AgentRuntimeProfile, ...] = (),
 ) -> ContractManifest:
+    graph_ref = str(graph_spec.graph_id or dict(coordination_task.metadata or {}).get("graph_id") or coordination_task.graph_id).strip()
     issues: list[ContractCompileIssue] = [
         ContractCompileIssue(
             code=f"graph_{item.code}",
@@ -144,7 +145,7 @@ def compile_coordination_contract_manifest(
             severity=item.severity,
             node_id=item.node_id,
             edge_id=item.edge_id,
-            source_ref=graph_spec.graph_id,
+            source_ref=graph_ref,
         )
         for item in graph_spec.issues
     ]
@@ -205,7 +206,7 @@ def compile_coordination_contract_manifest(
                 _collect_contract(
                     registry=contract_registry,
                     contract_id=contract_id,
-                    source_ref=f"{coordination_task.coordination_task_id}:{node.node_id}",
+                    source_ref=f"{graph_ref}:{node.node_id}",
                     purpose=purpose,
                     global_contracts=global_contracts,
                     acceptance_contracts=acceptance_contracts,
@@ -218,7 +219,7 @@ def compile_coordination_contract_manifest(
                     code="node_task_missing",
                     message=f"节点引用的任务不存在，无法编译节点契约：{node.task_id}",
                     severity="error",
-                    source_ref=coordination_task.coordination_task_id,
+                    source_ref=graph_ref,
                     node_id=node.node_id,
                     contract_id=node.task_id,
                 )
@@ -227,7 +228,7 @@ def compile_coordination_contract_manifest(
             _collect_contract(
                 registry=contract_registry,
                 contract_id=contract_id,
-                source_ref=f"{coordination_task.coordination_task_id}:{node.node_id}",
+                source_ref=f"{graph_ref}:{node.node_id}",
                 purpose="node_execution_contract",
                 global_contracts=global_contracts,
                 acceptance_contracts=acceptance_contracts,
@@ -246,7 +247,7 @@ def compile_coordination_contract_manifest(
                 input_contract_id=input_contract_id,
                 output_contract_id=output_contract_id,
                 contract_refs=tuple(ref for ref in (input_contract_id, output_contract_id, *explicit_node_contract_refs) if ref),
-                source_refs=(coordination_task.coordination_task_id, node.task_id),
+                source_refs=(graph_ref, node.task_id),
                 metadata={"role": node.role, "explicit_node_contract_refs": explicit_node_contract_refs},
             )
         )
@@ -257,7 +258,7 @@ def compile_coordination_contract_manifest(
                     code="runtime_profile_missing",
                     message=f"节点 Agent 缺少 runtime profile：{node.agent_id}",
                     severity="error",
-                    source_ref=coordination_task.coordination_task_id,
+                    source_ref=graph_ref,
                     node_id=node.node_id,
                     agent_id=node.agent_id,
                 )
@@ -291,7 +292,7 @@ def compile_coordination_contract_manifest(
             _collect_contract(
                 registry=contract_registry,
                 contract_id=contract_id,
-                source_ref=f"{coordination_task.coordination_task_id}:{edge.edge_id}",
+                source_ref=f"{graph_ref}:{edge.edge_id}",
                 purpose="edge_handoff_contract",
                 global_contracts=global_contracts,
                 acceptance_contracts=acceptance_contracts,
@@ -304,7 +305,7 @@ def compile_coordination_contract_manifest(
                     code="edge_handoff_contract_missing",
                     message=f"通信边缺少 handoff payload 契约：{edge.edge_id}",
                     severity="error",
-                    source_ref=coordination_task.coordination_task_id,
+                    source_ref=graph_ref,
                     edge_id=edge.edge_id,
                 )
             )
@@ -329,11 +330,11 @@ def compile_coordination_contract_manifest(
     )
 
     return ContractManifest(
-        manifest_id=f"contract-manifest:coordination:{coordination_task.coordination_task_id}",
+        manifest_id=f"contract-manifest:coordination:{graph_ref}",
         manifest_kind="coordination",
-        task_ref=coordination_task.coordination_task_id,
-        coordination_task_id=coordination_task.coordination_task_id,
-        graph_id=graph_spec.graph_id,
+        task_ref=graph_ref,
+        graph_id=graph_ref,
+        graph_ref=graph_ref,
         global_contracts=tuple(global_contracts.values()),
         node_contracts=tuple(node_contracts),
         edge_handoff_contracts=tuple(edge_contracts),

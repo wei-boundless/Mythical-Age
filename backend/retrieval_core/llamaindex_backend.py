@@ -2,19 +2,27 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import portalocker
+
 from config import get_settings
 from capability_system.units.mcp.local.retrieval.models import RetrievalHit
 from normalized_ingestion.models import IndexableUnit
+from retrieval.candidate_graph import coalesce_with_candidate_graph
 from retrieval_core.adapters import to_retrieval_hit
 from retrieval_core.index_store import RetrievalLayout
-from retrieval_core.lexical import build_lexical_index_payload, build_searchable_text, lexical_tokens, score_lexical_query
+from retrieval_core.lexical import (
+    build_lexical_index_payload,
+    build_searchable_text,
+    lexical_tokens,
+    score_lexical_query,
+    tokenizer_name,
+)
 from retrieval_core.retrievers import RetrievalRequest
 
 
@@ -43,6 +51,7 @@ class LlamaIndexRetrievalBackend:
         units: list[IndexableUnit],
         *,
         embed_model: object | None = None,
+        verify_dense_query: bool = True,
     ) -> dict[str, Any]:
         self.ensure_layout(collections=(collection,))
         self._write_units(collection, units)
@@ -72,6 +81,7 @@ class LlamaIndexRetrievalBackend:
                 dense_units,
                 embed_model=embed_model,
                 build_meta=build_meta,
+                verify_dense_query=verify_dense_query,
             )
             payload = self._merge_collection_payload(dense_payload, lexical_payload, build_meta=build_meta)
             self._write_metadata(collection, payload)
@@ -203,6 +213,7 @@ class LlamaIndexRetrievalBackend:
         *,
         embed_model: object | None = None,
         build_meta: dict[str, Any] | None = None,
+        verify_dense_query: bool = True,
     ) -> dict[str, Any]:
         if not self.settings.qdrant_url:
             with self._qdrant_local_access(collection):
@@ -211,12 +222,14 @@ class LlamaIndexRetrievalBackend:
                     units,
                     embed_model=embed_model,
                     build_meta=build_meta,
+                    verify_dense_query=verify_dense_query,
                 )
         return self._build_collection_qdrant_locked(
             collection,
             units,
             embed_model=embed_model,
             build_meta=build_meta,
+            verify_dense_query=verify_dense_query,
         )
 
     def _build_collection_qdrant_locked(
@@ -226,6 +239,7 @@ class LlamaIndexRetrievalBackend:
         *,
         embed_model: object | None = None,
         build_meta: dict[str, Any] | None = None,
+        verify_dense_query: bool = True,
     ) -> dict[str, Any]:
         from qdrant_client import models as qmodels
 
@@ -248,71 +262,71 @@ class LlamaIndexRetrievalBackend:
         collection_name = self._qdrant_collection_name(collection)
         processed = 0
         created = False
-        try:
-            self._write_metadata(
-                collection,
-                {
-                    "collection": collection,
-                    "status": "building",
-                    "dense_documents": total_units,
-                    "dense_documents_indexed": 0,
-                    "vector_backend": "qdrant",
-                    "qdrant_collection": collection_name,
-                    "build_batch_size": batch_size,
-                    **dict(build_meta or {}),
-                },
+        self._write_metadata(
+            collection,
+            {
+                "collection": collection,
+                "status": "building",
+                "dense_documents": total_units,
+                "dense_documents_indexed": 0,
+                "vector_backend": "qdrant",
+                "qdrant_collection": collection_name,
+                "build_batch_size": batch_size,
+                **dict(build_meta or {}),
+            },
+        )
+        for start in range(0, total_units, batch_size):
+            batch_units = units[start : start + batch_size]
+            batch_vectors = self._embed_texts(active_model, [unit.text for unit in batch_units])
+            self._emit_embedding_cache_progress(
+                collection=collection,
+                embed_model=active_model,
+                batch_size=len(batch_units),
             )
-            for start in range(0, total_units, batch_size):
-                batch_units = units[start : start + batch_size]
-                batch_vectors = self._embed_texts(active_model, [unit.text for unit in batch_units])
-                if not batch_vectors:
-                    continue
-                if not created:
-                    if client.collection_exists(collection_name):
-                        client.delete_collection(collection_name)
-                    client.create_collection(
-                        collection_name=collection_name,
-                        vectors_config={
-                            "dense": qmodels.VectorParams(
-                                size=len(batch_vectors[0]),
-                                distance=qmodels.Distance.COSINE,
-                            )
-                        },
-                    )
-                    created = True
-                points = [
-                    qmodels.PointStruct(
-                        id=start + index + 1,
-                        vector={"dense": vector},
-                        payload=self._payload_from_unit(unit),
-                    )
-                    for index, (unit, vector) in enumerate(zip(batch_units, batch_vectors, strict=False))
-                ]
-                if points:
-                    client.upsert(collection_name=collection_name, points=points, wait=True)
-                processed += len(points)
-                progress_payload = {
-                    "collection": collection,
-                    "status": "building",
-                    "dense_documents": total_units,
-                    "dense_documents_indexed": processed,
-                    "vector_backend": "qdrant",
-                    "qdrant_collection": collection_name,
-                    "build_batch_size": batch_size,
-                    "parser_backends": parser_backends,
-                    **dict(build_meta or {}),
-                }
-                self._write_metadata(collection, progress_payload)
-                self._emit_build_progress(
-                    collection=collection,
-                    processed=processed,
-                    total=total_units,
-                    batch_size=len(points),
+            if not batch_vectors:
+                continue
+            if not created:
+                if client.collection_exists(collection_name):
+                    client.delete_collection(collection_name)
+                client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config={
+                        "dense": qmodels.VectorParams(
+                            size=len(batch_vectors[0]),
+                            distance=qmodels.Distance.COSINE,
+                        )
+                    },
                 )
-        finally:
-            close = getattr(client, "close", None)
-            if callable(close):
-                close()
+                created = True
+            points = [
+                qmodels.PointStruct(
+                    id=start + index + 1,
+                    vector={"dense": vector},
+                    payload=self._payload_from_unit(unit),
+                )
+                for index, (unit, vector) in enumerate(zip(batch_units, batch_vectors, strict=False))
+            ]
+            if points:
+                client.upsert(collection_name=collection_name, points=points, wait=True)
+            processed += len(points)
+            progress_payload = {
+                "collection": collection,
+                "status": "building",
+                "dense_documents": total_units,
+                "dense_documents_indexed": processed,
+                "vector_backend": "qdrant",
+                "qdrant_collection": collection_name,
+                "build_batch_size": batch_size,
+                "parser_backends": parser_backends,
+                **dict(build_meta or {}),
+            }
+            self._write_metadata(collection, progress_payload)
+            self._emit_build_progress(
+                collection=collection,
+                processed=processed,
+                total=total_units,
+                batch_size=len(points),
+            )
 
         if processed <= 0:
             return {
@@ -326,12 +340,25 @@ class LlamaIndexRetrievalBackend:
                 "dense_status": "empty",
             }
 
-        verification = self._verify_qdrant_collection(
-            collection,
-            embed_model=active_model,
-            smoke_query=self._dense_smoke_query(units),
-        )
-        status = "ready" if verification.get("available") and verification.get("query_ok") else "invalid"
+        if verify_dense_query:
+            verification = self._verify_qdrant_collection(
+                collection,
+                embed_model=active_model,
+                smoke_query=self._dense_smoke_query(units),
+            )
+            status = "ready" if verification.get("available") and verification.get("query_ok") else "invalid"
+        else:
+            verification = {
+                "collection": collection,
+                "collection_name": collection_name,
+                "vector_backend": "qdrant",
+                "available": True,
+                "query_ok": True,
+                "points_count": processed,
+                "status": "ready",
+                "verification_skipped": True,
+            }
+            status = "ready" if processed == total_units else "invalid"
         return {
             "collection": collection,
             "status": status,
@@ -381,14 +408,13 @@ class LlamaIndexRetrievalBackend:
                 collection_name=collection_name,
                 query=query_vector,
                 limit=request.top_k,
+                query_filter=self._qdrant_filter_from_request(request),
                 with_payload=True,
                 with_vectors=False,
                 using=self._qdrant_dense_vector_name(client, collection_name),
             )
         finally:
-            close = getattr(client, "close", None)
-            if callable(close):
-                close()
+            pass
 
         hits: list[object] = []
         for item in getattr(result, "points", []) or []:
@@ -450,7 +476,7 @@ class LlamaIndexRetrievalBackend:
             "collection": collection,
             "status": "ready",
             "lexical_documents": len(units),
-            "tokenizer": "mixed_word_cjk_bigram_v1",
+            "tokenizer": tokenizer_name(),
             "k1": index_payload["k1"],
             "b": index_payload["b"],
             **dict(build_meta or {}),
@@ -472,13 +498,17 @@ class LlamaIndexRetrievalBackend:
         if not lexical_index.get("doc_ids"):
             return []
         units_by_id = self._load_units_payload(collection)
-        top_k = min(max(1, int(request.top_k or 1)), len(lexical_index["doc_ids"]))
+        filter_active = bool(request.filters)
+        multiplier = 4 if filter_active else 1
+        top_k = min(max(1, int(request.top_k or 1) * multiplier), len(lexical_index["doc_ids"]))
         scored = self._score_lexical_query(lexical_index, self._lexical_tokens(request.query), top_k=top_k)
         hits: list[object] = []
         for doc_idx, score in scored:
             unit_id = str(lexical_index["doc_ids"][doc_idx])
             item = dict(units_by_id.get(unit_id, {}) or {})
             if not item:
+                continue
+            if not self._unit_payload_matches_filters(item, request.filters):
                 continue
             unit = IndexableUnit(
                 unit_id=str(item.get("unit_id", "")),
@@ -508,7 +538,7 @@ class LlamaIndexRetrievalBackend:
                     retrieval_stage="lexical",
                 )
             )
-        return hits
+        return hits[: request.top_k]
 
     def _document_from_unit(self, unit: IndexableUnit):
         from llama_index.core import Document
@@ -587,6 +617,12 @@ class LlamaIndexRetrievalBackend:
         return "qdrant"
 
     def _qdrant_build_batch_size(self) -> int:
+        configured = getattr(self.settings, "qdrant_build_batch_size", None)
+        if configured is not None:
+            try:
+                return max(int(configured), 1)
+            except (TypeError, ValueError):
+                pass
         return 128
 
     def _emit_build_progress(
@@ -602,6 +638,18 @@ class LlamaIndexRetrievalBackend:
         print(
             f"[retrieval-build] collection={collection} processed={processed}/{safe_total} "
             f"batch={batch_size} percent={percent:.1f}",
+            flush=True,
+        )
+
+    def _emit_embedding_cache_progress(self, *, collection: str, embed_model: object, batch_size: int) -> None:
+        stats = getattr(embed_model, "last_batch_stats", None)
+        if not isinstance(stats, dict):
+            return
+        print(
+            f"[retrieval-build-cache] collection={collection} "
+            f"requested={int(stats.get('requested') or batch_size)} "
+            f"hits={int(stats.get('hits') or 0)} "
+            f"misses={int(stats.get('misses') or 0)}",
             flush=True,
         )
 
@@ -693,17 +741,17 @@ class LlamaIndexRetrievalBackend:
         except Exception as exc:
             payload["error"] = str(exc)
             return payload
-        finally:
-            close = getattr(client, "close", None)
-            if callable(close):
-                close()
 
     @contextmanager
     def _qdrant_local_access(self, collection: str):
         lock = self._qdrant_local_lock(collection)
+        dense_dir = self.layout.dense_dir(collection)
+        dense_dir.mkdir(parents=True, exist_ok=True)
+        file_lock_path = dense_dir / ".access.lock"
         lock.acquire()
         try:
-            yield
+            with portalocker.Lock(str(file_lock_path), timeout=300, flags=portalocker.LockFlags.EXCLUSIVE):
+                yield
         finally:
             lock.release()
 
@@ -739,6 +787,62 @@ class LlamaIndexRetrievalBackend:
             if len(keys) == 1:
                 return keys[0]
         return None
+
+    def _qdrant_filter_from_request(self, request: RetrievalRequest) -> Any | None:
+        filters = dict(request.filters or {})
+        if not filters:
+            return None
+        from qdrant_client import models as qmodels
+
+        must: list[Any] = []
+        for field_name, key in (
+            ("modality", "modality_any"),
+            ("unit_type", "unit_type_any"),
+            ("block_type", "block_type_any"),
+            ("doc_id", "doc_id_any"),
+            ("page", "page_any"),
+        ):
+            values = list(filters.get(key, []) or [])
+            if values:
+                must.append(qmodels.FieldCondition(key=field_name, match=qmodels.MatchAny(any=values)))
+        for term in list(filters.get("source_path_contains_any", []) or []):
+            if str(term).strip():
+                must.append(qmodels.FieldCondition(key="source_path", match=qmodels.MatchText(text=str(term).strip())))
+        if not must:
+            return None
+        return qmodels.Filter(must=must)
+
+    def _unit_payload_matches_filters(self, item: dict[str, Any], filters: dict[str, Any]) -> bool:
+        if not filters:
+            return True
+        for key, field_name in (
+            ("modality_any", "modality"),
+            ("unit_type_any", "unit_type"),
+            ("block_type_any", "block_type"),
+            ("doc_id_any", "doc_id"),
+        ):
+            expected = {str(value) for value in list(filters.get(key, []) or []) if str(value).strip()}
+            if expected and str(item.get(field_name, "") or "") not in expected:
+                return False
+        page_values = {int(value) for value in list(filters.get("page_any", []) or []) if str(value).strip()}
+        if page_values:
+            try:
+                page = int(item.get("page", 0) or 0)
+            except (TypeError, ValueError):
+                page = 0
+            if page not in page_values:
+                return False
+        source_terms = [str(value).strip().lower() for value in list(filters.get("source_path_contains_any", []) or []) if str(value).strip()]
+        if source_terms:
+            source = str(item.get("source_path", "") or "").lower()
+            if not any(term in source for term in source_terms):
+                return False
+        excluded_flags = {str(value) for value in list(filters.get("quality_flags_exclude_any", []) or []) if str(value).strip()}
+        if excluded_flags:
+            quality_flags = {str(value) for value in list(item.get("quality_flags", []) or [])}
+            if quality_flags & excluded_flags:
+                return False
+        return True
 
     def _embed_texts(self, embed_model: object, texts: list[str]) -> list[list[float]]:
         batch = getattr(embed_model, "get_text_embedding_batch", None)
@@ -908,72 +1012,12 @@ class LlamaIndexRetrievalBackend:
     ) -> list[object]:
         if len(hits) <= 1:
             return hits
-
-        grouped: dict[tuple[Any, ...], list[RetrievalHit]] = {}
-        for raw_hit in hits:
-            hit = raw_hit if isinstance(raw_hit, RetrievalHit) else RetrievalHit(
-                text=str(getattr(raw_hit, "text", "")),
-                source=str(getattr(raw_hit, "source", "")),
-                modality=str(getattr(raw_hit, "modality", "text")),
-                score=float(getattr(raw_hit, "score", 0.0) or 0.0),
-                page=getattr(raw_hit, "page", None),
-                metadata=dict(getattr(raw_hit, "metadata", {}) or {}),
-                hit_id=getattr(raw_hit, "hit_id", None),
-                doc_id=getattr(raw_hit, "doc_id", None),
-                block_id=getattr(raw_hit, "block_id", None),
-                object_ref_id=getattr(raw_hit, "object_ref_id", None),
-                block_type=getattr(raw_hit, "block_type", None),
-                section_path=tuple(getattr(raw_hit, "section_path", ()) or ()),
-                score_breakdown=dict(getattr(raw_hit, "score_breakdown", {}) or {}),
-                retrieval_modes=tuple(getattr(raw_hit, "retrieval_modes", ()) or ()),
-                parser_backend=str(getattr(raw_hit, "parser_backend", "") or ""),
-                quality_flags=tuple(getattr(raw_hit, "quality_flags", ()) or ()),
-            )
-            grouped.setdefault(self._coalesce_key(hit, request.query_mode), []).append(hit)
-
-        merged_hits: list[RetrievalHit] = []
-        for bucket in grouped.values():
-            bucket.sort(key=lambda item: float(item.score or 0.0), reverse=True)
-            primary = bucket[0]
-            merged_text = self._merge_hit_texts(bucket)
-            merged_modes = self._merge_hit_modes(bucket)
-            merged_breakdown = self._merge_score_breakdown(bucket)
-            merged_metadata = dict(primary.metadata)
-            merged_metadata["merged_hit_count"] = len(bucket)
-            merged_metadata["merged_block_ids"] = [
-                str(item.block_id)
-                for item in bucket
-                if str(item.block_id or "").strip()
-            ]
-            merged_metadata["retrieval_stage"] = "coalesced"
-            merged_metadata["result_granularity"] = self._result_granularity(
-                object_ref_id=primary.object_ref_id,
-                page=primary.page,
-                query_mode=request.query_mode,
-            )
-            merged_metadata["chain_version"] = self.baseline_chain_version()
-            merged_hits.append(
-                RetrievalHit(
-                    text=merged_text,
-                    source=primary.source,
-                    modality=primary.modality,
-                    score=max(float(item.score or 0.0) for item in bucket),
-                    page=primary.page,
-                    metadata=merged_metadata,
-                    hit_id=primary.hit_id,
-                    doc_id=primary.doc_id,
-                    block_id=primary.block_id,
-                    object_ref_id=primary.object_ref_id,
-                    block_type=primary.block_type,
-                    section_path=primary.section_path,
-                    score_breakdown=merged_breakdown,
-                    retrieval_modes=merged_modes,
-                    parser_backend=primary.parser_backend,
-                    quality_flags=primary.quality_flags,
-                )
-            )
-        merged_hits.sort(key=lambda item: float(item.score or 0.0), reverse=True)
-        return merged_hits[: request.top_k]
+        return coalesce_with_candidate_graph(
+            hits,
+            query_mode=request.query_mode,
+            chain_version=self.baseline_chain_version(),
+            top_k=request.top_k,
+        )
 
     def _fusion_weights(self, query_mode: str) -> dict[str, float]:
         mode = str(query_mode or "semantic_lookup")
@@ -996,56 +1040,6 @@ class LlamaIndexRetrievalBackend:
             str(getattr(hit, "source", "") or ""),
             int(getattr(hit, "page", 0) or 0),
         )
-
-    def _coalesce_key(self, hit: RetrievalHit, query_mode: str) -> tuple[Any, ...]:
-        doc_id = str(hit.doc_id or "").strip()
-        source = str(hit.source or "").strip()
-        object_ref_id = str(hit.object_ref_id or "").strip()
-        page = int(hit.page or 0)
-        mode = str(query_mode or "semantic_lookup")
-        if object_ref_id:
-            return ("object", doc_id or source, object_ref_id)
-        if mode == "document_overview":
-            return ("doc", doc_id or source)
-        if page > 0:
-            return ("page", doc_id or source, page)
-        return ("doc", doc_id or source)
-
-    def _merge_hit_texts(self, hits: list[RetrievalHit]) -> str:
-        snippets: list[str] = []
-        seen: set[str] = set()
-        total_chars = 0
-        for hit in hits:
-            text = re.sub(r"\s+", " ", str(hit.text or "")).strip()
-            if not text:
-                continue
-            if text in seen:
-                continue
-            if any(text in existing for existing in seen):
-                continue
-            seen.add(text)
-            snippets.append(text)
-            total_chars += len(text)
-            if len(snippets) >= 3 or total_chars >= 1800:
-                break
-        return "\n\n".join(snippets).strip()
-
-    def _merge_hit_modes(self, hits: list[RetrievalHit]) -> tuple[str, ...]:
-        modes: list[str] = []
-        for hit in hits:
-            for mode in hit.retrieval_modes:
-                if mode not in modes:
-                    modes.append(str(mode))
-        return tuple(modes)
-
-    def _merge_score_breakdown(self, hits: list[RetrievalHit]) -> dict[str, float]:
-        merged: dict[str, float] = {}
-        for hit in hits:
-            for key, value in dict(hit.score_breakdown).items():
-                merged[key] = max(float(merged.get(key, 0.0)), float(value or 0.0))
-        merged["merged_hit_count"] = float(len(hits))
-        merged["final"] = max(float(hit.score or 0.0) for hit in hits) if hits else 0.0
-        return merged
 
     def _annotate_hit(
         self,
@@ -1170,6 +1164,8 @@ class LlamaIndexRetrievalBackend:
         if not path.exists():
             return
         for child in path.iterdir():
+            if child.name == ".access.lock":
+                continue
             if child.is_dir():
                 self._reset_dir(child)
                 child.rmdir()

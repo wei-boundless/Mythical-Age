@@ -318,8 +318,8 @@ class CoordinationRun:
 
     coordination_run_id: str
     task_run_id: str
-    coordination_task_ref: str
     coordinator_agent_id: str
+    graph_ref: str = ""
     topology_template_id: str = ""
     communication_protocol_id: str = ""
     handoff_policy: str = ""
@@ -340,11 +340,15 @@ class CoordinationRun:
             raise ValueError("CoordinationRun requires coordination_run_id")
         if not self.task_run_id:
             raise ValueError("CoordinationRun requires task_run_id")
-        if not self.coordination_task_ref:
-            raise ValueError("CoordinationRun requires coordination_task_ref")
+        graph_ref = str(self.graph_ref or "").strip()
+        if not graph_ref:
+            raise ValueError("CoordinationRun requires graph_ref")
+        object.__setattr__(self, "graph_ref", graph_ref)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["graph_ref"] = self.graph_ref
+        return payload
 
 
 @dataclass(frozen=True, slots=True)

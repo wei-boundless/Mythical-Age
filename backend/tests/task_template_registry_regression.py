@@ -55,6 +55,44 @@ def test_task_template_registry_never_returns_unregistered_template() -> None:
         assert match.template_id in template_ids
 
 
+def test_task_template_registry_prefers_capability_resolution_when_present() -> None:
+    registry = TaskTemplateRegistry()
+    task_intent = registry.build_task_intent_contract(
+        session_id="session-template-resolution",
+        task_id="task-template-resolution",
+        user_goal="帮我看一下 inventory.xlsx 里销量前五的有哪些",
+        query_understanding={
+            "route_hint": "agent",
+            "execution_posture": "direct_mcp",
+            "preferred_skill": "",
+            "capability_resolution": {
+                "route": "structured_data",
+                "selected_candidate_type": "mcp",
+                "selected_candidate_name": "structured_data",
+            },
+        },
+        current_turn_context={"authority": "context.current_turn", "execution_mode": "single"},
+    )
+
+    match = registry.match_template(
+        task_intent_contract=task_intent,
+        query_understanding={
+            "route_hint": "agent",
+            "execution_posture": "direct_mcp",
+            "preferred_skill": "",
+            "capability_resolution": {
+                "route": "structured_data",
+                "selected_candidate_type": "mcp",
+                "selected_candidate_name": "structured_data",
+            },
+        },
+        current_turn_context={"authority": "context.current_turn", "execution_mode": "single"},
+        definitions=[],
+    )
+
+    assert match.template_id == "template.data.structured_analysis"
+
+
 def test_task_template_registry_selects_game_template_for_light_web_game_request() -> None:
     template = TaskTemplateRegistry().select_template(
         user_goal="开发一个贪吃蛇小游戏，并接到当前前端页面里。",

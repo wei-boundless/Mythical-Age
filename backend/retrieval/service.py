@@ -244,6 +244,7 @@ class RetrievalService:
                 top_k=candidate_top_k,
                 query_mode=self._query_mode_from_plan(plan),
                 collections=tuple(plan.selected_collections),
+                filters=self._filters_from_plan(plan),
             )
         )
         payload: list[dict[str, Any]] = []
@@ -318,6 +319,7 @@ class RetrievalService:
                 degraded_reason_typed="retrieval_execution_failed",
             )
         status: RetrievalExecutionStatus = "ok" if results else "empty"
+        retrieval_plan_diagnostics = self._retrieval_plan_diagnostics(plan)
         return RetrievalExecutionResult(
             status=status,
             results=tuple(dict(item) for item in results),
@@ -326,8 +328,47 @@ class RetrievalService:
                 "query_mode": query_mode,
                 "selected_collections": list(selected_collections),
                 "plan_reason": str(getattr(plan, "reason", "") or ""),
+                "retrieval_plan": retrieval_plan_diagnostics,
+                "evidence_pack": self._evidence_pack_diagnostics(
+                    query=query,
+                    results=results,
+                    retrieval_plan=retrieval_plan_diagnostics,
+                ),
             },
         )
+
+    def _retrieval_plan_diagnostics(self, plan: Any) -> dict[str, Any]:
+        retrieval_plan = getattr(plan, "retrieval_plan", None)
+        to_dict = getattr(retrieval_plan, "to_dict", None)
+        if callable(to_dict):
+            return dict(to_dict())
+        return {
+            "filters": dict(getattr(plan, "filters", {}) or {}),
+            "policy": dict(getattr(plan, "policy", {}) or {}),
+        }
+
+    def _filters_from_plan(self, plan: Any) -> dict[str, Any]:
+        retrieval_plan = getattr(plan, "retrieval_plan", None)
+        filters = getattr(retrieval_plan, "filters", None)
+        to_dict = getattr(filters, "to_dict", None)
+        if callable(to_dict):
+            return dict(to_dict())
+        return dict(getattr(plan, "filters", {}) or {})
+
+    def _evidence_pack_diagnostics(
+        self,
+        *,
+        query: str,
+        results: list[dict[str, Any]],
+        retrieval_plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        from retrieval.evidence_packager import build_evidence_pack
+
+        return build_evidence_pack(
+            query=query,
+            results=results,
+            retrieval_plan=retrieval_plan,
+        ).to_dict()
 
     def _rerank_payload(self, *, query: str, payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not payload:

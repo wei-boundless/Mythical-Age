@@ -1,0 +1,18 @@
+{
+  "doc_id": "063c787f65f81cfb1e7dc5fae76c47ef9222fd5d",
+  "block_count": 69,
+  "object_count": 0,
+  "page_summary_count": 0,
+  "eligible_block_count": 69,
+  "dropped_block_count": 0,
+  "eligibility_breakdown": {
+    "keep": 69
+  },
+  "index_profile_counts": {
+    "dense_main": 69,
+    "lexical_main": 69,
+    "page_summary_source": 69
+  },
+  "drop_reason_counts": {},
+  "cleaning_flag_counts": {}
+}

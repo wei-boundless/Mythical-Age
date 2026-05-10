@@ -87,6 +87,7 @@ class Settings:
     qdrant_url: str | None
     qdrant_api_key: str | None
     qdrant_collection_prefix: str
+    qdrant_build_batch_size: int
     indexes_root: Path
     document_cache_root: Path
     docling_enabled: bool
@@ -444,6 +445,11 @@ def _resolve_qdrant_collection_prefix() -> str:
     return value or "agent"
 
 
+def _resolve_qdrant_build_batch_size() -> int:
+    override = _runtime_system_value("retrieval", "qdrant_build_batch_size")
+    return _resolve_positive_int("QDRANT_BUILD_BATCH_SIZE", 128, override)
+
+
 def _resolve_positive_int(name: str, default: int, override: Any = None) -> int:
     raw = override if override not in {None, ""} else _first_env(name)
     if not raw:
@@ -536,29 +542,29 @@ def _resolve_rerank_base_url() -> str | None:
 def _resolve_rerank_top_n() -> int:
     override = _runtime_system_value("retrieval", "rerank_top_n")
     if override not in {None, ""}:
-        return _resolve_positive_int("RERANK_TOP_N", 8, override)
+        return _resolve_positive_int("RERANK_TOP_N", 200, override)
     raw = _first_env("RERANK_TOP_N")
     if not raw:
-        return 8
+        return 200
     try:
         value = int(raw)
     except ValueError:
-        return 8
-    return value if value > 0 else 8
+        return 200
+    return value if value > 0 else 200
 
 
 def _resolve_rerank_candidate_pool() -> int:
     override = _runtime_system_value("retrieval", "rerank_candidate_pool")
     if override not in {None, ""}:
-        return _resolve_positive_int("RERANK_CANDIDATE_POOL", 20, override)
+        return _resolve_positive_int("RERANK_CANDIDATE_POOL", 200, override)
     raw = _first_env("RERANK_CANDIDATE_POOL")
     if not raw:
-        return 20
+        return 200
     try:
         value = int(raw)
     except ValueError:
-        return 20
-    return value if value > 0 else 20
+        return 200
+    return value if value > 0 else 200
 
 
 def _resolve_rerank_batch_size() -> int:
@@ -706,6 +712,7 @@ def get_settings() -> Settings:
         qdrant_url=_resolve_qdrant_url(),
         qdrant_api_key=_resolve_qdrant_api_key(),
         qdrant_collection_prefix=_resolve_qdrant_collection_prefix(),
+        qdrant_build_batch_size=_resolve_qdrant_build_batch_size(),
         indexes_root=layout.indexes_dir,
         document_cache_root=layout.document_cache_dir,
         docling_enabled=_resolve_docling_enabled(),

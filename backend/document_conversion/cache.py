@@ -131,6 +131,7 @@ class DocumentCacheLayout:
         index_profile_counts: dict[str, int] | None = None,
         drop_reason_counts: dict[str, int] | None = None,
         cleaning_flag_counts: dict[str, int] | None = None,
+        index_quality_report: dict[str, Any] | None = None,
     ) -> Path:
         self.ensure()
         path = self.normalized_manifest_path(doc_id)
@@ -147,6 +148,7 @@ class DocumentCacheLayout:
                     "index_profile_counts": dict(index_profile_counts or {}),
                     "drop_reason_counts": dict(drop_reason_counts or {}),
                     "cleaning_flag_counts": dict(cleaning_flag_counts or {}),
+                    "index_quality_report": dict(index_quality_report or {}),
                 },
                 ensure_ascii=False,
                 indent=2,

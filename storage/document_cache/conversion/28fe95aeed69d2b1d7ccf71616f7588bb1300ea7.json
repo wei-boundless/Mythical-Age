@@ -1,0 +1,79 @@
+{
+  "doc_id": "28fe95aeed69d2b1d7ccf71616f7588bb1300ea7",
+  "collection": "knowledge",
+  "source_path": "data_structure.md",
+  "source_type": "md",
+  "version_digest": "8570a2fe4a18b71d22d85294f22595faa73a2c35",
+  "parser_backend": "docling",
+  "title": "data_structure",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "8570a2fe4a18b71d22d85294f22595faa73a2c35:0",
+      "block_type": "heading",
+      "text": "# 知识库总览（knowledge）",
+      "modality": "text",
+      "section_label": "知识库总览（knowledge）",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "知识库总览（knowledge）"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "data_structure.md"
+      }
+    },
+    {
+      "block_id": "8570a2fe4a18b71d22d85294f22595faa73a2c35:1",
+      "block_type": "paragraph",
+      "text": "本目录下是整个知识库的根目录，按不同业务/主题划分为多个领域子目录。",
+      "modality": "text",
+      "section_label": "知识库总览（knowledge）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识库总览（knowledge）"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "data_structure.md"
+      }
+    },
+    {
+      "block_id": "8570a2fe4a18b71d22d85294f22595faa73a2c35:2",
+      "block_type": "paragraph",
+      "text": "- Safety Knowledge/\n    - 用途：安全相关知识与文档，涵盖常见 Web 安全漏洞及防护方案。\n- Financial Report Data/\n    - 用途：金融与上市公司财报类数据，主要是按公司和季度划分的 PDF 报告。\n- E-commerce Data/\n    - 用途：电商业务相关的数据文件，如员工、客户、库存和订单等结构化数据,以及电商中用户与客服间常见问题问答数据。\n- AI Knowledge/\n    - 用途：人工智能行业与技术相关报告与研究资料，用于检索 AI 技术发展、应用场景及治理趋势。",
+      "modality": "text",
+      "section_label": "知识库总览（knowledge）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识库总览（knowledge）"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "data_structure.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "data_structure.md",
+    "fallback_used": false
+  }
+}

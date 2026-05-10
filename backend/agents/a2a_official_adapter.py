@@ -103,7 +103,7 @@ def build_official_task_from_result(
 
 def build_a2a_preview_for_coordination(
     *,
-    coordination_task_id: str,
+    graph_id: str,
     protocol_id: str,
     source_agent_id: str,
     target_agent_id: str,
@@ -114,14 +114,14 @@ def build_a2a_preview_for_coordination(
 ) -> dict[str, Any]:
     text_part = a2a_types.Part(
         root=a2a_types.TextPart(
-            text=f"[{message_type}] coordination {coordination_task_id}",
+            text=f"[{message_type}] graph {graph_id}",
             metadata={"protocol_id": protocol_id},
         )
     )
     data_part = a2a_types.Part(
         root=a2a_types.DataPart(
             data={
-                "coordination_task_id": coordination_task_id,
+                "graph_id": graph_id,
                 "source_agent_id": source_agent_id,
                 "target_agent_id": target_agent_id,
                 "message_type": message_type,
@@ -132,9 +132,9 @@ def build_a2a_preview_for_coordination(
         )
     )
     message = a2a_types.Message(
-        message_id=f"preview:{coordination_task_id}:{source_agent_id}:{target_agent_id}:{message_type}",
-        context_id=f"coord:{coordination_task_id}",
-        task_id=f"coord:{coordination_task_id}",
+        message_id=f"preview:{graph_id}:{source_agent_id}:{target_agent_id}:{message_type}",
+        context_id=f"graph:{graph_id}",
+        task_id=f"graph:{graph_id}",
         role=a2a_types.Role.agent.value,
         parts=[text_part, data_part],
         metadata={
@@ -143,8 +143,8 @@ def build_a2a_preview_for_coordination(
         },
     )
     task = a2a_types.Task(
-        id=f"coord:{coordination_task_id}",
-        context_id=f"coord:{coordination_task_id}",
+        id=f"graph:{graph_id}",
+        context_id=f"graph:{graph_id}",
         status=a2a_types.TaskStatus(
             state=a2a_types.TaskState.submitted,
             message=message,

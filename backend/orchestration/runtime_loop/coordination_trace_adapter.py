@@ -78,6 +78,8 @@ class CoordinationTraceAdapter:
             **dict(coordination_run.diagnostics),
             "coordination_engine": "langgraph_runtime",
             "coordination_flow": flow,
+            "graph_ref": coordination_run.graph_ref,
+            "langgraph_graph_ref": coordination_run.graph_ref,
             "langgraph_thread_id": str(state.get("coordination_run_id") or coordination_run.coordination_run_id),
             "langgraph_runtime_state": {
                 "active_stage_id": str(state.get("active_stage_id") or ""),
@@ -104,7 +106,7 @@ class CoordinationTraceAdapter:
         updated_run = CoordinationRun(
             coordination_run_id=coordination_run.coordination_run_id,
             task_run_id=coordination_run.task_run_id,
-            coordination_task_ref=coordination_run.coordination_task_ref,
+            graph_ref=coordination_run.graph_ref,
             coordinator_agent_id=coordination_run.coordinator_agent_id,
             topology_template_id=coordination_run.topology_template_id,
             communication_protocol_id=coordination_run.communication_protocol_id,
@@ -244,7 +246,7 @@ class CoordinationTraceAdapter:
             CoordinationRun(
                 coordination_run_id=coordination_run.coordination_run_id,
                 task_run_id=coordination_run.task_run_id,
-                coordination_task_ref=coordination_run.coordination_task_ref,
+                graph_ref=coordination_run.graph_ref,
                 coordinator_agent_id=coordination_run.coordinator_agent_id,
                 topology_template_id=coordination_run.topology_template_id,
                 communication_protocol_id=coordination_run.communication_protocol_id,

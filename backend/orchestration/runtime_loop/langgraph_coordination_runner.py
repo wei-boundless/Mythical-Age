@@ -6,7 +6,7 @@ from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from tasks.coordination_graph_models import CoordinationGraphSpec
+from tasks.coordination_graph_models import TaskGraphRuntimeSpec
 
 
 class CoordinationGraphRuntimeState(TypedDict, total=False):
@@ -34,7 +34,7 @@ class LangGraphCoordinationRunner:
         *,
         task_run_id: str,
         coordination_run_id: str,
-        graph_spec: CoordinationGraphSpec,
+        graph_spec: TaskGraphRuntimeSpec,
     ) -> LangGraphCoordinationResult:
         if not graph_spec.valid:
             return LangGraphCoordinationResult(

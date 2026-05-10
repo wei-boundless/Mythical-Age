@@ -9,7 +9,7 @@ from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from langgraph.graph import END, START, StateGraph
 
 from tasks import TaskContractRegistry
-from tasks.coordination_graph_compiler import compile_coordination_graph_spec
+from tasks.coordination_graph_compiler import compile_task_graph_runtime_spec
 
 from .a2a_stage_payload import build_stage_execution_a2a_payload
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs
@@ -147,8 +147,11 @@ class LangGraphCoordinationRuntime:
         self.trace_adapter = CoordinationTraceAdapter(state_index=state_index, event_log=event_log)
         self._app = self._build_app()
 
+    def _resolve_task_graph_view(self, coordination_run: CoordinationRun):
+        return self.task_flow_registry.resolve_graph_task_view(coordination_run.graph_ref)
+
     def supports(self, coordination_run: CoordinationRun) -> bool:
-        coordination_task = self.task_flow_registry.get_coordination_task(coordination_run.coordination_task_ref)
+        coordination_task = self._resolve_task_graph_view(coordination_run)
         if coordination_task is None:
             return False
         contracts = self._contracts_for_run(coordination_run=coordination_run, coordination_task=coordination_task)
@@ -161,7 +164,7 @@ class LangGraphCoordinationRuntime:
         event_task_run_id: str = "",
         inherited_inputs: dict[str, Any] | None = None,
     ) -> LangGraphCoordinationRuntimeResult:
-        coordination_task = self.task_flow_registry.get_coordination_task(coordination_run.coordination_task_ref)
+        coordination_task = self._resolve_task_graph_view(coordination_run)
         if coordination_task is None:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_coordination_task"})
         state = self._load_or_bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
@@ -206,7 +209,7 @@ class LangGraphCoordinationRuntime:
         inherited_inputs: dict[str, Any] | None = None,
         artifact_root: str = "",
     ) -> LangGraphCoordinationRuntimeResult:
-        coordination_task = self.task_flow_registry.get_coordination_task(coordination_run.coordination_task_ref)
+        coordination_task = self._resolve_task_graph_view(coordination_run)
         if coordination_task is None:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_coordination_task"})
         state = self._load_or_bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
@@ -685,7 +688,7 @@ class LangGraphCoordinationRuntime:
         topology_template = self.task_flow_registry.get_topology_template(coordination_run.topology_template_id)
         communication_protocol = self.task_flow_registry.get_task_communication_protocol(coordination_run.communication_protocol_id)
         specific_tasks = tuple(self.task_flow_registry.list_specific_task_records())
-        graph_spec = compile_coordination_graph_spec(
+        graph_spec = compile_task_graph_runtime_spec(
             coordination_task=coordination_task,
             specific_tasks=specific_tasks,
             topology_template=topology_template,
@@ -1462,8 +1465,8 @@ def _manifest_from_payload(payload: dict[str, Any]) -> ContractManifest | None:
         manifest_kind=str(payload.get("manifest_kind") or ""),
         task_ref=str(payload.get("task_ref") or ""),
         workflow_id=str(payload.get("workflow_id") or ""),
-        coordination_task_id=str(payload.get("coordination_task_id") or ""),
-        graph_id=str(payload.get("graph_id") or ""),
+        graph_id=str(payload.get("graph_id") or payload.get("graph_ref") or ""),
+        graph_ref=str(payload.get("graph_ref") or payload.get("graph_id") or ""),
         global_contracts=tuple(_global_contract_from_payload(item) for item in list(payload.get("global_contracts") or []) if isinstance(item, dict)),
         node_contracts=tuple(_node_contract_from_payload(item) for item in list(payload.get("node_contracts") or []) if isinstance(item, dict)),
         edge_handoff_contracts=tuple(_edge_contract_from_payload(item) for item in list(payload.get("edge_handoff_contracts") or []) if isinstance(item, dict)),

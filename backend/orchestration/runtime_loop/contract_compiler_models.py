@@ -127,8 +127,8 @@ class ContractManifest:
     manifest_kind: str
     task_ref: str = ""
     workflow_id: str = ""
-    coordination_task_id: str = ""
     graph_id: str = ""
+    graph_ref: str = ""
     global_contracts: tuple[CompiledGlobalContract, ...] = ()
     workflow_contracts: tuple[CompiledWorkflowContract, ...] = ()
     node_contracts: tuple[CompiledNodeContract, ...] = ()
@@ -150,8 +150,8 @@ class ContractManifest:
             "manifest_kind": self.manifest_kind,
             "task_ref": self.task_ref,
             "workflow_id": self.workflow_id,
-            "coordination_task_id": self.coordination_task_id,
             "graph_id": self.graph_id,
+            "graph_ref": self.graph_ref or self.graph_id,
             "global_contracts": [item.to_dict() for item in self.global_contracts],
             "workflow_contracts": [item.to_dict() for item in self.workflow_contracts],
             "node_contracts": [item.to_dict() for item in self.node_contracts],

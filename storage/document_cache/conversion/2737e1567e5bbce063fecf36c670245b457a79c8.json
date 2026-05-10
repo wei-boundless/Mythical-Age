@@ -1,0 +1,763 @@
+{
+  "doc_id": "2737e1567e5bbce063fecf36c670245b457a79c8",
+  "collection": "knowledge",
+  "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf",
+  "source_type": "pdf",
+  "version_digest": "a1c23e0707987eed498ba46e09179300db090dcd",
+  "parser_backend": "docling",
+  "title": "2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [
+    "table_dense"
+  ],
+  "blocks": [
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:0",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:1",
+      "block_type": "heading",
+      "text": "## 各大厂新模型持续迭代，重视 应用板块投资机会",
+      "modality": "text",
+      "section_label": "各大厂新模型持续迭代，重视 应用板块投资机会",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "各大厂新模型持续迭代，重视 应用板块投资机会"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:2",
+      "block_type": "heading",
+      "text": "## AI 应用专题： AI",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:3",
+      "block_type": "paragraph",
+      "text": "行业研究 · 行业专题",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:4",
+      "block_type": "paragraph",
+      "text": "投资评级：优于大市（维持评级）",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:5",
+      "block_type": "paragraph",
+      "text": "证券分析师：熊莉",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:6",
+      "block_type": "paragraph",
+      "text": "证券分析师：云梦泽",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:7",
+      "block_type": "paragraph",
+      "text": "021-61761067",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:8",
+      "block_type": "paragraph",
+      "text": "021-60933155",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:9",
+      "block_type": "paragraph",
+      "text": "xiongli1@guosen.com.cn",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:10",
+      "block_type": "paragraph",
+      "text": "yunmengze@guosen.com.cn",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:11",
+      "block_type": "paragraph",
+      "text": "S0980519030002",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:12",
+      "block_type": "paragraph",
+      "text": "S0980525110001",
+      "modality": "text",
+      "section_label": "AI 应用专题： AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI 应用专题： AI"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:13",
+      "block_type": "heading",
+      "text": "## 腾讯：推出'AI应用及线上工具小程序成长计划'",
+      "modality": "text",
+      "section_label": "腾讯：推出'AI应用及线上工具小程序成长计划'",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "腾讯：推出'AI应用及线上工具小程序成长计划'"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:14",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "腾讯：推出'AI应用及线上工具小程序成长计划'",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "腾讯：推出'AI应用及线上工具小程序成长计划'"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:15",
+      "block_type": "paragraph",
+      "text": "- u 2026 年 1 月 5 日推出 AI 应用及线上工具小程序成长计划，提供云开发资源、 AI 算力、数据分析、广告变现及流量激励等 全方位支持，覆盖 2026 年全年，全周期陪伴开发者成长。\n- u 面向所有线上类小程序开发者，涵盖个人及企业开发者，适用场景包括线上工具、 AI 原生应用、娱乐类小程序等。申 请者可登录电脑端微信小程序后台，进入行业能力栏目，选择该计划提交申请即可参与。\n- u 该计划通过全链路资源扶持，降低 AI 应用开发门槛，激励开发者将创意转化为可落地、可破圈、可盈利的小程序产品， 推动微信小程序生态从工具平台向 AI 服务市场升级，巩固腾讯在 AI 应用生态的竞争优势。",
+      "modality": "text",
+      "section_label": "腾讯：推出'AI应用及线上工具小程序成长计划'",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "腾讯：推出'AI应用及线上工具小程序成长计划'"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:16",
+      "block_type": "paragraph",
+      "text": "表：计划核心扶持内容",
+      "modality": "text",
+      "section_label": "腾讯：推出'AI应用及线上工具小程序成长计划'",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "腾讯：推出'AI应用及线上工具小程序成长计划'"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:17",
+      "block_type": "table",
+      "text": "| 扶持维度         | 具体内容                                                                                                                                         |\n|------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|\n| 免费云开发资源   | 新开发者可免费创建 6 个月个人版云开发环境，含数据库、云函数等完备后 端能力，支持对接 AI 大模型及 Agent ； 已有云开发环境的开发者可领取大额抵扣券 |\n| 免费 AI 算力支持 | 提供 1 亿 Token 的腾讯混元 2.0 文生文模型额度； 提供 1 万张混元文生图模型额度； 后续混元最新模型将持续上架                                       |\n| 运营增长支持     | 免费开放 We 分析专业版一年，提供深度数据洞察                                                                                                     |\n| 商业化变现支持   | 开放安卓、 iOS 、鸿蒙全终端虚拟支付与会员订阅能力 ; 系统自动推荐广告位、支持实时预览上线                                                         |",
+      "modality": "table",
+      "section_label": "腾讯：推出'AI应用及线上工具小程序成长计划'",
+      "structure_role": "object",
+      "page": null,
+      "section_path": [
+        "腾讯：推出'AI应用及线上工具小程序成长计划'"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:18",
+      "block_type": "paragraph",
+      "text": "资料来源：腾讯云官网，国信证券研究所整理",
+      "modality": "text",
+      "section_label": "腾讯：推出'AI应用及线上工具小程序成长计划'",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "腾讯：推出'AI应用及线上工具小程序成长计划'"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:19",
+      "block_type": "paragraph",
+      "text": "图：微信AI应用及线上工具小程序成长计划",
+      "modality": "text",
+      "section_label": "腾讯：推出'AI应用及线上工具小程序成长计划'",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "腾讯：推出'AI应用及线上工具小程序成长计划'"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:20",
+      "block_type": "heading",
+      "text": "## 微信AI应用及线上工具 小程序成长计划上线！",
+      "modality": "text",
+      "section_label": "微信AI应用及线上工具 小程序成长计划上线！",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "微信AI应用及线上工具 小程序成长计划上线！"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:21",
+      "block_type": "paragraph",
+      "text": "全方位支持体系 陪伴小程序开发者从0到1，从1到100",
+      "modality": "text",
+      "section_label": "微信AI应用及线上工具 小程序成长计划上线！",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "微信AI应用及线上工具 小程序成长计划上线！"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:22",
+      "block_type": "paragraph",
+      "text": "计划激励期：2026年1月1日-2026年12月31日",
+      "modality": "text",
+      "section_label": "微信AI应用及线上工具 小程序成长计划上线！",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "微信AI应用及线上工具 小程序成长计划上线！"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:23",
+      "block_type": "paragraph",
+      "text": "资料来源：央广网，国信证券经济研究所整理",
+      "modality": "text",
+      "section_label": "微信AI应用及线上工具 小程序成长计划上线！",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "微信AI应用及线上工具 小程序成长计划上线！"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:24",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "微信AI应用及线上工具 小程序成长计划上线！",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "微信AI应用及线上工具 小程序成长计划上线！"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:25",
+      "block_type": "heading",
+      "text": "## Minimax智谱上市",
+      "modality": "text",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:26",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 26,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:27",
+      "block_type": "paragraph",
+      "text": "- u 智谱在 2026 年 1 月 8 日正式在港交所主板挂牌上市（ 02513.HK ），是中国首家以大语言模型为主营业务在港公开 上市的公司之一。上市前完成 8 轮市场化融资，累计募资约 83.63 亿元， 2025 年 5 月 B6 轮融资后投后估值达 243.77 亿元， 较首轮增长数十倍。\n- u MiniMax 于 2026 年 1 月 9 日在香港上市（ 0100.HK ），距公司成立仅约 4 年，成为目前 ' 全球 AI 最快上市案例 ' 。 股东阵容豪华，含阿里巴巴、腾讯、小红书等互联网平台，高瓴资本、 IDG 、红杉中国等顶级机构，以及阿布扎比投 资局、新加坡 GIC 、挪威央行等国际资本。",
+      "modality": "text",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 27,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:28",
+      "block_type": "paragraph",
+      "text": "表：智谱与 minimax 上市行情",
+      "modality": "text",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 28,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:29",
+      "block_type": "table",
+      "text": "| 公司       | 当前市值   | 上市时间   | 截至今天收盘涨幅   |\n|------------|------------|------------|--------------------|\n| 800.34 亿  | 2026-1-8   | 56.45%     | 智谱               |\n| 1230.84 亿 | 2026-1-9   | 212.12%    | MiniMax            |",
+      "modality": "table",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "object",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 29,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:30",
+      "block_type": "paragraph",
+      "text": "资料来源：",
+      "modality": "text",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 30,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:31",
+      "block_type": "paragraph",
+      "text": "Wind ，国信证券研究所整理",
+      "modality": "text",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 31,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:32",
+      "block_type": "paragraph",
+      "text": "- 国外大厂AI应用落地 01\n- 国内大厂AI应用落地 02\n- 产业链梳理 03\n- 风险提示 04",
+      "modality": "text",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 32,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:33",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 33,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:34",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Minimax智谱上市",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Minimax智谱上市"
+      ],
+      "reading_order": 34,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:35",
+      "block_type": "heading",
+      "text": "## 产业链梳理",
+      "modality": "text",
+      "section_label": "产业链梳理",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "产业链梳理"
+      ],
+      "reading_order": 35,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:36",
+      "block_type": "table",
+      "text": "| 应用方向   | 标的                                                                                                                          |\n|------------|-------------------------------------------------------------------------------------------------------------------------------|\n| 多模态     | 昆仑万维、万兴科技、合合信息、 星环科技、三六零、当虹科技、虹软科技                                                           |\n| 医疗       | 卫宁健康、创业慧康、美年健康、嘉和美康、 讯飞医疗科技、迪安诊断、晶泰控股、中科信息、艾可蓝                                   |\n| 漫剧       | 中文在线、华策影视、欢瑞世纪、掌阅科技                                                                                        |\n| 游戏       | 盛天网络、三七互娱、巨人网络、掌趣科技                                                                                        |\n| GEO        | 蓝色光标、易点天下、汇量科技、视觉中国、人民网、值得买、 引力传媒、天娱数科、浙文互联、因赛集团、恒为科技、迈富时、天龙集团   |\n| 电商       | 光云科技                                                                                                                      |\n| 教育       | 科大讯飞、豆神教育、佳发教育、竞业达                                                                                          |\n| 金融       | 恒生电子、同花顺、金证股份、中科金财、信雅达、 南天信息、高伟达、京北方、天阳科技、宇信科技                                   |\n| 办公       | 金山办公、用友网络、泛微网络、汉得信息、金蝶国际、百融云、 第四范式、深信服、卓易信息、税友股份、捷顺科技、金桥信息、彩讯股份 |\n| 工业       | 宝信软件、中控技术、能科科技、东土科技、鼎捷数智                                                                              |\n| 军工       | 航天宏图、拓尔思、中科星图                                                                                                    |\n| 农业       | 托普云农                                                                                                                      |",
+      "modality": "table",
+      "section_label": "产业链梳理",
+      "structure_role": "object",
+      "page": null,
+      "section_path": [
+        "产业链梳理"
+      ],
+      "reading_order": 36,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:37",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "产业链梳理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "产业链梳理"
+      ],
+      "reading_order": 37,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:38",
+      "block_type": "heading",
+      "text": "## 风险提示",
+      "modality": "text",
+      "section_label": "风险提示",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "风险提示"
+      ],
+      "reading_order": 38,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:39",
+      "block_type": "paragraph",
+      "text": "- Ø 技术研发不及预期\n- Ø 市场需求不及预期\n- Ø 个股梳理仅基于产业链结构不涉及主观投资建议",
+      "modality": "text",
+      "section_label": "风险提示",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "风险提示"
+      ],
+      "reading_order": 39,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    },
+    {
+      "block_id": "a1c23e0707987eed498ba46e09179300db090dcd:40",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "风险提示",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "风险提示"
+      ],
+      "reading_order": 40,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "pdf",
+    "source_path": "AI Knowledge/2026AI应用专题：各大厂新模型持续迭代，重视AI应用板块投资机会.pdf",
+    "fallback_used": false
+  }
+}

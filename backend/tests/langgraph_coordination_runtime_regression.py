@@ -22,7 +22,7 @@ class _Trace:
 class _Registry:
     def __init__(self) -> None:
         self.coordination = CoordinationTaskDefinition(
-            coordination_task_id="coord.test.bootstrap",
+            graph_id="graph.test.bootstrap",
             title="测试协调任务",
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
@@ -80,8 +80,8 @@ class _Registry:
             metadata={"a2a_protocol": "official", "protocol_locked": True},
         )
 
-    def get_coordination_task(self, coordination_task_id: str):
-        return self.coordination if coordination_task_id == self.coordination.coordination_task_id else None
+    def resolve_graph_task_view(self, graph_id: str):
+        return self.coordination if graph_id == self.coordination.graph_id else None
 
     def get_topology_template(self, template_id: str):
         return self.topology if template_id == self.topology.template_id else None
@@ -118,7 +118,7 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
     coordination_run = CoordinationRun(
         coordination_run_id="coordrun:test",
         task_run_id="taskrun:project",
-        coordination_task_ref="coord.test.bootstrap",
+        graph_ref="graph.test.bootstrap",
         coordinator_agent_id="agent:20",
         topology_template_id="topology.test.bootstrap",
         communication_protocol_id="protocol.test.a2a",
@@ -209,7 +209,7 @@ class _DiamondRegistry:
             ),
         )
         self.coordination = CoordinationTaskDefinition(
-            coordination_task_id="coord.test.diamond",
+            graph_id="graph.test.diamond",
             title="测试汇聚拓扑",
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
@@ -281,8 +281,8 @@ class _DiamondRegistry:
             enabled=True,
         )
 
-    def get_coordination_task(self, coordination_task_id: str):
-        return self.coordination if coordination_task_id == self.coordination.coordination_task_id else None
+    def resolve_graph_task_view(self, graph_id: str):
+        return self.coordination if graph_id == self.coordination.graph_id else None
 
     def get_topology_template(self, template_id: str):
         return self.topology if template_id == self.topology.template_id else None
@@ -308,7 +308,7 @@ def _diamond_runtime(tmp_path):
     coordination_run = CoordinationRun(
         coordination_run_id="coordrun:diamond",
         task_run_id="taskrun:a",
-        coordination_task_ref="coord.test.diamond",
+        graph_ref="graph.test.diamond",
         coordinator_agent_id="agent:0",
         topology_template_id="topology.test.diamond",
         communication_protocol_id="protocol.test.diamond",

@@ -112,7 +112,7 @@ def build_node_runtime_assembly(
             section_id="coordination_task_state",
             title="协调任务状态",
             content_mode="status_only",
-            source_ref=manifest.coordination_task_id,
+            source_ref=manifest.graph_ref or manifest.graph_id,
             model_visible=True,
             metadata={"profile_context_section": "task"},
         ),
@@ -146,8 +146,8 @@ def build_node_runtime_assembly(
     return NodeRuntimeAssembly(
         assembly_id=_stable_assembly_id("node", manifest.manifest_id, node_id, explicit_inputs or {}),
         manifest_ref=manifest.manifest_id,
-        coordination_task_ref=manifest.coordination_task_id,
         graph_id=manifest.graph_id,
+        graph_ref=str(manifest.graph_ref or manifest.graph_id or ""),
         node_id=node.node_id,
         task_ref=node.task_id,
         agent_id=agent_id,

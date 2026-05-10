@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from capability_system.units.mcp.local.pdf.analysis.catalog import PdfAnalysisCatalog
+from understanding.capability_candidate_matcher import build_capability_candidates, build_capability_resolution
+from understanding.capability_resolution_view import capability_resolution_view
 from understanding.memory_intent import MemoryIntent
 
 
@@ -123,6 +125,8 @@ class TaskUnderstanding:
     confidence: float = 0.0
     reasons: list[str] = field(default_factory=list)
     structural_signals: dict[str, Any] = field(default_factory=dict)
+    candidate_capabilities: list[dict[str, Any]] = field(default_factory=list)
+    capability_resolution: dict[str, Any] = field(default_factory=dict)
 
 
 def analyze_task_understanding(
@@ -135,7 +139,7 @@ def analyze_task_understanding(
     lowered = normalized.lower()
 
     if memory_intent is not None and memory_intent.should_skip_rag:
-        return TaskUnderstanding(
+        understanding = TaskUnderstanding(
             intent=memory_intent.intent,
             source_kind="memory",
             task_kind="memory_lookup",
@@ -148,6 +152,12 @@ def analyze_task_understanding(
             reasons=["memory_intent"],
             capability_requests=[],
         )
+        understanding.capability_resolution = {
+            "route": "memory",
+            "execution_posture": "direct_memory",
+            "diagnostics": {"selection_source": "memory_direct", "candidate_count": 0},
+        }
+        return understanding
 
     signals = _collect_task_signals(
         normalized,
@@ -156,7 +166,7 @@ def analyze_task_understanding(
     )
 
     if signals.mixed_direct_capabilities:
-        return _build_bounded_lookup_task(
+        understanding = _build_bounded_lookup_task(
             message=normalized,
             source_kind="mixed_sources",
             task_kind="multi_capability_request",
@@ -165,22 +175,86 @@ def analyze_task_understanding(
             reasons=["mixed_direct_capabilities"],
             signals=signals,
         )
+        _attach_capability_matching(understanding, message=normalized)
+        return understanding
 
-    direct = (
-        _build_direct_dataset_task(normalized, signals)
-        or _build_direct_pdf_task(normalized, signals)
-        or _build_direct_skill_authoring_task(normalized, signals)
-        or _build_direct_workspace_read_task(normalized, signals)
-        or _build_direct_workspace_search_task(normalized, signals)
-        or _build_direct_web_task(normalized, signals)
-        or _build_direct_faq_task(normalized, signals)
-        or _build_direct_knowledge_task(normalized, signals)
-    )
-    if direct is not None:
-        return direct
-
-    return _build_bounded_lookup_task(
+    understanding = _build_fallback_task_from_signals(
         message=normalized,
+        signals=signals,
+    )
+    _attach_capability_matching(understanding, message=normalized)
+    return understanding
+
+
+def _build_fallback_task_from_signals(
+    *,
+    message: str,
+    signals: TaskSignals,
+) -> TaskUnderstanding:
+    workspace_read_task = _build_bounded_workspace_read_task(
+        message=message,
+        signals=signals,
+    )
+    if workspace_read_task is not None:
+        return workspace_read_task
+    workspace_search_task = _build_bounded_workspace_search_task(
+        message=message,
+        signals=signals,
+    )
+    if workspace_search_task is not None:
+        return workspace_search_task
+    web_task = _build_bounded_web_task(
+        message=message,
+        signals=signals,
+    )
+    if web_task is not None:
+        return web_task
+    dataset_task = _build_bounded_dataset_task(
+        message=message,
+        signals=signals,
+    )
+    if dataset_task is not None:
+        return dataset_task
+    pdf_task = _build_bounded_pdf_task(
+        message=message,
+        signals=signals,
+    )
+    if pdf_task is not None:
+        return pdf_task
+    if signals.skill_authoring_request:
+        return _build_bounded_skill_authoring_task(
+            message=message,
+            signals=signals,
+        )
+    if (
+        signals.faq_shape
+        and not signals.external_requirement
+        and not signals.explicit_dataset_path
+        and not signals.explicit_pdf_path
+    ):
+        return _build_bounded_lookup_task(
+            message=message,
+            source_kind="knowledge_base",
+            task_kind="faq_explanation",
+            modality="general",
+            confidence=0.9,
+            reasons=["faq_problem_shape"],
+            direct_route_reason="faq_problem_shape",
+            signals=signals,
+        )
+    if signals.local_knowledge_scope and not signals.freshness_requirement:
+        return _build_bounded_lookup_task(
+            message=message,
+            source_kind="knowledge_base",
+            task_kind="knowledge_lookup",
+            modality="general",
+            confidence=0.8,
+            reasons=["explicit_knowledge_scope"],
+            direct_route_reason="explicit_knowledge_scope",
+            signals=signals,
+        )
+    return _build_bounded_lookup_task(
+        message=message,
         source_kind="knowledge_base",
         task_kind="knowledge_lookup",
         modality="general",
@@ -188,6 +262,292 @@ def analyze_task_understanding(
         reasons=["fallback_bounded_lookup"],
         signals=signals,
     )
+
+
+def _build_bounded_workspace_read_task(
+    *,
+    message: str,
+    signals: TaskSignals,
+) -> TaskUnderstanding | None:
+    if not signals.explicit_workspace_path or not signals.workspace_read_request:
+        return None
+    lowered_path = signals.explicit_workspace_path.lower()
+    modality = "code" if lowered_path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".sh", ".ps1", ".sql")) else "text"
+    understanding = _build_bounded_lookup_task(
+        message=message,
+        source_kind="workspace",
+        task_kind="workspace_file_read",
+        modality=modality,
+        confidence=0.95,
+        reasons=["explicit_workspace_file_anchor"],
+        direct_route_reason="explicit_workspace_file_anchor",
+        route_hint="workspace_read",
+        signals=signals,
+    )
+    understanding.capability_requests = ["workspace_read"]
+    understanding.parameters = {"path": signals.explicit_workspace_path}
+    understanding.candidate_tools = ["read_file"]
+    return understanding
+
+
+def _build_bounded_workspace_search_task(
+    *,
+    message: str,
+    signals: TaskSignals,
+) -> TaskUnderstanding | None:
+    if not signals.workspace_search_request or signals.external_requirement:
+        return None
+    understanding = _build_bounded_lookup_task(
+        message=message,
+        source_kind="workspace",
+        task_kind="workspace_file_search",
+        modality="workspace",
+        confidence=0.9,
+        reasons=["workspace_search_request"],
+        direct_route_reason="workspace_search_request",
+        route_hint="workspace_path_search",
+        signals=signals,
+    )
+    understanding.capability_requests = ["workspace_path_search"]
+    understanding.parameters = {"query": message}
+    understanding.candidate_tools = ["search_files"]
+    return understanding
+
+
+def _build_bounded_web_task(
+    *,
+    message: str,
+    signals: TaskSignals,
+) -> TaskUnderstanding | None:
+    if not (signals.external_requirement or signals.weather_domain or signals.gold_price_domain):
+        return None
+    capability_requests: list[str] = []
+    reasons: list[str] = []
+    source_kind = "external_web"
+    task_kind = "web_lookup"
+    modality = "web"
+    confidence = 0.93
+    if signals.weather_domain:
+        capability_requests.append("weather")
+        reasons.append("weather_realtime_task")
+        task_kind = "realtime_lookup"
+        modality = "realtime"
+        confidence = 0.96
+    if signals.gold_price_domain:
+        capability_requests.append("gold_price")
+        reasons.append("gold_price_realtime_task")
+        task_kind = "realtime_lookup"
+        modality = "realtime"
+        confidence = 0.95
+    capability_requests.append("latest_information")
+    if not reasons:
+        reasons.append("explicit_external_constraint")
+    understanding = _build_bounded_lookup_task(
+        message=message,
+        source_kind=source_kind,
+        task_kind=task_kind,
+        modality=modality,
+        confidence=confidence,
+        reasons=reasons,
+        direct_route_reason=reasons[0],
+        route_hint="realtime_network",
+        signals=signals,
+    )
+    understanding.capability_requests = _dedupe(capability_requests)
+    understanding.parameters = {"query": message}
+    understanding.candidate_tools = ["web_search"]
+    return understanding
+
+
+def _build_bounded_dataset_task(
+    *,
+    message: str,
+    signals: TaskSignals,
+) -> TaskUnderstanding | None:
+    if signals.weather_domain or signals.gold_price_domain:
+        return None
+    followup_dataset_request = (
+        bool(signals.bound_dataset_path)
+        and not signals.explicit_pdf_path
+        and not signals.explicit_workspace_path
+        and _looks_like_dataset_followup_request(message.lower())
+    )
+    bundle_followup_request = _looks_like_bundle_followup_request(message.lower())
+    if not signals.explicit_dataset_path and not signals.business_dataset_request and not followup_dataset_request:
+        if not (bundle_followup_request and signals.bound_dataset_path):
+            return None
+    parameters: dict[str, Any] = {"query": message}
+    reasons = ["business_dataset_intent"]
+    if signals.explicit_dataset_path:
+        reasons = ["explicit_dataset_anchor"]
+        parameters["path"] = signals.explicit_dataset_path
+    elif followup_dataset_request:
+        reasons = ["bound_dataset_followup"]
+        parameters["path"] = signals.bound_dataset_path
+    elif bundle_followup_request and signals.bound_dataset_path:
+        reasons = ["bundle_subtask_followup"]
+        parameters["path"] = signals.bound_dataset_path
+    elif signals.bound_dataset_path:
+        parameters["path"] = signals.bound_dataset_path
+
+    understanding = _build_bounded_lookup_task(
+        message=message,
+        source_kind="dataset",
+        task_kind="dataset_query",
+        modality="table",
+        confidence=0.96 if signals.explicit_dataset_path else 0.91 if (followup_dataset_request or bundle_followup_request) else 0.86,
+        reasons=reasons,
+        direct_route_reason=reasons[0],
+        signals=signals,
+    )
+    understanding.parameters = parameters
+    understanding.capability_requests = ["dataset_analysis"]
+    return understanding
+
+
+def _build_bounded_pdf_task(
+    *,
+    message: str,
+    signals: TaskSignals,
+) -> TaskUnderstanding | None:
+    followup_pdf_request = (
+        bool(signals.bound_pdf_path)
+        and not signals.explicit_dataset_path
+        and not signals.explicit_workspace_path
+        and _looks_like_pdf_followup_request(message.lower())
+    )
+    has_document_anchor = bool(signals.explicit_pdf_path) or followup_pdf_request or (
+        (signals.document_reference or signals.page_reference or signals.section_reference)
+        and (signals.page_reference or signals.section_reference or signals.document_read_intent)
+    )
+    if not has_document_anchor or signals.external_requirement:
+        return None
+    if signals.page_reference:
+        task_kind = "document_page"
+        mode = "page"
+    elif signals.section_reference:
+        task_kind = "document_section"
+        mode = "section"
+    else:
+        task_kind = "document_read"
+        mode = "document"
+    parameters: dict[str, Any] = {"query": message, "mode": mode}
+    reasons = ["document_scope_anchor"]
+    if signals.explicit_pdf_path:
+        parameters["path"] = signals.explicit_pdf_path
+        reasons.append("explicit_pdf_anchor")
+    elif signals.bound_pdf_path:
+        parameters["path"] = signals.bound_pdf_path
+        reasons.append("bound_pdf_followup")
+        if mode == "document" and signals.bound_pdf_mode:
+            parameters["mode"] = signals.bound_pdf_mode
+    direct_route_reason = (
+        "explicit_pdf_anchor"
+        if signals.explicit_pdf_path
+        else "bound_pdf_followup"
+        if followup_pdf_request
+        else "document_scope_anchor"
+    )
+    understanding = _build_bounded_lookup_task(
+        message=message,
+        source_kind="document",
+        task_kind=task_kind,
+        modality="pdf",
+        confidence=0.94 if signals.explicit_pdf_path else 0.91 if followup_pdf_request else 0.87,
+        reasons=reasons,
+        direct_route_reason=direct_route_reason,
+        signals=signals,
+    )
+    understanding.parameters = parameters
+    understanding.capability_requests = ["document_analysis"]
+    return understanding
+
+
+def _build_bounded_skill_authoring_task(
+    *,
+    message: str,
+    signals: TaskSignals,
+) -> TaskUnderstanding:
+    lowered = message.lower()
+    task_kind = "capability_authoring"
+    reasons = ["skill_authoring_intent"]
+    if _contains_any(lowered, ("创建", "新建", "新增", "生成", "create ", "new skill", "add skill")):
+        task_kind = "skill_create"
+        reasons.append("skill_create_request")
+    elif _contains_any(lowered, ("更新", "修改", "改写", "调整", "优化", "补齐", "update ", "modify ", "rewrite ")):
+        task_kind = "skill_update"
+        reasons.append("skill_update_request")
+    elif _contains_any(lowered, ("检查", "审查", "review", "validate", "是否适合")):
+        task_kind = "skill_update"
+        reasons.append("skill_review_request")
+    elif _contains_any(lowered, ("prompt", "提示词", "调用契约", "触发条件", "prompt contract")):
+        task_kind = "prompt_contract_design"
+        reasons.append("prompt_contract_request")
+
+    modality = "markdown" if _contains_any(lowered, ("skill.md", "markdown", ".md")) else "workflow"
+    understanding = _build_bounded_lookup_task(
+        message=message,
+        source_kind="capability_system",
+        task_kind=task_kind,
+        modality=modality,
+        confidence=0.93,
+        reasons=_dedupe(reasons),
+        direct_route_reason="skill_authoring_intent",
+        signals=signals,
+    )
+    capability_requests = ["skill-authoring", "capability-design"]
+    if task_kind == "prompt_contract_design" or _contains_any(lowered, ("prompt", "提示词", "调用契约", "触发条件")):
+        capability_requests.append("prompt-contract")
+    if _contains_any(lowered, ("检查", "审查", "review", "validate", "校验")):
+        capability_requests.append("validation")
+    understanding.capability_requests = _dedupe(capability_requests)
+    return understanding
+
+
+def _attach_capability_matching(understanding: TaskUnderstanding, *, message: str) -> None:
+    candidates = build_capability_candidates(
+        message=message,
+        route_hint=understanding.route_hint,
+        execution_posture=understanding.execution_posture,
+        preferred_skill=str(understanding.preferred_skill or ""),
+        candidate_tools=list(understanding.candidate_tools),
+        capability_requests=list(understanding.capability_requests),
+        task_kind=understanding.task_kind,
+        source_kind=understanding.source_kind,
+        modality=understanding.modality,
+    )
+    understanding.candidate_capabilities = [item.to_dict() for item in candidates]
+    understanding.capability_resolution = build_capability_resolution(
+        route_hint=understanding.route_hint,
+        execution_posture=understanding.execution_posture,
+        preferred_skill=str(understanding.preferred_skill or ""),
+        candidate_tools=list(understanding.candidate_tools),
+        capability_requests=list(understanding.capability_requests),
+        candidates=candidates,
+    ).to_dict()
+    _apply_capability_resolution_state(understanding)
+
+
+def _apply_capability_resolution_state(understanding: TaskUnderstanding) -> None:
+    resolution = capability_resolution_view(
+        {
+            "route_hint": understanding.route_hint,
+            "execution_posture": understanding.execution_posture,
+            "preferred_skill": understanding.preferred_skill,
+            "candidate_tools": list(understanding.candidate_tools),
+            "capability_resolution": dict(understanding.capability_resolution or {}),
+        }
+    )
+    if resolution.route:
+        understanding.route_hint = resolution.route
+    if resolution.execution_posture:
+        understanding.execution_posture = resolution.execution_posture
+    if resolution.execution_posture in {"direct_mcp", "builtin_tool_lane", "direct_memory"}:
+        understanding.should_skip_rag = True
+    if resolution.preferred_skill:
+        understanding.preferred_skill = resolution.preferred_skill
+    if resolution.tool_name and resolution.tool_name not in understanding.candidate_tools:
+        understanding.candidate_tools = [resolution.tool_name, *list(understanding.candidate_tools)]
 
 
 def _collect_task_signals(
@@ -317,284 +677,6 @@ def _collect_task_signals(
     return signals
 
 
-def _build_direct_dataset_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if signals.weather_domain or signals.gold_price_domain:
-        return None
-    followup_dataset_request = (
-        bool(signals.bound_dataset_path)
-        and not signals.explicit_pdf_path
-        and not signals.explicit_workspace_path
-        and _looks_like_dataset_followup_request(message.lower())
-    )
-    bundle_followup_request = _looks_like_bundle_followup_request(message.lower())
-    if not signals.explicit_dataset_path and not signals.business_dataset_request and not followup_dataset_request:
-        if not (bundle_followup_request and signals.bound_dataset_path):
-            return None
-    parameters: dict[str, Any] = {
-        "query": message,
-    }
-    if signals.explicit_dataset_path:
-        reasons = ["explicit_dataset_anchor"]
-    elif followup_dataset_request:
-        reasons = ["bound_dataset_followup"]
-    elif bundle_followup_request:
-        reasons = ["bundle_subtask_followup"]
-    else:
-        reasons = ["business_dataset_intent"]
-    if signals.explicit_dataset_path:
-        parameters["path"] = signals.explicit_dataset_path
-    elif signals.bound_dataset_path:
-        parameters["path"] = signals.bound_dataset_path
-    return TaskUnderstanding(
-        intent="structured_dataset_query",
-        source_kind="dataset",
-        task_kind="dataset_query",
-        modality="table",
-        route_hint="structured_data",
-        preferred_skill="structured-data-analysis",
-        capability_requests=["dataset_analysis"],
-        parameters=parameters,
-        execution_posture="direct_mcp",
-        direct_route_reason=reasons[0],
-        should_skip_rag=True,
-        confidence=0.96 if signals.explicit_dataset_path else 0.91 if (followup_dataset_request or bundle_followup_request) else 0.86,
-        reasons=reasons,
-        structural_signals=signals.to_dict(),
-    )
-
-
-def _build_direct_pdf_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    followup_pdf_request = (
-        bool(signals.bound_pdf_path)
-        and not signals.explicit_dataset_path
-        and not signals.explicit_workspace_path
-        and _looks_like_pdf_followup_request(message.lower())
-    )
-    has_document_anchor = bool(signals.explicit_pdf_path) or followup_pdf_request or (
-        (signals.document_reference or signals.page_reference or signals.section_reference)
-        and (signals.page_reference or signals.section_reference or signals.document_read_intent)
-    )
-    if not has_document_anchor or signals.external_requirement:
-        return None
-    if signals.page_reference:
-        task_kind = "document_page"
-        mode = "page"
-    elif signals.section_reference:
-        task_kind = "document_section"
-        mode = "section"
-    else:
-        task_kind = "document_read"
-        mode = "document"
-    parameters: dict[str, Any] = {"query": message, "mode": mode}
-    reasons = ["document_scope_anchor"]
-    if signals.explicit_pdf_path:
-        parameters["path"] = signals.explicit_pdf_path
-        reasons.append("explicit_pdf_anchor")
-    elif signals.bound_pdf_path:
-        parameters["path"] = signals.bound_pdf_path
-        reasons.append("bound_pdf_followup")
-        if mode == "document" and signals.bound_pdf_mode:
-            parameters["mode"] = signals.bound_pdf_mode
-    return TaskUnderstanding(
-        intent=f"pdf_{task_kind}",
-        source_kind="document",
-        task_kind=task_kind,
-        modality="pdf",
-        route_hint="pdf",
-        preferred_skill="pdf-analysis",
-        capability_requests=["document_analysis"],
-        parameters=parameters,
-        execution_posture="direct_mcp",
-        direct_route_reason=(
-            "explicit_pdf_anchor"
-            if signals.explicit_pdf_path
-            else "bound_pdf_followup"
-            if followup_pdf_request
-            else "document_scope_anchor"
-        ),
-        should_skip_rag=True,
-        confidence=0.94 if signals.explicit_pdf_path else 0.91 if followup_pdf_request else 0.87,
-        reasons=reasons,
-        structural_signals=signals.to_dict(),
-    )
-
-
-def _build_direct_skill_authoring_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not signals.skill_authoring_request:
-        return None
-    lowered = message.lower()
-    task_kind = "capability_authoring"
-    reasons = ["skill_authoring_intent"]
-    if _contains_any(lowered, ("创建", "新建", "新增", "生成", "create ", "new skill", "add skill")):
-        task_kind = "skill_create"
-        reasons.append("skill_create_request")
-    elif _contains_any(lowered, ("更新", "修改", "改写", "调整", "优化", "补齐", "update ", "modify ", "rewrite ")):
-        task_kind = "skill_update"
-        reasons.append("skill_update_request")
-    elif _contains_any(lowered, ("检查", "审查", "review", "validate", "是否适合")):
-        task_kind = "skill_update"
-        reasons.append("skill_review_request")
-    elif _contains_any(lowered, ("prompt", "提示词", "调用契约", "触发条件", "prompt contract")):
-        task_kind = "prompt_contract_design"
-        reasons.append("prompt_contract_request")
-
-    modality = "markdown" if _contains_any(lowered, ("skill.md", "markdown", ".md")) else "workflow"
-    capability_requests = ["skill-authoring", "capability-design"]
-    if task_kind == "prompt_contract_design" or _contains_any(lowered, ("prompt", "提示词", "调用契约", "触发条件")):
-        capability_requests.append("prompt-contract")
-    if _contains_any(lowered, ("检查", "审查", "review", "validate", "校验")):
-        capability_requests.append("validation")
-    return TaskUnderstanding(
-        intent="skill_authoring_query",
-        source_kind="capability_system",
-        task_kind=task_kind,
-        modality=modality,
-        route_hint="rag",
-        preferred_skill="skill-creator",
-        capability_requests=_dedupe(capability_requests),
-        parameters={"query": message},
-        execution_posture="direct_rag",
-        direct_route_reason="skill_authoring_intent",
-        should_skip_rag=False,
-        confidence=0.93,
-        reasons=_dedupe(reasons),
-        structural_signals=signals.to_dict(),
-    )
-
-
-def _build_direct_workspace_read_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not signals.explicit_workspace_path or not signals.workspace_read_request:
-        return None
-    lowered_path = signals.explicit_workspace_path.lower()
-    modality = "code" if lowered_path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".sh", ".ps1", ".sql")) else "text"
-    return TaskUnderstanding(
-        intent="workspace_file_read_query",
-        source_kind="workspace",
-        task_kind="workspace_file_read",
-        modality=modality,
-        route_hint="workspace_read",
-        preferred_skill=None,
-        capability_requests=["workspace_read"],
-        candidate_tools=["read_file"],
-        parameters={"path": signals.explicit_workspace_path},
-        execution_posture="builtin_tool_lane",
-        direct_route_reason="explicit_workspace_file_anchor",
-        should_skip_rag=True,
-        confidence=0.95,
-        reasons=["explicit_workspace_file_anchor"],
-        structural_signals=signals.to_dict(),
-    )
-
-
-def _build_direct_workspace_search_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not signals.workspace_search_request or signals.external_requirement:
-        return None
-    return TaskUnderstanding(
-        intent="workspace_file_search_query",
-        source_kind="workspace",
-        task_kind="workspace_file_search",
-        modality="workspace",
-        route_hint="workspace_path_search",
-        preferred_skill=None,
-        capability_requests=["workspace_path_search"],
-        candidate_tools=["search_files"],
-        parameters={"query": message},
-        execution_posture="builtin_tool_lane",
-        direct_route_reason="workspace_search_request",
-        should_skip_rag=True,
-        confidence=0.9,
-        reasons=["workspace_search_request"],
-        structural_signals=signals.to_dict(),
-    )
-
-
-def _build_direct_web_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not (signals.external_requirement or signals.weather_domain or signals.gold_price_domain):
-        return None
-    capability_requests: list[str] = []
-    reasons: list[str] = []
-    intent = "web_search_query"
-    task_kind = "web_lookup"
-    modality = "web"
-    confidence = 0.93
-    if signals.weather_domain:
-        capability_requests.append("weather")
-        reasons.append("weather_realtime_task")
-        intent = "weather_query"
-        task_kind = "realtime_lookup"
-        modality = "realtime"
-        confidence = 0.96
-    if signals.gold_price_domain:
-        capability_requests.append("gold_price")
-        reasons.append("gold_price_realtime_task")
-        intent = "gold_price_query"
-        task_kind = "realtime_lookup"
-        modality = "realtime"
-        confidence = 0.95
-    capability_requests.append("latest_information")
-    if not reasons:
-        reasons.append("explicit_external_constraint")
-    return TaskUnderstanding(
-        intent=intent,
-        source_kind="external_web",
-        task_kind=task_kind,
-        modality=modality,
-        route_hint="realtime_network",
-        preferred_skill=None,
-        capability_requests=_dedupe(capability_requests),
-        candidate_tools=["web_search"],
-        parameters={"query": message},
-        execution_posture="builtin_tool_lane",
-        direct_route_reason=reasons[0],
-        should_skip_rag=True,
-        confidence=confidence,
-        reasons=reasons,
-        structural_signals=signals.to_dict(),
-    )
-
-
-def _build_direct_faq_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not signals.faq_shape or signals.external_requirement or signals.explicit_dataset_path or signals.explicit_pdf_path:
-        return None
-    return TaskUnderstanding(
-        intent="faq_explanation_query",
-        source_kind="knowledge_base",
-        task_kind="faq_explanation",
-        modality="general",
-        route_hint="rag",
-        preferred_skill="rag-skill",
-        capability_requests=["faq"],
-        parameters={"query": message},
-        execution_posture="direct_rag",
-        direct_route_reason="faq_problem_shape",
-        should_skip_rag=False,
-        confidence=0.9,
-        reasons=["faq_problem_shape"],
-        structural_signals=signals.to_dict(),
-    )
-
-
-def _build_direct_knowledge_task(message: str, signals: TaskSignals) -> TaskUnderstanding | None:
-    if not signals.local_knowledge_scope or signals.freshness_requirement:
-        return None
-    return TaskUnderstanding(
-        intent="knowledge_lookup_query",
-        source_kind="knowledge_base",
-        task_kind="knowledge_lookup",
-        modality="general",
-        route_hint="rag",
-        preferred_skill="rag-skill",
-        capability_requests=["knowledge_lookup"],
-        parameters={"query": message},
-        execution_posture="direct_rag",
-        direct_route_reason="explicit_knowledge_scope",
-        should_skip_rag=False,
-        confidence=0.8,
-        reasons=["explicit_knowledge_scope"],
-        structural_signals=signals.to_dict(),
-    )
-
-
 def _build_bounded_lookup_task(
     *,
     message: str,
@@ -603,26 +685,28 @@ def _build_bounded_lookup_task(
     modality: str,
     confidence: float,
     reasons: list[str],
+    direct_route_reason: str = "",
+    route_hint: str = "agent",
     signals: TaskSignals,
 ) -> TaskUnderstanding:
     capability_requests = _build_capability_requests(
         signals,
         include_default_knowledge=True,
     )
-    direct_route_reason = "unresolved_lookup"
-    if "latest_information" in capability_requests:
-        direct_route_reason = "freshness_aware_lookup"
+    effective_direct_route_reason = direct_route_reason or "unresolved_lookup"
+    if not direct_route_reason and "latest_information" in capability_requests:
+        effective_direct_route_reason = "freshness_aware_lookup"
     return TaskUnderstanding(
         intent="general_query",
         source_kind=source_kind,
         task_kind=task_kind,
         modality=modality,
-        route_hint="agent",
+        route_hint=route_hint,
         preferred_skill=None,
         capability_requests=capability_requests,
         parameters={"query": message},
         execution_posture="bounded_agent",
-        direct_route_reason=direct_route_reason,
+        direct_route_reason=effective_direct_route_reason,
         should_skip_rag=False,
         confidence=confidence,
         reasons=reasons,

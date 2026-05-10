@@ -8,6 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from understanding.task_understanding import analyze_task_understanding
+from tasks.definitions import select_runtime_task_definitions
 
 
 def main() -> None:
@@ -21,6 +22,10 @@ def main() -> None:
     assert shortage.candidate_tools == []
     assert shortage.preferred_skill == "structured-data-analysis"
     assert shortage.parameters == {"query": "从我的数据库中，查询有哪些货物缺货"}
+    assert any(item["candidate_type"] == "skill" and item["name"] == "structured-data-analysis" for item in shortage.candidate_capabilities)
+    assert any(item["candidate_type"] == "mcp" and item["name"] == "structured_data" for item in shortage.candidate_capabilities)
+    assert shortage.capability_resolution["selected_candidate_type"] == "mcp"
+    assert shortage.capability_resolution["selected_candidate_name"] == "structured_data"
     assert shortage.structural_signals["explicit_dataset_path"] == ""
     assert shortage.structural_signals["local_knowledge_scope"] is True
     assert shortage.structural_signals["knowledge_source_anchor"] == "我的数据库"
@@ -101,6 +106,8 @@ def main() -> None:
     assert skill_create.route_hint == "rag"
     assert skill_create.execution_posture == "direct_rag"
     assert skill_create.preferred_skill == "skill-creator"
+    assert any(item["candidate_type"] == "skill" and item["name"] == "skill-creator" for item in skill_create.candidate_capabilities)
+    assert skill_create.capability_resolution["selected_candidate_name"] == "skill-creator"
     assert "skill-authoring" in skill_create.capability_requests
     assert skill_create.parameters == {"query": "帮我创建一个用于章节审核的 skill"}
     assert skill_create.structural_signals["skill_authoring_request"] is True
@@ -118,7 +125,8 @@ def main() -> None:
     assert faq.task_kind == "faq_explanation"
     assert faq.target_object is None
     assert faq.preferred_skill == "rag-skill"
-    assert faq.capability_requests == ["faq"]
+    assert "faq" in faq.capability_requests
+    assert "knowledge_lookup" in faq.capability_requests
     assert faq.candidate_tools == []
     assert faq.direct_route_reason == "faq_problem_shape"
 
@@ -149,6 +157,8 @@ def main() -> None:
     assert weather.execution_posture == "builtin_tool_lane"
     assert weather.capability_requests == ["weather", "latest_information"]
     assert weather.candidate_tools == ["web_search"]
+    assert any(item["candidate_type"] == "tool" and item["name"] == "web_search" for item in weather.candidate_capabilities)
+    assert weather.capability_resolution["selected_candidate_name"] == "web_search"
     assert weather.direct_route_reason == "weather_realtime_task"
 
     explicit_web = analyze_task_understanding("帮我联网查 OpenAI API 最新更新")
@@ -166,6 +176,20 @@ def main() -> None:
     assert workspace_read.candidate_tools == ["read_file"]
     assert workspace_read.parameters["path"] == "backend/understanding/task_understanding.py"
     assert workspace_read.direct_route_reason == "explicit_workspace_file_anchor"
+
+    definitions = select_runtime_task_definitions(
+        "帮我看一下 inventory.xlsx 里销量前五的有哪些",
+        query_understanding={
+            "route_hint": "agent",
+            "execution_posture": "direct_mcp",
+            "capability_resolution": {
+                "route": "structured_data",
+                "selected_candidate_type": "mcp",
+                "selected_candidate_name": "structured_data",
+            },
+        },
+    )
+    assert [item.definition_id for item in definitions] == ["task.capability_execution"]
 
     print("ALL PASSED (task understanding)")
 

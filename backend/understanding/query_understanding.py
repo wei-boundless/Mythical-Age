@@ -40,6 +40,8 @@ class QueryUnderstanding:
     confidence: float = 0.0
     reasons: list[str] = field(default_factory=list)
     structural_signals: dict[str, Any] = field(default_factory=dict)
+    candidate_capabilities: list[dict[str, Any]] = field(default_factory=list)
+    capability_resolution: dict[str, Any] = field(default_factory=dict)
 
 
 def analyze_query_understanding(
@@ -84,6 +86,8 @@ def _from_task(task: TaskUnderstanding) -> QueryUnderstanding:
         confidence=task.confidence,
         reasons=list(task.reasons),
         structural_signals=dict(task.structural_signals),
+        candidate_capabilities=list(task.candidate_capabilities),
+        capability_resolution=dict(task.capability_resolution),
     )
 
 
@@ -94,6 +98,8 @@ def _apply_skill_tool_routing(
     skill_registry: SkillRegistry | None,
     tool_registry: ToolRegistry | None,
 ) -> None:
+    _apply_capability_resolution_state(understanding)
+
     # Understanding only exposes a TaskFrame-like structure plus structural tool
     # candidates. Skill policy is resolved later by the planner/dispatch layer
     # so skill scope cannot overwrite candidate tools here.
@@ -159,3 +165,31 @@ def _apply_skill_tool_routing(
 
     if understanding.tool_name and not understanding.tool_input:
         understanding.tool_input = {"query": message}
+
+
+def _apply_capability_resolution_state(understanding: QueryUnderstanding) -> None:
+    resolution = dict(understanding.capability_resolution or {})
+    if not resolution:
+        return
+    selected_candidate_type = str(resolution.get("selected_candidate_type") or "").strip()
+    selected_candidate_name = str(resolution.get("selected_candidate_name") or "").strip()
+    resolved_route = str(resolution.get("route") or "").strip()
+    resolved_execution_posture = str(resolution.get("execution_posture") or "").strip()
+    resolved_tool_name = str(resolution.get("tool_name") or "").strip()
+    resolved_preferred_skill = str(resolution.get("preferred_skill") or "").strip()
+
+    if resolved_route:
+        understanding.route = resolved_route
+    if resolved_execution_posture:
+        understanding.execution_posture = resolved_execution_posture
+
+    if selected_candidate_type == "skill" and selected_candidate_name:
+        understanding.skill_name = selected_candidate_name
+        if not understanding.preferred_skill:
+            understanding.preferred_skill = resolved_preferred_skill or selected_candidate_name
+    elif selected_candidate_type == "tool":
+        tool_name = resolved_tool_name or selected_candidate_name
+        if tool_name:
+            if tool_name not in understanding.candidate_tools:
+                understanding.candidate_tools = [tool_name, *list(understanding.candidate_tools)]
+            understanding.tool_name = tool_name

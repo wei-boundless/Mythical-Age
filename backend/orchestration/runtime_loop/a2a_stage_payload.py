@@ -31,7 +31,7 @@ def build_stage_execution_a2a_payload(
     handoff_policy: str = "",
 ) -> dict[str, Any]:
     payload = build_a2a_preview_for_coordination(
-        coordination_task_id=coordination_run_id,
+        graph_id=coordination_run_id,
         protocol_id=protocol_id or f"a2a:{coordination_run_id}",
         source_agent_id=source_agent_id or "agent:0",
         target_agent_id=agent_id,

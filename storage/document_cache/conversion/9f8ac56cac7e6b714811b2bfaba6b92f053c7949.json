@@ -1,0 +1,6667 @@
+{
+  "doc_id": "9f8ac56cac7e6b714811b2bfaba6b92f053c7949",
+  "collection": "knowledge",
+  "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf",
+  "source_type": "pdf",
+  "version_digest": "7690e8e35e315bc0d9ab7427caa460854925c30d",
+  "parser_backend": "docling",
+  "title": "2025年第五范式-人工智能驱动的科技创新报告",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:0",
+      "block_type": "heading",
+      "text": "## 第五范式 人工智能驱动的科技创新",
+      "modality": "text",
+      "section_label": "第五范式 人工智能驱动的科技创新",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "第五范式 人工智能驱动的科技创新"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:1",
+      "block_type": "heading",
+      "text": "## 汇报人： 朱鹏飞",
+      "modality": "text",
+      "section_label": "汇报人： 朱鹏飞",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "汇报人： 朱鹏飞"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:2",
+      "block_type": "heading",
+      "text": "## 汇报提纲",
+      "modality": "text",
+      "section_label": "汇报提纲",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "汇报提纲"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:3",
+      "block_type": "paragraph",
+      "text": "- AI驱动的第五科研范式 一\n- 百花齐放的大模型时代 二\n- 大模型辅助的科学假设生成 三\n- 大模型辅助的论文与项目 四\n- 未来科研范式展望 五",
+      "modality": "text",
+      "section_label": "汇报提纲",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "汇报提纲"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:4",
+      "block_type": "heading",
+      "text": "## 汇报提纲",
+      "modality": "text",
+      "section_label": "汇报提纲",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "汇报提纲"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:5",
+      "block_type": "paragraph",
+      "text": "- 一\n- AI驱动的第五科研范式\n- 百花齐放的大模型时代 二\n- 大模型辅助的科学假设生成 三\n- 大模型辅助的论文与项目 四\n- 未来科研范式展望 五",
+      "modality": "text",
+      "section_label": "汇报提纲",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "汇报提纲"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:6",
+      "block_type": "heading",
+      "text": "## 1.1 第五范式-科学范式变迁",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:7",
+      "block_type": "paragraph",
+      "text": "第2范式：理论科学 理论模型 牛顿定律、电动力学方 程等 19世纪-20世纪中叶",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:8",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:9",
+      "block_type": "paragraph",
+      "text": "第1范式：经验科学 观察和实验 自由落体、进化论等 19世纪之前",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:10",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:11",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:12",
+      "block_type": "paragraph",
+      "text": "第4范式：数据密集科学 大数据 数据建模、分析、挖掘 21世纪初",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:13",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:14",
+      "block_type": "paragraph",
+      "text": "第3范式：计算科学 数值计算 模拟 20世纪中叶-21世纪初",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:15",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "1.1 第五范式-科学范式变迁",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-科学范式变迁"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:16",
+      "block_type": "heading",
+      "text": "## 第5范式：智能驱动科学",
+      "modality": "text",
+      "section_label": "第5范式：智能驱动科学",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "第5范式：智能驱动科学"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:17",
+      "block_type": "paragraph",
+      "text": "大模型、智能体 自动化科学研究 2023年",
+      "modality": "text",
+      "section_label": "第5范式：智能驱动科学",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "第5范式：智能驱动科学"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:18",
+      "block_type": "heading",
+      "text": "## 1.1 第五范式-AI驱动的科学研究新范式",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:19",
+      "block_type": "paragraph",
+      "text": "新科研范式以数据智能为核心，通过人机协同和自主发现实现研究效率的指数级提升",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:20",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:21",
+      "block_type": "paragraph",
+      "text": "效率革命性提升√",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:22",
+      "block_type": "paragraph",
+      "text": "复杂问题突破√",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:23",
+      "block_type": "paragraph",
+      "text": "(克服组合爆炸)",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:24",
+      "block_type": "paragraph",
+      "text": "跨学科创新机制√",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:25",
+      "block_type": "paragraph",
+      "text": "(催生颠覆性技术)",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:26",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 26,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:27",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 27,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:28",
+      "block_type": "heading",
+      "text": "## 2.模型驱动的自主发现",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 28,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:29",
+      "block_type": "paragraph",
+      "text": "传统",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 29,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:30",
+      "block_type": "paragraph",
+      "text": "AI",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 30,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:31",
+      "block_type": "paragraph",
+      "text": "人类归纳推理、确定 性算法、统计模型",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 31,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:32",
+      "block_type": "paragraph",
+      "text": "AI-驱动",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 32,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:33",
+      "block_type": "paragraph",
+      "text": "概率推理、深度学习 、复杂系统涌现智能 以黑盒思想克服组合 爆炸问题",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 33,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:34",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 34,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:35",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 35,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:36",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 36,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:37",
+      "block_type": "paragraph",
+      "text": "NTEF",
+      "modality": "text",
+      "section_label": "2.模型驱动的自主发现",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.模型驱动的自主发现"
+      ],
+      "reading_order": 37,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:38",
+      "block_type": "heading",
+      "text": "## 1.1 第五范式-AI驱动的科学研究新范式",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 38,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:39",
+      "block_type": "paragraph",
+      "text": "AI驱动的科学研究新范式将带来革命性改变",
+      "modality": "text",
+      "section_label": "1.1 第五范式-AI驱动的科学研究新范式",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "1.1 第五范式-AI驱动的科学研究新范式"
+      ],
+      "reading_order": 39,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:40",
+      "block_type": "heading",
+      "text": "## 现状:从技术突破到生态重构",
+      "modality": "text",
+      "section_label": "现状:从技术突破到生态重构",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "现状:从技术突破到生态重构"
+      ],
+      "reading_order": 40,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:41",
+      "block_type": "paragraph",
+      "text": "AI驱动各领域技术突破",
+      "modality": "text",
+      "section_label": "现状:从技术突破到生态重构",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "现状:从技术突破到生态重构"
+      ],
+      "reading_order": 41,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:42",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "现状:从技术突破到生态重构",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "现状:从技术突破到生态重构"
+      ],
+      "reading_order": 42,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:43",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "现状:从技术突破到生态重构",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "现状:从技术突破到生态重构"
+      ],
+      "reading_order": 43,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:44",
+      "block_type": "heading",
+      "text": "## 跨学科融合与平台型科研",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 44,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:45",
+      "block_type": "paragraph",
+      "text": "AI基于知识图谱关联交叉学科",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 45,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:46",
+      "block_type": "paragraph",
+      "text": "科研大模型快速提取关键数据 推动产学研协同",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 46,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:47",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 47,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:48",
+      "block_type": "paragraph",
+      "text": "GEmma",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 48,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:49",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 49,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:50",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 50,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:51",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 51,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:52",
+      "block_type": "paragraph",
+      "text": "伦理与挑战并存",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 52,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:53",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 53,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:54",
+      "block_type": "paragraph",
+      "text": "黑箱模型可解释性困境",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 54,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:55",
+      "block_type": "paragraph",
+      "text": "数据与算力依赖",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 55,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:56",
+      "block_type": "paragraph",
+      "text": "数据偏见与安全风险",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 56,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:57",
+      "block_type": "paragraph",
+      "text": "学科壁垒与人才缺口",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 57,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:58",
+      "block_type": "paragraph",
+      "text": "伦理风险",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 58,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:59",
+      "block_type": "paragraph",
+      "text": "未来：从范式迭代到生态跃迁",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 59,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:60",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "跨学科融合与平台型科研",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "跨学科融合与平台型科研"
+      ],
+      "reading_order": 60,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:61",
+      "block_type": "heading",
+      "text": "## 技术演进方向",
+      "modality": "text",
+      "section_label": "技术演进方向",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "技术演进方向"
+      ],
+      "reading_order": 61,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:62",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "技术演进方向",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "技术演进方向"
+      ],
+      "reading_order": 62,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:63",
+      "block_type": "paragraph",
+      "text": "参与者增加     生态多样性",
+      "modality": "text",
+      "section_label": "技术演进方向",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "技术演进方向"
+      ],
+      "reading_order": 63,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:64",
+      "block_type": "heading",
+      "text": "## 规则层",
+      "modality": "text",
+      "section_label": "规则层",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "规则层"
+      ],
+      "reading_order": 64,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:65",
+      "block_type": "heading",
+      "text": "## 科研范式结构性变革",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 65,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:66",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 66,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:67",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 67,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:68",
+      "block_type": "paragraph",
+      "text": "生态活力迸发",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 68,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:69",
+      "block_type": "paragraph",
+      "text": "知识&amp;   技术&amp;资本 高速流动",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 69,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:70",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 70,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:71",
+      "block_type": "paragraph",
+      "text": "加速创新 风险可控",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 71,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:72",
+      "block_type": "paragraph",
+      "text": "生态稳定性",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 72,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:73",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 73,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:74",
+      "block_type": "paragraph",
+      "text": "生态跃迁",
+      "modality": "text",
+      "section_label": "科研范式结构性变革",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "科研范式结构性变革"
+      ],
+      "reading_order": 74,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:75",
+      "block_type": "heading",
+      "text": "## 1.2 典型案例-AI加速芯片设计",
+      "modality": "text",
+      "section_label": "1.2 典型案例-AI加速芯片设计",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "1.2 典型案例-AI加速芯片设计"
+      ],
+      "reading_order": 75,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:76",
+      "block_type": "heading",
+      "text": "## 启蒙1号全自动AI芯片设计",
+      "modality": "text",
+      "section_label": "启蒙1号全自动AI芯片设计",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "启蒙1号全自动AI芯片设计"
+      ],
+      "reading_order": 76,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:77",
+      "block_type": "paragraph",
+      "text": "2022年5月，全球首款全自动生成的32位RISC-V CPU'启蒙1号'由中国科学院计算技术研究所利用AI技术成功设计。 AI的利用，将生产周期从数月降至5小时生成400万逻辑门，效率提升至1/1000，标志着芯片设计进入智能化时代",
+      "modality": "text",
+      "section_label": "启蒙1号全自动AI芯片设计",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "启蒙1号全自动AI芯片设计"
+      ],
+      "reading_order": 77,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:78",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "启蒙1号全自动AI芯片设计",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "启蒙1号全自动AI芯片设计"
+      ],
+      "reading_order": 78,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:79",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "启蒙1号全自动AI芯片设计",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "启蒙1号全自动AI芯片设计"
+      ],
+      "reading_order": 79,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:80",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "启蒙1号全自动AI芯片设计",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "启蒙1号全自动AI芯片设计"
+      ],
+      "reading_order": 80,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:81",
+      "block_type": "heading",
+      "text": "## 1.2 典型案例-AI重塑生物医学研究",
+      "modality": "text",
+      "section_label": "1.2 典型案例-AI重塑生物医学研究",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "1.2 典型案例-AI重塑生物医学研究"
+      ],
+      "reading_order": 81,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:82",
+      "block_type": "heading",
+      "text": "## AlphaFold2蛋白质三维结构预测",
+      "modality": "text",
+      "section_label": "AlphaFold2蛋白质三维结构预测",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "AlphaFold2蛋白质三维结构预测"
+      ],
+      "reading_order": 82,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:83",
+      "block_type": "paragraph",
+      "text": "AlphaFold2是由DeepMind开发的人工智能系统，通过深度学习技术实现了蛋白质三维结构的高精度预测。截至2024 年，该系统已预测超过100万个物种的2.14亿个蛋白质结构，几乎覆盖地球所有已知蛋白质",
+      "modality": "text",
+      "section_label": "AlphaFold2蛋白质三维结构预测",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AlphaFold2蛋白质三维结构预测"
+      ],
+      "reading_order": 83,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:84",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AlphaFold2蛋白质三维结构预测",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AlphaFold2蛋白质三维结构预测"
+      ],
+      "reading_order": 84,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:85",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AlphaFold2蛋白质三维结构预测",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AlphaFold2蛋白质三维结构预测"
+      ],
+      "reading_order": 85,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:86",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AlphaFold2蛋白质三维结构预测",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AlphaFold2蛋白质三维结构预测"
+      ],
+      "reading_order": 86,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:87",
+      "block_type": "heading",
+      "text": "## 1.2 典型案例-AI驱动分子模拟领域",
+      "modality": "text",
+      "section_label": "1.2 典型案例-AI驱动分子模拟领域",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "1.2 典型案例-AI驱动分子模拟领域"
+      ],
+      "reading_order": 87,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:88",
+      "block_type": "heading",
+      "text": "## 深度势能分子动力学模拟",
+      "modality": "text",
+      "section_label": "深度势能分子动力学模拟",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "深度势能分子动力学模拟"
+      ],
+      "reading_order": 88,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:89",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "深度势能分子动力学模拟",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "深度势能分子动力学模拟"
+      ],
+      "reading_order": 89,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:90",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "深度势能分子动力学模拟",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "深度势能分子动力学模拟"
+      ],
+      "reading_order": 90,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:91",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "深度势能分子动力学模拟",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "深度势能分子动力学模拟"
+      ],
+      "reading_order": 91,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:92",
+      "block_type": "heading",
+      "text": "## 1.2 典型案例-AI驱动材料科学与工程研究",
+      "modality": "text",
+      "section_label": "1.2 典型案例-AI驱动材料科学与工程研究",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "1.2 典型案例-AI驱动材料科学与工程研究"
+      ],
+      "reading_order": 92,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:93",
+      "block_type": "heading",
+      "text": "## 发现高能钠离子电池成分，机器学习简化最佳材料搜索过程",
+      "modality": "text",
+      "section_label": "发现高能钠离子电池成分，机器学习简化最佳材料搜索过程",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "发现高能钠离子电池成分，机器学习简化最佳材料搜索过程"
+      ],
+      "reading_order": 93,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:94",
+      "block_type": "paragraph",
+      "text": "里耶卡大学的研究团队开发了一种基于 RNN 的方法，使用不规则采样的不等长特征来评估未分类肽的 SA 潜力。 日本东京理科大学 (TUS) 和名古屋工业大学的研究团队，利用机器学习来简化搜索最佳材料的过程。研究人员使用由实 验数据训练的机器学习优化了高能钠离子电池过渡金属层状氧化物的成分。",
+      "modality": "text",
+      "section_label": "发现高能钠离子电池成分，机器学习简化最佳材料搜索过程",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "发现高能钠离子电池成分，机器学习简化最佳材料搜索过程"
+      ],
+      "reading_order": 94,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:95",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "发现高能钠离子电池成分，机器学习简化最佳材料搜索过程",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "发现高能钠离子电池成分，机器学习简化最佳材料搜索过程"
+      ],
+      "reading_order": 95,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:96",
+      "block_type": "heading",
+      "text": "## 领域跃升可视化",
+      "modality": "text",
+      "section_label": "领域跃升可视化",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "领域跃升可视化"
+      ],
+      "reading_order": 96,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:97",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "领域跃升可视化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "领域跃升可视化"
+      ],
+      "reading_order": 97,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:98",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "领域跃升可视化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "领域跃升可视化"
+      ],
+      "reading_order": 98,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:99",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "领域跃升可视化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "领域跃升可视化"
+      ],
+      "reading_order": 99,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:100",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "领域跃升可视化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "领域跃升可视化"
+      ],
+      "reading_order": 100,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:101",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "领域跃升可视化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "领域跃升可视化"
+      ],
+      "reading_order": 101,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:102",
+      "block_type": "paragraph",
+      "text": "AI+材料科学预示着领域走向智能化、高效化方向发展",
+      "modality": "text",
+      "section_label": "领域跃升可视化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "领域跃升可视化"
+      ],
+      "reading_order": 102,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:103",
+      "block_type": "heading",
+      "text": "## 1.2 典型案例-AI驱动有机半导体与柔性电子材料设计",
+      "modality": "text",
+      "section_label": "1.2 典型案例-AI驱动有机半导体与柔性电子材料设计",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "1.2 典型案例-AI驱动有机半导体与柔性电子材料设计"
+      ],
+      "reading_order": 103,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:104",
+      "block_type": "heading",
+      "text": "## 有机半导体逆向设计、柔性电子材料",
+      "modality": "text",
+      "section_label": "有机半导体逆向设计、柔性电子材料",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "有机半导体逆向设计、柔性电子材料"
+      ],
+      "reading_order": 104,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:105",
+      "block_type": "paragraph",
+      "text": "德国赫姆霍兹研究所与厦门大学合作，开发了闭环自动化工作流程，实现了有机半导体的逆向设计，光电转换效率提高至 26.2%。天津大学胡文平教授与斯坦福大学鲍哲南教授合作，通过在PEDOT:PSS材料中引入拓扑交联网络，显著提升了 其力学和电学性能，获得了最佳导电性的柔性电极。",
+      "modality": "text",
+      "section_label": "有机半导体逆向设计、柔性电子材料",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "有机半导体逆向设计、柔性电子材料"
+      ],
+      "reading_order": 105,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:106",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "有机半导体逆向设计、柔性电子材料",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "有机半导体逆向设计、柔性电子材料"
+      ],
+      "reading_order": 106,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:107",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "有机半导体逆向设计、柔性电子材料",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "有机半导体逆向设计、柔性电子材料"
+      ],
+      "reading_order": 107,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:108",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "有机半导体逆向设计、柔性电子材料",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "有机半导体逆向设计、柔性电子材料"
+      ],
+      "reading_order": 108,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:109",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "有机半导体逆向设计、柔性电子材料",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "有机半导体逆向设计、柔性电子材料"
+      ],
+      "reading_order": 109,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:110",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "有机半导体逆向设计、柔性电子材料",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "有机半导体逆向设计、柔性电子材料"
+      ],
+      "reading_order": 110,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:111",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "有机半导体逆向设计、柔性电子材料",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "有机半导体逆向设计、柔性电子材料"
+      ],
+      "reading_order": 111,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:112",
+      "block_type": "heading",
+      "text": "## 1.2 典型案例-AI驱动化学工程与催化科学研究",
+      "modality": "text",
+      "section_label": "1.2 典型案例-AI驱动化学工程与催化科学研究",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "1.2 典型案例-AI驱动化学工程与催化科学研究"
+      ],
+      "reading_order": 112,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:113",
+      "block_type": "heading",
+      "text": "## 低成本、高效的催化剂高通量筛选",
+      "modality": "text",
+      "section_label": "低成本、高效的催化剂高通量筛选",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "低成本、高效的催化剂高通量筛选"
+      ],
+      "reading_order": 113,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:114",
+      "block_type": "paragraph",
+      "text": "1. 天津大学巩金龙教授团队开发了一种通用且可解释的描述符模型 ARSC，用于统一多种电催化反应的活性和选择性预测, 研究人员可以 快速找到各种产品的最佳催化剂，而无需进行 50,000 多次密度泛函理论计算。2. 中国科学院和北京师范大学的研究团队利用 240 个数据 集并采用化学和几何描述符并建立随机森林分类模型，来预测酰胺酶对新底物的对映选择性。",
+      "modality": "text",
+      "section_label": "低成本、高效的催化剂高通量筛选",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "低成本、高效的催化剂高通量筛选"
+      ],
+      "reading_order": 114,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:115",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "低成本、高效的催化剂高通量筛选",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "低成本、高效的催化剂高通量筛选"
+      ],
+      "reading_order": 115,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:116",
+      "block_type": "heading",
+      "text": "## 领域跃升可视化",
+      "modality": "text",
+      "section_label": "领域跃升可视化",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "领域跃升可视化"
+      ],
+      "reading_order": 116,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:117",
+      "block_type": "heading",
+      "text": "## 传统方法 Standard Cell Design",
+      "modality": "text",
+      "section_label": "传统方法 Standard Cell Design",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "传统方法 Standard Cell Design"
+      ],
+      "reading_order": 117,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:118",
+      "block_type": "heading",
+      "text": "## AI生成 Force-directed method based on ML",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 118,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:119",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 119,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:120",
+      "block_type": "paragraph",
+      "text": "预测效率",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 120,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:121",
+      "block_type": "paragraph",
+      "text": "无需进行超",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 121,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:122",
+      "block_type": "paragraph",
+      "text": "50,000 次高通量计算",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 122,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:123",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 123,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:124",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 124,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:125",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 125,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:126",
+      "block_type": "paragraph",
+      "text": "准确性",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 126,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:127",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 127,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:128",
+      "block_type": "paragraph",
+      "text": "ee 值高达 97%",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 128,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:129",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI生成 Force-directed method based on ML",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI生成 Force-directed method based on ML"
+      ],
+      "reading_order": 129,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:130",
+      "block_type": "heading",
+      "text": "## 核心论文",
+      "modality": "text",
+      "section_label": "核心论文",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "核心论文"
+      ],
+      "reading_order": 130,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:131",
+      "block_type": "heading",
+      "text": "## From: nature communications",
+      "modality": "text",
+      "section_label": "From: nature communications",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "From: nature communications"
+      ],
+      "reading_order": 131,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:132",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "From: nature communications",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "From: nature communications"
+      ],
+      "reading_order": 132,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:133",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "From: nature communications",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "From: nature communications"
+      ],
+      "reading_order": 133,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:134",
+      "block_type": "heading",
+      "text": "## 汇报提纲",
+      "modality": "text",
+      "section_label": "汇报提纲",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "汇报提纲"
+      ],
+      "reading_order": 134,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:135",
+      "block_type": "paragraph",
+      "text": "- AI驱动的第五科研范式 一\n- 百花齐放的大模型时代 二\n- 大模型辅助的科学假设生成 三\n- 四\n- 大模型辅助的论文与项目\n- 未来科研范式展望 五",
+      "modality": "text",
+      "section_label": "汇报提纲",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "汇报提纲"
+      ],
+      "reading_order": 135,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:136",
+      "block_type": "heading",
+      "text": "## 2.1 三起两落：人工智能发展史",
+      "modality": "text",
+      "section_label": "2.1 三起两落：人工智能发展史",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.1 三起两落：人工智能发展史"
+      ],
+      "reading_order": 136,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:137",
+      "block_type": "heading",
+      "text": "## 人工智能发展史经历了三起两落",
+      "modality": "text",
+      "section_label": "人工智能发展史经历了三起两落",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "人工智能发展史经历了三起两落"
+      ],
+      "reading_order": 137,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:138",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "人工智能发展史经历了三起两落",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "人工智能发展史经历了三起两落"
+      ],
+      "reading_order": 138,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:139",
+      "block_type": "heading",
+      "text": "## 2.1 大模型发展历程",
+      "modality": "text",
+      "section_label": "2.1 大模型发展历程",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.1 大模型发展历程"
+      ],
+      "reading_order": 139,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:140",
+      "block_type": "heading",
+      "text": "## 2014至2024，生成式AI迅速发展",
+      "modality": "text",
+      "section_label": "2014至2024，生成式AI迅速发展",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2014至2024，生成式AI迅速发展"
+      ],
+      "reading_order": 140,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:141",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "2014至2024，生成式AI迅速发展",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2014至2024，生成式AI迅速发展"
+      ],
+      "reading_order": 141,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:142",
+      "block_type": "heading",
+      "text": "## 2.1 大模型发展历程",
+      "modality": "text",
+      "section_label": "2.1 大模型发展历程",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.1 大模型发展历程"
+      ],
+      "reading_order": 142,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:143",
+      "block_type": "heading",
+      "text": "## 大语言模型飞速发展，但多为闭源",
+      "modality": "text",
+      "section_label": "大语言模型飞速发展，但多为闭源",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "大语言模型飞速发展，但多为闭源"
+      ],
+      "reading_order": 143,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:144",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "大语言模型飞速发展，但多为闭源",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "大语言模型飞速发展，但多为闭源"
+      ],
+      "reading_order": 144,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:145",
+      "block_type": "heading",
+      "text": "## 2.1 大模型发展历程",
+      "modality": "text",
+      "section_label": "2.1 大模型发展历程",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.1 大模型发展历程"
+      ],
+      "reading_order": 145,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:146",
+      "block_type": "heading",
+      "text": "## 大语言模型取得成功，扩展到多模态水到渠成",
+      "modality": "text",
+      "section_label": "大语言模型取得成功，扩展到多模态水到渠成",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "大语言模型取得成功，扩展到多模态水到渠成"
+      ],
+      "reading_order": 146,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:147",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "大语言模型取得成功，扩展到多模态水到渠成",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "大语言模型取得成功，扩展到多模态水到渠成"
+      ],
+      "reading_order": 147,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:148",
+      "block_type": "heading",
+      "text": "## 2.1 主流大模型",
+      "modality": "text",
+      "section_label": "2.1 主流大模型",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.1 主流大模型"
+      ],
+      "reading_order": 148,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:149",
+      "block_type": "heading",
+      "text": "## 国外主流大模型",
+      "modality": "text",
+      "section_label": "国外主流大模型",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "国外主流大模型"
+      ],
+      "reading_order": 149,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:150",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国外主流大模型",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国外主流大模型"
+      ],
+      "reading_order": 150,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:151",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国外主流大模型",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国外主流大模型"
+      ],
+      "reading_order": 151,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:152",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国外主流大模型",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国外主流大模型"
+      ],
+      "reading_order": 152,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:153",
+      "block_type": "heading",
+      "text": "## 国内外大模型百花齐放",
+      "modality": "text",
+      "section_label": "国内外大模型百花齐放",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "国内外大模型百花齐放"
+      ],
+      "reading_order": 153,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:154",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国内外大模型百花齐放",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国内外大模型百花齐放"
+      ],
+      "reading_order": 154,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:155",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国内外大模型百花齐放",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国内外大模型百花齐放"
+      ],
+      "reading_order": 155,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:156",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国内外大模型百花齐放",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国内外大模型百花齐放"
+      ],
+      "reading_order": 156,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:157",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国内外大模型百花齐放",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国内外大模型百花齐放"
+      ],
+      "reading_order": 157,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:158",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国内外大模型百花齐放",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国内外大模型百花齐放"
+      ],
+      "reading_order": 158,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:159",
+      "block_type": "heading",
+      "text": "## 国内主流大模型",
+      "modality": "text",
+      "section_label": "国内主流大模型",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "国内主流大模型"
+      ],
+      "reading_order": 159,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:160",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国内主流大模型",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国内主流大模型"
+      ],
+      "reading_order": 160,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:161",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国内主流大模型",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国内主流大模型"
+      ],
+      "reading_order": 161,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:162",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国内主流大模型",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国内主流大模型"
+      ],
+      "reading_order": 162,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:163",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "国内主流大模型",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "国内主流大模型"
+      ],
+      "reading_order": 163,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:164",
+      "block_type": "heading",
+      "text": "## 2.1 DeepSeek系列大模型",
+      "modality": "text",
+      "section_label": "2.1 DeepSeek系列大模型",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.1 DeepSeek系列大模型"
+      ],
+      "reading_order": 164,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:165",
+      "block_type": "paragraph",
+      "text": "深度求索科技公司开源了一系列针对自然语言处理、文本生成、信息检索等多任务的预训练模型",
+      "modality": "text",
+      "section_label": "2.1 DeepSeek系列大模型",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.1 DeepSeek系列大模型"
+      ],
+      "reading_order": 165,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:166",
+      "block_type": "heading",
+      "text": "## DeepSeekLLM",
+      "modality": "text",
+      "section_label": "DeepSeekLLM",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "DeepSeekLLM"
+      ],
+      "reading_order": 166,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:167",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "DeepSeekLLM",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeekLLM"
+      ],
+      "reading_order": 167,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:168",
+      "block_type": "paragraph",
+      "text": "Exam Score ()",
+      "modality": "text",
+      "section_label": "DeepSeekLLM",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeekLLM"
+      ],
+      "reading_order": 168,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:169",
+      "block_type": "paragraph",
+      "text": "DeepSeek LLM 67B Base 在 推理、代码、数学和中文理解 等多个领域超越了 Llama2 70B Base。",
+      "modality": "text",
+      "section_label": "DeepSeekLLM",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeekLLM"
+      ],
+      "reading_order": 169,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:170",
+      "block_type": "heading",
+      "text": "## DeepSeek-VL",
+      "modality": "text",
+      "section_label": "DeepSeek-VL",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "DeepSeek-VL"
+      ],
+      "reading_order": 170,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:171",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "DeepSeek-VL",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-VL"
+      ],
+      "reading_order": 171,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:172",
+      "block_type": "paragraph",
+      "text": "DeepSeek-VL具备通用的多 模态理解能力，能够处理包括 逻辑图表、网页、公式识别、 科学文献、自然图像以及复杂 场景中的具身智能等多种任务",
+      "modality": "text",
+      "section_label": "DeepSeek-VL",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-VL"
+      ],
+      "reading_order": 172,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:173",
+      "block_type": "paragraph",
+      "text": "。",
+      "modality": "text",
+      "section_label": "DeepSeek-VL",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-VL"
+      ],
+      "reading_order": 173,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:174",
+      "block_type": "heading",
+      "text": "## DeepSeek-V3",
+      "modality": "text",
+      "section_label": "DeepSeek-V3",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "DeepSeek-V3"
+      ],
+      "reading_order": 174,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:175",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "DeepSeek-V3",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-V3"
+      ],
+      "reading_order": 175,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:176",
+      "block_type": "paragraph",
+      "text": "MML/ReesZemitalSorVS apetAFIPies/IMTalero",
+      "modality": "text",
+      "section_label": "DeepSeek-V3",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-V3"
+      ],
+      "reading_order": 176,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:177",
+      "block_type": "paragraph",
+      "text": "在多样化、高质量语料库上进 行了预训练，并通过监督微调 和强化学习进一步提升性能。 旨在实现高效推理和低成本训 练。",
+      "modality": "text",
+      "section_label": "DeepSeek-V3",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-V3"
+      ],
+      "reading_order": 177,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:178",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "DeepSeek-V3",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-V3"
+      ],
+      "reading_order": 178,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:179",
+      "block_type": "heading",
+      "text": "## DeepSeek-R1",
+      "modality": "text",
+      "section_label": "DeepSeek-R1",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "DeepSeek-R1"
+      ],
+      "reading_order": 179,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:180",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "DeepSeek-R1",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-R1"
+      ],
+      "reading_order": 180,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:181",
+      "block_type": "paragraph",
+      "text": "DeepSeek-R1为开源推理模 型，通过多阶段训练和冷启动 数据优化、全场景强化学习进 一步对齐人类偏好。",
+      "modality": "text",
+      "section_label": "DeepSeek-R1",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-R1"
+      ],
+      "reading_order": 181,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:182",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "DeepSeek-R1",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "DeepSeek-R1"
+      ],
+      "reading_order": 182,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:183",
+      "block_type": "heading",
+      "text": "## 2.1 大模型的能力",
+      "modality": "text",
+      "section_label": "2.1 大模型的能力",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.1 大模型的能力"
+      ],
+      "reading_order": 183,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:184",
+      "block_type": "heading",
+      "text": "## 语言理解与生成",
+      "modality": "text",
+      "section_label": "语言理解与生成",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "语言理解与生成"
+      ],
+      "reading_order": 184,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:185",
+      "block_type": "paragraph",
+      "text": "- l 语义解读精准\n- l 对话生成流畅\n- l 信息提炼高效",
+      "modality": "text",
+      "section_label": "语言理解与生成",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "语言理解与生成"
+      ],
+      "reading_order": 185,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:186",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "语言理解与生成",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "语言理解与生成"
+      ],
+      "reading_order": 186,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:187",
+      "block_type": "heading",
+      "text": "## 大模型所具备的基础能力",
+      "modality": "text",
+      "section_label": "大模型所具备的基础能力",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "大模型所具备的基础能力"
+      ],
+      "reading_order": 187,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:188",
+      "block_type": "heading",
+      "text": "## 文献快速阅读 逻辑推理与交互",
+      "modality": "text",
+      "section_label": "文献快速阅读 逻辑推理与交互",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 逻辑推理与交互"
+      ],
+      "reading_order": 188,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:189",
+      "block_type": "paragraph",
+      "text": "- l 深度语义分析 l 归纳推理\n- l 知识网络构建 l 演绎推断\n- l 热点方向挖掘 l 思维链",
+      "modality": "text",
+      "section_label": "文献快速阅读 逻辑推理与交互",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 逻辑推理与交互"
+      ],
+      "reading_order": 189,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:190",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "文献快速阅读 逻辑推理与交互",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 逻辑推理与交互"
+      ],
+      "reading_order": 190,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:191",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "文献快速阅读 逻辑推理与交互",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 逻辑推理与交互"
+      ],
+      "reading_order": 191,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:192",
+      "block_type": "heading",
+      "text": "## 知识存储与检索",
+      "modality": "text",
+      "section_label": "知识存储与检索",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "知识存储与检索"
+      ],
+      "reading_order": 192,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:193",
+      "block_type": "paragraph",
+      "text": "- l 知识高效检索\n- l 智能精准问答\n- l 在线网络搜索",
+      "modality": "text",
+      "section_label": "知识存储与检索",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识存储与检索"
+      ],
+      "reading_order": 193,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:194",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "知识存储与检索",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识存储与检索"
+      ],
+      "reading_order": 194,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:195",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "知识存储与检索",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识存储与检索"
+      ],
+      "reading_order": 195,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:196",
+      "block_type": "heading",
+      "text": "## 视觉与多模态",
+      "modality": "text",
+      "section_label": "视觉与多模态",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "视觉与多模态"
+      ],
+      "reading_order": 196,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:197",
+      "block_type": "paragraph",
+      "text": "- l 图像精准解析\n- l 语音智能交互\n- l 多模态融合生成",
+      "modality": "text",
+      "section_label": "视觉与多模态",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "视觉与多模态"
+      ],
+      "reading_order": 197,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:198",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "视觉与多模态",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "视觉与多模态"
+      ],
+      "reading_order": 198,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:199",
+      "block_type": "heading",
+      "text": "## 2.1 大模型的不足",
+      "modality": "text",
+      "section_label": "2.1 大模型的不足",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.1 大模型的不足"
+      ],
+      "reading_order": 199,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:200",
+      "block_type": "heading",
+      "text": "## 幻觉现象",
+      "modality": "text",
+      "section_label": "幻觉现象",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "幻觉现象"
+      ],
+      "reading_order": 200,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:201",
+      "block_type": "paragraph",
+      "text": "- l 输入冲突的幻觉\n- l 语境冲突的幻觉\n- l 事实冲突的幻觉",
+      "modality": "text",
+      "section_label": "幻觉现象",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "幻觉现象"
+      ],
+      "reading_order": 201,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:202",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "幻觉现象",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "幻觉现象"
+      ],
+      "reading_order": 202,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:203",
+      "block_type": "heading",
+      "text": "## 大模型的局限性与伦理问题",
+      "modality": "text",
+      "section_label": "大模型的局限性与伦理问题",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "大模型的局限性与伦理问题"
+      ],
+      "reading_order": 203,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:204",
+      "block_type": "heading",
+      "text": "## 可解释性差",
+      "modality": "text",
+      "section_label": "可解释性差",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "可解释性差"
+      ],
+      "reading_order": 204,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:205",
+      "block_type": "paragraph",
+      "text": "- l 基于数据的可解释性\n- l 基于模型的可解释性\n- l 基于结果的可解释性",
+      "modality": "text",
+      "section_label": "可解释性差",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "可解释性差"
+      ],
+      "reading_order": 205,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:206",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "可解释性差",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "可解释性差"
+      ],
+      "reading_order": 206,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:207",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "可解释性差",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "可解释性差"
+      ],
+      "reading_order": 207,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:208",
+      "block_type": "heading",
+      "text": "## 高级推理能力弱",
+      "modality": "text",
+      "section_label": "高级推理能力弱",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "高级推理能力弱"
+      ],
+      "reading_order": 208,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:209",
+      "block_type": "paragraph",
+      "text": "- l 本质是模式匹配\n- l 缺乏因果关系理解\n- l 依赖于输入提示",
+      "modality": "text",
+      "section_label": "高级推理能力弱",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "高级推理能力弱"
+      ],
+      "reading_order": 209,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:210",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "高级推理能力弱",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "高级推理能力弱"
+      ],
+      "reading_order": 210,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:211",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "高级推理能力弱",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "高级推理能力弱"
+      ],
+      "reading_order": 211,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:212",
+      "block_type": "heading",
+      "text": "## 伦理问题",
+      "modality": "text",
+      "section_label": "伦理问题",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "伦理问题"
+      ],
+      "reading_order": 212,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:213",
+      "block_type": "paragraph",
+      "text": "- l 具有特定偏见的言论\n- l 泄露相关人的隐私\n- l 回复不安全可靠",
+      "modality": "text",
+      "section_label": "伦理问题",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "伦理问题"
+      ],
+      "reading_order": 213,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:214",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "伦理问题",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "伦理问题"
+      ],
+      "reading_order": 214,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:215",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "伦理问题",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "伦理问题"
+      ],
+      "reading_order": 215,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:216",
+      "block_type": "paragraph",
+      "text": "隐私",
+      "modality": "text",
+      "section_label": "伦理问题",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "伦理问题"
+      ],
+      "reading_order": 216,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:217",
+      "block_type": "paragraph",
+      "text": "安全",
+      "modality": "text",
+      "section_label": "伦理问题",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "伦理问题"
+      ],
+      "reading_order": 217,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:218",
+      "block_type": "heading",
+      "text": "## 2.2 智能体",
+      "modality": "text",
+      "section_label": "2.2 智能体",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.2 智能体"
+      ],
+      "reading_order": 218,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:219",
+      "block_type": "heading",
+      "text": "## 是否具备实体交互能力",
+      "modality": "text",
+      "section_label": "是否具备实体交互能力",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "是否具备实体交互能力"
+      ],
+      "reading_order": 219,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:220",
+      "block_type": "paragraph",
+      "text": "软件智能体",
+      "modality": "text",
+      "section_label": "是否具备实体交互能力",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "是否具备实体交互能力"
+      ],
+      "reading_order": 220,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:221",
+      "block_type": "heading",
+      "text": "## 具身机器人",
+      "modality": "text",
+      "section_label": "具身机器人",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "具身机器人"
+      ],
+      "reading_order": 221,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:222",
+      "block_type": "paragraph",
+      "text": "波士顿动力 Atlas",
+      "modality": "text",
+      "section_label": "具身机器人",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身机器人"
+      ],
+      "reading_order": 222,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:223",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "具身机器人",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身机器人"
+      ],
+      "reading_order": 223,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:224",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "具身机器人",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身机器人"
+      ],
+      "reading_order": 224,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:225",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "具身机器人",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身机器人"
+      ],
+      "reading_order": 225,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:226",
+      "block_type": "heading",
+      "text": "## 任务泛化能力",
+      "modality": "text",
+      "section_label": "任务泛化能力",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "任务泛化能力"
+      ],
+      "reading_order": 226,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:227",
+      "block_type": "heading",
+      "text": "## 垂直领域智能体 通用任务智能体",
+      "modality": "text",
+      "section_label": "垂直领域智能体 通用任务智能体",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "垂直领域智能体 通用任务智能体"
+      ],
+      "reading_order": 227,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:228",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "垂直领域智能体 通用任务智能体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "垂直领域智能体 通用任务智能体"
+      ],
+      "reading_order": 228,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:229",
+      "block_type": "heading",
+      "text": "## Luminance",
+      "modality": "text",
+      "section_label": "Luminance",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Luminance"
+      ],
+      "reading_order": 229,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:230",
+      "block_type": "paragraph",
+      "text": "Legal-GradeTMAI",
+      "modality": "text",
+      "section_label": "Luminance",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Luminance"
+      ],
+      "reading_order": 230,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:231",
+      "block_type": "paragraph",
+      "text": "条款审计 Lumiance",
+      "modality": "text",
+      "section_label": "Luminance",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Luminance"
+      ],
+      "reading_order": 231,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:232",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Luminance",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Luminance"
+      ],
+      "reading_order": 232,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:233",
+      "block_type": "heading",
+      "text": "## 自主执行任务的AI实体",
+      "modality": "text",
+      "section_label": "自主执行任务的AI实体",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "自主执行任务的AI实体"
+      ],
+      "reading_order": 233,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:234",
+      "block_type": "heading",
+      "text": "## 智能体核心能力",
+      "modality": "text",
+      "section_label": "智能体核心能力",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "智能体核心能力"
+      ],
+      "reading_order": 234,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:235",
+      "block_type": "heading",
+      "text": "## 对复杂需求进行多级拆解，生成可执行原子任务链",
+      "modality": "text",
+      "section_label": "对复杂需求进行多级拆解，生成可执行原子任务链",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "对复杂需求进行多级拆解，生成可执行原子任务链"
+      ],
+      "reading_order": 235,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:236",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "对复杂需求进行多级拆解，生成可执行原子任务链",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "对复杂需求进行多级拆解，生成可执行原子任务链"
+      ],
+      "reading_order": 236,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:237",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "对复杂需求进行多级拆解，生成可执行原子任务链",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "对复杂需求进行多级拆解，生成可执行原子任务链"
+      ],
+      "reading_order": 237,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:238",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "对复杂需求进行多级拆解，生成可执行原子任务链",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "对复杂需求进行多级拆解，生成可执行原子任务链"
+      ],
+      "reading_order": 238,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:239",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "对复杂需求进行多级拆解，生成可执行原子任务链",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "对复杂需求进行多级拆解，生成可执行原子任务链"
+      ],
+      "reading_order": 239,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:240",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "对复杂需求进行多级拆解，生成可执行原子任务链",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "对复杂需求进行多级拆解，生成可执行原子任务链"
+      ],
+      "reading_order": 240,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:241",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "对复杂需求进行多级拆解，生成可执行原子任务链",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "对复杂需求进行多级拆解，生成可执行原子任务链"
+      ],
+      "reading_order": 241,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:242",
+      "block_type": "heading",
+      "text": "## 动态匹配原子任务与工具库（本地API/第三方服务）",
+      "modality": "text",
+      "section_label": "动态匹配原子任务与工具库（本地API/第三方服务）",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "动态匹配原子任务与工具库（本地API/第三方服务）"
+      ],
+      "reading_order": 242,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:243",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "动态匹配原子任务与工具库（本地API/第三方服务）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "动态匹配原子任务与工具库（本地API/第三方服务）"
+      ],
+      "reading_order": 243,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:244",
+      "block_type": "heading",
+      "text": "## 记忆系统（短期+长期）",
+      "modality": "text",
+      "section_label": "记忆系统（短期+长期）",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "记忆系统（短期+长期）"
+      ],
+      "reading_order": 244,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:245",
+      "block_type": "paragraph",
+      "text": "长期记忆层",
+      "modality": "text",
+      "section_label": "记忆系统（短期+长期）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "记忆系统（短期+长期）"
+      ],
+      "reading_order": 245,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:246",
+      "block_type": "paragraph",
+      "text": "短期记忆层",
+      "modality": "text",
+      "section_label": "记忆系统（短期+长期）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "记忆系统（短期+长期）"
+      ],
+      "reading_order": 246,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:247",
+      "block_type": "paragraph",
+      "text": "实时上下文层",
+      "modality": "text",
+      "section_label": "记忆系统（短期+长期）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "记忆系统（短期+长期）"
+      ],
+      "reading_order": 247,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:248",
+      "block_type": "heading",
+      "text": "## 2.2 大模型&amp;智能体",
+      "modality": "text",
+      "section_label": "2.2 大模型&amp;智能体",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.2 大模型&amp;智能体"
+      ],
+      "reading_order": 248,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:249",
+      "block_type": "heading",
+      "text": "## 大模型作为'大脑'",
+      "modality": "text",
+      "section_label": "大模型作为'大脑'",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "大模型作为'大脑'"
+      ],
+      "reading_order": 249,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:250",
+      "block_type": "heading",
+      "text": "## 提供统一的语义理解和推理能力 支持跨模态信息处理",
+      "modality": "text",
+      "section_label": "提供统一的语义理解和推理能力 支持跨模态信息处理",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "提供统一的语义理解和推理能力 支持跨模态信息处理"
+      ],
+      "reading_order": 250,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:251",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "提供统一的语义理解和推理能力 支持跨模态信息处理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "提供统一的语义理解和推理能力 支持跨模态信息处理"
+      ],
+      "reading_order": 251,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:252",
+      "block_type": "paragraph",
+      "text": "'大脑'",
+      "modality": "text",
+      "section_label": "提供统一的语义理解和推理能力 支持跨模态信息处理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "提供统一的语义理解和推理能力 支持跨模态信息处理"
+      ],
+      "reading_order": 252,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:253",
+      "block_type": "heading",
+      "text": "## 大模型与智能体关系",
+      "modality": "text",
+      "section_label": "大模型与智能体关系",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "大模型与智能体关系"
+      ],
+      "reading_order": 253,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:254",
+      "block_type": "heading",
+      "text": "## 多智能体角色分工",
+      "modality": "text",
+      "section_label": "多智能体角色分工",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "多智能体角色分工"
+      ],
+      "reading_order": 254,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:255",
+      "block_type": "paragraph",
+      "text": "任务分配：大模型指导任务划分",
+      "modality": "text",
+      "section_label": "多智能体角色分工",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "多智能体角色分工"
+      ],
+      "reading_order": 255,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:256",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "多智能体角色分工",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "多智能体角色分工"
+      ],
+      "reading_order": 256,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:257",
+      "block_type": "paragraph",
+      "text": "Editor",
+      "modality": "text",
+      "section_label": "多智能体角色分工",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "多智能体角色分工"
+      ],
+      "reading_order": 257,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:258",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "多智能体角色分工",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "多智能体角色分工"
+      ],
+      "reading_order": 258,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:259",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "多智能体角色分工",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "多智能体角色分工"
+      ],
+      "reading_order": 259,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:260",
+      "block_type": "heading",
+      "text": "## 知识共享：",
+      "modality": "text",
+      "section_label": "知识共享：",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "知识共享："
+      ],
+      "reading_order": 260,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:261",
+      "block_type": "paragraph",
+      "text": "通过大模型实 现全局知识库",
+      "modality": "text",
+      "section_label": "知识共享：",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识共享："
+      ],
+      "reading_order": 261,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:262",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "知识共享：",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识共享："
+      ],
+      "reading_order": 262,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:263",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "知识共享：",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识共享："
+      ],
+      "reading_order": 263,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:264",
+      "block_type": "paragraph",
+      "text": "Researcher",
+      "modality": "text",
+      "section_label": "知识共享：",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识共享："
+      ],
+      "reading_order": 264,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:265",
+      "block_type": "paragraph",
+      "text": "Verifier",
+      "modality": "text",
+      "section_label": "知识共享：",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识共享："
+      ],
+      "reading_order": 265,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:266",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "知识共享：",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "知识共享："
+      ],
+      "reading_order": 266,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:267",
+      "block_type": "heading",
+      "text": "## 2.2 具身智能&amp;智能体",
+      "modality": "text",
+      "section_label": "2.2 具身智能&amp;智能体",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.2 具身智能&amp;智能体"
+      ],
+      "reading_order": 267,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:268",
+      "block_type": "heading",
+      "text": "## 具身智能体—物理与数字的融合",
+      "modality": "text",
+      "section_label": "具身智能体—物理与数字的融合",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "具身智能体—物理与数字的融合"
+      ],
+      "reading_order": 268,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:269",
+      "block_type": "heading",
+      "text": "## 具身智能的定义",
+      "modality": "text",
+      "section_label": "具身智能的定义",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "具身智能的定义"
+      ],
+      "reading_order": 269,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:270",
+      "block_type": "paragraph",
+      "text": "依赖真实物理环境或高保真仿真环境",
+      "modality": "text",
+      "section_label": "具身智能的定义",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身智能的定义"
+      ],
+      "reading_order": 270,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:271",
+      "block_type": "paragraph",
+      "text": "固定基座机器人、人形机器人等物理实体",
+      "modality": "text",
+      "section_label": "具身智能的定义",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身智能的定义"
+      ],
+      "reading_order": 271,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:272",
+      "block_type": "paragraph",
+      "text": "视觉、触觉、语言等多模态融合感知",
+      "modality": "text",
+      "section_label": "具身智能的定义",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身智能的定义"
+      ],
+      "reading_order": 272,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:273",
+      "block_type": "paragraph",
+      "text": "动态连续任务，如导航、人机协作等",
+      "modality": "text",
+      "section_label": "具身智能的定义",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身智能的定义"
+      ],
+      "reading_order": 273,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:274",
+      "block_type": "paragraph",
+      "text": "通过主动与环境交互生成数据",
+      "modality": "text",
+      "section_label": "具身智能的定义",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身智能的定义"
+      ],
+      "reading_order": 274,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:275",
+      "block_type": "paragraph",
+      "text": "需适应开放物理场景",
+      "modality": "text",
+      "section_label": "具身智能的定义",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身智能的定义"
+      ],
+      "reading_order": 275,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:276",
+      "block_type": "heading",
+      "text": "## 智能体赋能具身系统",
+      "modality": "text",
+      "section_label": "智能体赋能具身系统",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "智能体赋能具身系统"
+      ],
+      "reading_order": 276,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:277",
+      "block_type": "paragraph",
+      "text": "'大脑'-智能体规划",
+      "modality": "text",
+      "section_label": "智能体赋能具身系统",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "智能体赋能具身系统"
+      ],
+      "reading_order": 277,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:278",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "智能体赋能具身系统",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "智能体赋能具身系统"
+      ],
+      "reading_order": 278,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:279",
+      "block_type": "paragraph",
+      "text": "'小脑'- 强化学习运动控制",
+      "modality": "text",
+      "section_label": "智能体赋能具身系统",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "智能体赋能具身系统"
+      ],
+      "reading_order": 279,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:280",
+      "block_type": "paragraph",
+      "text": "XDOG→GO1",
+      "modality": "text",
+      "section_label": "智能体赋能具身系统",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "智能体赋能具身系统"
+      ],
+      "reading_order": 280,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:281",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "智能体赋能具身系统",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "智能体赋能具身系统"
+      ],
+      "reading_order": 281,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:282",
+      "block_type": "heading",
+      "text": "## 具身系统反哺智能体进化",
+      "modality": "text",
+      "section_label": "具身系统反哺智能体进化",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "具身系统反哺智能体进化"
+      ],
+      "reading_order": 282,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:283",
+      "block_type": "paragraph",
+      "text": "'具身系统'（物理执行）",
+      "modality": "text",
+      "section_label": "具身系统反哺智能体进化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身系统反哺智能体进化"
+      ],
+      "reading_order": 283,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:284",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "具身系统反哺智能体进化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身系统反哺智能体进化"
+      ],
+      "reading_order": 284,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:285",
+      "block_type": "paragraph",
+      "text": "数据反馈与优化",
+      "modality": "text",
+      "section_label": "具身系统反哺智能体进化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身系统反哺智能体进化"
+      ],
+      "reading_order": 285,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:286",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "具身系统反哺智能体进化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身系统反哺智能体进化"
+      ],
+      "reading_order": 286,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:287",
+      "block_type": "paragraph",
+      "text": "'智能体'（任务规划）",
+      "modality": "text",
+      "section_label": "具身系统反哺智能体进化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身系统反哺智能体进化"
+      ],
+      "reading_order": 287,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:288",
+      "block_type": "paragraph",
+      "text": "智元机器人GO-1",
+      "modality": "text",
+      "section_label": "具身系统反哺智能体进化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身系统反哺智能体进化"
+      ],
+      "reading_order": 288,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:289",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "具身系统反哺智能体进化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "具身系统反哺智能体进化"
+      ],
+      "reading_order": 289,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:290",
+      "block_type": "heading",
+      "text": "## 2.2 多智能体协作",
+      "modality": "text",
+      "section_label": "2.2 多智能体协作",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.2 多智能体协作"
+      ],
+      "reading_order": 290,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:291",
+      "block_type": "paragraph",
+      "text": "伊朗发射无人机 空袭以色列",
+      "modality": "text",
+      "section_label": "2.2 多智能体协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.2 多智能体协作"
+      ],
+      "reading_order": 291,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:292",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "2.2 多智能体协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.2 多智能体协作"
+      ],
+      "reading_order": 292,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:293",
+      "block_type": "paragraph",
+      "text": "国产微型无人机集群 编队穿越密林",
+      "modality": "text",
+      "section_label": "2.2 多智能体协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.2 多智能体协作"
+      ],
+      "reading_order": 293,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:294",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "2.2 多智能体协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "2.2 多智能体协作"
+      ],
+      "reading_order": 294,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:295",
+      "block_type": "heading",
+      "text": "## 需求驱动的多智能体协作",
+      "modality": "text",
+      "section_label": "需求驱动的多智能体协作",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "需求驱动的多智能体协作"
+      ],
+      "reading_order": 295,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:296",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "需求驱动的多智能体协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "需求驱动的多智能体协作"
+      ],
+      "reading_order": 296,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:297",
+      "block_type": "heading",
+      "text": "## 资源受限下的分布协作",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 297,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:298",
+      "block_type": "paragraph",
+      "text": "……",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 298,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:299",
+      "block_type": "paragraph",
+      "text": "徐工集团无人驾驶集群 路桥施工",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 299,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:300",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 300,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:301",
+      "block_type": "paragraph",
+      "text": "俄罗斯使用无人运输车 运送物资",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 301,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:302",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 302,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:303",
+      "block_type": "paragraph",
+      "text": "面对复杂任务，多智能体相比单智能体更有优势",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 303,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:304",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 304,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:305",
+      "block_type": "paragraph",
+      "text": "……",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 305,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:306",
+      "block_type": "paragraph",
+      "text": "单 无 人 车",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 306,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:307",
+      "block_type": "paragraph",
+      "text": "无 人 车 集 群",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 307,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:308",
+      "block_type": "paragraph",
+      "text": "单 无 人 机",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 308,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:309",
+      "block_type": "paragraph",
+      "text": "无 人 机 集 群",
+      "modality": "text",
+      "section_label": "资源受限下的分布协作",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "资源受限下的分布协作"
+      ],
+      "reading_order": 309,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:310",
+      "block_type": "heading",
+      "text": "## 2.2 智能体构建流程",
+      "modality": "text",
+      "section_label": "2.2 智能体构建流程",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.2 智能体构建流程"
+      ],
+      "reading_order": 310,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:311",
+      "block_type": "heading",
+      "text": "## 开箱即用的智能体构建工具箱",
+      "modality": "text",
+      "section_label": "开箱即用的智能体构建工具箱",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "开箱即用的智能体构建工具箱"
+      ],
+      "reading_order": 311,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:312",
+      "block_type": "heading",
+      "text": "## 内核层（开发框架）",
+      "modality": "text",
+      "section_label": "内核层（开发框架）",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "内核层（开发框架）"
+      ],
+      "reading_order": 312,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:313",
+      "block_type": "paragraph",
+      "text": "核",
+      "modality": "text",
+      "section_label": "内核层（开发框架）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内核层（开发框架）"
+      ],
+      "reading_order": 313,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:314",
+      "block_type": "paragraph",
+      "text": "心",
+      "modality": "text",
+      "section_label": "内核层（开发框架）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内核层（开发框架）"
+      ],
+      "reading_order": 314,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:315",
+      "block_type": "paragraph",
+      "text": "工",
+      "modality": "text",
+      "section_label": "内核层（开发框架）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内核层（开发框架）"
+      ],
+      "reading_order": 315,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:316",
+      "block_type": "paragraph",
+      "text": "具",
+      "modality": "text",
+      "section_label": "内核层（开发框架）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内核层（开发框架）"
+      ],
+      "reading_order": 316,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:317",
+      "block_type": "paragraph",
+      "text": "LangChain：模块化工具链编 排（支持RAG、多智能体协作）",
+      "modality": "text",
+      "section_label": "内核层（开发框架）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内核层（开发框架）"
+      ],
+      "reading_order": 317,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:318",
+      "block_type": "paragraph",
+      "text": "AutoGen：微软开源的多智能 体对话引擎（任务自动分解与分 配）",
+      "modality": "text",
+      "section_label": "内核层（开发框架）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内核层（开发框架）"
+      ],
+      "reading_order": 318,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:319",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "内核层（开发框架）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内核层（开发框架）"
+      ],
+      "reading_order": 319,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:320",
+      "block_type": "heading",
+      "text": "## 中层（评估与调试）",
+      "modality": "text",
+      "section_label": "中层（评估与调试）",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "中层（评估与调试）"
+      ],
+      "reading_order": 320,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:321",
+      "block_type": "paragraph",
+      "text": "核",
+      "modality": "text",
+      "section_label": "中层（评估与调试）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "中层（评估与调试）"
+      ],
+      "reading_order": 321,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:322",
+      "block_type": "paragraph",
+      "text": "心",
+      "modality": "text",
+      "section_label": "中层（评估与调试）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "中层（评估与调试）"
+      ],
+      "reading_order": 322,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:323",
+      "block_type": "paragraph",
+      "text": "工",
+      "modality": "text",
+      "section_label": "中层（评估与调试）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "中层（评估与调试）"
+      ],
+      "reading_order": 323,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:324",
+      "block_type": "paragraph",
+      "text": "具",
+      "modality": "text",
+      "section_label": "中层（评估与调试）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "中层（评估与调试）"
+      ],
+      "reading_order": 324,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:325",
+      "block_type": "heading",
+      "text": "## 外层（部署与扩展）",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 325,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:326",
+      "block_type": "paragraph",
+      "text": "LangSmith：全链路调用追踪 （可视化每一步的输入/输出）",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 326,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:327",
+      "block_type": "paragraph",
+      "text": "Weights &amp; Biases：模型决策 路径热力图（定位幻觉源头）",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 327,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:328",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 328,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:329",
+      "block_type": "paragraph",
+      "text": "Docker/Kubernetes：容器化",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 329,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:330",
+      "block_type": "paragraph",
+      "text": "部署与集群管理",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 330,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:331",
+      "block_type": "paragraph",
+      "text": "TensorRT：模型推理加速（延 迟降低50%~70%）",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 331,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:332",
+      "block_type": "paragraph",
+      "text": "核",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 332,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:333",
+      "block_type": "paragraph",
+      "text": "心",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 333,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:334",
+      "block_type": "paragraph",
+      "text": "工",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 334,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:335",
+      "block_type": "paragraph",
+      "text": "具",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 335,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:336",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 336,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:337",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "外层（部署与扩展）",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "外层（部署与扩展）"
+      ],
+      "reading_order": 337,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:338",
+      "block_type": "heading",
+      "text": "## 2.2 智能体实例",
+      "modality": "text",
+      "section_label": "2.2 智能体实例",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.2 智能体实例"
+      ],
+      "reading_order": 338,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:339",
+      "block_type": "heading",
+      "text": "## 全球首款通用型AI Agent",
+      "modality": "text",
+      "section_label": "全球首款通用型AI Agent",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "全球首款通用型AI Agent"
+      ],
+      "reading_order": 339,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:340",
+      "block_type": "paragraph",
+      "text": "Manus 的产品名，意思为'手'，来自拉丁文 \"mens et manus\" -- 知行合一。为 LLM 做一双能巧妙调用工具的手 ，从而扩展人的能力，让你心中的愿景成为现实。",
+      "modality": "text",
+      "section_label": "全球首款通用型AI Agent",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "全球首款通用型AI Agent"
+      ],
+      "reading_order": 340,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:341",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "全球首款通用型AI Agent",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "全球首款通用型AI Agent"
+      ],
+      "reading_order": 341,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:342",
+      "block_type": "heading",
+      "text": "## Manus",
+      "modality": "text",
+      "section_label": "Manus",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Manus"
+      ],
+      "reading_order": 342,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:343",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Manus",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Manus"
+      ],
+      "reading_order": 343,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:344",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Manus",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Manus"
+      ],
+      "reading_order": 344,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:345",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Manus",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Manus"
+      ],
+      "reading_order": 345,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:346",
+      "block_type": "paragraph",
+      "text": "性能领先",
+      "modality": "text",
+      "section_label": "Manus",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Manus"
+      ],
+      "reading_order": 346,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:347",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Manus",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Manus"
+      ],
+      "reading_order": 347,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:348",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Manus",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Manus"
+      ],
+      "reading_order": 348,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:349",
+      "block_type": "heading",
+      "text": "## 2.2 智能体实例",
+      "modality": "text",
+      "section_label": "2.2 智能体实例",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "2.2 智能体实例"
+      ],
+      "reading_order": 349,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:350",
+      "block_type": "heading",
+      "text": "## 复杂任务规划与执行",
+      "modality": "text",
+      "section_label": "复杂任务规划与执行",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "复杂任务规划与执行"
+      ],
+      "reading_order": 350,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:351",
+      "block_type": "paragraph",
+      "text": "将复杂任务分解为子任务 并自主执行",
+      "modality": "text",
+      "section_label": "复杂任务规划与执行",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "复杂任务规划与执行"
+      ],
+      "reading_order": 351,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:352",
+      "block_type": "paragraph",
+      "text": "l",
+      "modality": "text",
+      "section_label": "复杂任务规划与执行",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "复杂任务规划与执行"
+      ],
+      "reading_order": 352,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:353",
+      "block_type": "heading",
+      "text": "## Manus智能体核心功能",
+      "modality": "text",
+      "section_label": "Manus智能体核心功能",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Manus智能体核心功能"
+      ],
+      "reading_order": 353,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:354",
+      "block_type": "heading",
+      "text": "## 文献快速阅读 多领域任务处理",
+      "modality": "text",
+      "section_label": "文献快速阅读 多领域任务处理",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 多领域任务处理"
+      ],
+      "reading_order": 354,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:355",
+      "block_type": "paragraph",
+      "text": "深度语义分析",
+      "modality": "text",
+      "section_label": "文献快速阅读 多领域任务处理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 多领域任务处理"
+      ],
+      "reading_order": 355,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:356",
+      "block_type": "paragraph",
+      "text": "l 知识网络构建 支持文件处理、数据分析、 内容创作、旅行规划等",
+      "modality": "text",
+      "section_label": "文献快速阅读 多领域任务处理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 多领域任务处理"
+      ],
+      "reading_order": 356,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:357",
+      "block_type": "paragraph",
+      "text": "l",
+      "modality": "text",
+      "section_label": "文献快速阅读 多领域任务处理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 多领域任务处理"
+      ],
+      "reading_order": 357,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:358",
+      "block_type": "paragraph",
+      "text": "热点方向挖掘",
+      "modality": "text",
+      "section_label": "文献快速阅读 多领域任务处理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 多领域任务处理"
+      ],
+      "reading_order": 358,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:359",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "文献快速阅读 多领域任务处理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 多领域任务处理"
+      ],
+      "reading_order": 359,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:360",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "文献快速阅读 多领域任务处理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 多领域任务处理"
+      ],
+      "reading_order": 360,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:361",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "文献快速阅读 多领域任务处理",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "文献快速阅读 多领域任务处理"
+      ],
+      "reading_order": 361,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:362",
+      "block_type": "heading",
+      "text": "## 工具调用与自动化",
+      "modality": "text",
+      "section_label": "工具调用与自动化",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "工具调用与自动化"
+      ],
+      "reading_order": 362,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:363",
+      "block_type": "paragraph",
+      "text": "调用浏览器、代码编辑器、 数据分析工具等",
+      "modality": "text",
+      "section_label": "工具调用与自动化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "工具调用与自动化"
+      ],
+      "reading_order": 363,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:364",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "工具调用与自动化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "工具调用与自动化"
+      ],
+      "reading_order": 364,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:365",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "工具调用与自动化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "工具调用与自动化"
+      ],
+      "reading_order": 365,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:366",
+      "block_type": "heading",
+      "text": "## 自主学习与优化",
+      "modality": "text",
+      "section_label": "自主学习与优化",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "自主学习与优化"
+      ],
+      "reading_order": 366,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:367",
+      "block_type": "paragraph",
+      "text": "根据用户反馈优化工作方 式",
+      "modality": "text",
+      "section_label": "自主学习与优化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "自主学习与优化"
+      ],
+      "reading_order": 367,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    },
+    {
+      "block_id": "7690e8e35e315bc0d9ab7427caa460854925c30d:368",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "自主学习与优化",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "自主学习与优化"
+      ],
+      "reading_order": 368,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "pdf",
+    "source_path": "AI Knowledge/2025年第五范式-人工智能驱动的科技创新报告.pdf",
+    "fallback_used": false
+  }
+}

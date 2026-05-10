@@ -1,0 +1,12 @@
+{
+  "doc_id": "c66eeb931978d15a5de72426646a48ce6e654d35",
+  "source_path": "AI Knowledge/OpenAI深度报告：大模型王者，引领AGI之路.pdf",
+  "version_digest": "b3fc01d1ed4e4138d6b197777e044639d5aea62b",
+  "parser_backend": "mineru_pdf",
+  "quality_flags": [
+    "table_dense",
+    "multi_page",
+    "fallback_parser"
+  ],
+  "block_count": 221
+}

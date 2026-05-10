@@ -2,22 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from .coordination_graph_models import (
-    CoordinationGraphEdge,
-    CoordinationGraphNode,
-    CoordinationGraphSpec,
-    CoordinationGraphValidationIssue,
-)
+from .coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec, TaskGraphRuntimeValidationIssue
 from .flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
 
 
-def compile_coordination_graph_spec(
+def compile_task_graph_runtime_spec(
     *,
     coordination_task: CoordinationTaskDefinition,
     specific_tasks: tuple[SpecificTaskRecord, ...] = (),
     topology_template: TopologyTemplate | None = None,
     communication_protocol: TaskCommunicationProtocol | None = None,
-) -> CoordinationGraphSpec:
+) -> TaskGraphRuntimeSpec:
     task_by_id = {item.task_id: item for item in specific_tasks}
     raw_nodes = list(coordination_task.graph_nodes or ())
     if (not raw_nodes or _prefer_topology_nodes(raw_nodes=raw_nodes, topology_template=topology_template)) and topology_template is not None:
@@ -61,9 +56,10 @@ def compile_coordination_graph_spec(
             ]
         )
     )
-    return CoordinationGraphSpec(
-        graph_id=f"coordgraph:{coordination_task.coordination_task_id}",
-        coordination_task_id=coordination_task.coordination_task_id,
+    graph_id = str(dict(coordination_task.metadata or {}).get("graph_id") or coordination_task.graph_id or "").strip()
+    return TaskGraphRuntimeSpec(
+        graph_id=graph_id,
+        graph_ref=graph_id,
         domain_id=coordination_task.domain_id,
         task_family=coordination_task.task_family,
         coordinator_agent_id=coordination_task.coordinator_agent_id,
@@ -76,7 +72,7 @@ def compile_coordination_graph_spec(
         terminal_node_ids=terminal_node_ids,
         issues=tuple(issues),
         diagnostics={
-            "source": "task_system.coordination_graph_compiler",
+            "source": "task_system.task_graph_runtime_compiler",
             "topology_template_id": str(getattr(topology_template, "template_id", "") or ""),
             "communication_protocol_id": str(getattr(communication_protocol, "protocol_id", "") or ""),
         },
@@ -88,8 +84,8 @@ def _normalize_nodes(
     raw_nodes: list[Any],
     coordination_task: CoordinationTaskDefinition,
     task_by_id: dict[str, SpecificTaskRecord],
-) -> list[CoordinationGraphNode]:
-    normalized: list[CoordinationGraphNode] = []
+) -> list[TaskGraphRuntimeNode]:
+    normalized: list[TaskGraphRuntimeNode] = []
     seen: set[str] = set()
     for index, raw in enumerate(raw_nodes, start=1):
         if not isinstance(raw, dict):
@@ -106,7 +102,7 @@ def _normalize_nodes(
         if not title and task is not None:
             title = task.task_title
         normalized.append(
-            CoordinationGraphNode(
+            TaskGraphRuntimeNode(
                 node_id=node_id,
                 title=title or node_id,
                 node_type=str(raw.get("node_type") or ("subtask" if task_id else "agent_role")).strip(),
@@ -126,7 +122,7 @@ def _normalize_nodes(
         seen.add(node_id)
     if not normalized:
         normalized.append(
-            CoordinationGraphNode(
+            TaskGraphRuntimeNode(
                 node_id="coordinator",
                 title="协调者",
                 node_type="coordinator",
@@ -170,11 +166,11 @@ def _prefer_topology_nodes(
 def _normalize_edges(
     *,
     raw_edges: list[Any],
-    nodes: list[CoordinationGraphNode],
+    nodes: list[TaskGraphRuntimeNode],
     default_mode: str,
-) -> list[CoordinationGraphEdge]:
+) -> list[TaskGraphRuntimeEdge]:
     node_ids = {node.node_id for node in nodes}
-    normalized: list[CoordinationGraphEdge] = []
+    normalized: list[TaskGraphRuntimeEdge] = []
     seen: set[tuple[str, str]] = set()
     for index, raw in enumerate(raw_edges, start=1):
         if not isinstance(raw, dict):
@@ -186,7 +182,7 @@ def _normalize_edges(
         if (source, target) in seen:
             continue
         normalized.append(
-            CoordinationGraphEdge(
+            TaskGraphRuntimeEdge(
                 edge_id=str(raw.get("edge_id") or raw.get("id") or f"edge_{index}").strip(),
                 source_node_id=source,
                 target_node_id=target,
@@ -228,10 +224,10 @@ def _prefer_topology_edges(
     return generic_pairs
 
 
-def _default_edges(nodes: list[CoordinationGraphNode], *, default_mode: str) -> list[CoordinationGraphEdge]:
+def _default_edges(nodes: list[TaskGraphRuntimeNode], *, default_mode: str) -> list[TaskGraphRuntimeEdge]:
     coordinator = next((node.node_id for node in nodes if node.role == "coordinator"), nodes[0].node_id)
     return [
-        CoordinationGraphEdge(
+        TaskGraphRuntimeEdge(
             edge_id=f"edge_{index}",
             source_node_id=node.node_id,
             target_node_id=coordinator,
@@ -261,23 +257,23 @@ def _communication_modes(
 def _validate_graph(
     *,
     coordination_task: CoordinationTaskDefinition,
-    nodes: list[CoordinationGraphNode],
-    edges: list[CoordinationGraphEdge],
+    nodes: list[TaskGraphRuntimeNode],
+    edges: list[TaskGraphRuntimeEdge],
     task_by_id: dict[str, SpecificTaskRecord],
-) -> list[CoordinationGraphValidationIssue]:
-    issues: list[CoordinationGraphValidationIssue] = []
+) -> list[TaskGraphRuntimeValidationIssue]:
+    issues: list[TaskGraphRuntimeValidationIssue] = []
     if not nodes:
-        issues.append(CoordinationGraphValidationIssue(code="empty_graph", message="协调任务图不能为空"))
+        issues.append(TaskGraphRuntimeValidationIssue(code="empty_graph", message="协调任务图不能为空"))
         return issues
     node_ids = {node.node_id for node in nodes}
     if not any(node.role == "coordinator" for node in nodes):
-        issues.append(CoordinationGraphValidationIssue(code="missing_coordinator", message="协调任务图必须有协调者节点"))
+        issues.append(TaskGraphRuntimeValidationIssue(code="missing_coordinator", message="协调任务图必须有协调者节点"))
     if len(nodes) > 1 and not edges:
-        issues.append(CoordinationGraphValidationIssue(code="missing_edges", message="多节点协调任务必须配置通信边"))
+        issues.append(TaskGraphRuntimeValidationIssue(code="missing_edges", message="多节点协调任务必须配置通信边"))
     for edge in edges:
         if edge.source_node_id not in node_ids or edge.target_node_id not in node_ids:
             issues.append(
-                CoordinationGraphValidationIssue(
+                TaskGraphRuntimeValidationIssue(
                     code="invalid_edge_endpoint",
                     message="通信边引用了不存在的节点",
                     edge_id=edge.edge_id,
@@ -289,7 +285,7 @@ def _validate_graph(
         task = task_by_id.get(node.task_id)
         if task is None:
             issues.append(
-                CoordinationGraphValidationIssue(
+                TaskGraphRuntimeValidationIssue(
                     code="missing_subtask",
                     message=f"节点引用的特定任务不存在：{node.task_id}",
                     node_id=node.node_id,
@@ -298,7 +294,7 @@ def _validate_graph(
             continue
         if coordination_task.domain_id and task.task_family != coordination_task.task_family:
             issues.append(
-                CoordinationGraphValidationIssue(
+                TaskGraphRuntimeValidationIssue(
                     code="cross_domain_subtask",
                     message=f"节点引用了跨域特定任务：{node.task_id}",
                     node_id=node.node_id,

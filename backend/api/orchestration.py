@@ -71,7 +71,7 @@ class OrchestrationAgentGroupUpsertRequest(BaseModel):
     description: str = Field(default="", max_length=1000)
     default_topology_template_ids: list[str] = Field(default_factory=list)
     default_communication_protocol_ids: list[str] = Field(default_factory=list)
-    allowed_coordination_task_ids: list[str] = Field(default_factory=list)
+    allowed_task_graph_ids: list[str] = Field(default_factory=list)
     lifecycle_state: str = Field(default="enabled", max_length=80)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -456,7 +456,7 @@ async def upsert_orchestration_agent_group(
             description=payload.description,
             default_topology_template_ids=tuple(payload.default_topology_template_ids),
             default_communication_protocol_ids=tuple(payload.default_communication_protocol_ids),
-            allowed_coordination_task_ids=tuple(payload.allowed_coordination_task_ids),
+            allowed_task_graph_ids=tuple(payload.allowed_task_graph_ids),
             lifecycle_state=payload.lifecycle_state,
             metadata={**payload.metadata, "managed_by": "orchestration_console"},
         )

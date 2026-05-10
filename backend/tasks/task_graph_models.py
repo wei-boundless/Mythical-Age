@@ -209,7 +209,7 @@ def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
         for item in list(payload.get("edges") or payload.get("graph_edges") or [])
         if isinstance(item, dict)
     )
-    graph_id = str(payload.get("graph_id") or payload.get("coordination_task_id") or "").strip()
+    graph_id = str(payload.get("graph_id") or payload.get("task_graph_id") or "").strip()
     runtime_policy = dict(payload.get("runtime_policy") or {})
     working_memory_policy_profile_id = str(
         payload.get("working_memory_policy_profile_id")

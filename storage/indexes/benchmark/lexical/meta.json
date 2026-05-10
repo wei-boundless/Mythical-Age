@@ -1,0 +1,10 @@
+{
+  "collection": "benchmark",
+  "status": "ready",
+  "lexical_documents": 5183,
+  "tokenizer": "jieba_search_with_bigram_fallback_v1",
+  "k1": 1.5,
+  "b": 0.75,
+  "build_id": "benchmark-26afd2b91795",
+  "build_started_at_utc": "2026-05-10T12:23:32.540396Z"
+}

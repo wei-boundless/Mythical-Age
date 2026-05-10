@@ -1,0 +1,10 @@
+{
+  "doc_id": "565e019e1ab1088139a64028f1667ce5a87f802c",
+  "source_path": "E-commerce Data/customers.xlsx",
+  "version_digest": "2ed295575cd0311f3725deadaad2ab0d8909c76b",
+  "parser_backend": "docling",
+  "quality_flags": [
+    "table_dense"
+  ],
+  "block_count": 1
+}

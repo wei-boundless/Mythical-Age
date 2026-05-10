@@ -243,7 +243,7 @@ def build_task_execution_assembly_bundle(
         current_turn_context=current_turn_payload,
     )
     coordination_request_brief = dict(task_spec.inputs.get("coordination_request_brief") or {})
-    coordination_task = _select_coordination_task(
+    task_graph = _select_task_graph(
         flow_registry=flow_registry,
         registered_task=registered_task,
         current_turn_context=current_turn_payload,
@@ -264,11 +264,12 @@ def build_task_execution_assembly_bundle(
     task_contract_payload["bundle_spec_ref"] = bundle_spec.bundle_id if bundle_spec is not None else ""
     task_contract_payload["requested_outputs"] = list(task_spec.requested_outputs)
     execution_chain_type = "single_agent_chain"
-    if coordination_task is not None:
+    if task_graph is not None:
         execution_chain_type = "coordination_chain"
     elif bool(getattr(execution_policy, "allow_worker_agent_spawn", False)):
         execution_chain_type = "coordination_chain"
-
+    graph_ref = str(getattr(task_graph, "graph_id", "") or "").strip()
+    task_graph_record = flow_registry.get_task_graph(graph_ref) if graph_ref.startswith("graph.") else None
     assembly = TaskExecutionAssembly(
         assembly_id=f"taskasm:{task_id}",
         task_id=task_contract.task_id,
@@ -290,8 +291,8 @@ def build_task_execution_assembly_bundle(
         task_execution_policy_ref=str(getattr(execution_policy, "plan_id", "") or ""),
         memory_request_profile_ref=str(getattr(memory_request_profile, "profile_id", "") or ""),
         communication_protocol_ref=str(getattr(communication_protocol, "protocol_id", "") or ""),
-        coordination_task_ref=str(getattr(coordination_task, "coordination_task_id", "") or ""),
-        topology_template_ref=str(getattr(coordination_task, "topology_template_id", "") or ""),
+        graph_ref=graph_ref,
+        topology_template_ref=str(getattr(task_graph, "topology_template_id", "") or ""),
         operation_requirement_ref=operation_requirement.requirement_id,
         input_contract_id=str((registered_task or {}).get("input_contract_id") or ""),
         output_contract_id=str((registered_task or {}).get("output_contract_id") or ""),
@@ -340,7 +341,8 @@ def build_task_execution_assembly_bundle(
         "task_agent_adoption_plan": execution_policy.to_legacy_dict() if execution_policy is not None else {},
         "task_memory_request_profile": memory_request_profile.to_dict() if memory_request_profile is not None else {},
         "task_communication_protocol": communication_protocol.to_dict() if communication_protocol is not None else {},
-        "coordination_task_record": coordination_task.to_dict() if coordination_task is not None else {},
+        "graph_record": task_graph.to_dict() if task_graph is not None else {},
+        "task_graph_record": task_graph_record.to_dict() if task_graph_record is not None else {},
         "registered_task": dict(registered_task or {}),
         "query_understanding": dict(query_understanding or {}),
         "current_turn_context": current_turn_payload,
@@ -537,12 +539,12 @@ def _select_communication_protocol(
         protocol = flow_registry.get_task_communication_protocol(metadata_protocol_id)
         if protocol is not None:
             return protocol
-    coordination_task = _select_coordination_task(
+    task_graph = _select_task_graph(
         flow_registry=flow_registry,
         registered_task=registered_task,
         current_turn_context=current_turn_payload,
     )
-    protocol_id = str(dict(getattr(coordination_task, "metadata", {}) or {}).get("protocol_id") or "").strip()
+    protocol_id = str(dict(getattr(task_graph, "metadata", {}) or {}).get("protocol_id") or "").strip()
     if protocol_id:
         protocol = flow_registry.get_task_communication_protocol(protocol_id)
         if protocol is not None:
@@ -552,48 +554,45 @@ def _select_communication_protocol(
     return None
 
 
-def _select_coordination_task(
+def _select_task_graph(
     *,
     flow_registry: TaskFlowRegistry,
     registered_task: dict[str, Any] | None,
     current_turn_context: dict[str, Any] | None = None,
 ):
     current_turn_payload = dict(current_turn_context or {})
-    explicit_coordination_task_id = str(
-        current_turn_payload.get("coordination_task_id")
-        or current_turn_payload.get("selected_coordination_task_id")
-        or ""
-    ).strip()
-    if explicit_coordination_task_id:
-        return next(
-            (
-                item
-                for item in flow_registry.list_coordination_tasks()
-                if item.coordination_task_id == explicit_coordination_task_id
-            ),
-            None,
-        )
+    explicit_refs = (
+        current_turn_payload.get("graph_id"),
+        current_turn_payload.get("selected_graph_id"),
+        current_turn_payload.get("task_graph_id"),
+    )
+    for ref in explicit_refs:
+        target = str(ref or "").strip()
+        if not target:
+            continue
+        resolved = flow_registry.resolve_graph_task_view(target)
+        if resolved is not None:
+            return resolved
     task_id = str((registered_task or {}).get("task_id") or "").strip()
     task_family = str((registered_task or {}).get("task_family") or "").strip()
     metadata = dict((registered_task or {}).get("metadata") or {})
-    metadata_coordination_task_id = str(metadata.get("coordination_task_id") or "").strip()
-    if metadata_coordination_task_id:
-        return next(
-            (
-                item
-                for item in flow_registry.list_coordination_tasks()
-                if item.coordination_task_id == metadata_coordination_task_id
-            ),
-            None,
-        )
-    for item in flow_registry.list_coordination_tasks():
+    metadata_graph_ref = str(
+        metadata.get("graph_id")
+        or metadata.get("task_graph_id")
+        or ""
+    ).strip()
+    if metadata_graph_ref:
+        resolved = flow_registry.resolve_graph_task_view(metadata_graph_ref)
+        if resolved is not None:
+            return resolved
+    for item in flow_registry.list_graph_tasks():
         if task_id and task_id in item.subtask_refs:
             return item
     if task_id.startswith("task.health.") or task_family == "health":
         return next(
             (
                 item
-                for item in flow_registry.list_coordination_tasks()
+                for item in flow_registry.list_graph_tasks()
                 if item.topology_template_id == "topology.health.repair_review"
             ),
             None,

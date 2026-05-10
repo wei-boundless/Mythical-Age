@@ -1,0 +1,16 @@
+{
+  "doc_id": "0576bc2641537492286e9f4b07bb14372dca47c5",
+  "block_count": 1,
+  "object_count": 1,
+  "page_summary_count": 0,
+  "eligible_block_count": 1,
+  "dropped_block_count": 0,
+  "eligibility_breakdown": {
+    "keep_object_only": 1
+  },
+  "index_profile_counts": {
+    "object_anchor": 1
+  },
+  "drop_reason_counts": {},
+  "cleaning_flag_counts": {}
+}

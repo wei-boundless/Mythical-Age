@@ -1,0 +1,2739 @@
+{
+  "doc_id": "24cfbdbd834bdc4c89d511900ace31305a2439ab",
+  "collection": "knowledge",
+  "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf",
+  "source_type": "pdf",
+  "version_digest": "0575bce32d912b12c96c04283934822fefcdf861",
+  "parser_backend": "docling",
+  "title": "2026年快消行业AI营销增长白皮书",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:0",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:1",
+      "block_type": "paragraph",
+      "text": "2026",
+      "modality": "text",
+      "section_label": "",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:2",
+      "block_type": "heading",
+      "text": "## 快消行业 AI营销增长白皮书",
+      "modality": "text",
+      "section_label": "快消行业 AI营销增长白皮书",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "快消行业 AI营销增长白皮书"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:3",
+      "block_type": "paragraph",
+      "text": "2026.1",
+      "modality": "text",
+      "section_label": "快消行业 AI营销增长白皮书",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "快消行业 AI营销增长白皮书"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:4",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "快消行业 AI营销增长白皮书",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "快消行业 AI营销增长白皮书"
+      ],
+      "reading_order": 4,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:5",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "快消行业 AI营销增长白皮书",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "快消行业 AI营销增长白皮书"
+      ],
+      "reading_order": 5,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:6",
+      "block_type": "heading",
+      "text": "## 引言",
+      "modality": "text",
+      "section_label": "引言",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "引言"
+      ],
+      "reading_order": 6,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:7",
+      "block_type": "paragraph",
+      "text": "--过去十年，中国快消行业的增长主要建立在三大红利之上：人口与城镇化、渠道扩张、以及流量平台规模化。",
+      "modality": "text",
+      "section_label": "引言",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "引言"
+      ],
+      "reading_order": 7,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:8",
+      "block_type": "paragraph",
+      "text": "GMV' AI M AI 但这套范式正系统性失效。宏观上，低通胀与价格预期走弱，使\"降价换增长\"难以持续；行业上，供给过剩 一端极致心价比，中间加速坍塌。对品牌而言，增长不再来自更大声量，而来自更强的解释权、信任与效率。中国快",
+      "modality": "text",
+      "section_label": "引言",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "引言"
+      ],
+      "reading_order": 8,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:9",
+      "block_type": "paragraph",
+      "text": "2026 AI --AI --X --全链路数字底座，贯通战略、生产、投放与迭代，形成端到端智能进化。",
+      "modality": "text",
+      "section_label": "引言",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "引言"
+      ],
+      "reading_order": 9,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:10",
+      "block_type": "paragraph",
+      "text": "AI AI 品牌以效率破局，在变革中抢占增长先机。",
+      "modality": "text",
+      "section_label": "引言",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "引言"
+      ],
+      "reading_order": 10,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:11",
+      "block_type": "heading",
+      "text": "## 合作媒体",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 11,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:12",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 12,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:13",
+      "block_type": "paragraph",
+      "text": "CMO",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 13,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:14",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 14,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:15",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 15,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:16",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 16,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:17",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 17,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:18",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 18,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:19",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 19,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:20",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 20,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:21",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 21,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:22",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 22,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:23",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 23,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:24",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 24,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:25",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 25,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:26",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 26,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:27",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 27,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:28",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 28,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:29",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 29,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:30",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 30,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:31",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 31,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:32",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 32,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:33",
+      "block_type": "paragraph",
+      "text": "meihua.info",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 33,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:34",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 34,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:35",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 35,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:36",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 36,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:37",
+      "block_type": "paragraph",
+      "text": "ocialBe eta",
+      "modality": "text",
+      "section_label": "合作媒体",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "合作媒体"
+      ],
+      "reading_order": 37,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:38",
+      "block_type": "heading",
+      "text": "## Part02",
+      "modality": "text",
+      "section_label": "Part02",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "Part02"
+      ],
+      "reading_order": 38,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:39",
+      "block_type": "paragraph",
+      "text": "增长引擎一： AI心智占位 预测式社交生态实战指南",
+      "modality": "text",
+      "section_label": "Part02",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Part02"
+      ],
+      "reading_order": 39,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:40",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "Part02",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "Part02"
+      ],
+      "reading_order": 40,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:41",
+      "block_type": "heading",
+      "text": "## AI心智占位一一利用AI找到市场新机会和切入点",
+      "modality": "text",
+      "section_label": "AI心智占位一一利用AI找到市场新机会和切入点",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "AI心智占位一一利用AI找到市场新机会和切入点"
+      ],
+      "reading_order": 41,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:42",
+      "block_type": "heading",
+      "text": "## 利用AI能力，将用户\"心智\"实现可测量、助力品牌实现 \"心智占位\"",
+      "modality": "text",
+      "section_label": "利用AI能力，将用户\"心智\"实现可测量、助力品牌实现 \"心智占位\"",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "利用AI能力，将用户\"心智\"实现可测量、助力品牌实现 \"心智占位\""
+      ],
+      "reading_order": 42,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:43",
+      "block_type": "heading",
+      "text": "## 传统营销链路",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 43,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:44",
+      "block_type": "paragraph",
+      "text": "- 适用场景：增量市场\n- 核心痛点：转化成本高、用户信任弱、 溢价能力低",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 44,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:45",
+      "block_type": "paragraph",
+      "text": "选品",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 45,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:46",
+      "block_type": "paragraph",
+      "text": "搜索",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 46,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:47",
+      "block_type": "paragraph",
+      "text": "跟风选品",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 47,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:48",
+      "block_type": "paragraph",
+      "text": "行动",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 48,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:49",
+      "block_type": "paragraph",
+      "text": "分享",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 49,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:50",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 50,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:51",
+      "block_type": "paragraph",
+      "text": "流量采买模式 硬广拦截、促销降价",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 51,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:52",
+      "block_type": "paragraph",
+      "text": "种草",
+      "modality": "text",
+      "section_label": "传统营销链路",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统营销链路"
+      ],
+      "reading_order": 52,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:53",
+      "block_type": "heading",
+      "text": "## AI",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 53,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:54",
+      "block_type": "paragraph",
+      "text": "- M 渠道碎片化\n- AI 挖掘隐藏爆品，精准响应消费需求",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 54,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:55",
+      "block_type": "paragraph",
+      "text": "AI 赛道",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 55,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:56",
+      "block_type": "paragraph",
+      "text": "种草",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 56,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:57",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 57,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:58",
+      "block_type": "paragraph",
+      "text": "AI",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 58,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:59",
+      "block_type": "paragraph",
+      "text": "搜索",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 59,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:60",
+      "block_type": "paragraph",
+      "text": "行动",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 60,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:61",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 61,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:62",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 62,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:63",
+      "block_type": "paragraph",
+      "text": "心智占位，并提前种草 建立第一位品牌心智",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 63,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:64",
+      "block_type": "paragraph",
+      "text": "心智 占位",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 64,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:65",
+      "block_type": "paragraph",
+      "text": "抢先进入\"被比较 /被推荐/被信任 的候选池",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 65,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:66",
+      "block_type": "paragraph",
+      "text": "分享",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 66,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:67",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 67,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:68",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI"
+      ],
+      "reading_order": 68,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:69",
+      "block_type": "heading",
+      "text": "## 悲，，",
+      "modality": "text",
+      "section_label": "悲，，",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "悲，，"
+      ],
+      "reading_order": 69,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:70",
+      "block_type": "heading",
+      "text": "## 传统营销",
+      "modality": "text",
+      "section_label": "传统营销",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "传统营销"
+      ],
+      "reading_order": 70,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:71",
+      "block_type": "heading",
+      "text": "## 事后响应，落后市场心智",
+      "modality": "text",
+      "section_label": "事后响应，落后市场心智",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "事后响应，落后市场心智"
+      ],
+      "reading_order": 71,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:72",
+      "block_type": "paragraph",
+      "text": "被动等待需求明确后再响应",
+      "modality": "text",
+      "section_label": "事后响应，落后市场心智",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "事后响应，落后市场心智"
+      ],
+      "reading_order": 72,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:73",
+      "block_type": "paragraph",
+      "text": "\"用户想要，我有\"",
+      "modality": "text",
+      "section_label": "事后响应，落后市场心智",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "事后响应，落后市场心智"
+      ],
+      "reading_order": 73,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:74",
+      "block_type": "heading",
+      "text": "## e.g.",
+      "modality": "text",
+      "section_label": "e.g.",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "e.g."
+      ],
+      "reading_order": 74,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:75",
+      "block_type": "paragraph",
+      "text": "用户关注\"控油\"，围绕核心洞察 做创意延伸与投放",
+      "modality": "text",
+      "section_label": "e.g.",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "e.g."
+      ],
+      "reading_order": 75,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:76",
+      "block_type": "heading",
+      "text": "## AI营销",
+      "modality": "text",
+      "section_label": "AI营销",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "AI营销"
+      ],
+      "reading_order": 76,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:77",
+      "block_type": "heading",
+      "text": "## 超前感知与布局",
+      "modality": "text",
+      "section_label": "超前感知与布局",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "超前感知与布局"
+      ],
+      "reading_order": 77,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:78",
+      "block_type": "paragraph",
+      "text": "AI读取的是用户的\"行为信号+情绪信 号\"：搜索、评论、收藏、停留、吐 槽，能够提前6-12个月精准预判品类趋 势和个体潜在需求。",
+      "modality": "text",
+      "section_label": "超前感知与布局",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "超前感知与布局"
+      ],
+      "reading_order": 78,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:79",
+      "block_type": "paragraph",
+      "text": "- \"用户未知，超前布局",
+      "modality": "text",
+      "section_label": "超前感知与布局",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "超前感知与布局"
+      ],
+      "reading_order": 79,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:80",
+      "block_type": "heading",
+      "text": "## e.g.",
+      "modality": "text",
+      "section_label": "e.g.",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "e.g."
+      ],
+      "reading_order": 80,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:81",
+      "block_type": "paragraph",
+      "text": "由用户关注\"控油\"预判其即将转向 \"屏障呼吸\" \"温和修好\"等概念兴 趣，提前布局",
+      "modality": "text",
+      "section_label": "e.g.",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "e.g."
+      ],
+      "reading_order": 81,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:82",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "e.g.",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "e.g."
+      ],
+      "reading_order": 82,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:83",
+      "block_type": "paragraph",
+      "text": "AI让营销从事后响应 变为事前布局。",
+      "modality": "text",
+      "section_label": "e.g.",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "e.g."
+      ],
+      "reading_order": 83,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:84",
+      "block_type": "paragraph",
+      "text": "新增量：AI驱动\"需 求预测引擎\"，实现 超前布局。",
+      "modality": "text",
+      "section_label": "e.g.",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "e.g."
+      ],
+      "reading_order": 84,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:85",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "e.g.",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "e.g."
+      ],
+      "reading_order": 85,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:86",
+      "block_type": "heading",
+      "text": "## 营销打法革新：从\"流量式\"进化为\"耦合式\"体验",
+      "modality": "text",
+      "section_label": "营销打法革新：从\"流量式\"进化为\"耦合式\"体验",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "营销打法革新：从\"流量式\"进化为\"耦合式\"体验"
+      ],
+      "reading_order": 86,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:87",
+      "block_type": "heading",
+      "text": "## 传统\"流量式\"营销",
+      "modality": "text",
+      "section_label": "传统\"流量式\"营销",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "传统\"流量式\"营销"
+      ],
+      "reading_order": 87,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:88",
+      "block_type": "paragraph",
+      "text": "(获取注意力→拦截收割)",
+      "modality": "text",
+      "section_label": "传统\"流量式\"营销",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统\"流量式\"营销"
+      ],
+      "reading_order": 88,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:89",
+      "block_type": "paragraph",
+      "text": "购买广告位和关键词，争夺用户注意 力入口",
+      "modality": "text",
+      "section_label": "传统\"流量式\"营销",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统\"流量式\"营销"
+      ],
+      "reading_order": 89,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:90",
+      "block_type": "paragraph",
+      "text": "制作少量通用型广告素材，人群标签 定向，进行大规模重复曝光",
+      "modality": "text",
+      "section_label": "传统\"流量式\"营销",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统\"流量式\"营销"
+      ],
+      "reading_order": 90,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:91",
+      "block_type": "paragraph",
+      "text": "在用户决策路径关键节点设置促销、优 惠券、导流链接，追求即时点击与购买",
+      "modality": "text",
+      "section_label": "传统\"流量式\"营销",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统\"流量式\"营销"
+      ],
+      "reading_order": 91,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:92",
+      "block_type": "paragraph",
+      "text": "用户流失后，仅能通过再次购买流量进 行重复触达，成本递增",
+      "modality": "text",
+      "section_label": "传统\"流量式\"营销",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "传统\"流量式\"营销"
+      ],
+      "reading_order": 92,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:93",
+      "block_type": "heading",
+      "text": "## AI\"耦合式\"营销",
+      "modality": "text",
+      "section_label": "AI\"耦合式\"营销",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "AI\"耦合式\"营销"
+      ],
+      "reading_order": 93,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:94",
+      "block_type": "paragraph",
+      "text": "（建立深度关系→共生增长）",
+      "modality": "text",
+      "section_label": "AI\"耦合式\"营销",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI\"耦合式\"营销"
+      ],
+      "reading_order": 94,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:95",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI\"耦合式\"营销",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI\"耦合式\"营销"
+      ],
+      "reading_order": 95,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:96",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "AI\"耦合式\"营销",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "AI\"耦合式\"营销"
+      ],
+      "reading_order": 96,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:97",
+      "block_type": "heading",
+      "text": "## 内容标签耦合",
+      "modality": "text",
+      "section_label": "内容标签耦合",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "内容标签耦合"
+      ],
+      "reading_order": 97,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:98",
+      "block_type": "paragraph",
+      "text": "-构建可交互、可个性化组装的内容模块",
+      "modality": "text",
+      "section_label": "内容标签耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内容标签耦合"
+      ],
+      "reading_order": 98,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:99",
+      "block_type": "heading",
+      "text": "## 全域旅程耦合",
+      "modality": "text",
+      "section_label": "全域旅程耦合",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "全域旅程耦合"
+      ],
+      "reading_order": 99,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:100",
+      "block_type": "paragraph",
+      "text": "AI 为用户形成连贯的个性化旅程",
+      "modality": "text",
+      "section_label": "全域旅程耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "全域旅程耦合"
+      ],
+      "reading_order": 100,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:101",
+      "block_type": "heading",
+      "text": "## 价值关系耦合",
+      "modality": "text",
+      "section_label": "价值关系耦合",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "价值关系耦合"
+      ],
+      "reading_order": 101,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:102",
+      "block_type": "paragraph",
+      "text": "AI 与用户、用户与用户之间的深度互动关系",
+      "modality": "text",
+      "section_label": "价值关系耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "价值关系耦合"
+      ],
+      "reading_order": 102,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:103",
+      "block_type": "paragraph",
+      "text": "AI驱动的\"耦合式\"营销，本质是从买流量到养关系的战略升维。",
+      "modality": "text",
+      "section_label": "价值关系耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "价值关系耦合"
+      ],
+      "reading_order": 103,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:104",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "价值关系耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "价值关系耦合"
+      ],
+      "reading_order": 104,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:105",
+      "block_type": "paragraph",
+      "text": "2",
+      "modality": "text",
+      "section_label": "价值关系耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "价值关系耦合"
+      ],
+      "reading_order": 105,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:106",
+      "block_type": "paragraph",
+      "text": "2",
+      "modality": "text",
+      "section_label": "价值关系耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "价值关系耦合"
+      ],
+      "reading_order": 106,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:107",
+      "block_type": "paragraph",
+      "text": "2",
+      "modality": "text",
+      "section_label": "价值关系耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "价值关系耦合"
+      ],
+      "reading_order": 107,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:108",
+      "block_type": "paragraph",
+      "text": "2",
+      "modality": "text",
+      "section_label": "价值关系耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "价值关系耦合"
+      ],
+      "reading_order": 108,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:109",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "价值关系耦合",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "价值关系耦合"
+      ],
+      "reading_order": 109,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:110",
+      "block_type": "heading",
+      "text": "## 小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 110,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:111",
+      "block_type": "paragraph",
+      "text": "00",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 111,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:112",
+      "block_type": "paragraph",
+      "text": "95",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 112,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:113",
+      "block_type": "paragraph",
+      "text": "年轻有活力用户",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 113,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:114",
+      "block_type": "paragraph",
+      "text": "35%",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 114,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:115",
+      "block_type": "paragraph",
+      "text": "50%",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 115,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:116",
+      "block_type": "paragraph",
+      "text": "52%",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 116,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:117",
+      "block_type": "paragraph",
+      "text": "二线及以上城市占比",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 117,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:118",
+      "block_type": "paragraph",
+      "text": "1.2H",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 118,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:119",
+      "block_type": "paragraph",
+      "text": "用户日均使用时长",
+      "modality": "text",
+      "section_label": "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "小红书|不仅是内容种草，更是用户的心智起点与意图拦截平台"
+      ],
+      "reading_order": 119,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:120",
+      "block_type": "heading",
+      "text": "## 心智预售期",
+      "modality": "text",
+      "section_label": "心智预售期",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "心智预售期"
+      ],
+      "reading_order": 120,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:121",
+      "block_type": "heading",
+      "text": "## /",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 121,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:122",
+      "block_type": "paragraph",
+      "text": "2 把握测试黄金期",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 122,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:123",
+      "block_type": "paragraph",
+      "text": "- AI拆解高互动笔记→抽取\"信 任公式\"（标题结构、成分表 述、对比对象、避坑点）→规 模化生产万级素材",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 123,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:124",
+      "block_type": "paragraph",
+      "text": "用户在这里搜索",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 124,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:125",
+      "block_type": "paragraph",
+      "text": "73%",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 125,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:126",
+      "block_type": "paragraph",
+      "text": "月均搜索渗透",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 126,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:127",
+      "block_type": "paragraph",
+      "text": "90%",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 127,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:128",
+      "block_type": "paragraph",
+      "text": "主动搜索占比",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 128,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:129",
+      "block_type": "paragraph",
+      "text": "34%",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 129,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:130",
+      "block_type": "paragraph",
+      "text": "搜索外溢转化",
+      "modality": "text",
+      "section_label": "/",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "/"
+      ],
+      "reading_order": 130,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:131",
+      "block_type": "heading",
+      "text": "## 第一爆发期",
+      "modality": "text",
+      "section_label": "第一爆发期",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "第一爆发期"
+      ],
+      "reading_order": 131,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:132",
+      "block_type": "paragraph",
+      "text": "用户在这里互动",
+      "modality": "text",
+      "section_label": "第一爆发期",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "第一爆发期"
+      ],
+      "reading_order": 132,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:133",
+      "block_type": "paragraph",
+      "text": "700W+",
+      "modality": "text",
+      "section_label": "第一爆发期",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "第一爆发期"
+      ],
+      "reading_order": 133,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:134",
+      "block_type": "paragraph",
+      "text": "每日新增笔记",
+      "modality": "text",
+      "section_label": "第一爆发期",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "第一爆发期"
+      ],
+      "reading_order": 134,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:135",
+      "block_type": "paragraph",
+      "text": "6000W+",
+      "modality": "text",
+      "section_label": "第一爆发期",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "第一爆发期"
+      ],
+      "reading_order": 135,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:136",
+      "block_type": "paragraph",
+      "text": "每日新增评论数",
+      "modality": "text",
+      "section_label": "第一爆发期",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "第一爆发期"
+      ],
+      "reading_order": 136,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:137",
+      "block_type": "paragraph",
+      "text": "1.7亿",
+      "modality": "text",
+      "section_label": "第一爆发期",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "第一爆发期"
+      ],
+      "reading_order": 137,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:138",
+      "block_type": "paragraph",
+      "text": "每月寻求购买建议用户数",
+      "modality": "text",
+      "section_label": "第一爆发期",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "第一爆发期"
+      ],
+      "reading_order": 138,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:139",
+      "block_type": "heading",
+      "text": "## 第二爆发期",
+      "modality": "text",
+      "section_label": "第二爆发期",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "第二爆发期"
+      ],
+      "reading_order": 139,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:140",
+      "block_type": "heading",
+      "text": "## 心智锁定",
+      "modality": "text",
+      "section_label": "心智锁定",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "心智锁定"
+      ],
+      "reading_order": 140,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:141",
+      "block_type": "paragraph",
+      "text": "30 抢占蓝海优势",
+      "modality": "text",
+      "section_label": "心智锁定",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "心智锁定"
+      ],
+      "reading_order": 141,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:142",
+      "block_type": "paragraph",
+      "text": "- AI按场景、人群、功效等 分组生成\"长尾关键词簇\"\n- ·\n- AI监测搜索词动态，每周 更新词库与笔记改写",
+      "modality": "text",
+      "section_label": "心智锁定",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "心智锁定"
+      ],
+      "reading_order": 142,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:143",
+      "block_type": "heading",
+      "text": "## 长尾期",
+      "modality": "text",
+      "section_label": "长尾期",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "长尾期"
+      ],
+      "reading_order": 143,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:144",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "长尾期",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "长尾期"
+      ],
+      "reading_order": 144,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:145",
+      "block_type": "heading",
+      "text": "## 内容回流",
+      "modality": "text",
+      "section_label": "内容回流",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "内容回流"
+      ],
+      "reading_order": 145,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:146",
+      "block_type": "paragraph",
+      "text": "-激励用户晒单",
+      "modality": "text",
+      "section_label": "内容回流",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内容回流"
+      ],
+      "reading_order": 146,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:147",
+      "block_type": "paragraph",
+      "text": "- AI参与口碑维护与 投后舆情管理",
+      "modality": "text",
+      "section_label": "内容回流",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内容回流"
+      ],
+      "reading_order": 147,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:148",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "内容回流",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内容回流"
+      ],
+      "reading_order": 148,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:149",
+      "block_type": "paragraph",
+      "text": "AI时代的资产不是追求 \"单次爆款内容 而是通过用户和商品的精准耦合 构筑\"可复用、可规模化的数字资产体系\"",
+      "modality": "text",
+      "section_label": "内容回流",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内容回流"
+      ],
+      "reading_order": 149,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    },
+    {
+      "block_id": "0575bce32d912b12c96c04283934822fefcdf861:150",
+      "block_type": "paragraph",
+      "text": "<!-- image -->",
+      "modality": "text",
+      "section_label": "内容回流",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "内容回流"
+      ],
+      "reading_order": 150,
+      "bbox": null,
+      "metadata": {
+        "source_type": "pdf",
+        "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "pdf",
+    "source_path": "AI Knowledge/2026年快消行业AI营销增长白皮书.pdf",
+    "fallback_used": false
+  }
+}

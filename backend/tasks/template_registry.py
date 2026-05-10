@@ -7,6 +7,7 @@ from capability_system import build_default_operation_registry
 from capability_system.local_mcp_registry import get_local_mcp_primary_template, get_local_mcp_unit_for_source_kind
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from understanding.capability_resolution_view import capability_resolution_view
 
 from .match_contracts import TaskIntentContract, TemplateMatchResult
 from .definitions import TaskDefinition
@@ -499,9 +500,10 @@ class TaskTemplateRegistry:
             for item in list(definitions or [])
             if isinstance(item, TaskDefinition)
         }
-        route_hint = str(understanding.get("route_hint") or "").strip()
-        execution_posture = str(understanding.get("execution_posture") or "").strip()
-        preferred_skill = str(understanding.get("preferred_skill") or "").strip()
+        resolution = capability_resolution_view(understanding)
+        effective_route = resolution.route
+        execution_posture = resolution.execution_posture
+        effective_skill = resolution.preferred_skill
         source_kind = str(understanding.get("source_kind") or "").strip()
         modality = str(understanding.get("modality") or "").strip()
         lowered_goal = str(task_intent_contract.user_goal or "").lower()
@@ -555,31 +557,31 @@ class TaskTemplateRegistry:
             template_id = "template.health.issue_triage"
             match_source = "capability_contract"
             match_reasons.append("health_issue_capability")
-        elif execution_posture == "direct_rag" or route_hint == "rag" or preferred_skill == "rag-skill":
+        elif execution_posture == "direct_rag" or effective_route == "rag" or effective_skill == "rag-skill":
             template_id = _RAG_TEMPLATE_ID
             match_source = "capability_contract"
             match_reasons.append("rag_execution_posture")
-        elif route_hint == "pdf" or preferred_skill == "pdf-analysis":
+        elif effective_route == "pdf" or effective_skill == "pdf-analysis":
             template_id = _PDF_TEMPLATE_ID
             match_source = "capability_contract"
             match_reasons.append("pdf_mcp_route")
-        elif route_hint == "structured_data" or preferred_skill == "structured-data-analysis":
+        elif effective_route == "structured_data" or effective_skill == "structured-data-analysis":
             template_id = _STRUCTURED_DATA_TEMPLATE_ID
             match_source = "capability_contract"
             match_reasons.append("structured_data_mcp_route")
-        elif route_hint == "search" or "task.information_search" in definition_ids:
+        elif effective_route == "search" or "task.information_search" in definition_ids:
             template_id = "template.search.information_search"
             match_source = "capability_contract"
             match_reasons.append("search_route_hint")
-        elif route_hint == "realtime_network":
+        elif effective_route == "realtime_network":
             template_id = "template.search.information_search"
             match_source = "capability_contract"
             match_reasons.append("realtime_network_route")
-        elif route_hint in {"workspace_read", "workspace_path_search", "workspace_text_search"}:
+        elif effective_route in {"workspace_read", "workspace_path_search", "workspace_text_search"}:
             template_id = "template.capability.builtin_tool_lane"
             match_source = "capability_contract"
             match_reasons.append("builtin_tool_route_family")
-        elif execution_posture == "builtin_tool_lane" or route_hint == "tool":
+        elif execution_posture == "builtin_tool_lane" or effective_route == "tool":
             template_id = "template.capability.builtin_tool_lane"
             match_source = "capability_contract"
             match_reasons.append("legacy_builtin_tool_lane_route")
@@ -624,9 +626,9 @@ class TaskTemplateRegistry:
             output_contract=tuple(task_intent_contract.requested_outputs),
             diagnostics={
                 "definition_ids": sorted(definition_ids),
-                "route_hint": route_hint,
+                "effective_route": effective_route,
                 "execution_posture": execution_posture,
-                "preferred_skill": preferred_skill,
+                "effective_skill": effective_skill,
                 "source_kind": source_kind,
                 "modality": modality,
                 "current_turn_execution_mode": str(current_turn.get("execution_mode") or ""),

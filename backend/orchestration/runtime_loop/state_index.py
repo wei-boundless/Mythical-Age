@@ -321,7 +321,7 @@ def _coordination_run_from_payload(payload: dict[str, Any]) -> CoordinationRun:
     return CoordinationRun(
         coordination_run_id=str(payload.get("coordination_run_id") or ""),
         task_run_id=str(payload.get("task_run_id") or ""),
-        coordination_task_ref=str(payload.get("coordination_task_ref") or ""),
+        graph_ref=str(payload.get("graph_ref") or ""),
         coordinator_agent_id=str(payload.get("coordinator_agent_id") or ""),
         topology_template_id=str(payload.get("topology_template_id") or ""),
         communication_protocol_id=str(payload.get("communication_protocol_id") or ""),

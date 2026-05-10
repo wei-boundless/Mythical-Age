@@ -1,0 +1,97 @@
+{
+  "doc_id": "8dc156c5350773caded2ddc764ea72d0ed016729",
+  "collection": "knowledge",
+  "source_path": "E-commerce Data/data_structure.md",
+  "source_type": "md",
+  "version_digest": "24e0b3689bea6e2597819268e6ffaf6bde7015ee",
+  "parser_backend": "docling",
+  "title": "data_structure",
+  "language": null,
+  "page_count": 0,
+  "structure_contract_version": "structure_contract_v1",
+  "parser_route": [
+    "docling"
+  ],
+  "fallback_used": false,
+  "quality_flags": [],
+  "blocks": [
+    {
+      "block_id": "24e0b3689bea6e2597819268e6ffaf6bde7015ee:0",
+      "block_type": "heading",
+      "text": "# 领域目录索引：E-commerce Data",
+      "modality": "text",
+      "section_label": "领域目录索引：E-commerce Data",
+      "structure_role": "heading",
+      "page": null,
+      "section_path": [
+        "领域目录索引：E-commerce Data"
+      ],
+      "reading_order": 0,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "E-commerce Data/data_structure.md"
+      }
+    },
+    {
+      "block_id": "24e0b3689bea6e2597819268e6ffaf6bde7015ee:1",
+      "block_type": "paragraph",
+      "text": "本目录用于存放电商业务相关的结构化数据文件（当前以 CSV 为主），常用于用户分析、销售分析和库存管理等场景。",
+      "modality": "text",
+      "section_label": "领域目录索引：E-commerce Data",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "领域目录索引：E-commerce Data"
+      ],
+      "reading_order": 1,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "E-commerce Data/data_structure.md"
+      }
+    },
+    {
+      "block_id": "24e0b3689bea6e2597819268e6ffaf6bde7015ee:2",
+      "block_type": "paragraph",
+      "text": "- employees.xlsx\n    - 用途：员工基本信息和相关属性数据，可用于组织结构分析、人力相关统计等。\n- customers.xlsx\n    - 用途：客户/用户数据，包括基本属性和可能的分群字段，是用户画像与运营分析的基础数据。\n- inventory.xlsx\n    - 用途：商品库存相关数据，用于库存周转分析、缺货预警等。\n- sales\\_orders.xlsx\n    - 用途：销售订单明细数据，可用于销售额统计、转化分析、复购分析等。\n- faq.json\n    - 用途：结构化电商中用户与客服之间的常见问题问答数据，包含问题、答案、分类与链接等字段，可用于客户服务知识检索、智能客服问答匹配、FAQ 知识库构建等场景。",
+      "modality": "text",
+      "section_label": "领域目录索引：E-commerce Data",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "领域目录索引：E-commerce Data"
+      ],
+      "reading_order": 2,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "E-commerce Data/data_structure.md"
+      }
+    },
+    {
+      "block_id": "24e0b3689bea6e2597819268e6ffaf6bde7015ee:3",
+      "block_type": "paragraph",
+      "text": "如有新增其他电商相关数据文件（如商品信息、流量日志等），可放在本目录并在此文件中补充说明用途。",
+      "modality": "text",
+      "section_label": "领域目录索引：E-commerce Data",
+      "structure_role": "content",
+      "page": null,
+      "section_path": [
+        "领域目录索引：E-commerce Data"
+      ],
+      "reading_order": 3,
+      "bbox": null,
+      "metadata": {
+        "source_type": "md",
+        "source_path": "E-commerce Data/data_structure.md"
+      }
+    }
+  ],
+  "metadata": {
+    "prefer_ocr": false,
+    "source_type": "md",
+    "source_path": "E-commerce Data/data_structure.md",
+    "fallback_used": false
+  }
+}

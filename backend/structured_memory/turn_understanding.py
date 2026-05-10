@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from understanding.capability_resolution_view import capability_resolution_view
 from understanding.task_understanding import TaskUnderstanding, analyze_task_understanding
 
 from .dialogue_state import DialogueState, TurnUnderstanding
@@ -311,7 +312,7 @@ class TurnUnderstandingAnalyzer:
             return "structured_data_flow"
         if understanding.modality in {"realtime", "web"}:
             return "external_lookup_flow"
-        if understanding.route_hint == "rag":
+        if capability_resolution_view(understanding).route == "rag":
             return "knowledge_lookup_flow"
         return "general_problem_solving_flow"
 

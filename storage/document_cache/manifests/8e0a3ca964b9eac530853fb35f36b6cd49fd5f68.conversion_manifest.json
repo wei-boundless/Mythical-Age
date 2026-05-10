@@ -1,0 +1,10 @@
+{
+  "doc_id": "8e0a3ca964b9eac530853fb35f36b6cd49fd5f68",
+  "source_path": "E-commerce Data/inventory.xlsx",
+  "version_digest": "60e8952f25cf3965e6dba3b86ecddf75c3b60905",
+  "parser_backend": "docling",
+  "quality_flags": [
+    "table_dense"
+  ],
+  "block_count": 1
+}

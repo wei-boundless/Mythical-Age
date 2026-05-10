@@ -69,8 +69,10 @@ def _group_from_dict(payload: dict[str, Any]) -> AgentGroup:
         default_communication_protocol_ids=tuple(
             str(item).strip() for item in list(payload.get("default_communication_protocol_ids") or []) if str(item).strip()
         ),
-        allowed_coordination_task_ids=tuple(
-            str(item).strip() for item in list(payload.get("allowed_coordination_task_ids") or []) if str(item).strip()
+        allowed_task_graph_ids=tuple(
+            str(item).strip()
+            for item in list(payload.get("allowed_task_graph_ids") or [])
+            if str(item).strip()
         ),
         lifecycle_state=str(payload.get("lifecycle_state") or "enabled"),
         metadata=dict(payload.get("metadata") or {}),
@@ -113,7 +115,7 @@ class AgentGroupRegistry:
         description: str = "",
         default_topology_template_ids: tuple[str, ...] = (),
         default_communication_protocol_ids: tuple[str, ...] = (),
-        allowed_coordination_task_ids: tuple[str, ...] = (),
+        allowed_task_graph_ids: tuple[str, ...] = (),
         lifecycle_state: str = "enabled",
         metadata: dict[str, Any] | None = None,
     ) -> AgentGroup:
@@ -135,7 +137,7 @@ class AgentGroupRegistry:
             default_communication_protocol_ids=tuple(
                 str(item).strip() for item in default_communication_protocol_ids if str(item).strip()
             ),
-            allowed_coordination_task_ids=tuple(str(item).strip() for item in allowed_coordination_task_ids if str(item).strip()),
+            allowed_task_graph_ids=tuple(str(item).strip() for item in allowed_task_graph_ids if str(item).strip()),
             lifecycle_state=str(lifecycle_state or "enabled").strip() or "enabled",
             metadata=dict(metadata or {}),
         )

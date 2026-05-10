@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from understanding.task_understanding import TaskUnderstanding
+from understanding.capability_resolution_view import capability_resolution_view
 
 from .dialogue_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
 from .models import Message, utc_now_iso
@@ -876,7 +877,7 @@ class ProcessStateEngine:
             return "coding_change_flow"
         if self._looks_like_architecture_request(active_goal):
             return "architecture_design_flow"
-        if understanding.route_hint == "rag":
+        if capability_resolution_view(understanding).route == "rag":
             return "knowledge_lookup_flow"
         if previous_state.flow_state.flow_type != "general_problem_solving_flow" and not lowered:
             return previous_state.flow_state.flow_type

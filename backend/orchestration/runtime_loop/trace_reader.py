@@ -183,7 +183,11 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "step_count": len(list(task_run_ledger.get("step_runs") or [])),
                 "user_goal_chars": len(str(contract.get("user_goal") or "")),
                 "adoption_plan_ref": str(dict(payload.get("task_agent_adoption_plan") or {}).get("plan_id") or ""),
-                "coordination_task_ref": str(dict(payload.get("coordination_task_record") or {}).get("coordination_task_id") or ""),
+                "graph_ref": str(
+                    dict(payload.get("task_graph_record") or {}).get("graph_id")
+                    or dict(payload.get("graph_record") or {}).get("graph_id")
+                    or ""
+                ),
                 "source": str(payload.get("source") or ""),
             }
         )
@@ -203,7 +207,7 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
         summary.update(
             {
                 "coordination_run_id": str(coordination_run.get("coordination_run_id") or ""),
-                "coordination_task_ref": str(coordination_run.get("coordination_task_ref") or ""),
+                "graph_ref": str(coordination_run.get("graph_ref") or ""),
                 "coordinator_agent_id": str(coordination_run.get("coordinator_agent_id") or ""),
                 "topology_template_id": str(coordination_run.get("topology_template_id") or ""),
                 "communication_protocol_id": str(coordination_run.get("communication_protocol_id") or ""),

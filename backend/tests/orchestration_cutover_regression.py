@@ -187,8 +187,8 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
         worker_agent_naming_rule="game-worker-{n}",
         notes="runtime formalization test",
     )
-    registry.upsert_coordination_task(
-        coordination_task_id="coord.dev.parallel_game_delivery",
+    registry.upsert_graph_task(
+        graph_id="graph.dev.parallel_game_delivery",
         title="小游戏并行交付",
         coordination_mode="review_merge",
         coordinator_agent_id="agent:0",
@@ -243,7 +243,7 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
                 task_selection={
                     "task_id": "task.dev.light_web_game",
                     "task_mode": "light_web_game",
-                    "coordination_task_id": "coord.dev.parallel_game_delivery",
+                    "graph_id": "graph.dev.parallel_game_delivery",
                 },
             )
         ):

@@ -19,7 +19,7 @@ from project_layout import ProjectLayout
 from output_boundary.boundary import AssistantOutputBoundary
 from memory_system import WorkingMemoryFinalizer, WorkingMemoryService
 from tasks.flow_registry import TaskFlowRegistry
-from tasks.coordination_graph_compiler import compile_coordination_graph_spec
+from tasks.coordination_graph_compiler import compile_task_graph_runtime_spec
 from tasks.run_models import (
     TaskRunLedger,
     TaskStepRun,
@@ -42,6 +42,7 @@ from tasks.spec_models import TaskSpec
 from tasks.step_models import StepInputBinding, TaskStepBlueprint
 from tasks.template_models import TaskTemplate, TaskValidationRule
 from capability_system.tool_authorization import resolve_tool_operation_id
+from understanding.capability_resolution_view import capability_resolution_view
 
 from context_management.projection import (
     ContextProjection,
@@ -143,6 +144,12 @@ class TaskRunLoop:
     stable.
     """
 
+    def _resolve_task_graph_view(self, graph_ref: str):
+        target = str(graph_ref or "").strip()
+        if not target:
+            return None
+        return self.task_flow_registry.resolve_graph_task_view(target)
+
     def __init__(
         self,
         root_dir: Path,
@@ -221,7 +228,7 @@ class TaskRunLoop:
         skill_workflow_ref: str = "",
         health_issue_ref: str = "",
         adoption_mode: str = "adopt_existing",
-        coordination_task_ref: str = "",
+        graph_ref: str = "",
         coordinator_agent_id: str = "",
         topology_template_id: str = "",
         communication_protocol_id: str = "",
@@ -237,9 +244,9 @@ class TaskRunLoop:
         manifest_ref = str(assembly_payload.get("manifest_ref") or "")
         working_memory_refs = _working_memory_refs_from_assembly(assembly_payload)
         working_memory_diag = _working_memory_diagnostics_from_assembly(assembly_payload)
-        resolved_coordination_task_ref = str(
-            coordination_task_ref
-            or assembly_payload.get("coordination_task_ref")
+        resolved_graph_ref = str(
+            graph_ref
+            or assembly_payload.get("graph_ref")
             or ""
         ).strip()
         task_run_id = f"taskrun:{session_id}:{task_id}:{uuid.uuid4().hex[:8]}"
@@ -248,7 +255,7 @@ class TaskRunLoop:
             CoordinationRun(
                 coordination_run_id=f"coordrun:{task_run_id}:primary",
                 task_run_id=task_run_id,
-                coordination_task_ref=resolved_coordination_task_ref,
+                graph_ref=resolved_graph_ref,
                 coordinator_agent_id=coordinator_agent_id or agent_id,
                 topology_template_id=topology_template_id,
                 communication_protocol_id=communication_protocol_id,
@@ -263,7 +270,7 @@ class TaskRunLoop:
                     "task_agent_binding_ref": task_agent_binding_ref,
                 },
             )
-            if resolved_coordination_task_ref
+            if resolved_graph_ref
             else None
         )
         started = self.event_log.append(
@@ -281,7 +288,7 @@ class TaskRunLoop:
                 "health_issue_ref": health_issue_ref,
                 "single_agent": coordination_run is None,
                 "multi_agent_enabled": coordination_run is not None,
-                "coordination_task_ref": resolved_coordination_task_ref,
+                "graph_ref": resolved_graph_ref,
                 "adoption_mode": adoption_mode,
                 "runtime_assembly_ref": assembly_ref,
                 "contract_manifest_ref": manifest_ref,
@@ -328,10 +335,10 @@ class TaskRunLoop:
                 refs={"coordination_run_ref": coordination_run.coordination_run_id},
             )
         initial_dispatch_plan = (
-            _compile_agent_dispatch_plan_from_payload(
+            _compile_agent_dispatch_plan_from_graph_payload(
                 task_run_id=task_run_id,
                 coordination_run_id=coordination_run.coordination_run_id,
-                coordination_task_payload={},
+                graph_payload={},
                 topology_template_payload={},
             )
             if coordination_run is not None
@@ -429,7 +436,7 @@ class TaskRunLoop:
                 "health_issue_ref": health_issue_ref,
                 "main_agent_run_ref": agent_run.agent_run_id,
                 "adoption_mode": adoption_mode,
-                "coordination_task_ref": coordination_task_ref,
+                "graph_ref": resolved_graph_ref,
                 "multi_agent_enabled": coordination_run is not None,
                 "loop_limits": self.limits.to_dict(),
                 "runtime_assembly_ref": assembly_ref,
@@ -575,7 +582,8 @@ class TaskRunLoop:
         task_agent_adoption_plan_payload = dict(task_operation.get("task_agent_adoption_plan") or {})
         task_memory_request_profile_payload = dict(task_operation.get("task_memory_request_profile") or {})
         task_communication_protocol_payload = dict(task_operation.get("task_communication_protocol") or {})
-        coordination_task_payload = dict(task_operation.get("coordination_task_record") or {})
+        graph_payload = dict(task_operation.get("graph_record") or {})
+        task_graph_payload = dict(task_operation.get("task_graph_record") or task_operation.get("graph_record") or {})
         task_body_orchestration_payload = dict(chain_runtime.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {})
         agent_runtime_spec_payload = dict(chain_runtime.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {})
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
@@ -596,13 +604,18 @@ class TaskRunLoop:
             runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or "full_interactive"),
             task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
             adoption_mode=adoption_mode,
-            coordination_task_ref=str(coordination_task_payload.get("coordination_task_id") or ""),
-            coordinator_agent_id=str(coordination_task_payload.get("coordinator_agent_id") or ""),
-            topology_template_id=str(coordination_task_payload.get("topology_template_id") or ""),
+            graph_ref=str(
+                task_graph_payload.get("graph_id")
+                or graph_payload.get("graph_id")
+                or graph_payload.get("task_graph_id")
+                or ""
+            ),
+            coordinator_agent_id=str(graph_payload.get("coordinator_agent_id") or ""),
+            topology_template_id=str(graph_payload.get("topology_template_id") or ""),
             communication_protocol_id=str(task_communication_protocol_payload.get("protocol_id") or ""),
-            handoff_policy=str(coordination_task_payload.get("handoff_policy") or ""),
-            failure_policy=str(coordination_task_payload.get("conflict_resolution_policy") or ""),
-            merge_policy=str(coordination_task_payload.get("output_merge_policy") or ""),
+            handoff_policy=str(graph_payload.get("handoff_policy") or ""),
+            failure_policy=str(graph_payload.get("conflict_resolution_policy") or ""),
+            merge_policy=str(graph_payload.get("output_merge_policy") or ""),
             diagnostics={"runtime_channel": "single_agent_runtime"},
         )
         state = start.loop_state
@@ -647,7 +660,8 @@ class TaskRunLoop:
                 "task_agent_adoption_plan": task_agent_adoption_plan_payload,
                 "task_memory_request_profile": task_memory_request_profile_payload,
                 "task_communication_protocol": task_communication_protocol_payload,
-                "coordination_task_record": coordination_task_payload,
+                "graph_record": graph_payload,
+                "task_graph_record": task_graph_payload,
                 "task_body_orchestration": task_body_orchestration_payload,
                 "agent_runtime_spec": agent_runtime_spec_payload,
                 "task_run_ledger": runtime_task_ledger.to_dict() if runtime_task_ledger is not None else {},
@@ -666,7 +680,12 @@ class TaskRunLoop:
                 "task_agent_adoption_plan_ref": str(task_agent_adoption_plan_payload.get("plan_id") or ""),
                 "task_memory_request_profile_ref": str(task_memory_request_profile_payload.get("profile_id") or ""),
                 "task_communication_protocol_ref": str(task_communication_protocol_payload.get("protocol_id") or ""),
-                "coordination_task_ref": str(coordination_task_payload.get("coordination_task_id") or ""),
+                "graph_ref": str(
+                    task_graph_payload.get("graph_id")
+                    or graph_payload.get("graph_id")
+                    or graph_payload.get("task_graph_id")
+                    or ""
+                ),
                 "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
                 "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
                 "bundle_spec_ref": str(bundle_spec_payload.get("bundle_id") or ""),
@@ -679,7 +698,7 @@ class TaskRunLoop:
             event_offset=task_event.offset,
             adoption_mode=adoption_mode,
             task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
-            coordination_task_payload=coordination_task_payload,
+            graph_payload=graph_payload,
             communication_protocol_payload=task_communication_protocol_payload,
             task_agent_adoption_plan_payload=task_agent_adoption_plan_payload,
             effective_limits=effective_limits,
@@ -1465,6 +1484,7 @@ class TaskRunLoop:
         turn_count = 1
         model_call_count = 1
         followup_messages: list[Any] = []
+        retrieval_followup_force_synthesis = False
         if len(pending_tool_calls) > 1 and terminal_reason == "completed":
             builtin_tool_lane_finalized = False
             final_content = ""
@@ -1806,7 +1826,28 @@ class TaskRunLoop:
                     terminal_reason = "executor_failed"
                 if event.get("type") != "done":
                     yield event
+            if (
+                next_pending_tool_calls
+                and next_tool_messages
+                and terminal_reason == "completed"
+                and tool_observation_count > 0
+                and _is_retrieval_task_mode(str(task_spec_payload.get("task_mode") or ""))
+            ):
+                retrieval_followup_force_synthesis = True
             if next_pending_tool_calls and next_tool_messages and terminal_reason == "completed":
+                if retrieval_followup_force_synthesis:
+                    synthesized = _forced_tool_synthesis_answer(
+                        user_message=user_message,
+                        final_task_summary_refs=final_task_summary_refs,
+                        final_main_context=final_main_context,
+                    )
+                    if synthesized:
+                        final_content = synthesized
+                        final_answer_metadata = _forced_synthesis_answer_metadata(
+                            source="runtime_loop.retrieval_followup_force_synthesis"
+                        )
+                        followup_messages = []
+                        break
                 if repeated_tool_halt and final_content:
                     followup_messages = []
                     break
@@ -2640,9 +2681,9 @@ class TaskRunLoop:
             "worker_agent_run_ids": [str(item.agent_run_id or "") for item in worker_agent_runs if str(item.agent_run_id or "")],
         }
         if target_coordination_run is not None:
-            coordination_task_record = self.task_flow_registry.get_coordination_task(target_coordination_run.coordination_task_ref)
+            graph_record = self._resolve_task_graph_view(target_coordination_run.graph_ref)
             coordination_mode = str(
-                (coordination_task_record.coordination_mode if coordination_task_record is not None else "")
+                (graph_record.coordination_mode if graph_record is not None else "")
                 or dict(target_coordination_run.diagnostics.get("coordination_flow") or {}).get("coordination_mode")
                 or ""
             ).strip()
@@ -2651,7 +2692,7 @@ class TaskRunLoop:
                 current_stage_id = str(raw_flow_state.get("current_stage_id") or "").strip()
                 if not current_stage_id:
                     current_stage_id = self._stage_id_for_task_ref(
-                        coordination_task=coordination_task_record,
+                        coordination_task=graph_record,
                         task_ref=task_contract_ref or start_task_run.task_id,
                     )
                 output_refs = self._collect_task_result_output_refs(dict(task_result or {}))
@@ -2721,7 +2762,7 @@ class TaskRunLoop:
                 return FinishedTaskRunResult(events=tuple(events), continuation_payload=continuation_payload)
             raw_flow_state = dict(target_coordination_run.diagnostics.get("coordination_flow") or {})
             next_task_ref = self._next_coordination_subtask_ref(
-                coordination_task=coordination_task_record,
+                coordination_task=graph_record,
                 flow_state=raw_flow_state,
             )
             is_continuous_progression = coordination_mode == "continuous_delivery" and terminal_state.status == "completed"
@@ -2807,7 +2848,7 @@ class TaskRunLoop:
                 CoordinationRun(
                     coordination_run_id=target_coordination_run.coordination_run_id,
                     task_run_id=target_coordination_run.task_run_id,
-                    coordination_task_ref=target_coordination_run.coordination_task_ref,
+                    graph_ref=target_coordination_run.graph_ref,
                     coordinator_agent_id=target_coordination_run.coordinator_agent_id,
                     topology_template_id=target_coordination_run.topology_template_id,
                     communication_protocol_id=target_coordination_run.communication_protocol_id,
@@ -2920,7 +2961,7 @@ class TaskRunLoop:
         event_offset: int,
         adoption_mode: str,
         task_agent_binding_ref: str,
-        coordination_task_payload: dict[str, Any],
+        graph_payload: dict[str, Any],
         communication_protocol_payload: dict[str, Any],
         task_agent_adoption_plan_payload: dict[str, Any] | None = None,
         effective_limits: RuntimeLoopLimits | None = None,
@@ -2959,14 +3000,14 @@ class TaskRunLoop:
             task_run_id=start_result.agent_run.task_run_id,
             agent_id=start_result.agent_run.agent_id,
             agent_profile_id=start_result.agent_run.agent_profile_id,
-            role="coordinator" if coordination_task_payload else start_result.agent_run.role,
+            role="coordinator" if graph_payload else start_result.agent_run.role,
             spawn_mode=adoption_mode,
             context_scope=start_result.agent_run.context_scope,
             runtime_lane=start_result.agent_run.runtime_lane,
             parent_agent_run_ref=start_result.agent_run.parent_agent_run_ref,
             coordination_run_ref=(
                 start_result.agent_run.coordination_run_ref
-                or (coordination_run_id if coordination_task_payload else "")
+                or (coordination_run_id if graph_payload else "")
             ),
             status="running",
             latest_checkpoint_ref=start_result.agent_run.latest_checkpoint_ref,
@@ -2989,32 +3030,37 @@ class TaskRunLoop:
             )
         )
         current_coordination_run: CoordinationRun | None = None
-        if coordination_task_payload:
+        if graph_payload:
             topology_template_payload = self._resolve_topology_template(
-                str(coordination_task_payload.get("topology_template_id") or "")
+                str(graph_payload.get("topology_template_id") or "")
             )
             coordination_flow = build_coordination_flow_state(
-                coordination_task_payload=coordination_task_payload,
+                graph_payload=graph_payload,
                 topology_template=topology_template_payload,
                 communication_protocol_payload=communication_protocol_payload,
             )
             coordination_run = CoordinationRun(
                 coordination_run_id=coordination_run_id,
                 task_run_id=start_result.task_run.task_run_id,
-                coordination_task_ref=str(coordination_task_payload.get("coordination_task_id") or ""),
-                coordinator_agent_id=str(coordination_task_payload.get("coordinator_agent_id") or updated_agent_run.agent_id),
-                topology_template_id=str(coordination_task_payload.get("topology_template_id") or ""),
+                graph_ref=str(
+                    task_graph_payload.get("graph_id")
+                    or graph_payload.get("graph_id")
+                    or graph_payload.get("task_graph_id")
+                    or ""
+                ),
+                coordinator_agent_id=str(graph_payload.get("coordinator_agent_id") or updated_agent_run.agent_id),
+                topology_template_id=str(graph_payload.get("topology_template_id") or ""),
                 communication_protocol_id=str(communication_protocol_payload.get("protocol_id") or ""),
-                handoff_policy=str(coordination_task_payload.get("handoff_policy") or ""),
-                failure_policy=str(coordination_task_payload.get("conflict_resolution_policy") or ""),
-                merge_policy=str(coordination_task_payload.get("output_merge_policy") or ""),
+                handoff_policy=str(graph_payload.get("handoff_policy") or ""),
+                failure_policy=str(graph_payload.get("conflict_resolution_policy") or ""),
+                merge_policy=str(graph_payload.get("output_merge_policy") or ""),
                 status="running",
                 latest_checkpoint_ref="",
                 created_at=time.time(),
                 updated_at=time.time(),
                 diagnostics={
-                    "shared_context_policy": str(coordination_task_payload.get("shared_context_policy") or ""),
-                    "memory_sharing_policy": str(coordination_task_payload.get("memory_sharing_policy") or ""),
+                    "shared_context_policy": str(graph_payload.get("shared_context_policy") or ""),
+                    "memory_sharing_policy": str(graph_payload.get("memory_sharing_policy") or ""),
                     "coordination_flow": coordination_flow,
                 },
             )
@@ -3036,16 +3082,16 @@ class TaskRunLoop:
                         refs={"coordination_run_ref": coordination_run.coordination_run_id},
                     )
                 )
-            dispatch_plan = _compile_agent_dispatch_plan_from_payload(
+            dispatch_plan = _compile_agent_dispatch_plan_from_graph_payload(
                 task_run_id=start_result.task_run.task_run_id,
                 coordination_run_id=coordination_run.coordination_run_id,
-                coordination_task_payload=coordination_task_payload,
+                graph_payload=graph_payload,
                 topology_template_payload=topology_template_payload,
             )
             coordination_run = CoordinationRun(
                 coordination_run_id=coordination_run.coordination_run_id,
                 task_run_id=coordination_run.task_run_id,
-                coordination_task_ref=coordination_run.coordination_task_ref,
+                graph_ref=coordination_run.graph_ref,
                 coordinator_agent_id=coordination_run.coordinator_agent_id,
                 topology_template_id=coordination_run.topology_template_id,
                 communication_protocol_id=coordination_run.communication_protocol_id,
@@ -3343,7 +3389,7 @@ class TaskRunLoop:
             coordination_run = CoordinationRun(
                 coordination_run_id=f"coordrun:{task_run_id}:spawn",
                 task_run_id=task_run_id,
-                coordination_task_ref=f"coord.auto:{task_run_id}",
+                graph_ref=f"graph.auto:{task_run_id}",
                 coordinator_agent_id=parent_agent_run.agent_id,
                 topology_template_id="",
                 communication_protocol_id="",
@@ -3401,7 +3447,7 @@ class TaskRunLoop:
         existing_node_runs = {item.node_id: item for item in self.state_index.list_coordination_node_runs(coordination_run.coordination_run_id)}
         existing_agent_runs = {item.agent_run_id: item for item in self.state_index.list_task_agent_runs(task_run_id)}
         topology_template = self._resolve_topology_template(coordination_run.topology_template_id)
-        coordination_task = self.task_flow_registry.get_coordination_task(coordination_run.coordination_task_ref)
+        coordination_task = self._resolve_task_graph_view(coordination_run.graph_ref)
         communication_protocol = self.task_flow_registry.get_task_communication_protocol(coordination_run.communication_protocol_id)
         specific_tasks = tuple(self.task_flow_registry.list_specific_task_records())
         coordination_flow = dict(coordination_run.diagnostics.get("coordination_flow") or {})
@@ -3422,7 +3468,7 @@ class TaskRunLoop:
                 }
             )
         graph_spec = (
-            compile_coordination_graph_spec(
+            compile_task_graph_runtime_spec(
                 coordination_task=coordination_task,
                 specific_tasks=specific_tasks,
                 topology_template=self.task_flow_registry.get_topology_template(coordination_run.topology_template_id),
@@ -3674,7 +3720,7 @@ class TaskRunLoop:
                 CoordinationRun(
                     coordination_run_id=coordination_run.coordination_run_id,
                     task_run_id=coordination_run.task_run_id,
-                    coordination_task_ref=coordination_run.coordination_task_ref,
+                    graph_ref=coordination_run.graph_ref,
                     coordinator_agent_id=coordination_run.coordinator_agent_id,
                     topology_template_id=coordination_run.topology_template_id,
                     communication_protocol_id=coordination_run.communication_protocol_id,
@@ -4342,8 +4388,8 @@ class TaskRunLoop:
         if get_local_mcp_unit_for_template(template_id) is not None:
             return True
         source_kind = str(query_understanding.get("source_kind") or "").strip()
-        preferred_skill = str(query_understanding.get("preferred_skill") or "").strip()
-        return preferred_skill == "rag-skill" and source_kind == "knowledge_base"
+        resolution = capability_resolution_view(query_understanding)
+        return resolution.preferred_skill == "rag-skill" and source_kind == "knowledge_base"
 
     def _rebuild_context_policy_with_retrieval(
         self,
@@ -5088,6 +5134,11 @@ def _template_requires_model_finalize(selected_template: TaskTemplate) -> bool:
         str(step.executor_type or "") == "model" and str(step.step_kind or "") == "finalize"
         for step in selected_template.step_blueprints
     )
+
+
+def _is_retrieval_task_mode(task_mode: str) -> bool:
+    normalized = str(task_mode or "").strip().lower()
+    return "retrieval" in normalized or "knowledge" in normalized
 
 
 def _task_spec_from_payload(payload: dict[str, Any]) -> TaskSpec | None:
@@ -5982,15 +6033,15 @@ def _specific_task_record_for_runtime_ref(flow_registry: TaskFlowRegistry, task_
     return None
 
 
-def _compile_agent_dispatch_plan_from_payload(
+def _compile_agent_dispatch_plan_from_graph_payload(
     *,
     task_run_id: str,
     coordination_run_id: str,
-    coordination_task_payload: dict[str, Any],
+    graph_payload: dict[str, Any],
     topology_template_payload: dict[str, Any],
 ) -> AgentDispatchPlan:
-    nodes = _dispatch_nodes_from_payload(coordination_task_payload, topology_template_payload)
-    edges = _dispatch_edges_from_payload(coordination_task_payload, topology_template_payload)
+    nodes = _dispatch_nodes_from_payload(graph_payload, topology_template_payload)
+    edges = _dispatch_edges_from_payload(graph_payload, topology_template_payload)
     upstream: dict[str, list[str]] = {}
     downstream: dict[str, list[str]] = {}
     for edge in edges:
@@ -6109,11 +6160,11 @@ def _compile_agent_dispatch_plan_from_payload(
     )
 
 
-def _dispatch_nodes_from_payload(coordination_task_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _dispatch_nodes_from_payload(graph_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = (
-        coordination_task_payload.get("graph_nodes"),
+        graph_payload.get("graph_nodes"),
         topology_template_payload.get("nodes"),
-        dict(coordination_task_payload.get("metadata") or {}).get("graph_nodes"),
+        dict(graph_payload.get("metadata") or {}).get("graph_nodes"),
     )
     for value in candidates:
         nodes = [dict(item) for item in list(value or []) if isinstance(item, dict)]
@@ -6122,11 +6173,11 @@ def _dispatch_nodes_from_payload(coordination_task_payload: dict[str, Any], topo
     return []
 
 
-def _dispatch_edges_from_payload(coordination_task_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _dispatch_edges_from_payload(graph_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = (
-        coordination_task_payload.get("graph_edges"),
+        graph_payload.get("graph_edges"),
         topology_template_payload.get("edges"),
-        dict(coordination_task_payload.get("metadata") or {}).get("graph_edges"),
+        dict(graph_payload.get("metadata") or {}).get("graph_edges"),
     )
     for value in candidates:
         edges = [dict(item) for item in list(value or []) if isinstance(item, dict)]

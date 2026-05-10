@@ -21,6 +21,11 @@
       "llm_max_retries": 2,
       "terminal_timeout_seconds": 300,
       "component_char_limit": 20000
+    },
+    "retrieval": {
+      "rerank_enabled": true,
+      "rerank_top_n": 200,
+      "rerank_candidate_pool": 200
     }
   },
   "model_provider": {

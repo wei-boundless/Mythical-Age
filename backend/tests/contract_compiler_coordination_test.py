@@ -4,7 +4,7 @@ from pathlib import Path
 
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.runtime_loop.contract_compiler import compile_coordination_contract_manifest
-from tasks import TaskContractRegistry, compile_coordination_graph_spec
+from tasks import TaskContractRegistry, compile_task_graph_runtime_spec
 from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol
 
 
@@ -46,7 +46,7 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         output_contract_id="contract.test.node_output",
     )
     coordination = CoordinationTaskDefinition(
-        coordination_task_id="coord.test.pipeline",
+        graph_id="graph.test.pipeline",
         title="测试协调链路",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
@@ -76,7 +76,7 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         payload_contracts=("contract.test.edge_handoff",),
         enabled=True,
     )
-    graph_spec = compile_coordination_graph_spec(
+    graph_spec = compile_task_graph_runtime_spec(
         coordination_task=coordination,
         specific_tasks=(task,),
         communication_protocol=protocol,
@@ -136,7 +136,7 @@ def test_coordination_contract_compiler_reports_missing_edge_contract(tmp_path: 
         output_contract_id="contract.test.node_output",
     )
     coordination = CoordinationTaskDefinition(
-        coordination_task_id="coord.test.pipeline",
+        graph_id="graph.test.pipeline",
         title="测试协调链路",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
@@ -149,7 +149,7 @@ def test_coordination_contract_compiler_reports_missing_edge_contract(tmp_path: 
             {"edge_id": "coordinator_to_worker", "from": "coordinator", "to": "worker", "mode": "dispatch"},
         ),
     )
-    graph_spec = compile_coordination_graph_spec(coordination_task=coordination, specific_tasks=(task,))
+    graph_spec = compile_task_graph_runtime_spec(coordination_task=coordination, specific_tasks=(task,))
 
     manifest = compile_coordination_contract_manifest(
         contract_registry=contract_registry,

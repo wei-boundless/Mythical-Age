@@ -226,7 +226,7 @@ def test_removed_story_task_selection_falls_back_to_general_runtime() -> None:
     assert assembly["task_family"] == "general"
     assert assembly["flow_contract_id"] == ""
     assert assembly["communication_protocol_ref"] == ""
-    assert assembly["coordination_task_ref"] == ""
+    assert assembly["graph_ref"] == ""
     assert assembly["topology_template_ref"] == ""
 
 
@@ -241,8 +241,8 @@ def test_removed_longform_writing_runtime_residue_stays_absent() -> None:
 
     assert "template.writing.longform_novel_project" not in templates
     assert "template.writing.chapter_drafting" not in templates
-    assert registry.get_coordination_task("coord.writing.longform_project_bootstrap") is None
-    assert registry.get_coordination_task("coord.writing.chapter_pipeline") is None
+    assert registry.get_graph_task("graph.writing.longform_project_bootstrap") is None
+    assert registry.get_graph_task("graph.writing.chapter_pipeline") is None
     assert registry.get_task_communication_protocol("protocol.writing.longform_project_bootstrap") is None
     assert registry.get_task_communication_protocol("protocol.writing.chapter_pipeline") is None
     assert registry.get_specific_task_record("task.writing.chapter_planning") is None

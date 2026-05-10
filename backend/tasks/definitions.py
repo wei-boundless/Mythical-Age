@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 import re
 from typing import Any
 
+from understanding.capability_resolution_view import capability_resolution_view
 
 @dataclass(frozen=True, slots=True)
 class TaskDefinition:
@@ -173,8 +174,9 @@ def select_runtime_task_definitions(
     """
     definitions = default_task_definitions()
     understanding = dict(query_understanding or {})
-    execution_posture = str(understanding.get("execution_posture") or "").strip()
-    route_hint = str(understanding.get("route_hint") or "").strip()
+    resolution = capability_resolution_view(understanding)
+    execution_posture = resolution.execution_posture
+    effective_route = resolution.route
     source_kind = str(understanding.get("source_kind") or "").strip()
     modality = str(understanding.get("modality") or "").strip()
     task_kind = str(understanding.get("task_kind") or "").strip()
@@ -188,13 +190,13 @@ def select_runtime_task_definitions(
         for item in list(understanding.get("candidate_tools") or ())
         if str(item or "").strip()
     }
-    preferred_skill = str(understanding.get("preferred_skill") or "").strip()
+    effective_skill = resolution.preferred_skill
 
-    if route_hint == "pdf" or preferred_skill == "pdf-analysis":
+    if effective_route == "pdf" or effective_skill == "pdf-analysis":
         return [definitions["task.capability_execution"]]
-    if route_hint == "structured_data" or preferred_skill == "structured-data-analysis":
+    if effective_route == "structured_data" or effective_skill == "structured-data-analysis":
         return [definitions["task.capability_execution"]]
-    if execution_posture == "builtin_tool_lane" or route_hint in {
+    if execution_posture == "builtin_tool_lane" or effective_route in {
         "tool",
         "workspace_read",
         "workspace_path_search",
@@ -211,10 +213,10 @@ def select_runtime_task_definitions(
             return [definitions["task.capability_execution"], definitions["task.information_search"]]
         return [definitions["task.capability_execution"]]
 
-    if execution_posture == "direct_rag" or route_hint == "rag" or preferred_skill == "rag-skill":
+    if execution_posture == "direct_rag" or effective_route == "rag" or effective_skill == "rag-skill":
         return [definitions["task.knowledge_retrieval"], definitions["task.information_synthesis"]]
 
-    if execution_posture == "direct_memory" or route_hint == "memory":
+    if execution_posture == "direct_memory" or effective_route == "memory":
         return [definitions["task.information_synthesis"]]
 
     return select_task_definitions(user_goal)

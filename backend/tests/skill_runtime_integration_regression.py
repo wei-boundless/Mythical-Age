@@ -70,6 +70,7 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     assert active_skill == {}
     assert understanding["route"] == "realtime_network"
     assert understanding["tool_name"] == "web_search"
+    assert any(item["candidate_type"] == "tool" and item["name"] == "web_search" for item in list(understanding.get("candidate_capabilities") or []))
     assert "op.web_search" in list(operation_requirement.get("required_operations") or [])
     assert memory_request_profile["requested_memory_layers"] == ["conversation"]
     sections = list(dict(task_body_orchestration.get("soul_runtime_view") or {}).get("sections") or [])
@@ -102,7 +103,9 @@ def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:
     assert active_skill["name"] == "structured-data-analysis"
     assert understanding["route"] == "structured_data"
     assert understanding["tool_name"] is None
+    assert understanding["skill_name"] == "structured-data-analysis"
     assert understanding["candidate_tools"] == []
+    assert any(item["candidate_type"] == "mcp" and item["name"] == "structured_data" for item in list(understanding.get("candidate_capabilities") or []))
     assert understanding["tool_input"] == {
         "query": "按仓库汇总前五。",
         "path": "Data/inventory.xlsx",

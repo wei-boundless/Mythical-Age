@@ -49,7 +49,7 @@ class TaskExecutionAssembly:
     task_execution_policy_ref: str = ""
     memory_request_profile_ref: str = ""
     communication_protocol_ref: str = ""
-    coordination_task_ref: str = ""
+    graph_ref: str = ""
     topology_template_ref: str = ""
     operation_requirement_ref: str = ""
     input_contract_id: str = ""
@@ -74,4 +74,5 @@ class TaskExecutionAssembly:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["requested_outputs"] = list(self.requested_outputs)
+        payload["graph_ref"] = self.graph_ref
         return payload

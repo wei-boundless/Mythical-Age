@@ -459,10 +459,10 @@ def _family_from_ref(value: Any) -> str:
     if not raw:
         return ""
     prefixes = (
-        ("development", ("task.dev.", "flow.dev.", "coord.dev.", "topology.dev.", "protocol.dev.", "workflow.dev.")),
-        ("writing", ("task.writing.", "flow.writing.", "coord.writing.", "topology.writing.", "protocol.writing.", "workflow.writing.")),
-        ("health", ("task.health.", "flow.health.", "coord.health.", "topology.health.", "protocol.health.", "workflow.health.")),
-        ("general", ("task.general.", "flow.general.", "coord.general.", "topology.general.", "protocol.general.", "workflow.general.")),
+        ("development", ("task.dev.", "flow.dev.", "graph.dev.", "topology.dev.", "protocol.dev.", "workflow.dev.")),
+        ("writing", ("task.writing.", "flow.writing.", "graph.writing.", "topology.writing.", "protocol.writing.", "workflow.writing.")),
+        ("health", ("task.health.", "flow.health.", "graph.health.", "topology.health.", "protocol.health.", "workflow.health.")),
+        ("general", ("task.general.", "flow.general.", "graph.general.", "topology.general.", "protocol.general.", "workflow.general.")),
     )
     for family, family_prefixes in prefixes:
         if any(raw.startswith(prefix) for prefix in family_prefixes):
@@ -570,8 +570,8 @@ def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
     task_structure = dict(task.task_structure or {})
     task_metadata = dict(task.metadata or {})
     runtime_limits = dict(task_structure.get("runtime_limits") or {})
-    coordination_task_id = str(
-        task_structure.get("coordination_task_id") or task_metadata.get("coordination_task_id") or ""
+    task_graph_id = str(
+        task_structure.get("task_graph_id") or task_structure.get("graph_id") or task_metadata.get("task_graph_id") or ""
     ).strip()
     communication_protocol_id = str(
         task_structure.get("communication_protocol_id") or task_metadata.get("communication_protocol_id") or ""
@@ -581,7 +581,7 @@ def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
     ).strip()
     agent_group_id = str(task_structure.get("agent_group_id") or task_metadata.get("agent_group_id") or "").strip()
     execution_chain_type = str(task.to_dict().get("execution_chain_type") or "").strip() or (
-        "coordination_chain" if coordination_task_id else "single_agent_chain"
+        "coordination_chain" if task_graph_id else "single_agent_chain"
     )
     return TaskAgentAdoptionPlan(
         plan_id=f"taskadopt:{task.task_id}",
@@ -598,7 +598,8 @@ def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
             "participant_agent_ids": list(participant_ids),
             "runtime_limits": runtime_limits,
             "execution_chain_type": execution_chain_type,
-            "coordination_task_id": coordination_task_id,
+            "task_graph_id": task_graph_id,
+            "graph_id": task_graph_id,
             "communication_protocol_id": communication_protocol_id,
             "topology_template_id": topology_template_id,
             "agent_group_id": agent_group_id,
@@ -1075,12 +1076,12 @@ class TaskFlowRegistry:
             or _family_from_ref(item.flow_id) == task_family
         }
         coordination_ids = {
-            item.coordination_task_id
-            for item in self.list_coordination_tasks()
+            str(item.graph_id or "")
+            for item in self.list_graph_tasks()
             if str(item.metadata.get("task_family") or "") == task_family
             or str(item.metadata.get("domain_id") or "") == target
             or any(ref in task_ids for ref in item.subtask_refs)
-            or _family_from_ref(item.coordination_task_id) == task_family
+            or _family_from_ref(item.graph_id) == task_family
         }
         topology_ids = {
             item.template_id
@@ -1482,7 +1483,7 @@ class TaskFlowRegistry:
             **task_structure,
             **(
                 {
-                    "coordination_task_id": str(flow_metadata.get("coordination_task_id") or "").strip(),
+                    "task_graph_id": str(flow_metadata.get("task_graph_id") or flow_metadata.get("graph_id") or "").strip(),
                     "communication_protocol_id": str(flow_metadata.get("communication_protocol_id") or "").strip(),
                     "topology_template_id": str(flow_metadata.get("topology_template_id") or "").strip(),
                     "agent_group_id": str(flow_metadata.get("agent_group_id") or "").strip(),
@@ -1991,89 +1992,99 @@ class TaskFlowRegistry:
         )
         return profile
 
-    def list_coordination_tasks(self) -> list[CoordinationTaskDefinition]:
-        tasks: list[CoordinationTaskDefinition] = []
+    def _derive_coordination_task_view_from_graph(self, graph: TaskGraphDefinition) -> CoordinationTaskDefinition:
         records_by_task_id = {record.task_id: record for record in self.list_specific_task_records()}
-        for graph in self.list_task_graphs():
-            metadata = dict(graph.metadata or {})
-            coordinator_agent_id = str(dict(graph.runtime_policy or {}).get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
-            task_family = str(graph.task_family or metadata.get("task_family") or "").strip()
-            domain_id = str(graph.domain_id or metadata.get("domain_id") or (f"domain.{task_family}" if task_family else "")).strip()
-            stored_nodes = tuple(node.to_dict() for node in graph.nodes)
-            metadata_task_id = str(metadata.get("task_id") or "").strip()
-            raw_subtask_refs = [
-                *[str(value).strip() for value in list(metadata.get("subtask_refs") or []) if str(value).strip()],
-                *_subtask_refs_from_graph_nodes(stored_nodes),
-                *([metadata_task_id] if metadata_task_id.startswith("task.") else []),
-            ]
-            subtask_refs = tuple(dict.fromkeys(value for value in raw_subtask_refs if value.startswith("task.")))
-            if not task_family and subtask_refs:
-                task_family = str(getattr(records_by_task_id.get(subtask_refs[0]), "task_family", "") or "").strip()
-            if not domain_id and task_family:
-                domain_id = f"domain.{task_family}"
-            participant_agent_ids = self._resolve_coordination_participants(
-                coordinator_agent_id=coordinator_agent_id,
-                agent_group_id=str(dict(graph.runtime_policy or {}).get("agent_group_id") or metadata.get("agent_group_id") or ""),
-                participant_agent_ids=tuple(
-                    str(value)
-                    for value in list(dict(graph.runtime_policy or {}).get("participant_agent_ids") or metadata.get("participant_agent_ids") or [])
-                    if str(value)
-                ),
-            )
-            fallback_nodes, fallback_edges = _default_coordination_graph(
-                coordinator_agent_id=coordinator_agent_id,
-                participant_agent_ids=participant_agent_ids,
-                task_family=task_family,
-                subtask_refs=subtask_refs,
-            )
-            graph_nodes = stored_nodes or fallback_nodes
-            graph_edges = tuple(edge.to_dict() for edge in graph.edges) or fallback_edges
-            subtask_refs = tuple(dict.fromkeys([*subtask_refs, *_subtask_refs_from_graph_nodes(graph_nodes)]))
-            communication_modes = tuple(
-                str(value).strip()
-                for value in list(metadata.get("business_communication_modes") or metadata.get("communication_modes") or [])
-                if str(value).strip()
-            ) or tuple(
-                dict(edge).get("mode", "")
-                for edge in graph_edges
-                if str(dict(edge).get("mode", "")).strip()
-            )
-            tasks.append(
-                CoordinationTaskDefinition(
-                    coordination_task_id=str(metadata.get("coordination_task_id") or graph.graph_id or ""),
-                    title=str(graph.title or ""),
-                    coordination_mode=str(dict(graph.runtime_policy or {}).get("coordination_mode") or metadata.get("coordination_mode") or "review_merge"),
-                    coordinator_agent_id=coordinator_agent_id,
-                    task_family=task_family,
-                    domain_id=domain_id,
-                    agent_group_id=str(dict(graph.runtime_policy or {}).get("agent_group_id") or metadata.get("agent_group_id") or ""),
-                    participant_agent_ids=participant_agent_ids,
-                    topology_template_id=str(metadata.get("topology_template_id") or ""),
-                    shared_context_policy=str(dict(graph.context_policy or {}).get("shared_context_policy") or "explicit_refs_only"),
-                    memory_sharing_policy=str(dict(graph.context_policy or {}).get("memory_sharing_policy") or "isolated_by_default"),
-                    handoff_policy=str(metadata.get("handoff_policy") or "filtered_handoff"),
-                    conflict_resolution_policy=str(metadata.get("conflict_resolution_policy") or "coordinator_review"),
-                    output_merge_policy=str(metadata.get("output_merge_policy") or "coordinator_final_merge"),
-                    stop_conditions=tuple(str(value) for value in list(metadata.get("stop_conditions") or []) if str(value)),
-                    subtask_refs=subtask_refs,
-                    graph_nodes=graph_nodes,
-                    graph_edges=graph_edges,
-                    communication_modes=tuple(dict.fromkeys(str(value).strip() for value in communication_modes if str(value).strip())),
-                    enabled=bool(graph.enabled),
-                    metadata=metadata,
-                )
-            )
-        return tasks
-
-    def get_coordination_task(self, coordination_task_id: str) -> CoordinationTaskDefinition | None:
-        target = str(coordination_task_id or "").strip()
-        return next((item for item in self.list_coordination_tasks() if item.coordination_task_id == target), None)
-
-    def next_coordination_task_id(self) -> str:
-        return _next_prefixed_id(
-            [item.coordination_task_id for item in self.list_coordination_tasks()],
-            prefix="coord.",
+        metadata = dict(graph.metadata or {})
+        coordinator_agent_id = str(dict(graph.runtime_policy or {}).get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
+        task_family = str(graph.task_family or metadata.get("task_family") or "").strip()
+        domain_id = str(graph.domain_id or metadata.get("domain_id") or (f"domain.{task_family}" if task_family else "")).strip()
+        stored_nodes = tuple(node.to_dict() for node in graph.nodes)
+        metadata_task_id = str(metadata.get("task_id") or "").strip()
+        raw_subtask_refs = [
+            *[str(value).strip() for value in list(metadata.get("subtask_refs") or []) if str(value).strip()],
+            *_subtask_refs_from_graph_nodes(stored_nodes),
+            *([metadata_task_id] if metadata_task_id.startswith("task.") else []),
+        ]
+        subtask_refs = tuple(dict.fromkeys(value for value in raw_subtask_refs if value.startswith("task.")))
+        if not task_family and subtask_refs:
+            task_family = str(getattr(records_by_task_id.get(subtask_refs[0]), "task_family", "") or "").strip()
+        if not domain_id and task_family:
+            domain_id = f"domain.{task_family}"
+        participant_agent_ids = self._resolve_coordination_participants(
+            coordinator_agent_id=coordinator_agent_id,
+            agent_group_id=str(dict(graph.runtime_policy or {}).get("agent_group_id") or metadata.get("agent_group_id") or ""),
+            participant_agent_ids=tuple(
+                str(value)
+                for value in list(dict(graph.runtime_policy or {}).get("participant_agent_ids") or metadata.get("participant_agent_ids") or [])
+                if str(value)
+            ),
         )
+        fallback_nodes, fallback_edges = _default_coordination_graph(
+            coordinator_agent_id=coordinator_agent_id,
+            participant_agent_ids=participant_agent_ids,
+            task_family=task_family,
+            subtask_refs=subtask_refs,
+        )
+        graph_nodes = stored_nodes or fallback_nodes
+        graph_edges = tuple(edge.to_dict() for edge in graph.edges) or fallback_edges
+        subtask_refs = tuple(dict.fromkeys([*subtask_refs, *_subtask_refs_from_graph_nodes(graph_nodes)]))
+        communication_modes = tuple(
+            str(value).strip()
+            for value in list(metadata.get("business_communication_modes") or metadata.get("communication_modes") or [])
+            if str(value).strip()
+        ) or tuple(
+            dict(edge).get("mode", "")
+            for edge in graph_edges
+            if str(dict(edge).get("mode", "")).strip()
+        )
+        derived_metadata = {
+            **metadata,
+            "graph_id": graph.graph_id,
+            "task_graph_id": graph.graph_id,
+        }
+        return CoordinationTaskDefinition(
+            graph_id=graph.graph_id,
+            title=str(graph.title or ""),
+            coordination_mode=str(dict(graph.runtime_policy or {}).get("coordination_mode") or metadata.get("coordination_mode") or "review_merge"),
+            coordinator_agent_id=coordinator_agent_id,
+            task_family=task_family,
+            domain_id=domain_id,
+            agent_group_id=str(dict(graph.runtime_policy or {}).get("agent_group_id") or metadata.get("agent_group_id") or ""),
+            participant_agent_ids=participant_agent_ids,
+            topology_template_id=str(metadata.get("topology_template_id") or ""),
+            shared_context_policy=str(dict(graph.context_policy or {}).get("shared_context_policy") or "explicit_refs_only"),
+            memory_sharing_policy=str(dict(graph.context_policy or {}).get("memory_sharing_policy") or "isolated_by_default"),
+            handoff_policy=str(metadata.get("handoff_policy") or "filtered_handoff"),
+            conflict_resolution_policy=str(metadata.get("conflict_resolution_policy") or "coordinator_review"),
+            output_merge_policy=str(metadata.get("output_merge_policy") or "coordinator_final_merge"),
+            stop_conditions=tuple(str(value) for value in list(metadata.get("stop_conditions") or []) if str(value)),
+            subtask_refs=subtask_refs,
+            graph_nodes=graph_nodes,
+            graph_edges=graph_edges,
+            communication_modes=tuple(dict.fromkeys(str(value).strip() for value in communication_modes if str(value).strip())),
+            enabled=bool(graph.enabled),
+            metadata=derived_metadata,
+        )
+
+    def list_graph_tasks(self) -> list[CoordinationTaskDefinition]:
+        return [self._derive_coordination_task_view_from_graph(graph) for graph in self.list_task_graphs()]
+
+    def get_graph_task(self, graph_id: str) -> CoordinationTaskDefinition | None:
+        graph = self.get_task_graph(graph_id)
+        if graph is None:
+            return None
+        return self._derive_coordination_task_view_from_graph(graph)
+
+    def resolve_graph_task_view(self, graph_ref: str) -> CoordinationTaskDefinition | None:
+        target = str(graph_ref or "").strip()
+        if not target:
+            return None
+        if target.startswith("graph."):
+            return self.get_graph_task(target)
+        for graph in self.list_task_graphs():
+            if graph.graph_id == target:
+                return self._derive_coordination_task_view_from_graph(graph)
+        return None
 
     def list_task_graphs(self) -> list[TaskGraphDefinition]:
         payload = _read_json(_task_graphs_path(self.base_dir), {"task_graphs": []})
@@ -2370,10 +2381,10 @@ class TaskFlowRegistry:
         )
         return protocol
 
-    def upsert_coordination_task(
+    def upsert_graph_task(
         self,
         *,
-        coordination_task_id: str,
+        graph_id: str,
         title: str,
         coordination_mode: str,
         coordinator_agent_id: str,
@@ -2395,10 +2406,9 @@ class TaskFlowRegistry:
         enabled: bool = False,
         metadata: dict[str, Any] | None = None,
     ) -> CoordinationTaskDefinition:
-        target = str(coordination_task_id or "").strip()
-        if not target.startswith("coord."):
-            raise ValueError("coordination_task_id must start with coord.")
-        graph_id = f"graph.{target.removeprefix('coord.')}"
+        target = str(graph_id or "").strip()
+        if not target.startswith("graph."):
+            raise ValueError("graph_id must start with graph.")
         normalized_family = str(task_family or "").strip() or _family_from_ref(target)
         normalized_domain_id = str(domain_id or "").strip() or (f"domain.{normalized_family}" if normalized_family else "")
         normalized_subtask_refs = tuple(
@@ -2422,7 +2432,7 @@ class TaskFlowRegistry:
             if not normalized_domain_id and normalized_family:
                 normalized_domain_id = f"domain.{normalized_family}"
         self.upsert_task_graph(
-            graph_id=graph_id,
+            graph_id=target,
             title=str(title or target).strip(),
             domain_id=normalized_domain_id,
             task_family=normalized_family,
@@ -2450,7 +2460,7 @@ class TaskFlowRegistry:
             enabled=bool(enabled),
             metadata={
                 **dict(metadata or {}),
-                "coordination_task_id": target,
+                "graph_id": target,
                 "task_family": normalized_family,
                 "domain_id": normalized_domain_id,
                 "topology_template_id": str(topology_template_id or "").strip(),
@@ -2462,7 +2472,7 @@ class TaskFlowRegistry:
                 "communication_modes": [str(item).strip() for item in communication_modes if str(item).strip()],
             },
         )
-        resolved = self.get_coordination_task(target)
+        resolved = self.get_graph_task(target)
         if resolved is None:
             raise ValueError("failed to derive coordination task view from task graph")
         return resolved

@@ -130,11 +130,11 @@ class SingleAgentRuntimeAssembly:
 class NodeRuntimeAssembly:
     assembly_id: str
     manifest_ref: str
-    coordination_task_ref: str
     graph_id: str
     node_id: str
     task_ref: str
     agent_id: str
+    graph_ref: str = ""
     agent_profile_id: str = ""
     projection_id: str = ""
     runtime_lane: str = ""
@@ -153,8 +153,8 @@ class NodeRuntimeAssembly:
             "authority": self.authority,
             "assembly_id": self.assembly_id,
             "manifest_ref": self.manifest_ref,
-            "coordination_task_ref": self.coordination_task_ref,
             "graph_id": self.graph_id,
+            "graph_ref": self.graph_ref or self.graph_id,
             "node_id": self.node_id,
             "task_ref": self.task_ref,
             "agent_id": self.agent_id,

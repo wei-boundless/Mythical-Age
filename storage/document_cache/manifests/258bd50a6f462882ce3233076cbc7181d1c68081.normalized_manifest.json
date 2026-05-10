@@ -1,0 +1,27 @@
+{
+  "doc_id": "258bd50a6f462882ce3233076cbc7181d1c68081",
+  "block_count": 539,
+  "object_count": 3,
+  "page_summary_count": 0,
+  "eligible_block_count": 414,
+  "dropped_block_count": 125,
+  "eligibility_breakdown": {
+    "drop": 125,
+    "keep": 411,
+    "keep_object_only": 3
+  },
+  "index_profile_counts": {
+    "dense_main": 411,
+    "lexical_main": 411,
+    "page_summary_source": 411,
+    "object_anchor": 3
+  },
+  "drop_reason_counts": {
+    "placeholder_block": 122,
+    "decorative_heading": 3
+  },
+  "cleaning_flag_counts": {
+    "placeholder_block": 122,
+    "decorative_heading": 3
+  }
+}

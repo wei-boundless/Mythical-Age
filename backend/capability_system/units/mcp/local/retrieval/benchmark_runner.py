@@ -5,10 +5,20 @@ import dataclasses
 import json
 import math
 import random
+import shutil
+import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+for _parent in Path(__file__).resolve().parents:
+    if (_parent / "config.py").exists() and (_parent / "retrieval_core").is_dir():
+        backend_path = str(_parent)
+        if backend_path not in sys.path:
+            sys.path.insert(0, backend_path)
+        break
 
 from normalized_ingestion.models import IndexableUnit
 from retrieval_core.llamaindex_backend import LlamaIndexRetrievalBackend
@@ -18,8 +28,10 @@ from retrieval_core.retrievers import RetrievalRequest
 @dataclass(slots=True)
 class BenchmarkConfig:
     scifact_root: Path
+    runtime_root: Path | None = None
     split: str = "test"
     max_queries: int = 50
+    max_docs: int = 0
     candidate_top_k: int = 100
     metric_top_k: int = 10
     seed: int = 42
@@ -28,6 +40,7 @@ class BenchmarkConfig:
     output_path: Path | None = None
     rerank_top_n: int | None = None
     rerank_candidate_pool: int | None = None
+    build_batch_size: int | None = None
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -79,9 +92,12 @@ def _sample_query_ids(qrels: dict[str, set[str]], queries: dict[str, str], *, ma
     return sorted(sampled, key=lambda value: int(value) if value.isdigit() else value)
 
 
-def _build_units(corpus: dict[str, dict[str, Any]]) -> list[IndexableUnit]:
+def _build_units(corpus: dict[str, dict[str, Any]], *, max_docs: int = 0) -> list[IndexableUnit]:
     units: list[IndexableUnit] = []
-    for doc_id in sorted(corpus, key=lambda value: int(value) if value.isdigit() else value):
+    doc_ids = sorted(corpus, key=lambda value: int(value) if value.isdigit() else value)
+    if max_docs > 0:
+        doc_ids = doc_ids[:max_docs]
+    for doc_id in doc_ids:
         row = corpus[doc_id]
         title = str(row.get("title", "") or "").strip()
         text = str(row.get("text", "") or "").strip()
@@ -212,22 +228,192 @@ def _rank_gold(rows: list[dict[str, Any]], gold_doc_ids: set[str]) -> dict[str, 
     return ranks
 
 
+def _find_backend_dir() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "config.py").exists() and (parent / "retrieval_core").is_dir():
+            return parent
+    raise RuntimeError(f"Cannot locate backend directory from {current}")
+
+
+def _result_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    return dict(row.get("metadata", {}) or {})
+
+
+def _count_values(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        metadata = _result_metadata(row)
+        value = metadata.get(key)
+        if isinstance(value, list | tuple):
+            values = [str(item) for item in value if str(item)]
+        else:
+            values = [str(value)] if value not in (None, "") else []
+        for item in values:
+            counts[item] = counts.get(item, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
+def _retrieval_diagnostics_for_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    candidate_graph_hits = [
+        row
+        for row in rows
+        if _result_metadata(row).get("retrieval_stage") == "candidate_graph"
+        or _result_metadata(row).get("candidate_graph_node_key")
+    ]
+    return {
+        "result_count": len(rows),
+        "retrieval_mode_counts": _count_values(rows, "retrieval_modes"),
+        "unit_type_counts": _count_values(rows, "unit_type"),
+        "modality_counts": _count_values(rows, "modality"),
+        "candidate_graph": {
+            "result_count": len(candidate_graph_hits),
+            "bucket_kind_counts": _count_values(candidate_graph_hits, "candidate_graph_bucket_kind"),
+            "merged_result_count": sum(
+                1
+                for row in candidate_graph_hits
+                if int(_result_metadata(row).get("candidate_graph_hit_count") or 0) > 1
+            ),
+        },
+    }
+
+
+def _aggregate_retrieval_diagnostics(retrieved: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    all_rows: list[dict[str, Any]] = []
+    for rows in retrieved.values():
+        all_rows.extend(rows)
+    diagnostics = _retrieval_diagnostics_for_rows(all_rows)
+    diagnostics["queries_with_results"] = sum(1 for rows in retrieved.values() if rows)
+    return diagnostics
+
+
+def _index_payload_ready(payload: dict[str, Any]) -> bool:
+    status = str(payload.get("status", "") or "").strip().lower()
+    if status != "ready":
+        return False
+    dense_documents = int(payload.get("dense_documents") or 0)
+    dense_indexed = int(payload.get("dense_documents_indexed") or dense_documents or 0)
+    if dense_documents > 0 and dense_indexed < dense_documents:
+        return False
+    dense_status = str(payload.get("dense_status", status) or status).strip().lower()
+    if dense_status not in {"", "ready"}:
+        return False
+    return True
+
+
+def _load_existing_index_payload(backend: LlamaIndexRetrievalBackend, collection: str) -> dict[str, Any]:
+    metadata_path = backend.layout.metadata_path(collection)
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"collection": collection, "status": "unknown"}
+    if not _index_payload_ready(payload):
+        raise RuntimeError(
+            f"Benchmark index '{collection}' is not ready: "
+            f"status={payload.get('status')!r}, "
+            f"dense_documents_indexed={payload.get('dense_documents_indexed')!r}, "
+            f"dense_documents={payload.get('dense_documents')!r}. "
+            f"index_dir={backend.layout.collection_dir(collection)}. "
+            "Run with --rebuild to build in a staging directory and publish only after success."
+        )
+    return payload
+
+
+def _publish_benchmark_collection(staging_backend: LlamaIndexRetrievalBackend, final_backend: LlamaIndexRetrievalBackend) -> None:
+    staging_collection_dir = staging_backend.layout.collection_dir("benchmark")
+    final_collection_dir = final_backend.layout.collection_dir("benchmark")
+    if not staging_collection_dir.exists():
+        raise RuntimeError(f"Benchmark staging collection missing: {staging_collection_dir}")
+    final_collection_dir.parent.mkdir(parents=True, exist_ok=True)
+    backup_dir = final_collection_dir.with_name(f"{final_collection_dir.name}.backup-{uuid.uuid4().hex[:8]}")
+    if final_collection_dir.exists():
+        final_collection_dir.rename(backup_dir)
+    try:
+        shutil.move(str(staging_collection_dir), str(final_collection_dir))
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+    except Exception:
+        if final_collection_dir.exists():
+            shutil.rmtree(final_collection_dir)
+        if backup_dir.exists():
+            backup_dir.rename(final_collection_dir)
+        raise
+
+
+def _rewrite_published_metadata(backend: LlamaIndexRetrievalBackend, collection: str) -> None:
+    metadata_path = backend.layout.metadata_path(collection)
+    if not metadata_path.exists():
+        return
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    backend._write_metadata(collection, payload)
+
+
+def _build_benchmark_index_atomically(
+    *,
+    runtime_root: Path,
+    corpus: dict[str, dict[str, Any]],
+    build_batch_size: int | None = None,
+    max_docs: int = 0,
+) -> tuple[LlamaIndexRetrievalBackend, dict[str, Any], float]:
+    from config import get_settings
+    from embedding_compat import build_embedding_model
+    from retrieval_core.embedding_cache import CachedEmbeddingModel
+
+    staging_parent = runtime_root.parent / ".benchmark_staging"
+    staging_root = staging_parent / f"{runtime_root.name}-{uuid.uuid4().hex[:10]}"
+    staging_parent.mkdir(parents=True, exist_ok=True)
+    settings = get_settings()
+    if build_batch_size is not None:
+        settings = dataclasses.replace(settings, qdrant_build_batch_size=max(int(build_batch_size), 1))
+    staging_backend = LlamaIndexRetrievalBackend(staging_root)
+    staging_backend.settings = settings
+    embed_model = CachedEmbeddingModel(
+        build_embedding_model(settings),
+        cache_path=runtime_root / "storage" / "embedding_cache" / "benchmark.sqlite3",
+        namespace=f"benchmark:{settings.embedding_provider}:{settings.embedding_model}:{settings.embedding_dimensions or ''}",
+    )
+    started = time.perf_counter()
+    index_payload = staging_backend.build_collection(
+        "benchmark",
+        _build_units(corpus, max_docs=max_docs),
+        embed_model=embed_model,
+        verify_dense_query=False,
+    )
+    build_seconds = time.perf_counter() - started
+    if not _index_payload_ready(index_payload):
+        raise RuntimeError(
+            f"Benchmark rebuild did not produce a ready index: "
+            f"status={index_payload.get('status')!r}, "
+            f"dense_documents_indexed={index_payload.get('dense_documents_indexed')!r}, "
+            f"dense_documents={index_payload.get('dense_documents')!r}."
+        )
+    final_backend = LlamaIndexRetrievalBackend(runtime_root)
+    _publish_benchmark_collection(staging_backend, final_backend)
+    _rewrite_published_metadata(final_backend, "benchmark")
+    try:
+        shutil.rmtree(staging_root)
+    except FileNotFoundError:
+        pass
+    return final_backend, _load_existing_index_payload(final_backend, "benchmark"), build_seconds
+
+
 def run_benchmark(config: BenchmarkConfig, *, backend_dir: Path) -> dict[str, Any]:
     corpus, queries, qrels = _load_scifact(config)
     query_ids = _sample_query_ids(qrels, queries, max_queries=config.max_queries, seed=config.seed)
-    backend = LlamaIndexRetrievalBackend(backend_dir)
+    runtime_root = Path(config.runtime_root).resolve() if config.runtime_root is not None else backend_dir
+    backend = LlamaIndexRetrievalBackend(runtime_root)
 
     build_seconds = 0.0
     index_payload: dict[str, Any]
     if config.rebuild or not backend.layout.metadata_path("benchmark").exists():
-        started = time.perf_counter()
-        index_payload = backend.build_collection("benchmark", _build_units(corpus))
-        build_seconds = time.perf_counter() - started
+        backend, index_payload, build_seconds = _build_benchmark_index_atomically(
+            runtime_root=runtime_root,
+            corpus=corpus,
+            build_batch_size=config.build_batch_size,
+            max_docs=config.max_docs,
+        )
     else:
-        try:
-            index_payload = json.loads(backend.layout.metadata_path("benchmark").read_text(encoding="utf-8"))
-        except Exception:
-            index_payload = {"collection": "benchmark", "status": "unknown"}
+        index_payload = _load_existing_index_payload(backend, "benchmark")
 
     base_retrieved: dict[str, list[dict[str, Any]]] = {}
     reranked_retrieved: dict[str, list[dict[str, Any]]] = {}
@@ -261,6 +447,7 @@ def run_benchmark(config: BenchmarkConfig, *, backend_dir: Path) -> dict[str, An
         reranker = build_reranker(settings)
 
     for qid in query_ids:
+        query_index = len(base_retrieved) + 1
         query = queries[qid]
         started = time.perf_counter()
         hits = backend.retrieve(
@@ -271,7 +458,8 @@ def run_benchmark(config: BenchmarkConfig, *, backend_dir: Path) -> dict[str, An
                 collections=("benchmark",),
             )
         )
-        retrieval_seconds.append(time.perf_counter() - started)
+        retrieval_elapsed = time.perf_counter() - started
+        retrieval_seconds.append(retrieval_elapsed)
         rows = [
             {
                 "text": hit.text,
@@ -291,10 +479,22 @@ def run_benchmark(config: BenchmarkConfig, *, backend_dir: Path) -> dict[str, An
         if reranker is None:
             reranked_retrieved[qid] = rows
             rerank_seconds.append(0.0)
+            print(
+                f"[benchmark-query] {query_index}/{len(query_ids)} qid={qid} "
+                f"retrieval={retrieval_elapsed:.4f}s rerank=0.0000s rerank_top_n=0",
+                flush=True,
+            )
             continue
         rerank_started = time.perf_counter()
         reranked_retrieved[qid] = reranker.rerank_dict_results(query=query, results=rows)
-        rerank_seconds.append(time.perf_counter() - rerank_started)
+        rerank_elapsed = time.perf_counter() - rerank_started
+        rerank_seconds.append(rerank_elapsed)
+        print(
+            f"[benchmark-query] {query_index}/{len(query_ids)} qid={qid} "
+            f"retrieval={retrieval_elapsed:.4f}s rerank={rerank_elapsed:.4f}s "
+            f"rerank_top_n={rerank_settings.get('top_n', 0)}",
+            flush=True,
+        )
 
     base_metrics, base_rows = _evaluate_rows(
         query_ids=query_ids,
@@ -316,14 +516,22 @@ def run_benchmark(config: BenchmarkConfig, *, backend_dir: Path) -> dict[str, An
             "query": row["query"],
             "gold_doc_ids": row["gold_doc_ids"],
             "top_doc_ids": row["top_doc_ids"][: config.metric_top_k],
+            "retrieval_diagnostics": _retrieval_diagnostics_for_rows(
+                reranked_retrieved.get(str(row["qid"]), [])[: config.metric_top_k]
+            ),
         }
         for row in current_rows
         if not row["hit_at_10"]
     ][:20]
+    query_diagnostics = {
+        qid: _retrieval_diagnostics_for_rows(reranked_retrieved.get(qid, [])[: config.metric_top_k])
+        for qid in query_ids
+    }
     payload = {
         "config": {
             "split": config.split,
             "max_queries": config.max_queries,
+            "max_docs": config.max_docs,
             "candidate_top_k": config.candidate_top_k,
             "metric_top_k": config.metric_top_k,
             "seed": config.seed,
@@ -331,18 +539,26 @@ def run_benchmark(config: BenchmarkConfig, *, backend_dir: Path) -> dict[str, An
             "rebuild": config.rebuild,
             "rerank_top_n": config.rerank_top_n,
             "rerank_candidate_pool": config.rerank_candidate_pool,
+            "build_batch_size": config.build_batch_size,
+            "runtime_root": str(runtime_root),
         },
         "rerank_settings": rerank_settings,
         "scifact_root": str(config.scifact_root),
+        "index_root": str(backend.layout.root),
         "build_seconds": round(build_seconds, 4),
         "index_payload": index_payload,
         "base_retrieval": base_metrics,
         "current_chain": current_metrics,
+        "retrieval_diagnostics": {
+            "base": _aggregate_retrieval_diagnostics(base_retrieved),
+            "current": _aggregate_retrieval_diagnostics(reranked_retrieved),
+        },
         "latency": {
             "mean_retrieval_seconds": round(sum(retrieval_seconds) / max(len(retrieval_seconds), 1), 4),
             "mean_rerank_seconds": round(sum(rerank_seconds) / max(len(rerank_seconds), 1), 4),
         },
         "sample_failures": sample_failures,
+        "query_diagnostics": query_diagnostics,
         "gold_ranks": {
             qid: {
                 "query": queries[qid],
@@ -364,6 +580,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scifact-root", default="", help="Path to BEIR SciFact root. Defaults to ../scifact/_beir_extract/scifact.")
     parser.add_argument("--split", default="test", choices=("test", "train"))
     parser.add_argument("--max-queries", type=int, default=50)
+    parser.add_argument("--max-docs", type=int, default=0, help="Limit indexed docs for rebuild smoke tests only. 0 indexes full corpus.")
     parser.add_argument("--candidate-top-k", type=int, default=100)
     parser.add_argument("--metric-top-k", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
@@ -371,12 +588,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-rerank", action="store_true")
     parser.add_argument("--rerank-top-n", type=int, default=None)
     parser.add_argument("--rerank-candidate-pool", type=int, default=None)
+    parser.add_argument("--build-batch-size", type=int, default=None)
+    parser.add_argument(
+        "--runtime-root",
+        default="",
+        help="Isolated project/runtime root for benchmark indexes. Defaults to output/benchmark_runtime/scifact_v2.",
+    )
     parser.add_argument("--output", default="")
     return parser
 
 
 def main() -> int:
-    backend_dir = Path(__file__).resolve().parents[1]
+    backend_dir = _find_backend_dir()
     args = _build_parser().parse_args()
     scifact_root = Path(args.scifact_root).resolve() if args.scifact_root else (
         backend_dir.parent / "scifact" / "_beir_extract" / "scifact"
@@ -386,11 +609,18 @@ def main() -> int:
         output = output_arg.resolve() if output_arg.is_absolute() else (backend_dir / output_arg).resolve()
     else:
         output = (backend_dir / "tests" / "_artifacts" / "scifact_v2_current.json").resolve()
+    if args.runtime_root:
+        runtime_root_arg = Path(args.runtime_root)
+        runtime_root = runtime_root_arg.resolve() if runtime_root_arg.is_absolute() else (backend_dir.parent / runtime_root_arg).resolve()
+    else:
+        runtime_root = (backend_dir.parent / "output" / "benchmark_runtime" / "scifact_v2").resolve()
     payload = run_benchmark(
         BenchmarkConfig(
             scifact_root=scifact_root,
+            runtime_root=runtime_root,
             split=args.split,
             max_queries=args.max_queries,
+            max_docs=args.max_docs,
             candidate_top_k=args.candidate_top_k,
             metric_top_k=args.metric_top_k,
             seed=args.seed,
@@ -399,6 +629,7 @@ def main() -> int:
             output_path=output,
             rerank_top_n=args.rerank_top_n,
             rerank_candidate_pool=args.rerank_candidate_pool,
+            build_batch_size=args.build_batch_size,
         ),
         backend_dir=backend_dir,
     )

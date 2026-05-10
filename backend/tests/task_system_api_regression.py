@@ -38,7 +38,7 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
 
     summary = payload["summary"]
     task_management = payload["task_management"]
-    coordination_management = payload["coordination_management"]
+    task_graph_management = payload["task_graph_management"]
     diagnostics = payload["diagnostics"]
 
     assert payload["authority"] == "task_system.management_console"
@@ -66,7 +66,7 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["flow_contract_bindings"])
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["execution_policies"])
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["memory_request_profiles"])
-    assert coordination_management["communication_protocols"] == []
+    assert task_graph_management["communication_protocols"] == []
     assert payload["contract_management"]["contract_specs"]
     assert diagnostics["template_validation_matrix"]["authority"] == "task_system.template_validation_matrix"
     assert diagnostics["link_permission_matrix"]["authority"] == "task_system.link_permission_matrix"
@@ -230,7 +230,7 @@ def test_task_system_next_ids_are_generated_with_prefixed_internal_ids_and_displ
     assert str(payload["task_id"]).startswith("task.")
     assert str(payload["flow_id"]).startswith("flow.")
     assert str(payload["workflow_id"]).startswith("workflow.")
-    assert str(payload["coordination_task_id"]).startswith("coord.")
+    assert str(payload["graph_id"]).startswith("graph.")
     assert str(payload["topology_template_id"]).startswith("topology.")
 
     display_numbers = payload["display_numbers"]
@@ -333,7 +333,7 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     assert flow_contract_payload["task_management"]["flow_contract_bindings"]
     assert execution_payload["task_management"]["execution_policies"]
     assert memory_payload["task_management"]["memory_request_profiles"]
-    assert protocol_payload["coordination_management"]["communication_protocols"]
+    assert protocol_payload["task_graph_management"]["communication_protocols"]
 
     assert projection_binding is not None
     assert projection_binding.projection_selection_mode == "allow_list"
@@ -410,10 +410,10 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
             )
         )
         payload = asyncio.run(
-            tasks_api.upsert_task_system_coordination_task(
-                "coord.research.test_parent",
+            tasks_api.upsert_task_system_task_graph_bundle(
+                "graph.research.test_parent",
                 tasks_api.CoordinationTaskUpsertRequest(
-                    coordination_task_id="coord.research.test_parent",
+                    graph_id="graph.research.test_parent",
                     title="研究父级协调任务",
                     coordination_mode="review_merge",
                     coordinator_agent_id="agent:20",
@@ -443,13 +443,13 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
 
     coordination = next(
         item
-        for item in payload["coordination_management"]["coordination_tasks"]
-        if item["coordination_task_id"] == "coord.research.test_parent"
+        for item in payload["task_graph_management"]["task_graphs"]
+        if item["graph_id"] == "graph.research.test_parent"
     )
     graph_spec = next(
         item
-        for item in payload["coordination_management"]["coordination_graph_specs"]
-        if item["coordination_task_id"] == "coord.research.test_parent"
+        for item in payload["task_graph_management"]["task_graph_specs"]
+        if item["graph_id"] == "graph.research.test_parent"
     )
     assert coordination["domain_id"] == "domain.research"
     assert coordination["task_family"] == "research"
@@ -526,8 +526,8 @@ def test_task_system_no_longer_seeds_concrete_writing_task_objects(tmp_path: Pat
             "protocol.writing.longform_project_bootstrap",
         ],
         "coordination_tasks": [
-            "coord.writing.short_story_pipeline",
-            "coord.writing.longform_project_bootstrap",
+            "graph.writing.short_story_pipeline",
+            "graph.writing.longform_project_bootstrap",
         ],
         "adoption_plans": [
             "task.writing.longform_novel_project",
@@ -541,8 +541,8 @@ def test_task_system_no_longer_seeds_concrete_writing_task_objects(tmp_path: Pat
         assert registry.get_task_assignment(task_id) is None
     for protocol_id in removed_refs["protocols"]:
         assert registry.get_task_communication_protocol(protocol_id) is None
-    for coordination_task_id in removed_refs["coordination_tasks"]:
-        assert registry.get_coordination_task(coordination_task_id) is None
+    for graph_id in removed_refs["coordination_tasks"]:
+        assert registry.get_graph_task(graph_id) is None
     for task_id in removed_refs["adoption_plans"]:
         assert registry.get_task_agent_adoption_plan(task_id) is None
 

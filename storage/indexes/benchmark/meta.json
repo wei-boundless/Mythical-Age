@@ -1,0 +1,19 @@
+{
+  "collection": "benchmark",
+  "status": "building",
+  "dense_documents": 5183,
+  "dense_documents_indexed": 2944,
+  "vector_backend": "qdrant",
+  "qdrant_collection": "agent__benchmark",
+  "build_batch_size": 128,
+  "parser_backends": [
+    "scifact_jsonl"
+  ],
+  "build_id": "benchmark-26afd2b91795",
+  "build_started_at_utc": "2026-05-10T12:23:32.540396Z",
+  "metadata_schema_version": "retrieval_v2_meta_v1",
+  "layout_root": "D:\\AI应用\\langchain-agent\\storage\\indexes",
+  "collection_dir": "D:\\AI应用\\langchain-agent\\storage\\indexes\\benchmark",
+  "metadata_path": "D:\\AI应用\\langchain-agent\\storage\\indexes\\benchmark\\meta.json",
+  "written_at_utc": "2026-05-10T12:38:41.610106Z"
+}

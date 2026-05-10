@@ -5,7 +5,13 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Sequence
+from functools import lru_cache
+from typing import Any, Sequence
+
+try:
+    import jieba  # type: ignore
+except Exception:  # pragma: no cover - fallback is intentional
+    jieba = None
 
 
 def normalize_text(text: str) -> str:
@@ -13,10 +19,18 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", lowered)
 
 
-def lexical_tokens(text: str) -> list[str]:
-    normalized = normalize_text(text)
-    if not normalized:
-        return []
+def tokenizer_name() -> str:
+    if jieba is not None:
+        return "jieba_search_with_bigram_fallback_v1"
+    return "mixed_word_cjk_bigram_v1"
+
+
+@lru_cache(maxsize=1)
+def _jieba_available() -> bool:
+    return jieba is not None
+
+
+def _legacy_bigram_tokens(normalized: str) -> list[str]:
     tokens: list[str] = []
     for chunk in re.findall(r"[a-z0-9][a-z0-9_./:-]*|[\u4e00-\u9fff]+", normalized):
         if re.fullmatch(r"[\u4e00-\u9fff]+", chunk):
@@ -29,6 +43,54 @@ def lexical_tokens(text: str) -> list[str]:
             if token:
                 tokens.append(token)
     return tokens
+
+
+def _contains_cjk(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text))
+
+
+def _dedupe_preserve_order(tokens: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for token in tokens:
+        normalized = str(token or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def _jieba_tokens(normalized: str) -> list[str]:
+    if not _jieba_available():
+        return []
+    pieces = [
+        str(token or "").strip()
+        for token in jieba.cut_for_search(normalized)
+        if str(token or "").strip()
+    ]
+    cleaned: list[str] = []
+    for piece in pieces:
+        if re.fullmatch(r"[\u4e00-\u9fff]+", piece):
+            cleaned.append(piece)
+            continue
+        token = piece.strip(".,;:!?()[]{}\"'")
+        if token:
+            cleaned.append(token)
+    return cleaned
+
+
+def lexical_tokens(text: str) -> list[str]:
+    normalized = normalize_text(text)
+    if not normalized:
+        return []
+    fallback_tokens = _legacy_bigram_tokens(normalized)
+    if not _contains_cjk(normalized):
+        return fallback_tokens
+    jieba_tokens = _jieba_tokens(normalized)
+    if not jieba_tokens:
+        return fallback_tokens
+    return _dedupe_preserve_order(jieba_tokens + fallback_tokens)
 
 
 def build_searchable_text(

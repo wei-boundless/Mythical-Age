@@ -211,13 +211,7 @@ class QueryRewriter:
         (
             "pdf_page",
             (
-                "第",
-                "页",
                 "page",
-                "pdf",
-                "白皮书",
-                "报告",
-                "文档",
             ),
         ),
         (

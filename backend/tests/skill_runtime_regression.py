@@ -56,6 +56,7 @@ def main() -> None:
     assert weather.tool_name == "web_search"
     assert weather.target_object is None
     assert weather.candidate_tools == ["web_search"]
+    assert any(item["candidate_type"] == "tool" and item["name"] == "web_search" for item in weather.candidate_capabilities)
 
     structured = analyze_query_understanding(
         "销售前五的有哪些",
@@ -67,6 +68,7 @@ def main() -> None:
     assert skill_resolver.resolve(task_frame=structured).name == "structured-data-analysis"
     assert structured.tool_name is None
     assert structured.candidate_tools == []
+    assert any(item["candidate_type"] == "mcp" and item["name"] == "structured_data" for item in structured.candidate_capabilities)
     assert structured.tool_input == {"query": "销售前五的有哪些"}
 
     shortage = analyze_query_understanding(
@@ -183,9 +185,10 @@ def main() -> None:
     assert skill_create.route == "rag"
     assert skill_create.execution_posture == "direct_rag"
     assert skill_create.preferred_skill == "skill-creator"
-    assert skill_create.skill_name is None
+    assert skill_create.skill_name == "skill-creator"
     assert skill_create.tool_name is None
     assert skill_create.candidate_tools == []
+    assert any(item["candidate_type"] == "skill" and item["name"] == "skill-creator" for item in skill_create.candidate_capabilities)
     assert skill_resolver.resolve(task_frame=skill_create).name == "skill-creator"
     assert "skill-authoring" in skill_create.capability_requests
 
@@ -206,7 +209,7 @@ def main() -> None:
     )
     assert faq.route == "rag"
     assert faq.preferred_skill == "rag-skill"
-    assert faq.skill_name is None
+    assert faq.skill_name == "rag-skill"
     assert skill_resolver.resolve(task_frame=faq).name == "rag-skill"
     assert faq.task_kind == "faq_explanation"
     assert faq.target_object is None
@@ -220,7 +223,7 @@ def main() -> None:
     )
     assert rag.route == "rag"
     assert rag.preferred_skill == "rag-skill"
-    assert rag.skill_name is None
+    assert rag.skill_name == "rag-skill"
     assert skill_resolver.resolve(task_frame=rag).name == "rag-skill"
     assert rag.target_object is None
     assert rag.tool_name is None

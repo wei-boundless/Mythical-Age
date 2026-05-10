@@ -23,10 +23,9 @@ def _manifest() -> ContractManifest:
     return ContractManifest(
         manifest_id="contract-manifest:test",
         manifest_kind="coordination",
-        task_ref="coord.test",
+        task_ref="graph.test",
         workflow_id="workflow.test",
-        coordination_task_id="coord.test",
-        graph_id="coordgraph:test",
+        graph_id="graph.test",
         global_contracts=(
             CompiledGlobalContract(
                 contract_id="contract.test.input",

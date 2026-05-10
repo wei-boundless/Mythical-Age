@@ -11,7 +11,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 
-_DEFAULT_ROOTS = ("docs", "backend", "frontend")
+_DEFAULT_ROOTS = ("docs", "backend", "frontend", "knowledge", "backend/knowledge")
 _EXCLUDED_DIRS = (
     ".git",
     ".pytest_cache",
