@@ -24,7 +24,7 @@
     },
     "retrieval": {
       "rerank_enabled": true,
-      "rerank_top_n": 200,
+      "rerank_top_n": 50,
       "rerank_candidate_pool": 200
     }
   },

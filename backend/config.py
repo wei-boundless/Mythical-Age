@@ -542,15 +542,15 @@ def _resolve_rerank_base_url() -> str | None:
 def _resolve_rerank_top_n() -> int:
     override = _runtime_system_value("retrieval", "rerank_top_n")
     if override not in {None, ""}:
-        return _resolve_positive_int("RERANK_TOP_N", 200, override)
+        return _resolve_positive_int("RERANK_TOP_N", 50, override)
     raw = _first_env("RERANK_TOP_N")
     if not raw:
-        return 200
+        return 50
     try:
         value = int(raw)
     except ValueError:
-        return 200
-    return value if value > 0 else 200
+        return 50
+    return value if value > 0 else 50
 
 
 def _resolve_rerank_candidate_pool() -> int:

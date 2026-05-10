@@ -13,7 +13,11 @@ import config
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache():
+def _isolated_runtime_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    runtime_path = tmp_path / "config.json"
+    runtime_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(config, "_runtime_config_path", lambda: runtime_path)
+    monkeypatch.setattr(config, "_load_env_file", lambda: BACKEND_DIR)
     config.get_settings.cache_clear()
     yield
     config.get_settings.cache_clear()
@@ -162,6 +166,17 @@ def test_runtime_system_config_overrides_static_settings(monkeypatch: pytest.Mon
     assert settings.llm_timeout_seconds == 300
     assert settings.llm_max_retries == 4
     assert settings.terminal_timeout_seconds == 300
+
+
+def test_rerank_top_n_default_is_cost_governed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    runtime_path = tmp_path / "config.json"
+    runtime_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(config, "_runtime_config_path", lambda: runtime_path)
+    monkeypatch.delenv("RERANK_TOP_N", raising=False)
+
+    settings = config.get_settings()
+
+    assert settings.rerank_top_n == 50
 
 
 def test_runtime_system_config_exposes_long_output_controls(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
