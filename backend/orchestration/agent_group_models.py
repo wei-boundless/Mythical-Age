@@ -31,4 +31,5 @@ class AgentGroup:
         payload["default_topology_template_ids"] = list(self.default_topology_template_ids)
         payload["default_communication_protocol_ids"] = list(self.default_communication_protocol_ids)
         payload["allowed_task_graph_ids"] = list(self.allowed_task_graph_ids)
+        payload["allowed_coordination_task_ids"] = list(self.allowed_task_graph_ids)
         return payload

@@ -191,6 +191,7 @@ def _runtime_lane_for_task_mode(task_mode: str) -> str:
         "issue_triage": "health_triage",
         "knowledge_retrieval": "retrieval",
         "information_search": "search",
+        "short_realtime_lookup": "search",
         "capability_execution": "capability_execution",
     }.get(str(task_mode or "").strip(), "main_conversation")
 
@@ -629,9 +630,9 @@ def _default_memory_request_profile(task: TaskAssignment) -> TaskMemoryRequestPr
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["user_preference", "memory_recall"]
         allow_long_term_memory = True
-    elif task_mode == "general_task":
+    elif task_mode in {"general_task", "short_realtime_lookup", "information_search"}:
         requested_layers = ["conversation"]
-        requested_topics = ["current_conversation"]
+        requested_topics = ["current_conversation"] if task_mode == "general_task" else ["current_conversation", task_mode]
     return TaskMemoryRequestProfile(
         profile_id=f"taskmem:{task.task_id}",
         task_id=task.task_id,
@@ -720,6 +721,9 @@ def _default_memory_request_profile_from_specific_record(record: SpecificTaskRec
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["user_preference", "memory_recall"]
         allow_long_term_memory = True
+    elif task_mode in {"short_realtime_lookup", "information_search"}:
+        requested_layers = ["conversation"]
+        requested_topics = ["current_conversation", task_mode]
     return TaskMemoryRequestProfile(
         profile_id=f"taskmem:{record.task_id}",
         task_id=record.task_id,

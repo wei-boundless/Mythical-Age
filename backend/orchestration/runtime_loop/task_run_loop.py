@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from capability_system import build_default_operation_registry
 from capability_system.local_mcp_registry import get_local_mcp_unit, get_local_mcp_unit_for_template
@@ -1324,6 +1324,10 @@ class TaskRunLoop:
                         if observation.get("observation_type") == "tool_result":
                             tool_observation_count += 1
                             observation_payload = dict(observation.get("payload") or {})
+                            observation_aggregator.add_tool_observation(
+                                observation_payload,
+                                observation_ref=observation_ref,
+                            )
                             matched_ordinal = _match_bundle_ordinal_for_tool_observation(
                                 bundle_items=current_bundle_items,
                                 tool_name=str(observation_payload.get("tool_name") or ""),
@@ -1500,6 +1504,14 @@ class TaskRunLoop:
                 ),
                 *tool_messages,
             ]
+            readiness_message = _build_answer_readiness_judge_message(
+                user_message=user_message,
+                aggregation=observation_aggregator.snapshot(),
+                current_bundle_items=current_bundle_items,
+                remaining_model_calls=max(effective_limits.max_model_calls - model_call_count, 0),
+            )
+            if readiness_message:
+                followup_messages.append(SystemMessage(content=readiness_message))
         while followup_messages and terminal_reason == "completed":
             turn_count += 1
             model_call_count += 1
@@ -1605,6 +1617,10 @@ class TaskRunLoop:
                         if observation.get("observation_type") == "tool_result":
                             tool_observation_count += 1
                             observation_payload = dict(observation.get("payload") or {})
+                            observation_aggregator.add_tool_observation(
+                                observation_payload,
+                                observation_ref=observation_ref,
+                            )
                             matched_ordinal = _match_bundle_ordinal_for_tool_observation(
                                 bundle_items=current_bundle_items,
                                 tool_name=str(observation_payload.get("tool_name") or ""),
@@ -1877,6 +1893,14 @@ class TaskRunLoop:
                     ),
                     *next_tool_messages,
                 ]
+                readiness_message = _build_answer_readiness_judge_message(
+                    user_message=user_message,
+                    aggregation=observation_aggregator.snapshot(),
+                    current_bundle_items=current_bundle_items,
+                    remaining_model_calls=max(effective_limits.max_model_calls - model_call_count, 0),
+                )
+                if readiness_message:
+                    followup_messages.append(SystemMessage(content=readiness_message))
                 continue
             followup_messages = []
 
@@ -1964,6 +1988,10 @@ class TaskRunLoop:
                             if observation.get("observation_type") == "tool_result":
                                 tool_observation_count += 1
                                 observation_payload = dict(observation.get("payload") or {})
+                                observation_aggregator.add_tool_observation(
+                                    observation_payload,
+                                    observation_ref=observation_ref,
+                                )
                                 operation_id = resolve_tool_operation_id(
                                     str(observation_payload.get("tool_name") or ""),
                                     definitions_by_name=self.tool_authorization_index.definitions_by_name,
@@ -5500,6 +5528,55 @@ def _dedupe_refs(values: list[str]) -> list[str]:
         seen.add(item)
         refs.append(item)
     return refs
+
+
+def _build_answer_readiness_judge_message(
+    *,
+    user_message: str,
+    aggregation: ObservationAggregation,
+    current_bundle_items: list[dict[str, Any]],
+    remaining_model_calls: int,
+) -> str:
+    evidence_items = list(aggregation.evidence_items or [])
+    if not evidence_items:
+        return ""
+    lines = [
+        "你已经收到工具返回的证据。现在先判断证据是否足够回答用户，而不是默认继续调用工具。",
+        "",
+        "你的任务：",
+        "1. 如果证据已经足够覆盖用户当前问题，请直接收口回答。",
+        "2. 如果证据只缺少少量关键信息，才继续调用工具；继续前必须明确缺口是什么。",
+        "3. 如果用户问题本身不清楚，请向用户说明缺少的限定条件。",
+        "4. 不要为了确认已经足够的信息而重复查询同类工具。",
+        "",
+        f"用户当前问题：{str(user_message or '').strip()}",
+        f"剩余模型调用预算：{max(int(remaining_model_calls or 0), 0)}",
+    ]
+    if current_bundle_items:
+        lines.append("")
+        lines.append("当前是复合任务；只有未完成的子项才需要继续补证。")
+    lines.append("")
+    lines.append("已有证据：")
+    for index, item in enumerate(evidence_items[-6:], start=1):
+        tool_name = str(item.get("tool_name") or "tool").strip()
+        result_preview = str(item.get("result_preview") or "").strip()
+        result_chars = int(item.get("result_chars") or len(result_preview))
+        truncated = "，已截断" if item.get("truncated") else ""
+        args = dict(item.get("tool_args") or {})
+        request_text = str(args.get("query") or args.get("path") or "").strip()
+        request_part = f"；请求：{request_text}" if request_text else ""
+        lines.append(f"{index}. 工具：{tool_name}{request_part}；结果长度：{result_chars}{truncated}")
+        if result_preview:
+            lines.append(f"   证据摘要：{result_preview}")
+    lines.extend(
+        [
+            "",
+            "请基于上述证据决定下一步。",
+            "如果可以回答，请直接给用户可读结论，不要输出 JSON，不要解释内部判断过程。",
+            "如果仍要调用工具，请只调用能补齐明确缺口的工具。",
+        ]
+    )
+    return "\n".join(lines).strip()
 
 
 def _runtime_budget_exhausted_answer_metadata() -> dict[str, str]:

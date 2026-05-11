@@ -384,6 +384,56 @@ def _memory_request_profile_payload(
     ).strip()
     posture = str(query_understanding.get("execution_posture") or "").strip()
     if (
+        not payload
+        and (
+            task_mode in {"short_realtime_lookup", "information_search"}
+            or selected_template_id in {"template.search.short_realtime_lookup", "template.search.information_search"}
+            or route in {"realtime_network", "search"}
+        )
+    ):
+        payload.update(
+            {
+                "profile_id": f"taskmem:{task_id}:search",
+                "task_id": task_id,
+                "requested_memory_layers": ["conversation"],
+                "requested_topics": ["current_conversation", task_mode or "search"],
+                "memory_priority": "normal",
+                "writeback_policy": "task_default",
+                "allow_long_term_memory": False,
+                "memory_scope_hint": "search_current_conversation",
+                "authority": "task_system.task_memory_request_profile",
+                "metadata": {"derived_from": "runtime_search_route"},
+            }
+        )
+    if (
+        not payload
+        and (
+            task_mode in {"capability_execution", "knowledge_retrieval"}
+            or selected_template_id
+            in {
+                "template.data.structured_analysis",
+                "template.pdf.document_analysis",
+                "template.rag.knowledge_answer",
+                "template.capability.builtin_tool_lane",
+            }
+            or route in {"structured_data", "pdf", "rag", "tool"}
+        )
+    ):
+        payload.update(
+            {
+                "profile_id": f"taskmem:{task_id}:capability",
+                "task_id": task_id,
+                "requested_memory_layers": ["conversation"],
+                "requested_topics": ["current_conversation", task_mode or "capability"],
+                "memory_priority": "normal",
+                "writeback_policy": "task_default",
+                "allow_long_term_memory": False,
+                "memory_scope_hint": "capability_current_conversation",
+                "authority": "task_system.task_memory_request_profile",
+                "metadata": {"derived_from": "runtime_capability_route"},
+            }
+        )
+    if (
         task_family == "memory"
         or task_mode == "memory_recall"
         or selected_template_id == "template.memory.recall_answer"

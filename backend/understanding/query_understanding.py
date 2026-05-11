@@ -187,6 +187,10 @@ def _apply_capability_resolution_state(understanding: QueryUnderstanding) -> Non
         understanding.skill_name = selected_candidate_name
         if not understanding.preferred_skill:
             understanding.preferred_skill = resolved_preferred_skill or selected_candidate_name
+    elif selected_candidate_type == "mcp":
+        if resolved_preferred_skill:
+            understanding.preferred_skill = resolved_preferred_skill
+            understanding.skill_name = resolved_preferred_skill
     elif selected_candidate_type == "tool":
         tool_name = resolved_tool_name or selected_candidate_name
         if tool_name:
