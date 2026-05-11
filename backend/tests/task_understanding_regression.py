@@ -74,6 +74,38 @@ def main() -> None:
     }
     assert bound_dataset_followup.direct_route_reason == "bound_dataset_followup"
 
+    no_shortage_warehouse_followup = analyze_task_understanding(
+        "再补一句：是否存在完全没有缺口的仓库？如果没有，直接说没有。",
+        active_bindings={"active_dataset": "Data/inventory.xlsx"},
+    )
+    assert no_shortage_warehouse_followup.source_kind == "dataset"
+    assert no_shortage_warehouse_followup.task_kind == "dataset_query"
+    assert no_shortage_warehouse_followup.route_hint == "structured_data"
+    assert no_shortage_warehouse_followup.parameters["path"] == "Data/inventory.xlsx"
+    assert no_shortage_warehouse_followup.direct_route_reason == "bound_dataset_followup"
+
+    active_subset_followup = analyze_task_understanding(
+        "只基于刚才这前五名员工，按部门做一个归类总结，不要回到全表重算。",
+        active_bindings={"active_dataset": "Data/employees.xlsx"},
+    )
+    assert active_subset_followup.source_kind == "dataset"
+    assert active_subset_followup.task_kind == "dataset_query"
+    assert active_subset_followup.route_hint == "structured_data"
+    assert active_subset_followup.parameters["path"] == "Data/employees.xlsx"
+    assert active_subset_followup.parameters["followup_scope"] == "active_subset"
+    assert active_subset_followup.direct_route_reason == "active_subset_followup"
+
+    bundle_ordinal_followup = analyze_task_understanding(
+        "把第一个和第三个子任务各压成一句话，不要再提第二个。",
+        active_bindings={"active_dataset": "Data/inventory.xlsx"},
+    )
+    assert bundle_ordinal_followup.source_kind == "bundle_result"
+    assert bundle_ordinal_followup.task_kind == "bundle_followup"
+    assert bundle_ordinal_followup.route_hint == "bundle_followup"
+    assert bundle_ordinal_followup.structural_signals["followup_target_kind"] == "bundle_ordinals"
+    assert bundle_ordinal_followup.structural_signals["followup_ordinals"] == [1, 3]
+    assert bundle_ordinal_followup.parameters["followup_ordinals"] == [1, 3]
+
     pdf_page = analyze_task_understanding("2025年AI治理报告的第三页讲得什么")
     assert pdf_page.source_kind == "document"
     assert pdf_page.task_kind == "document_page"

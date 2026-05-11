@@ -148,6 +148,24 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             metadata={"workflow_id": "workflow.general.main_conversation"},
         ),
         TaskTemplate(
+            template_id="template.memory.recall_answer",
+            title="记忆回忆回答",
+            description="基于会话记忆与长期记忆上下文直接回答回忆类问题。",
+            task_family="memory",
+            task_mode="memory_recall",
+            output_schema={"final_answer": {"type": "string", "required": True}},
+            required_operations=("op.model_response", "op.memory_read"),
+            step_blueprints=(
+                _step("read_memory_context", "读取记忆上下文", "analyze", required_operations=("op.memory_read",)),
+                _step("finalize_memory_answer", "输出记忆回答", "finalize"),
+            ),
+            metadata={
+                "workflow_id": "workflow.general.main_conversation",
+                "memory_answer": True,
+                "final_answer_requirements": ("优先依据当前记忆上下文直接回答，不要把记忆问题退回到通用检索。",),
+            },
+        ),
+        TaskTemplate(
             template_id="template.capability.builtin_tool_lane",
             title="内置工具直达通道",
             description="用于文件读取、路径搜索、实时工具等明确能力的单步执行。",
@@ -451,6 +469,7 @@ class TaskTemplateRegistry:
         execution_intent = _execution_intent_from_context(
             current_turn_context=current_turn,
             bundle_items=bundle_items,
+            query_understanding=understanding,
         )
         return TaskIntentContract(
             task_intent_id=f"task-intent:{session_id}:{task_id}",
@@ -480,6 +499,11 @@ class TaskTemplateRegistry:
                 "preferred_skill": str(understanding.get("preferred_skill") or ""),
                 "source_kind": str(understanding.get("source_kind") or ""),
                 "modality": str(understanding.get("modality") or ""),
+                "followup_target_kind": str(
+                    dict(understanding.get("structural_signals") or {}).get("followup_target_kind")
+                    or explicit_inputs.get("followup_target_kind")
+                    or ""
+                ),
             },
         )
 
@@ -509,6 +533,7 @@ class TaskTemplateRegistry:
         lowered_goal = str(task_intent_contract.user_goal or "").lower()
         capability_requests = set(task_intent_contract.capability_requests)
         explicit_template_id = str(explicit_inputs.get("explicit_template_id") or "").strip()
+        followup_target_kind = str(task_intent_contract.diagnostics.get("followup_target_kind") or "").strip()
 
         match_source = "heuristic_fallback"
         match_reasons: list[str] = []
@@ -522,13 +547,6 @@ class TaskTemplateRegistry:
             template_id = "template.bundle.multi_capability"
             match_source = "binding_contract"
             match_reasons.append("bundle_execution_mode")
-        elif task_intent_contract.candidate_template_ids:
-            for candidate_template_id in task_intent_contract.candidate_template_ids:
-                if candidate_template_id in templates:
-                    template_id = candidate_template_id
-                    match_source = "binding_contract"
-                    match_reasons.append(f"candidate_template:{candidate_template_id}")
-                    break
         elif (
             "flow.health.fix_verification" in lowered_goal
             or "task.health.fix_verification" in lowered_goal
@@ -557,6 +575,10 @@ class TaskTemplateRegistry:
             template_id = "template.health.issue_triage"
             match_source = "capability_contract"
             match_reasons.append("health_issue_capability")
+        elif task_intent_contract.execution_intent == "bundle_followup_item" and followup_target_kind == "bundle_ordinals":
+            template_id = "template.bundle.multi_capability"
+            match_source = "binding_contract"
+            match_reasons.append("bundle_followup_item")
         elif execution_posture == "direct_rag" or effective_route == "rag" or effective_skill == "rag-skill":
             template_id = _RAG_TEMPLATE_ID
             match_source = "capability_contract"
@@ -573,6 +595,10 @@ class TaskTemplateRegistry:
             template_id = "template.search.information_search"
             match_source = "capability_contract"
             match_reasons.append("search_route_hint")
+        elif execution_posture == "direct_memory" or effective_route == "memory":
+            template_id = "template.memory.recall_answer"
+            match_source = "capability_contract"
+            match_reasons.append("memory_route")
         elif effective_route == "realtime_network":
             template_id = "template.search.information_search"
             match_source = "capability_contract"
@@ -593,6 +619,13 @@ class TaskTemplateRegistry:
             template_id = "template.dev.workspace_patch"
             match_source = "binding_contract"
             match_reasons.append("workspace_source_kind")
+        elif task_intent_contract.candidate_template_ids:
+            for candidate_template_id in task_intent_contract.candidate_template_ids:
+                if candidate_template_id in templates:
+                    template_id = candidate_template_id
+                    match_source = "binding_contract"
+                    match_reasons.append(f"candidate_template:{candidate_template_id}")
+                    break
 
         if not template_id:
             if modality == "pdf" or explicit_inputs.get("explicit_pdf_path") or explicit_inputs.get("bound_pdf_path"):
@@ -745,10 +778,24 @@ def _execution_intent_from_context(
     *,
     current_turn_context: dict[str, Any],
     bundle_items: list[dict[str, Any]],
+    query_understanding: dict[str, Any],
 ) -> str:
     execution_mode = str(current_turn_context.get("execution_mode") or "").strip()
     if execution_mode == "bundle" or len(bundle_items) > 1:
         return "bundle_task"
+    structural_signals = dict(current_turn_context.get("structural_signals") or {})
+    understanding_signals = dict(query_understanding.get("structural_signals") or {})
+    explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+    if (
+        str(
+            understanding_signals.get("followup_target_kind")
+            or structural_signals.get("followup_target_kind")
+            or explicit_inputs.get("followup_target_kind")
+            or ""
+        ).strip()
+        == "bundle_ordinals"
+    ):
+        return "bundle_followup_item"
     if str(current_turn_context.get("intent") or "") == "bundle_followup" and bundle_items:
         return "bundle_followup_item"
     return "single_task"
@@ -797,6 +844,10 @@ def _intent_candidate_template_ids(
 ) -> list[str]:
     candidates: list[str] = []
     explicit_template_id = str(explicit_inputs.get("explicit_template_id") or "").strip()
+    has_explicit_dataset = bool(explicit_inputs.get("explicit_dataset_path"))
+    has_explicit_pdf = bool(explicit_inputs.get("explicit_pdf_path"))
+    has_bound_dataset = bool(explicit_inputs.get("bound_dataset_path"))
+    has_bound_pdf = bool(explicit_inputs.get("bound_pdf_path"))
     if explicit_template_id:
         candidates.append(explicit_template_id)
     execution_mode = str(current_turn_context.get("execution_mode") or "").strip()
@@ -806,28 +857,28 @@ def _intent_candidate_template_ids(
         item_template = str(bundle_items[0].get("template_id") or "").strip()
         if item_template:
             candidates.append(item_template)
-    if explicit_inputs.get("explicit_pdf_path") or explicit_inputs.get("bound_pdf_path"):
-        candidates.append(_PDF_TEMPLATE_ID)
-    if explicit_inputs.get("explicit_dataset_path") or explicit_inputs.get("bound_dataset_path"):
+    if has_explicit_dataset or has_bound_dataset:
         candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
+    if has_explicit_pdf or has_bound_pdf:
+        candidates.append(_PDF_TEMPLATE_ID)
     binding_file_kinds = {
         str(item.get("file_kind") or "").strip()
         for item in resolved_bindings
         if str(item.get("binding_kind") or "").strip() == "source_file"
     }
-    if "pdf" in binding_file_kinds:
-        pdf_unit = get_local_mcp_unit_for_source_kind("pdf")
-        if pdf_unit is not None and pdf_unit.template_ids:
-            candidates.append(str(pdf_unit.template_ids[0]))
     if "dataset" in binding_file_kinds:
         dataset_unit = get_local_mcp_unit_for_source_kind("dataset")
         if dataset_unit is not None and dataset_unit.template_ids:
             candidates.append(str(dataset_unit.template_ids[0]))
+    if "pdf" in binding_file_kinds:
+        pdf_unit = get_local_mcp_unit_for_source_kind("pdf")
+        if pdf_unit is not None and pdf_unit.template_ids:
+            candidates.append(str(pdf_unit.template_ids[0]))
     for request in capability_requests:
-        if request in {"document_analysis", "pdf"}:
-            candidates.append(_PDF_TEMPLATE_ID)
         if request in {"dataset_analysis", "structured_data"}:
             candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
+        if request in {"document_analysis", "pdf"}:
+            candidates.append(_PDF_TEMPLATE_ID)
         if request in {"weather", "gold_price", "latest_information"}:
             candidates.append("template.search.information_search")
     if _looks_like_light_web_game(str(user_goal or "").lower()):

@@ -625,6 +625,10 @@ def _default_memory_request_profile(task: TaskAssignment) -> TaskMemoryRequestPr
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["story_goal", "story_style", task_mode or "writing"]
         allow_long_term_memory = True
+    elif task_family == "memory" or task_mode == "memory_recall":
+        requested_layers = ["conversation", "state", "long_term"]
+        requested_topics = ["user_preference", "memory_recall"]
+        allow_long_term_memory = True
     elif task_mode == "general_task":
         requested_layers = ["conversation"]
         requested_topics = ["current_conversation"]
@@ -711,6 +715,10 @@ def _default_memory_request_profile_from_specific_record(record: SpecificTaskRec
     elif task_family == "writing":
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["story_goal", "story_style", task_mode or "writing"]
+        allow_long_term_memory = True
+    elif task_family == "memory" or task_mode == "memory_recall":
+        requested_layers = ["conversation", "state", "long_term"]
+        requested_topics = ["user_preference", "memory_recall"]
         allow_long_term_memory = True
     return TaskMemoryRequestProfile(
         profile_id=f"taskmem:{record.task_id}",

@@ -38,7 +38,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="main_interactive_agent",
             agent_id="agent:0",
-            allowed_task_modes=("general_task",),
+            allowed_task_modes=("general_task", "memory_recall"),
             allowed_runtime_lanes=("full_interactive", "task_dispatch", "final_integration", "game_delivery"),
             allowed_operations=(
                 "op.model_response",
@@ -56,6 +56,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.git_show",
                 "op.web_search",
                 "op.fetch_url",
+                "op.memory_read",
                 "op.mcp_retrieval",
                 "op.mcp_pdf",
                 "op.mcp_structured_data",

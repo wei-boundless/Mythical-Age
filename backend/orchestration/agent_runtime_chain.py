@@ -364,6 +364,8 @@ def _operation_ids_for_runtime(
     resolution = capability_resolution_view(query_understanding)
     effective_route = resolution.route
     effective_skill = resolution.preferred_skill
+    if effective_route == "memory" or str(getattr(query_understanding, "execution_posture", "") or "") == "direct_memory":
+        return ("op.memory_read",)
     if effective_route == "rag" or effective_skill == "rag-skill":
         mcp_unit = get_local_mcp_unit("retrieval")
     elif effective_route == "pdf" or effective_skill == "pdf-analysis":

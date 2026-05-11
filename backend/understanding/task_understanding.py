@@ -72,6 +72,9 @@ class TaskSignals:
     gold_price_domain: bool = False
     skill_authoring_request: bool = False
     mixed_direct_capabilities: bool = False
+    followup_target_kind: str = ""
+    followup_ordinals: list[int] = field(default_factory=list)
+    followup_scope: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -104,6 +107,9 @@ class TaskSignals:
             "gold_price_domain": self.gold_price_domain,
             "skill_authoring_request": self.skill_authoring_request,
             "mixed_direct_capabilities": self.mixed_direct_capabilities,
+            "followup_target_kind": self.followup_target_kind,
+            "followup_ordinals": list(self.followup_ordinals),
+            "followup_scope": self.followup_scope,
         }
 
 
@@ -203,6 +209,12 @@ def _build_fallback_task_from_signals(
     )
     if workspace_search_task is not None:
         return workspace_search_task
+    bundle_followup_task = _build_bundle_ordinal_followup_task(
+        message=message,
+        signals=signals,
+    )
+    if bundle_followup_task is not None:
+        return bundle_followup_task
     web_task = _build_bounded_web_task(
         message=message,
         signals=signals,
@@ -262,6 +274,33 @@ def _build_fallback_task_from_signals(
         reasons=["fallback_bounded_lookup"],
         signals=signals,
     )
+
+
+def _build_bundle_ordinal_followup_task(
+    *,
+    message: str,
+    signals: TaskSignals,
+) -> TaskUnderstanding | None:
+    if signals.followup_target_kind != "bundle_ordinals":
+        return None
+    understanding = _build_bounded_lookup_task(
+        message=message,
+        source_kind="bundle_result",
+        task_kind="bundle_followup",
+        modality="bundle",
+        confidence=0.93,
+        reasons=["bundle_ordinal_followup"],
+        direct_route_reason="bundle_ordinal_followup",
+        route_hint="bundle_followup",
+        signals=signals,
+    )
+    understanding.parameters = {
+        "query": message,
+        "followup_ordinals": list(signals.followup_ordinals),
+        "followup_scope": signals.followup_scope or "bundle_result",
+    }
+    understanding.capability_requests = []
+    return understanding
 
 
 def _build_bounded_workspace_read_task(
@@ -366,11 +405,13 @@ def _build_bounded_dataset_task(
 ) -> TaskUnderstanding | None:
     if signals.weather_domain or signals.gold_price_domain:
         return None
+    if signals.followup_target_kind == "bundle_ordinals":
+        return None
     followup_dataset_request = (
         bool(signals.bound_dataset_path)
         and not signals.explicit_pdf_path
         and not signals.explicit_workspace_path
-        and _looks_like_dataset_followup_request(message.lower())
+        and signals.followup_target_kind in {"active_dataset", "active_subset"}
     )
     bundle_followup_request = _looks_like_bundle_followup_request(message.lower())
     if not signals.explicit_dataset_path and not signals.business_dataset_request and not followup_dataset_request:
@@ -382,8 +423,10 @@ def _build_bounded_dataset_task(
         reasons = ["explicit_dataset_anchor"]
         parameters["path"] = signals.explicit_dataset_path
     elif followup_dataset_request:
-        reasons = ["bound_dataset_followup"]
+        reasons = ["active_subset_followup" if signals.followup_target_kind == "active_subset" else "bound_dataset_followup"]
         parameters["path"] = signals.bound_dataset_path
+        if signals.followup_target_kind == "active_subset" and signals.followup_scope:
+            parameters["followup_scope"] = signals.followup_scope
     elif bundle_followup_request and signals.bound_dataset_path:
         reasons = ["bundle_subtask_followup"]
         parameters["path"] = signals.bound_dataset_path
@@ -606,6 +649,7 @@ def _collect_task_signals(
     )
     skill_authoring_request = _looks_like_skill_authoring_request(message, lowered)
     binding_view = _normalize_active_bindings(active_bindings)
+    followup_resolution = _resolve_followup_target(lowered, binding_view)
 
     anchor_kinds: list[str] = []
     if explicit_dataset_path:
@@ -672,6 +716,9 @@ def _collect_task_signals(
         weather_domain=weather_domain,
         gold_price_domain=gold_price_domain,
         skill_authoring_request=skill_authoring_request,
+        followup_target_kind=followup_resolution["target_kind"],
+        followup_ordinals=list(followup_resolution["ordinals"]),
+        followup_scope=followup_resolution["scope"],
     )
     signals.mixed_direct_capabilities = _has_mixed_direct_capabilities(signals)
     return signals
@@ -1149,6 +1196,16 @@ def _looks_like_dataset_followup_request(lowered: str) -> bool:
         "展开一下",
         "再看",
         "再查",
+        "完全没有缺口",
+        "没有缺口",
+        "缺口",
+        "是否存在",
+        "如果没有",
+        "只基于刚才",
+        "刚才这",
+        "前五名",
+        "这些员工",
+        "这些人",
     )
     return _contains_any(lowered, dataset_markers)
 
@@ -1191,3 +1248,69 @@ def _looks_like_bundle_followup_request(lowered: str) -> bool:
         "只展开",
     )
     return _contains_any(lowered, markers)
+
+
+def _resolve_followup_target(lowered: str, binding_view: dict[str, Any]) -> dict[str, Any]:
+    ordinals = _extract_followup_ordinals(lowered)
+    if ordinals:
+        return {"target_kind": "bundle_ordinals", "ordinals": ordinals, "scope": "bundle_result"}
+    if _looks_like_active_subset_followup(lowered):
+        if str(binding_view.get("bound_dataset_path") or "").strip():
+            return {"target_kind": "active_subset", "ordinals": [], "scope": "active_subset"}
+        if str(binding_view.get("bound_pdf_path") or "").strip():
+            return {"target_kind": "active_subset", "ordinals": [], "scope": "active_subset"}
+    if str(binding_view.get("bound_dataset_path") or "").strip() and _looks_like_dataset_followup_request(lowered):
+        return {"target_kind": "active_dataset", "ordinals": [], "scope": "active_object"}
+    if str(binding_view.get("bound_pdf_path") or "").strip() and _looks_like_pdf_followup_request(lowered):
+        return {"target_kind": "active_pdf", "ordinals": [], "scope": "active_object"}
+    return {"target_kind": "", "ordinals": [], "scope": ""}
+
+
+def _looks_like_active_subset_followup(lowered: str) -> bool:
+    markers = (
+        "只基于刚才",
+        "基于刚才",
+        "刚才这",
+        "刚才的",
+        "这前五",
+        "这几条",
+        "这些人",
+        "这些员工",
+        "上面这",
+        "上面的",
+        "不要回到全表",
+        "不要全表",
+        "不要重算",
+    )
+    return _contains_any(lowered, markers)
+
+
+def _extract_followup_ordinals(lowered: str) -> list[int]:
+    mapping = {
+        "第一个": 1,
+        "第一项": 1,
+        "第1个": 1,
+        "第1项": 1,
+        "第二个": 2,
+        "第二项": 2,
+        "第2个": 2,
+        "第2项": 2,
+        "第三个": 3,
+        "第三项": 3,
+        "第3个": 3,
+        "第3项": 3,
+    }
+    ordinals: list[int] = []
+    if "子任务" not in lowered and not any(marker in lowered for marker in mapping):
+        return []
+    for marker, ordinal in mapping.items():
+        if marker in lowered and ordinal not in ordinals:
+            ordinals.append(ordinal)
+    excluded: set[int] = set()
+    if "不要再提第二个" in lowered or "不要提第二个" in lowered or "不提第二个" in lowered:
+        excluded.add(2)
+    if "不要再提第2个" in lowered or "不要提第2个" in lowered or "不提第2个" in lowered:
+        excluded.add(2)
+    if excluded:
+        ordinals = [ordinal for ordinal in ordinals if ordinal not in excluded]
+    return ordinals

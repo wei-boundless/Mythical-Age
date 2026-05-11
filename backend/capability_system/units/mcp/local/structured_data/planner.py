@@ -142,6 +142,8 @@ class StructuredDataPlanner:
             return "schema_preview"
         if any(token in lowered for token in ("总数", "总行数", "多少行", "行数", "多少条", "几条", "多少人", "多少商品", "row count")):
             return "row_count"
+        if state_kind == "non_shortage" and wants_location_breakdown and self._looks_like_complete_non_shortage_query(lowered):
+            return "inventory_no_gap_groups"
         if state_kind == "non_shortage" and wants_location_breakdown:
             return "top_n"
         if state_kind == "abundance":
@@ -361,7 +363,7 @@ class StructuredDataPlanner:
             return query_mode_hint
         if diagnostic:
             return "diagnostic"
-        if analysis_type in {"schema_preview", "row_count", "inventory_shortage", "inventory_summary"}:
+        if analysis_type in {"schema_preview", "row_count", "inventory_shortage", "inventory_summary", "inventory_no_gap_groups"}:
             return "record"
         if analysis_type == "grouped_summary":
             return "grouped"
@@ -531,6 +533,10 @@ class StructuredDataPlanner:
             "不缺",
             "没有缺货",
             "无缺货",
+            "没有缺口",
+            "无缺口",
+            "完全没有缺口",
+            "完全无缺口",
             "不短缺",
             "不紧张",
         )
@@ -579,3 +585,24 @@ class StructuredDataPlanner:
             "地点",
         )
         return any(marker in lowered for marker in location_markers)
+
+    def _looks_like_complete_non_shortage_query(self, lowered: str) -> bool:
+        complete_markers = (
+            "完全没有缺口",
+            "完全无缺口",
+            "没有任何缺口",
+            "无任何缺口",
+            "全部不缺",
+            "都不缺",
+        )
+        existence_markers = (
+            "是否存在",
+            "有没有",
+            "哪些",
+            "哪个",
+            "如果没有",
+            "直接说没有",
+        )
+        return any(marker in lowered for marker in complete_markers) or (
+            "没有缺口" in lowered and any(marker in lowered for marker in existence_markers)
+        )

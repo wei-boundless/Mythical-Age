@@ -101,6 +101,18 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             default_projection_role="structure_first",
         ),
         TaskDefinition(
+            definition_id="task.memory_recall",
+            title="Memory recall",
+            task_family="memory",
+            task_mode="memory_recall",
+            level="basic",
+            goal_summary="Recall remembered user or session facts and answer from memory context.",
+            completion_criteria=("Answer is grounded in memory context.", "No retrieval fallback is used unless memory is insufficient and route changes explicitly."),
+            default_skill_refs=("skill.synthesis",),
+            default_operation_requirements=("op.memory_read",),
+            default_projection_role="structure_first",
+        ),
+        TaskDefinition(
             definition_id="task.task_execution",
             title="Task execution",
             task_family="execution",
@@ -217,7 +229,7 @@ def select_runtime_task_definitions(
         return [definitions["task.knowledge_retrieval"], definitions["task.information_synthesis"]]
 
     if execution_posture == "direct_memory" or effective_route == "memory":
-        return [definitions["task.information_synthesis"]]
+        return [definitions["task.memory_recall"]]
 
     return select_task_definitions(user_goal)
 

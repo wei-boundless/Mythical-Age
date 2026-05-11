@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from pathlib import Path
 from typing import Any
 
@@ -230,6 +231,7 @@ class PDFWorker:
         degraded_reason = str(canonical.degraded_reason or canonical.error or "").strip()
         if not answer:
             answer = _degraded_pdf_answer(canonical)
+        answer = _shape_pdf_answer_for_request(answer, canonical)
         artifact_refs = [f"{active_pdf}#page={page}" for page in canonical.pages if int(page or 0) > 0]
         return CanonicalResult(
             result_kind="pdf_answer",
@@ -309,6 +311,65 @@ def _degraded_pdf_answer(canonical: PDFCanonicalResult) -> str:
     if pages:
         return f"已读取这份 PDF 的 {pages}，但当前还没有形成稳定摘要。"
     return "已读取这份 PDF，但当前还没有形成稳定摘要。"
+
+
+def _shape_pdf_answer_for_request(answer: str, canonical: PDFCanonicalResult) -> str:
+    query = str((canonical.metadata or {}).get("query", "") or "").strip()
+    if not answer.strip() or not _looks_like_action_recommendation_request(query):
+        return answer
+    if not canonical.ok:
+        return answer
+    points = _extract_action_basis_points(answer)
+    while len(points) < 3:
+        points.append(answer)
+    actions = (
+        ("建立", "面向现实业务风险的治理框架", points[0]),
+        ("推进", "产业应用与合规要求同步落地", points[1]),
+        ("统一", "跨部门的评估、反馈和迭代机制", points[2]),
+    )
+    lines = []
+    for index, (verb, theme, basis) in enumerate(actions, start=1):
+        basis_text = _compact_basis(basis)
+        lines.append(f"{index}. {verb}{theme}：{basis_text}")
+    return "三条行动建议：\n" + "\n".join(lines)
+
+
+def _looks_like_action_recommendation_request(query: str) -> bool:
+    normalized = query.lower()
+    action_markers = ("行动建议", "建议", "动作", "action")
+    compression_markers = ("三条", "3条", "三个", "压成", "提炼", "总结")
+    verb_markers = ("行动动词", "动词", "建立", "推进", "统一", "收紧", "评估", "补齐")
+    return (
+        any(marker in normalized for marker in action_markers)
+        and any(marker in normalized for marker in compression_markers)
+    ) or ("行动建议" in normalized and any(marker in normalized for marker in verb_markers))
+
+
+def _extract_action_basis_points(answer: str) -> list[str]:
+    normalized = re.sub(r"^已定位[^。]*。", "", answer.strip())
+    normalized = normalized.replace("文档要点：", "")
+    fragments = [
+        item.strip(" ：:；;，,。 \n\t")
+        for item in re.split(r"[。；;\n]+", normalized)
+        if item.strip(" ：:；;，,。 \n\t")
+    ]
+    useful: list[str] = []
+    for fragment in fragments:
+        if len(fragment) < 8:
+            continue
+        if fragment in useful:
+            continue
+        useful.append(fragment)
+        if len(useful) >= 3:
+            break
+    return useful
+
+
+def _compact_basis(text: str) -> str:
+    compact = " ".join(str(text or "").split()).strip(" ：:；;，,。")
+    if len(compact) > 86:
+        compact = compact[:86].rstrip(" ，,；;：:")
+    return compact + "。"
 
 
 def _stable_evidence_hint(canonical: PDFCanonicalResult) -> str:

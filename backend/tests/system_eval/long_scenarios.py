@@ -75,7 +75,7 @@ RESEARCH_DOCUMENT_TURNS: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "基于本地知识库，先用业务语言告诉我 AI 治理里最常见的三类风险。",
-        "plan.route=rag",
+        "plan.tool=search_text",
         "event=retrieval",
         "response.nonempty",
     ),
@@ -418,7 +418,7 @@ SIXTY_TURN_REAL_USER_MARATHON: tuple[LongScenarioTurn, ...] = (
     user(
         "main",
         "基于本地知识库，先告诉我 AI 治理里最常见的三类风险，用业务能听懂的话说。",
-        "plan.route=rag",
+        "plan.tool=search_text",
         "event=retrieval",
         "response.nonempty",
     ),

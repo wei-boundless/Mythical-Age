@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .models import AgentRun, CoordinationRun, RuntimeLoopState
+
+
+_CHECKPOINT_WRITE_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,8 +170,26 @@ class RuntimeCheckpointStore:
     def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(f"{path.suffix}.{uuid.uuid4().hex}.tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        text = json.dumps(payload, ensure_ascii=False, indent=2)
+        with _CHECKPOINT_WRITE_LOCK:
+            tmp.write_text(text, encoding="utf-8")
+            last_error: OSError | None = None
+            for attempt in range(8):
+                try:
+                    os.replace(tmp, path)
+                    return
+                except PermissionError as exc:
+                    last_error = exc
+                    time.sleep(0.05 * (attempt + 1))
+            try:
+                path.write_text(text, encoding="utf-8")
+                tmp.unlink(missing_ok=True)
+                return
+            except OSError as exc:
+                tmp.unlink(missing_ok=True)
+                if last_error is not None:
+                    raise last_error from exc
+                raise
 
 
 def _checksum(

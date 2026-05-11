@@ -232,6 +232,14 @@ def build_task_execution_assembly_bundle(
     flow_contract_binding = flow_registry.get_flow_contract_binding(registered_task_id)
     execution_policy = flow_registry.get_task_agent_adoption_plan(registered_task_id)
     memory_request_profile = flow_registry.get_task_memory_request_profile(registered_task_id)
+    memory_request_profile_payload = _memory_request_profile_payload(
+        memory_request_profile,
+        task_id=registered_task_id or task_contract.task_id,
+        task_family=task_family,
+        task_mode=task_mode,
+        selected_template_id=selected_template.template_id,
+        query_understanding=dict(query_understanding or {}),
+    )
     projection_selection = _align_projection_selection_with_binding(
         projection_selection=projection_selection,
         projection_binding=projection_binding,
@@ -306,8 +314,8 @@ def build_task_execution_assembly_bundle(
             "specific_task_title": str(getattr(specific_task_record, "task_title", "") or ""),
             "workflow_title": str((task_workflow or {}).get("title") or ""),
             "projection_source": projection_selection.selection_source,
-            "memory_layers": list(getattr(memory_request_profile, "requested_memory_layers", ()) or ()),
-            "memory_topics": list(getattr(memory_request_profile, "requested_topics", ()) or ()),
+            "memory_layers": list(memory_request_profile_payload.get("requested_memory_layers") or ()),
+            "memory_topics": list(memory_request_profile_payload.get("requested_topics") or ()),
             "execution_policy_mode": str(getattr(execution_policy, "adoption_mode", "") or ""),
             "runtime_limits": dict(runtime_limits),
             "operation_policy": dict(operation_policy),
@@ -339,7 +347,7 @@ def build_task_execution_assembly_bundle(
         "task_flow_contract_binding": flow_contract_binding.to_dict() if flow_contract_binding is not None else {},
         "task_execution_policy": execution_policy.to_dict() if execution_policy is not None else {},
         "task_agent_adoption_plan": execution_policy.to_legacy_dict() if execution_policy is not None else {},
-        "task_memory_request_profile": memory_request_profile.to_dict() if memory_request_profile is not None else {},
+        "task_memory_request_profile": memory_request_profile_payload,
         "task_communication_protocol": communication_protocol.to_dict() if communication_protocol is not None else {},
         "graph_record": task_graph.to_dict() if task_graph is not None else {},
         "task_graph_record": task_graph_record.to_dict() if task_graph_record is not None else {},
@@ -356,6 +364,66 @@ def build_task_execution_assembly_bundle(
         "_operation_requirement_obj": operation_requirement,
         "_projection_selection_obj": projection_selection,
     }
+
+
+def _memory_request_profile_payload(
+    memory_request_profile: Any,
+    *,
+    task_id: str,
+    task_family: str,
+    task_mode: str,
+    selected_template_id: str,
+    query_understanding: dict[str, Any],
+) -> dict[str, Any]:
+    payload = memory_request_profile.to_dict() if memory_request_profile is not None else {}
+    route = str(
+        query_understanding.get("route")
+        or query_understanding.get("route_hint")
+        or dict(query_understanding.get("capability_resolution") or {}).get("route")
+        or ""
+    ).strip()
+    posture = str(query_understanding.get("execution_posture") or "").strip()
+    if (
+        task_family == "memory"
+        or task_mode == "memory_recall"
+        or selected_template_id == "template.memory.recall_answer"
+        or route == "memory"
+        or posture == "direct_memory"
+    ):
+        requested_layers = _dedupe(
+            [
+                *list(payload.get("requested_memory_layers") or ()),
+                "conversation",
+                "state",
+                "long_term",
+            ]
+        )
+        requested_topics = _dedupe(
+            [
+                *list(payload.get("requested_topics") or ()),
+                "user_preference",
+                "memory_recall",
+            ]
+        )
+        payload.update(
+            {
+                "profile_id": str(payload.get("profile_id") or f"taskmem:{task_id}:memory"),
+                "task_id": str(payload.get("task_id") or task_id),
+                "requested_memory_layers": requested_layers,
+                "requested_topics": requested_topics,
+                "memory_priority": str(payload.get("memory_priority") or "high"),
+                "writeback_policy": str(payload.get("writeback_policy") or "task_default"),
+                "allow_long_term_memory": True,
+                "memory_scope_hint": str(payload.get("memory_scope_hint") or "memory_recall_long_term"),
+                "authority": str(payload.get("authority") or "task_system.task_memory_request_profile"),
+                "metadata": {
+                    **dict(payload.get("metadata") or {}),
+                    "derived_from": str(dict(payload.get("metadata") or {}).get("derived_from") or "runtime_memory_route"),
+                    "memory_route_long_term_enabled": True,
+                },
+            }
+        )
+    return payload
 
 
 def _build_projection_selection_result(

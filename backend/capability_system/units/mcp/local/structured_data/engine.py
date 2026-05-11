@@ -23,6 +23,8 @@ class StructuredDataEngine:
             return self._inventory_shortage(df, file_path, plan.limit)
         if plan.analysis_type == "inventory_summary":
             return self._inventory_summary(df, file_path)
+        if plan.analysis_type == "inventory_no_gap_groups":
+            return self._inventory_no_gap_groups(df, file_path, group_by=plan.group_by or "warehouse")
         if plan.analysis_type == "extreme_record":
             return self._extreme_record(df, file_path, plan)
         if plan.analysis_type == "grouped_summary":
@@ -146,6 +148,47 @@ class StructuredDataEngine:
             f"缺货商品数：{shortage_count}\n"
             f"库存紧张商品数：{tight_count}\n"
             f"列名：{list(normalized.columns)}"
+        )
+
+    def _inventory_no_gap_groups(self, df: pd.DataFrame, file_path: Path, *, group_by: str) -> str:
+        required = {"stock_on_hand", "reorder_level", group_by}
+        missing = sorted(required - set(df.columns))
+        group_label = self.catalog.display_label(group_by)
+        if missing:
+            return (
+                "无缺口分组判断失败：缺少必要字段。\n"
+                f"缺失字段：{missing}\n"
+                f"当前列名：{list(df.columns)}"
+            )
+
+        normalized = df.copy()
+        normalized["stock_on_hand"] = pd.to_numeric(normalized["stock_on_hand"], errors="coerce")
+        normalized["reorder_level"] = pd.to_numeric(normalized["reorder_level"], errors="coerce")
+        normalized = normalized.dropna(subset=["stock_on_hand", "reorder_level", group_by])
+        if normalized.empty:
+            return f"数据源：{file_path.name}\n没有可用于判断{group_label}缺口的数据。"
+
+        normalized["shortage_qty"] = (normalized["reorder_level"] - normalized["stock_on_hand"]).clip(lower=0)
+        grouped = (
+            normalized.groupby(group_by, dropna=True)
+            .agg(
+                总缺口=("shortage_qty", "sum"),
+                缺口商品数=("shortage_qty", lambda values: int((values > 0).sum())),
+                商品数=("shortage_qty", "size"),
+            )
+            .reset_index()
+        )
+        no_gap = grouped[grouped["总缺口"] <= 0].copy()
+        if no_gap.empty:
+            return f"数据源：{file_path.name}\n结论：没有完全没有缺口的{group_label}。"
+
+        no_gap = no_gap.sort_values(group_by)
+        names = "、".join(str(item) for item in no_gap[group_by].tolist())
+        display = no_gap.rename(columns={group_by: group_label}).to_string(index=False)
+        return (
+            f"数据源：{file_path.name}\n"
+            f"结论：存在完全没有缺口的{group_label}：{names}。\n\n"
+            f"明细：\n{display}"
         )
 
     def _detail_columns(self, df: pd.DataFrame, plan: StructuredDataPlan) -> list[str]:

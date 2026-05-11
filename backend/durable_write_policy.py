@@ -80,6 +80,15 @@ USER_PREFERENCE_MARKERS = (
     "输出风格",
     "回答风格",
     "称呼我",
+    "叫我",
+    "信息不足",
+    "信息不够",
+    "资料不足",
+    "资料不够",
+    "不要直接猜",
+    "别直接猜",
+    "先明确",
+    "告诉我缺什么",
     "用中文",
     "i prefer",
     "my preference",
@@ -288,6 +297,15 @@ def evaluate_memory_write(content: str) -> MemoryWriteDecision:
             tags=["memory-policy", "testing"],
         )
 
+    if _looks_like_user_preference(lowered):
+        return MemoryWriteDecision(
+            action="durable_fact",
+            reason="stable_user_preference",
+            memory_type="user",
+            memory_class="preference",
+            tags=["user-preference"],
+        )
+
     if _looks_like_feedback_memory(lowered):
         return MemoryWriteDecision(
             action="durable_fact",
@@ -304,15 +322,6 @@ def evaluate_memory_write(content: str) -> MemoryWriteDecision:
             memory_type="project",
             memory_class="work",
             tags=["project"],
-        )
-
-    if _looks_like_user_preference(lowered):
-        return MemoryWriteDecision(
-            action="durable_fact",
-            reason="stable_user_preference",
-            memory_type="user",
-            memory_class="preference",
-            tags=["user-preference"],
         )
 
     if _looks_like_reference_pointer(lowered):

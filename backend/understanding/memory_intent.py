@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 
-MemoryReadMode = Literal["none", "durable_exact", "session_state"]
+MemoryReadMode = Literal["none", "durable_exact", "session_state", "durable_semantic"]
 MemoryWriteMode = Literal["none", "durable_fact", "session_state"]
 
 
@@ -72,6 +72,14 @@ PREFERENCE_HINTS = (
     "习惯",
     "风格",
     "回答方式",
+    "称呼",
+    "叫我",
+    "怎么处理",
+    "怎么做",
+    "信息不足",
+    "信息不够",
+    "资料不足",
+    "资料不够",
     "i prefer",
     "preference",
     "answer style",
@@ -139,6 +147,50 @@ DURABLE_QUERY_PROFILES = (
             "how should you answer",
             "answer style",
             "reply style",
+        ),
+    },
+    {
+        "preferred_types": ["user"],
+        "preferred_classes": ["preference"],
+        "entity_markers": (
+            "称呼",
+            "叫我",
+            "名字",
+            "call me",
+            "address me",
+        ),
+        "recall_markers": (
+            "怎么",
+            "什么",
+            "应该",
+            "之后",
+            "以后",
+            "how",
+            "what",
+            "should",
+        ),
+    },
+    {
+        "preferred_types": ["user"],
+        "preferred_classes": ["preference"],
+        "entity_markers": (
+            "信息不足",
+            "信息不够",
+            "资料不足",
+            "资料不够",
+            "证据不足",
+            "insufficient information",
+            "not enough information",
+        ),
+        "recall_markers": (
+            "怎么处理",
+            "怎么做",
+            "应该怎么",
+            "先怎么",
+            "处理",
+            "做",
+            "how should",
+            "what should",
         ),
     },
     {
@@ -225,6 +277,9 @@ def analyze_memory_intent(message: str) -> MemoryIntent:
             should_skip_rag=False,
         )
 
+    if _looks_like_material_followup(lowered):
+        return MemoryIntent()
+
     if _looks_like_task_or_file_followup(lowered):
         return MemoryIntent()
 
@@ -276,8 +331,8 @@ def analyze_memory_intent(message: str) -> MemoryIntent:
         preferred_classes = query_profile[1] if query_profile is not None else _infer_preferred_classes(lowered)
         return MemoryIntent(
             intent="memory_read_signal",
-            memory_read_mode="none",
-            should_skip_rag=False,
+            memory_read_mode="durable_semantic",
+            should_skip_rag=True,
             preferred_types=preferred_types,
             preferred_memory_classes=preferred_classes,
         )
@@ -335,6 +390,15 @@ def _looks_like_memory_read_query(message: str, lowered: str) -> bool:
         ("复杂问题", "先给结论"),
         ("复杂", "怎么回答"),
         ("回答", "先给结论"),
+        ("称呼", "怎么"),
+        ("称呼", "什么"),
+        ("叫我", "什么"),
+        ("叫我", "怎么"),
+        ("信息不足", "怎么处理"),
+        ("信息不足", "怎么做"),
+        ("信息不足", "应该"),
+        ("信息不够", "怎么处理"),
+        ("资料不足", "怎么处理"),
         ("主线", "什么"),
         ("主线", "哪条"),
     )
@@ -368,6 +432,29 @@ def _looks_like_task_or_file_followup(lowered: str) -> bool:
     return any(marker in lowered for marker in FILE_SUFFIX_MARKERS) or any(
         marker in lowered for marker in _lower_markers(FILE_KIND_MARKERS)
     )
+
+
+def _looks_like_material_followup(lowered: str) -> bool:
+    material_markers = (
+        "只基于刚才",
+        "基于刚才",
+        "刚才这",
+        "刚才的",
+        "这前五",
+        "这几条",
+        "这些员工",
+        "这些人",
+        "上面这",
+        "上面的",
+        "不要回到全表",
+        "不要全表",
+        "不要重算",
+        "子任务",
+        "第一个和第三个",
+        "只展开",
+        "展开第二个",
+    )
+    return any(marker in lowered for marker in _lower_markers(material_markers))
 
 
 def _match_durable_query_profile(lowered: str) -> tuple[list[str], list[str]] | None:

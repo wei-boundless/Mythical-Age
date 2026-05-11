@@ -9,20 +9,13 @@ from typing import Any
 class ToolRepetitionGuard:
     max_repeated_calls: int = 2
     _seen: dict[str, int] = field(default_factory=dict)
-    _tool_seen: dict[str, int] = field(default_factory=dict)
 
     def record(self, tool_name: str, tool_args: dict[str, Any] | None) -> bool:
         signature = _tool_signature(tool_name, tool_args or {})
-        tool_name_key = str(tool_name or "").strip().lower()
         if not signature:
             return False
         count = self._seen.get(signature, 0) + 1
         self._seen[signature] = count
-        if tool_name_key:
-            tool_count = self._tool_seen.get(tool_name_key, 0) + 1
-            self._tool_seen[tool_name_key] = tool_count
-            if tool_count > self.max_repeated_calls:
-                return True
         return count > self.max_repeated_calls
 
 

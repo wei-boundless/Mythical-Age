@@ -88,6 +88,24 @@ def main() -> None:
     assert "AI治理" in pdf_result.canonical_result.answer
     assert pdf_result.canonical_result.result_handle_ids
 
+    pdf_action_result = _run(
+        pdf.run(
+            MCPRequest(
+                request_id="pdf:actions",
+                query="把这份 PDF 的结论压成三条行动建议，每条都要带行动动词。",
+                bindings={"active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"},
+                constraints={"mode": "document"},
+            )
+        )
+    )
+    assert pdf_action_result.status == "ok"
+    assert pdf_action_result.canonical_result is not None
+    pdf_action_answer = pdf_action_result.canonical_result.answer
+    assert "三条行动建议" in pdf_action_answer
+    assert "建立" in pdf_action_answer
+    assert "推进" in pdf_action_answer
+    assert "统一" in pdf_action_answer
+
     finance_pdf_result = _run(
         pdf.run(
             MCPRequest(
@@ -149,6 +167,20 @@ def main() -> None:
     assert "数据源：inventory.xlsx" in shortage_answer
     assert "缺货商品数：33" in shortage_answer
     assert "SKU-0069" in shortage_answer
+
+    no_gap_result = _run(
+        structured.run(
+            MCPRequest(
+                request_id="sheet:inventory-no-gap-warehouse",
+                query="哪些仓库完全没有缺口？如果没有就直接说没有。",
+                bindings={"active_dataset": "knowledge/E-commerce Data/inventory.xlsx"},
+            )
+        )
+    )
+    assert no_gap_result.canonical_result is not None
+    no_gap_answer = no_gap_result.canonical_result.answer
+    assert "数据源：inventory.xlsx" in no_gap_answer
+    assert "没有完全没有缺口的仓库" in no_gap_answer
 
     sales_result = _run(
         structured.run(
